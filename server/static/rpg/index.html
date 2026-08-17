@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+	<meta charset="utf-8" />
+	<meta name="viewport" content="width=device-width, initial-scale=1" />
+	<meta name="theme-color" content="#273b5b" />
+	<title>Pok&eacute;mon RPG</title>
+	<link rel="stylesheet" href="./rpg.css?v=20260814-18" />
+	<link rel="stylesheet" href="./battle-ui.css?v=20260729-17" />
+	<link rel="stylesheet" href="./battle-ui-v2.css?v=20260811-23" />
+	<link rel="stylesheet" href="./battle-room.css?v=20260811-5" />
+	<link rel="stylesheet" href="./team-builder.css?v=20260814-4" />
+	<link rel="stylesheet" href="./fossil-lab.css?v=20260814-2" />
+</head>
+<body>
+	<div class="app-shell">
+		<header class="topbar">
+			<button class="brand" id="home-button" type="button" aria-label="Voltar ao in&iacute;cio">
+				<span class="brand-ball" aria-hidden="true"></span>
+				<span><strong>Pok&eacute;mon</strong><small>RPG</small></span>
+			</button>
+			<div class="session-chip hidden" id="session-chip"></div>
+		</header>
+
+		<main class="viewport" id="app">
+			<section class="screen centered" id="loading-screen" aria-live="polite">
+				<div class="panel compact-panel">
+					<div class="spinner" aria-hidden="true"></div>
+					<p>Carregando sess&atilde;o RPG...</p>
+				</div>
+			</section>
+
+			<section class="screen centered hidden" id="entry-screen">
+				<div class="hero panel">
+					<div class="hero-mark"><span class="brand-ball large" aria-hidden="true"></span></div>
+					<p class="eyebrow">Campanha persistente</p>
+					<h1>Pok&eacute;mon RPG</h1>
+					<p class="lead">Escolha como voc&ecirc; deseja entrar nesta campanha.</p>
+					<div class="entry-actions">
+						<button class="button primary large-button" id="choose-master" type="button">
+							<span class="button-icon">&#x265B;</span>
+							<span><strong>Entrar como Mestre</strong><small>Gerenciar campanha e jogadores</small></span>
+						</button>
+						<button class="button large-button" id="choose-player" type="button">
+							<span class="button-icon">&#x25CF;</span>
+							<span><strong>Entrar como Player</strong><small>Selecionar seu personagem</small></span>
+						</button>
+					</div>
+					<p class="account-note">A conta do RPG &eacute; exclusiva deste sistema.</p>
+				</div>
+			</section>
+
+			<section class="screen centered hidden" id="master-screen">
+				<div class="panel auth-panel">
+					<button class="back-button" data-back="entry" type="button">&lsaquo; Voltar</button>
+					<p class="eyebrow">Acesso local</p>
+					<h1>Entrada do Mestre</h1>
+					<p>Informe o c&oacute;digo definido na configura&ccedil;&atilde;o deste servidor.</p>
+					<form id="master-form">
+						<label for="master-code">C&oacute;digo do Mestre</label>
+						<div class="password-row">
+							<input id="master-code" name="code" type="password" autocomplete="current-password" required />
+							<button class="button icon-button password-toggle" type="button" data-target="master-code" aria-label="Mostrar c&oacute;digo">&#x25C9;</button>
+						</div>
+						<p class="form-error hidden" id="master-error" role="alert"></p>
+						<button class="button primary full-button" type="submit">Entrar no painel</button>
+					</form>
+				</div>
+			</section>
+
+			<section class="screen hidden" id="player-screen">
+				<div class="content-column">
+					<div class="panel page-heading">
+						<button class="back-button" data-back="entry" type="button">&lsaquo; Voltar</button>
+						<p class="eyebrow">Personagens da campanha</p>
+						<h1>Quem voc&ecirc; vai controlar?</h1>
+						<p>Escolha seu personagem e informe a senha RPG.</p>
+					</div>
+					<div class="toolbar panel">
+						<label class="search-field" for="character-search">
+							<span>&#x2315;</span>
+							<input id="character-search" type="search" placeholder="Buscar personagem..." />
+						</label>
+						<button class="button primary" id="open-create" type="button">&#xFF0B; Criar personagem</button>
+					</div>
+					<div class="character-grid" id="character-list" aria-live="polite"></div>
+					<div class="panel empty-state hidden" id="character-empty">
+						<strong>Nenhum personagem encontrado.</strong>
+						<p>Crie o primeiro personagem desta campanha.</p>
+					</div>
+				</div>
+			</section>
+
+			<section class="screen hidden" id="create-screen">
+				<div class="content-column narrow-column">
+					<div class="panel page-heading">
+						<button class="back-button" data-back="player" type="button">&lsaquo; Voltar</button>
+						<p class="eyebrow">Novo aventureiro</p>
+						<h1>Criar personagem</h1>
+						<p>Os atributos n&atilde;o informados e os golpes poss&iacute;veis no n&iacute;vel ser&atilde;o definidos automaticamente.</p>
+					</div>
+					<form class="panel form-grid" id="create-form">
+						<div class="field">
+							<label for="character-name">Nome do personagem</label>
+							<input id="character-name" name="characterName" maxlength="30" required />
+						</div>
+						<div class="field">
+							<label for="player-name">Nome do jogador</label>
+							<input id="player-name" name="playerName" maxlength="50" required />
+						</div>
+						<div class="field">
+							<label for="avatar-picker-toggle">Avatar</label>
+							<div class="avatar-picker">
+								<input id="avatar" name="avatar" type="hidden" value="lucas" />
+								<button class="avatar-picker-toggle" id="avatar-picker-toggle" type="button"
+									aria-expanded="false" aria-controls="avatar-picker-options">
+									<span class="avatar-selected" id="avatar-selected"></span>
+									<span class="starter-chevron" aria-hidden="true">&#x25BE;</span>
+								</button>
+								<div class="avatar-options hidden" id="avatar-picker-options">
+									<input class="avatar-search" id="avatar-search" type="search"
+										placeholder="Pesquisar treinador..." autocomplete="off"
+										aria-label="Pesquisar avatar" />
+									<small class="avatar-result-count" id="avatar-result-count"></small>
+									<div class="avatar-results" id="avatar-picker-results" role="listbox"
+										aria-label="Op&ccedil;&otilde;es de avatar"></div>
+								</div>
+							</div>
+						</div>
+						<div class="field">
+							<label for="initial-money">PokÃ©coins iniciais (&#x20BD;)</label>
+							<input id="initial-money" name="initialMoney" type="number" min="0" max="10000000" value="3000" required />
+						</div>
+						<div class="field">
+							<label for="starter-picker-toggle">Pok&eacute;mon inicial</label>
+							<div class="starter-picker">
+								<input id="starter-species" name="starterSpecies" type="hidden" value="Squirtle" />
+								<button class="starter-picker-toggle" id="starter-picker-toggle" type="button"
+									aria-expanded="false" aria-controls="starter-picker-options">
+									<span class="starter-selected" id="starter-selected"></span>
+									<span class="starter-chevron" aria-hidden="true">&#x25BE;</span>
+								</button>
+								<div class="starter-options hidden" id="starter-picker-options" role="listbox"
+									aria-label="Op&ccedil;&otilde;es de Pok&eacute;mon inicial"></div>
+							</div>
+						</div>
+						<div class="field">
+							<label for="starter-name">Nome do Pok&eacute;mon</label>
+							<input id="starter-name" name="starterName" maxlength="30" placeholder="Opcional" />
+						</div>
+						<div class="field">
+							<label for="starter-gender">G&ecirc;nero</label>
+							<select id="starter-gender" name="starterGender" required>
+								<option value="M">Masculino</option>
+								<option value="F">Feminino</option>
+								<option value="N">Sem g&ecirc;nero</option>
+							</select>
+						</div>
+						<div class="field">
+							<label for="new-password">Senha RPG</label>
+							<div class="password-row">
+								<input id="new-password" name="password" type="password" minlength="4" maxlength="128" required />
+								<button class="button icon-button password-toggle" type="button" data-target="new-password" aria-label="Mostrar senha">&#x25C9;</button>
+							</div>
+						</div>
+						<div class="field full-field">
+							<label for="confirm-password">Confirmar senha RPG</label>
+							<input id="confirm-password" name="confirmPassword" type="password" minlength="4" maxlength="128" required />
+						</div>
+						<p class="form-error hidden full-field" id="create-error" role="alert"></p>
+						<div class="form-actions full-field">
+							<button class="button" data-back="player" type="button">Cancelar</button>
+							<button class="button primary" type="submit">Criar e entrar</button>
+						</div>
+					</form>
+				</div>
+			</section>
+
+			<section class="screen hidden" id="dashboard-screen">
+				<div class="dashboard">
+					<aside class="sidebar panel">
+						<div class="profile-summary">
+							<div class="avatar-badge" id="profile-avatar">R</div>
+							<strong id="profile-name">RPG</strong>
+							<small id="profile-role"></small>
+						</div>
+						<nav id="dashboard-nav" aria-label="Menu principal"></nav>
+						<button class="button danger full-button" id="logout-button" type="button">Sair da sess&atilde;o</button>
+					</aside>
+					<section class="dashboard-content">
+						<div class="view-banner hidden" id="view-banner">
+							<span>Voc&ecirc; est&aacute; visualizando como <strong id="view-name"></strong>.</span>
+							<div class="view-actions">
+								<button class="button danger" id="delete-character" type="button">Excluir conta</button>
+								<button class="button" id="exit-view" type="button">Voltar ao Mestre</button>
+							</div>
+						</div>
+						<div class="panel page-heading dashboard-heading">
+							<div>
+								<p class="eyebrow" id="dashboard-eyebrow">Painel</p>
+								<h1 id="dashboard-title">Carregando...</h1>
+								<p id="dashboard-description"></p>
+							</div>
+						</div>
+						<div id="dashboard-body" aria-live="polite"></div>
+					</section>
+				</div>
+			</section>
+		</main>
+
+		<footer>Pok&eacute;mon RPG &middot; conta independente</footer>
+	</div>
+
+	<div class="modal-backdrop hidden" id="delete-modal">
+		<form class="panel delete-dialog" id="delete-form" role="dialog" aria-modal="true"
+			aria-labelledby="delete-title">
+			<p class="eyebrow">A&ccedil;&atilde;o permanente</p>
+			<h2 id="delete-title">Excluir conta do Player</h2>
+			<p>Voc&ecirc; est&aacute; prestes a excluir permanentemente <strong id="delete-character-name"></strong>,
+				incluindo equipe, Box, Bag e progresso.</p>
+			<div class="delete-challenge">
+				<span>Para confirmar, digite exatamente:</span>
+				<code id="delete-word"></code>
+			</div>
+			<label for="delete-confirmation">Palavra de confirma&ccedil;&atilde;o</label>
+			<input id="delete-confirmation" autocomplete="off" spellcheck="false" required />
+			<p class="form-error hidden" id="delete-error" role="alert"></p>
+			<div class="delete-actions">
+				<button class="button" id="cancel-delete" type="button">Cancelar</button>
+				<button class="button danger destructive" id="confirm-delete" type="submit">
+					Excluir permanentemente
+				</button>
+			</div>
+		</form>
+	</div>
+	<div class="toast hidden" id="toast" role="status"></div>
+	<noscript>Esta interface precisa de JavaScript para funcionar.</noscript>
+	<script src="./asset-config.js?v=20260728-1"></script>
+	<script src="./asset-provider.js?v=20260728-2"></script>
+	<script src="./battle-audio.js?v=20260811-12"></script>
+	<script src="./battle-ui.js?v=20260815-01"></script>
+	<script src="./battle-ui-v2.js?v=20260811-23"></script>
+	<script src="./showdown-animation-adapter.js?v=20260801-4"></script>
+	<script src="./vendor/showdown/battle-animations.js?v=20260725-16"></script>
+	<script src="./vendor/showdown/battle-animations-moves.js?v=20260801-2"></script>
+	<script src="./battle-room.js?v=20260811-8"></script>
+	<script src="./box-ui.js?v=20260812-01"></script>
+	<script src="./team-builder-ui.js?v=20260814-5"></script>
+	<script src="./bag-ui.js?v=20260814-3"></script>
+	<script src="./fossil-lab-ui.js?v=20260814-2"></script>
+	<script src="./rpg.js?v=20260814-20"></script>
+</body>
+</html>

@@ -1,0 +1,97 @@
+.fossil-lab { color: #28364e; display: grid; gap: 16px; }
+.fossil-header { align-items: center; background: linear-gradient(125deg, #f8fbff, #e9f1f4); border: 1px solid #9baab5; border-radius: 8px; box-shadow: 0 2px 8px #0002; display: flex; justify-content: space-between; padding: 22px 26px; }
+.fossil-header h1 { color: #243b55; font-size: 28px; margin: 2px 0 5px; }
+.fossil-header p { color: #647487; margin: 0; }
+.fossil-eyebrow { color: #68838e; font-size: 11px; font-weight: 800; letter-spacing: .14em; }
+.fossil-header-stats { display: flex; gap: 10px; }
+.fossil-head-stat { background: #fff; border: 1px solid #bac7ce; border-radius: 6px; min-width: 105px; padding: 9px 12px; text-align: right; }
+.fossil-head-stat small { color: #71808c; display: block; }
+.fossil-head-stat strong { color: #263c52; font-size: 18px; }
+.fossil-tabs { background: #dce5ec; border: 1px solid #aab7c1; border-radius: 7px; display: grid; grid-template-columns: repeat(3, 1fr); overflow: hidden; }
+.fossil-tab { background: transparent; border: 0; border-right: 1px solid #b3c0c9; color: #40546a; cursor: pointer; font-weight: 700; min-height: 46px; padding: 8px; }
+.fossil-tab:last-child { border-right: 0; }
+.fossil-tab.active { background: #fff; box-shadow: inset 0 -3px #4d8290; color: #223b52; }
+.fossil-tab.locked { color: #7d8790; }
+.fossil-lock { background: #75818b; border-radius: 10px; color: white; font-size: 9px; margin-left: 8px; padding: 2px 7px; text-transform: uppercase; }
+.fossil-workspace { align-items: start; display: grid; gap: 14px; grid-template-columns: minmax(220px, .8fr) minmax(300px, 1.15fr) minmax(300px, 1fr); }
+.fossil-panel, .fossil-project, .fossil-archive-card { background: #f8fafc; border: 1px solid #aebbc5; border-radius: 7px; box-shadow: 0 2px 7px #1b2c3b18; padding: 16px; }
+.fossil-panel h2, .fossil-projects h2 { color: #2b4258; font-size: 18px; margin: 0 0 13px; }
+.fossil-filters { display: flex; gap: 4px; margin-bottom: 10px; }
+.fossil-filters button { background: #e4eaee; border: 1px solid #bdc8cf; border-radius: 13px; color: #536474; cursor: pointer; font-size: 11px; padding: 4px 8px; }
+.fossil-filters button.active { background: #567f8a; border-color: #416a75; color: white; }
+.fossil-list { display: grid; gap: 7px; max-height: 460px; overflow-y: auto; padding-right: 3px; }
+.fossil-card { align-items: center; background: #fff; border: 1px solid #c3ccd2; border-radius: 6px; color: inherit; cursor: pointer; display: flex; min-height: 65px; padding: 7px; text-align: left; width: 100%; }
+.fossil-card:hover, .fossil-card.selected { border-color: #4c8290; box-shadow: 0 0 0 2px #76a8b333; }
+.fossil-item-sprite { align-items: center; display: flex; flex: 0 0 50px; height: 44px; justify-content: center; overflow: visible; width: 50px; }
+.fossil-item-sprite .rpg-party-item-icon { flex: none; transform: scale(1.5); transform-origin: center; }
+.fossil-item-sprite.large { flex-basis: 94px; height: 86px; width: 94px; }
+.fossil-item-sprite.large .rpg-party-item-icon { image-rendering: pixelated; transform: scale(3); }
+.fossil-item-sprite .rpg-local-item-icon { height: 32px; object-fit: contain; width: 32px; }
+.fossil-item-sprite.large .rpg-local-item-icon { height: 72px; transform: none; width: 72px; }
+.fossil-sprite-fallback { align-items: center; background: #d9e0e4; border-radius: 50%; color: #77858e; display: flex; font-size: 18px; font-weight: bold; height: 30px; justify-content: center; width: 30px; }
+.fossil-card-info { display: grid; flex: 1; gap: 2px; grid-template-columns: 1fr auto; }
+.fossil-card-info strong { grid-column: 1; }
+.fossil-card-info small { color: #687987; grid-column: 2; grid-row: 1; }
+.fossil-quality { border-radius: 10px; color: #fff; font-size: 10px; font-weight: 700; justify-self: start; padding: 2px 8px; }
+.fossil-quality.fragmented { background: #7a8288; }
+.fossil-quality.preserved { background: #477dac; }
+.fossil-quality.exceptional { background: #bd8a25; }
+.fossil-analysis-hero { align-items: center; background: #e9eff2; border-radius: 6px; display: flex; gap: 16px; margin-bottom: 13px; padding: 14px; }
+
+.fossil-analysis-hero h3 { color: #263e54; font-size: 25px; margin: 2px 0 8px; }
+.fossil-analysis-hero small, .fossil-muted { color: #687986; }
+.fossil-data { display: grid; font-size: 13px; grid-template-columns: 1fr auto; margin: 0 0 12px; }
+.fossil-data dt, .fossil-data dd { border-bottom: 1px solid #d8e0e5; margin: 0; padding: 7px 0; }
+.fossil-data dd { color: #29465d; font-weight: 700; text-align: right; }
+.fossil-progress { background: #d7dfe4; border: 1px solid #b3bec5; border-radius: 8px; height: 10px; overflow: hidden; }
+.fossil-progress i { background: linear-gradient(90deg, #4b8791, #74b8a0); display: block; height: 100%; transition: width .3s; }
+.fossil-warning { background: #f4ead2; border-left: 4px solid #c39434; color: #70561f; margin-top: 12px; padding: 9px; }
+.fossil-method-choices { display: grid; gap: 8px; grid-template-columns: 1fr 1fr; }
+.fossil-method { background: #fff; border: 1px solid #bdc7ce; border-radius: 6px; color: #405469; cursor: pointer; display: grid; gap: 5px; padding: 10px; text-align: left; }
+.fossil-method.selected { border-color: #477f8b; box-shadow: inset 0 0 0 1px #477f8b; }
+.fossil-method span { font-size: 11px; line-height: 1.35; }
+.fossil-method small { color: #5d777e; font-weight: 700; }
+.fossil-advanced { display: grid; gap: 7px; grid-template-columns: repeat(3, 1fr); margin-top: 11px; }
+.fossil-advanced.hidden { display: none; }
+.fossil-advanced label { color: #5f6f7c; font-size: 11px; }
+.fossil-advanced select { border: 1px solid #aebbc4; border-radius: 4px; display: block; margin-top: 3px; max-width: 100%; padding: 5px; width: 100%; }
+.fossil-project-summary { border-top: 1px solid #d2dbe0; margin-top: 13px; padding-top: 11px; }
+.fossil-project-summary h3 { font-size: 14px; margin: 0 0 6px; }
+.fossil-project-summary p { display: flex; font-size: 12px; justify-content: space-between; margin: 4px 0; }
+.fossil-primary { background: linear-gradient(#648caf, #426b91); color: white; margin-top: 10px; width: 100%; }
+.fossil-alternatives { display: grid; gap: 5px; grid-template-columns: 1fr 1fr; margin-top: 7px; }
+.fossil-alternatives button { background: transparent; border: 0; color: #52717d; cursor: pointer; font-size: 11px; text-decoration: underline; }
+.fossil-projects { margin-top: 2px; }
+.fossil-project-list { display: grid; gap: 10px; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); }
+.fossil-project-top { align-items: center; display: flex; gap: 10px; margin-bottom: 9px; }
+.fossil-project-top img { height: 55px; object-fit: contain; width: 60px; }
+.fossil-project-top div { display: grid; flex: 1; }
+.fossil-project-top small { color: #687a87; }
+.fossil-remaining { color: #4a6d79; font-size: 12px; font-weight: 700; }
+.fossil-phases { display: flex; justify-content: space-between; margin-top: 7px; }
+.fossil-phases span { color: #909ba3; font-size: 9px; }
+.fossil-phases span.done { color: #397481; font-weight: 700; }
+.fossil-archive-grid { display: grid; gap: 12px; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); margin-top: 14px; }
+.fossil-archive-sprite { align-items: center; background: #e3e9ed; border-radius: 50%; color: #84909a; display: flex; font-size: 42px; height: 90px; justify-content: center; margin: 0 auto; width: 90px; }
+.fossil-archive-sprite img { image-rendering: pixelated; max-height: 84px; max-width: 90px; }
+.fossil-archive-card { text-align: center; }
+.fossil-archive-card h3 { margin: 8px 0; }
+.fossil-archive-card p { color: #687985; font-size: 12px; margin: 4px 0; }
+.fossil-archive-card small { display: block; margin: 9px 0; }
+.fossil-genome { display: block; font-size: 11px; margin: 8px 0 4px; }
+.fossil-experimental { min-height: 360px; padding-top: 90px; text-align: center; }
+.fossil-experimental-icon { font-size: 45px; }
+.fossil-empty { color: #7a8790; padding: 16px 4px; text-align: center; }
+@media (max-width: 1050px) { .fossil-workspace { grid-template-columns: 1fr 1.4fr; } .fossil-methods { grid-column: 1 / -1; } }
+@media (max-width: 720px) { .fossil-header { align-items: stretch; flex-direction: column; gap: 14px; } .fossil-header-stats { justify-content: stretch; } .fossil-head-stat { flex: 1; } .fossil-tabs { grid-template-columns: 1fr; } .fossil-tab { border-bottom: 1px solid #b3c0c9; border-right: 0; } .fossil-workspace { grid-template-columns: 1fr; } .fossil-methods { grid-column: auto; } .fossil-method-choices, .fossil-advanced { grid-template-columns: 1fr; } }
+
+.fossil-list { grid-auto-rows: 65px; height: 425px; max-height: 425px; overflow-x: hidden; overflow-y: auto; scrollbar-width: thin; }
+.fossil-analysis-actions { display: grid; gap: 7px; grid-template-columns: 1fr 1fr; margin-top: 12px; }
+.fossil-analysis-actions .fossil-primary { grid-column: 1 / -1; margin: 0; }
+.fossil-analysis-actions button:not(.fossil-primary) { background: #edf2f5; border: 1px solid #b7c4cc; border-radius: 5px; color: #40596c; cursor: pointer; padding: 8px; }
+.fossil-identity { align-items: center; display: grid; gap: 10px; grid-template-columns: 94px 62px 1fr; width: 100%; }
+.fossil-species-sprite { image-rendering: pixelated; max-height: 58px; max-width: 62px; }
+.fossil-sample-count { align-items: center; display: grid; gap: 6px; grid-template-columns: 1fr 70px auto; margin-bottom: 5px; }
+.fossil-sample-count input { border: 1px solid #aebbc4; border-radius: 4px; padding: 6px; width: 56px; }
+.fossil-sample-count small { color: #6d7c87; }
+.fossil-restoration-chance { display: flex; justify-content: space-between; margin: 5px 0 12px; }

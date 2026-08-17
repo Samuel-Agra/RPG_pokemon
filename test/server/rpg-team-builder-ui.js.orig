@@ -1,0 +1,160 @@
+'use strict';
+
+const assert = require('assert').strict;
+const fs = require('node:fs');
+const path = require('node:path');
+
+const root = path.resolve(__dirname, '../..');
+const teamBuilder = fs.readFileSync(path.join(root, 'server/static/rpg/team-builder-ui.js'), 'utf8');
+const rpg = fs.readFileSync(path.join(root, 'server/static/rpg/rpg.js'), 'utf8');
+const box = fs.readFileSync(path.join(root, 'server/static/rpg/box-ui.js'), 'utf8');
+const html = fs.readFileSync(path.join(root, 'server/static/rpg/index.html'), 'utf8');
+const css = fs.readFileSync(path.join(root, 'server/static/rpg/team-builder.css'), 'utf8');
+
+describe('RPG Team Builder frontend', () => {
+	it('loads the dedicated module and stylesheet before the main RPG interface', () => {
+		assert.match(html, /team-builder\.css/);
+		assert.match(html, /team-builder-ui\.js/);
+		assert.ok(html.indexOf('team-builder-ui.js') < html.indexOf('rpg.js'));
+		assert.match(teamBuilder, /window\.RPGTeamBuilderUI/);
+	});
+
+	it('opens an existing persistent Pokemon from both Team and Box', () => {
+		assert.match(rpg, /character\.box\?\.party\?\.\[teamIndex\]\?\.pokemonId/);
+		assert.match(rpg, /window\.RPGTeamBuilderUI\.render/);
+		assert.match(rpg, /teamBuilderPokemonId/);
+		assert.match(box, /deps\.openTeamBuilder\(pokemon\.pokemonId, 'box'\)/);
+		assert.doesNotMatch(box, /A pÃ¯Â¿Â½gina TeamBulder serÃ¯Â¿Â½ criada/);
+	});
+
+	it('shows all six party slots and keeps Team Builder before Bag and Box', () => {
+		assert.match(teamBuilder, /function teamStrip\(\)/);
+		assert.match(teamBuilder, /index < 6/);
+		assert.match(teamBuilder, /deps\.switchPokemon/);
+		assert.match(css, /grid-template-columns: repeat\(6/);
+		const navigation = rpg.slice(rpg.indexOf("['overview', 'Vis\\u00e3o geral'], ['team', 'Equipe']"));
+		assert.ok(navigation.indexOf("['team-builder', 'Team Builder']") < navigation.indexOf("['bag', 'Bag']"));
+		assert.ok(navigation.indexOf("['bag', 'Bag']") < navigation.indexOf("['box', 'Box']"));
+		assert.match(rpg, /masterViewingPlayer = state\.session\?\.role === 'master'/);
+	});
+
+	it('shows the new selected-Pokemon layout with integrated RPG information', () => {
+		assert.doesNotMatch(teamBuilder, /Equipe atual/);
+		assert.match(teamBuilder, /function selectedPokemonCard\(\)/);
+		assert.match(teamBuilder, /team-builder-large-sprite/);
+		assert.doesNotMatch(teamBuilder, /Pokecoins/);
+		assert.doesNotMatch(teamBuilder, /â† Voltar/);
+		assert.match(teamBuilder, /team-builder-nickname-box/);
+		assert.match(teamBuilder, /team-builder-type-status-row/);
+		assert.match(teamBuilder, /box-condition status-/);
+		assert.doesNotMatch(teamBuilder, /team-builder-status-property/);
+		assert.match(teamBuilder, /data\.experience\.nextLevel/);
+		const selectedCard = teamBuilder.slice(teamBuilder.indexOf('function selectedPokemonCard()'));
+		assert.ok(selectedCard.indexOf("['Shiny'") < selectedCard.indexOf("['Gênero'"));
+		assert.ok(selectedCard.indexOf("['Gênero'") < selectedCard.indexOf("['Level'"));
+		assert.ok(selectedCard.indexOf("['Level'") < selectedCard.indexOf("['XP'"));
+		assert.match(css, /\.team-builder-detail-cell small[\s\S]*position: absolute/);
+		assert.match(teamBuilder, /data\.permanentState\.hp/);
+		assert.match(teamBuilder, /statusLabel\(\)/);
+		assert.match(teamBuilder, /calculatedStat\(id\)/);
+		assert.match(teamBuilder, /team-builder-summary-iv/);
+		assert.match(teamBuilder, /team-builder-summary-nature/);
+		assert.match(teamBuilder, /'Natureza: ' \+ data\.nature\.name/);
+		assert.match(teamBuilder, /'\+' \+ raised/);
+		assert.match(teamBuilder, /'-' \+ lowered/);
+		assert.match(teamBuilder, /String\(draftIVs\[id\] \?\? 31\)/);
+		assert.match(teamBuilder, /total \/ 330 \* 100/);
+		assert.match(css, /grid-template-columns: repeat\(4/);
+	});
+
+	it('groups Bag-backed items and exposes read-only Ability information', () => {
+		assert.match(teamBuilder, /\['Favoritos', data\.items\.choices\.filter/);
+		assert.match(teamBuilder, /\['Itens equipáveis'/);
+		assert.match(teamBuilder, /\['Pedras de Mega Evolução'/);
+		assert.match(teamBuilder, /item\?\.description/);
+		assert.match(teamBuilder, /rpgRuntimeItemIcon/);
+		assert.match(teamBuilder, /team-builder-main-ability/);
+		assert.match(teamBuilder, /'Habilidade:'/);
+		assert.match(teamBuilder, /\/bag\/equip/);
+		assert.match(teamBuilder, /\/bag\/remove-held/);
+		assert.match(teamBuilder, /Habilidade Oculta/);
+		assert.match(teamBuilder, /line\.disabled = !data\.permissions\.master/);
+	});
+
+	it('shows selected, owned-TM, level and compatible-TM move groups', () => {
+		assert.match(teamBuilder, /appendMoveGroup\(pane, 'TMs [^']* na Bag'/);
+		assert.match(teamBuilder, /appendMoveGroup\(pane, 'Aprendidos por/);
+		assert.match(teamBuilder, /appendMoveGroup\(pane, 'TMs compat/);
+		assert.match(teamBuilder, /choice\.tmQuantity > 0/);
+		assert.match(teamBuilder, /choice\.learnedAt !== undefined/);
+		assert.match(teamBuilder, /mode === 'owned-tm'/);
+		assert.match(teamBuilder, /\/use-tm/);
+		assert.match(teamBuilder, /function simpleMoveRow/);
+		assert.match(teamBuilder, /rpg-category-icon category-/);
+		assert.match(teamBuilder, /Normal: 0, Grass: 1, Fire: 2, Water: 3, Electric: 4, Bug: 5/);
+		assert.match(teamBuilder, /Psychic: 12, Ghost: 13, Dragon: 14, Dark: 15, Steel: 16, Fairy: 17/);
+		assert.match(teamBuilder, /const categoryOrder = \{ Physical: 0, Special: 1, Status: 2 \}/);
+		const ordering = teamBuilder.slice(teamBuilder.indexOf('const orderedChoices'));
+		assert.ok(ordering.indexOf('typeOrder[first.type]') < ordering.indexOf('categoryOrder[first.category]'));
+		assert.ok(ordering.indexOf('categoryOrder[first.category]') < ordering.indexOf('first.name.localeCompare'));
+		assert.match(teamBuilder, /first\.name\.localeCompare\(second\.name/);
+		assert.match(css, /\.team-builder-simple-move \.rpg-category-icon[\s\S]*border-radius: 7px/);
+		assert.match(teamBuilder, /rpg-move-button type-/);
+		assert.match(teamBuilder, /rpg-move-button-body/);
+		const draw = teamBuilder.slice(teamBuilder.indexOf('function draw()'));
+		assert.ok(draw.indexOf('selectedMoves()') < draw.indexOf('activeBrowser()'));
+	});
+
+
+	it('reorders known moves with drag and drop without invoking the TM flow', () => {
+		assert.doesNotMatch(teamBuilder, /Clique para consultar ou arraste/);
+		assert.match(teamBuilder, /card\.draggable = true/);
+		assert.match(teamBuilder, /addEventListener\('dragstart'/);
+		assert.match(teamBuilder, /addEventListener\('drop'/);
+		assert.match(teamBuilder, /\/reorder-moves/);
+		assert.match(teamBuilder, /fromSlot, toSlot: slot/);
+		assert.match(css, /team-builder-move-card\.drag-target/);
+	});
+
+	it('connects training permission and full EV redistribution', () => {
+		assert.match(rpg, /\['training', 'Treinamento'\]/);
+		assert.match(teamBuilder, /data\.permissions\.training/);
+		assert.match(teamBuilder, /O Mestre bloqueou o acesso ao Treinamento/);
+		assert.match(teamBuilder, /body: \{ characterId: deps\.characterId, evs: \{ \.\.\.draftEVs \}/);
+		assert.match(teamBuilder, /\/train-ev/);
+		assert.match(teamBuilder, /costPerStep/);
+		assert.match(teamBuilder, /roleplayDurationPerStepMs/);
+		assert.match(teamBuilder, /Tempo no roleplay/);
+		assert.match(teamBuilder, /Math\.round\(Number\(raw\) \/ 4\) \* 4/);
+		assert.match(teamBuilder, /508 - usedByOthers/);
+		assert.match(teamBuilder, /slider\.max = 252/);
+		assert.match(teamBuilder, /slider\.value = String\(draftEVs\[id\]\)/);
+		assert.match(teamBuilder, /--ev-fill/);
+		assert.match(css, /team-builder-ev-slider::-webkit-slider-thumb/);
+		assert.match(teamBuilder, /Confirmar treinamento/);
+		assert.match(teamBuilder, /Natureza: ' \+ data\.nature\.label/);
+		assert.doesNotMatch(teamBuilder, /team-builder-actions/);
+		assert.match(teamBuilder, /nickname\.addEventListener\('change', saveGeneral\)/);
+		assert.match(teamBuilder, /levelControl\.addEventListener\('change', saveGeneral\)/);
+		assert.match(teamBuilder, /Salvar atributos/);
+	});
+
+	it('shows IVs read-only to Players and consumes compatible vitamins', () => {
+		assert.match(teamBuilder, /data\.ivs\.vitamins/);
+		assert.match(teamBuilder, /\/use-vitamin/);
+		assert.match(teamBuilder, /expectedBagRevision: data\.bagRevision/);
+		assert.match(teamBuilder, /expectedBoxRevision: data\.boxRevision/);
+		assert.match(teamBuilder, /team-builder-iv-readonly/);
+	});
+
+	it('uses the new Showdown-inspired responsive visual structure', () => {
+		assert.match(css, /\.team-builder-showdown-card/);
+		assert.match(css, /\.team-builder-showdown-body/);
+		assert.match(css, /\.team-builder-four-moves/);
+		assert.match(css, /\.team-builder-browser/);
+		assert.match(css, /\.team-builder-simple-move/);
+		assert.match(css, /\.team-builder-detailed-stat/);
+		assert.match(css, /team-builder-summary-nature/);
+		assert.match(css, /@media \(max-width: 700px\)/);
+	});
+});

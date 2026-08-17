@@ -1,0 +1,85 @@
+import type { Battle } from "../../../battle";
+import type { Pokemon } from "../../../pokemon";
+import type { RPGDefeatResult } from "../../state";
+
+import { ExperienceSystem } from "./experience";
+
+interface DefeatRecord {
+	pokemon: Pokemon;
+	source: Pokemon | null;
+	participants: Pokemon[];
+}
+
+export class ParticipationSystem {
+	private static readonly encounters = new WeakMap<Battle, Map<Pokemon, Set<Pokemon>>>();
+	private static readonly defeats = new WeakMap<Battle, DefeatRecord[]>();
+
+	static registerSwitchIn(pokemon: Pokemon): void {
+		if (!pokemon.battle.rpg) return;
+
+		for (const foe of pokemon.foes(true)) {
+			if (!foe || foe.fainted) continue;
+			this.registerEncounter(pokemon, foe);
+			this.registerEncounter(foe, pokemon);
+		}
+	}
+
+	private static registerEncounter(participant: Pokemon, opponent: Pokemon): void {
+		let battleEncounters = this.encounters.get(participant.battle);
+		if (!battleEncounters) {
+			battleEncounters = new Map();
+			this.encounters.set(participant.battle, battleEncounters);
+		}
+		let participants = battleEncounters.get(opponent);
+		if (!participants) {
+			participants = new Set();
+			battleEncounters.set(opponent, participants);
+		}
+		participants.add(participant);
+	}
+
+	static recordFaint(pokemon: Pokemon, source: Pokemon | null): void {
+		if (!pokemon.battle.rpg) return;
+
+		const participants = new Set(this.encounters.get(pokemon.battle)?.get(pokemon) || []);
+		if (source && !source.isAlly(pokemon)) participants.add(source);
+
+		let records = this.defeats.get(pokemon.battle);
+		if (!records) {
+			records = [];
+			this.defeats.set(pokemon.battle, records);
+		}
+		records.push({ pokemon, source, participants: [...participants] });
+	}
+
+	static getDefeats(battle: Battle): RPGDefeatResult[] {
+		return (this.defeats.get(battle) || []).map(record => {
+			const speciesData = ExperienceSystem.getSpeciesData(record.pokemon);
+			return {
+				side: record.pokemon.side.id,
+				position: record.pokemon.position,
+				species: record.pokemon.species.id,
+				level: record.pokemon.level,
+				source: record.source ? { side: record.source.side.id, position: record.source.position } : undefined,
+				participants: record.participants
+					.slice().sort((a, b) => a.side.n - b.side.n || a.position - b.position)
+					.map(participant => ({
+						side: participant.side.id,
+						position: participant.position,
+						species: participant.species.id,
+						level: participant.level,
+						baseExperienceGain: speciesData ? ExperienceSystem.calculateBaseGain(
+							speciesData.baseExperience,
+							record.pokemon.level,
+							participant.level
+						) : 0,
+					})),
+			};
+		});
+	}
+
+	static clear(battle: Battle): void {
+		this.encounters.delete(battle);
+		this.defeats.delete(battle);
+	}
+}

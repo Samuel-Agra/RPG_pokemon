@@ -1,0 +1,338 @@
+/**
+ * RPG System
+ * State definitions for Pokémon and battles in RPG mode.
+ */
+
+export interface RPGMoveState {
+	pp: number;
+}
+
+export interface RPGStats {
+	hp: number;
+	atk: number;
+	def: number;
+	spa: number;
+	spd: number;
+	spe: number;
+}
+
+export interface RPGPokemonState {
+	/** Versão usada para migração do estado persistente. */
+	version?: number;
+	initialized?: boolean;
+	level?: number;
+	hp?: number;
+	status?: string;
+	sleepTurns?: number;
+	pp?: number[];
+	item?: string;
+	evs?: Partial<RPGStats>;
+	experience?: number;
+	luckyEggBattles?: number;
+	traded?: boolean;
+	foreignLanguage?: boolean;
+	friendship?: number;
+	experienceMultiplier?: number;
+	/** Taxa da espécie usada pelo sistema de captura, entre 0 e 255. */
+	captureRate?: number;
+}
+
+export type RPGBattleType = 'wild' | 'trainer' | 'npc' | 'boss' | 'gym' | 'no-exp';
+
+export type RPGSideRole = 'player' | 'trainer' | 'npc' | 'wild' | 'boss' | 'gym';
+export type RPGRewardOutcome = 'win' | 'tie' | 'flee' | 'capture';
+
+export interface RPGReward {
+	type: string;
+	id?: string;
+	amount?: number;
+}
+
+export interface RPGBattleModeRules {
+	allowCapture?: boolean;
+	allowFlee?: boolean;
+	/** Permite itens da Bag cadastrados para uso em batalha. */
+	allowBattleItems?: boolean;
+	/** Exige derrotar toda a equipe quando nao houver captura ou fuga. */
+	requireFullDefeat?: boolean;
+	experienceMultiplier?: number;
+	/** Compatibilidade: recompensas concedidas somente em vitoria. */
+	rewards?: RPGReward[];
+	/** Recompensas declarativas separadas pelo encerramento da batalha. */
+	rewardsByOutcome?: Partial<Record<RPGRewardOutcome, RPGReward[]>>;
+}
+
+export interface RPGResolvedBattleModeRules {
+	allowCapture: boolean;
+	allowFlee: boolean;
+	allowBattleItems: boolean;
+	requireFullDefeat: boolean;
+	experienceMultiplier: number;
+	rewards: RPGReward[];
+	rewardsByOutcome: Partial<Record<RPGRewardOutcome, RPGReward[]>>;
+}
+
+export interface RPGExperienceRules {
+	enabled?: boolean;
+	share?: boolean;
+	multiplier?: number;
+}
+
+export type RPGFriendshipMode = 'standard' | 'roleplay' | 'disabled';
+
+export interface RPGFriendshipRules {
+	mode?: RPGFriendshipMode;
+	participantVictoryGain?: number;
+	partyVictoryGain?: number;
+	faintLoss?: number;
+	defeatLoss?: number;
+	/** Ganho por nível no modo roleplay; o padrão é zero. */
+	levelUpGain?: number;
+}
+
+export interface RPGPokemonMoveResult {
+	id: string;
+	pp: number;
+	maxPP: number;
+}
+
+export interface RPGPokemonResult {
+	side: SideID;
+	position: number;
+	rpgEnabled: boolean;
+	name: string;
+	species: string;
+	level: number;
+	gender: string;
+	shiny: boolean;
+	ability: string;
+	nature: string;
+	active: boolean;
+	fainted: boolean;
+	hp: number;
+	maxHP: number;
+	status: string;
+	item: string;
+	moves: RPGPokemonMoveResult[];
+	evs: RPGStats;
+	ivs: RPGStats;
+	state: RPGPokemonState;
+}
+
+export interface RPGExperienceParticipantResult {
+	side: SideID;
+	position: number;
+	species: string;
+	level: number;
+	baseExperienceGain: number;
+}
+
+export interface RPGDefeatResult {
+	side: SideID;
+	position: number;
+	species: string;
+	level: number;
+	source?: { side: SideID, position: number };
+	participants: RPGExperienceParticipantResult[];
+}
+
+export interface RPGLevelMoveResult {
+	move: string;
+	level: number;
+}
+
+export interface RPGExperienceGainResult {
+	side: SideID;
+	position: number;
+	participated: boolean;
+	previousExperience: number;
+	gained: number;
+	totalExperience: number;
+	previousLevel: number;
+	level: number;
+	learnedMoves: RPGLevelMoveResult[];
+	luckyEggApplied: boolean;
+}
+
+export interface RPGFriendshipChangeResult {
+	side: SideID;
+	position: number;
+	reason: 'faint' | 'victory' | 'party-victory' | 'defeat' | 'level-up' | 'roleplay';
+	previousFriendship: number;
+	change: number;
+	totalFriendship: number;
+}
+
+export interface RPGCapturedPokemon {
+	name: string;
+	species: string;
+	level: number;
+	gender: string;
+	shiny: boolean;
+	item: string;
+	ability: string;
+	nature: string;
+	moves: string[];
+	evs: RPGStats;
+	ivs: RPGStats;
+	rpg: RPGPokemonState;
+}
+
+export type RPGCaptureFailureReason =
+	| 'not-wild-battle' | 'capture-disabled' | 'not-wild-target' | 'own-pokemon' |
+	'target-fainted' | 'battle-ended' | 'missing-catch-rate' | 'unknown-ball' |
+	'ball-not-throwable' | 'missing-ball-context';
+
+export interface RPGCaptureResult {
+	allowed: boolean;
+	success: boolean;
+	continued: boolean;
+	reason?: RPGCaptureFailureReason;
+	ball: string;
+	catchRate: number;
+	ballModifier: number;
+	/** Origem do multiplicador, preservando compatibilidade com integrações anteriores. */
+	ballModifierSource?: 'generation-9' | 'external';
+	/** Taxa após ajustes que não são multiplicadores, como Heavy Ball. */
+	adjustedCatchRate?: number;
+	statusModifier: number;
+	/** Cálculo completo da Pokébola da geração 9, quando usado. */
+	ballCalculation?: import("./systems/battle/pokeball").RPGGen9BallCalculation;
+	modifiedCatchRate: number;
+	shakeThreshold: number;
+	shakes: number;
+	/** Probabilidade final entre zero e um. */
+	probability: number;
+	target: { side: SideID, position: number };
+	pokemon?: RPGCapturedPokemon;
+}
+
+export type RPGFleeFailureReason =
+	| 'not-rpg-battle' | 'flee-disabled' | 'battle-ended' | 'fainted' |
+	'not-active' | 'trapped' | 'no-opponent';
+
+export type RPGFleeGuarantee = 'external' | 'battle-rule' | 'run-away' | 'smoke-ball' | 'ghost-type' | 'speed';
+
+export interface RPGFleeResult {
+	allowed: boolean;
+	success: boolean;
+	continued: boolean;
+	reason?: RPGFleeFailureReason;
+	fleeingSide: SideID;
+	pokemon: { side: SideID, position: number, species: string };
+	opponent?: { side: SideID, position: number, species: string };
+	attempts: number;
+	playerSpeed: number;
+	opponentSpeed: number;
+	escapeValue: number;
+	/** Probabilidade final entre zero e um. */
+	probability: number;
+	guaranteedBy?: RPGFleeGuarantee;
+}
+
+export type RPGReviveFailureReason = 'not-rpg-pokemon' | 'battle-ended' | 'not-fainted';
+
+export interface RPGReviveResult {
+	success: boolean;
+	reason?: RPGReviveFailureReason;
+	side: SideID;
+	position: number;
+	species: string;
+	previousHP: number;
+	restoredHP: number;
+	maxHP: number;
+	clearedStatus: boolean;
+	state: RPGPokemonState;
+}
+
+export type RPGHealingOrigin = 'pokemon-center' | 'item' | 'move' | 'roleplay' | 'external';
+export type RPGHealingFailureReason = 'not-rpg-pokemon' | 'battle-ended' | 'fainted';
+
+export interface RPGHealingResult {
+	success: boolean;
+	changed: boolean;
+	reason?: RPGHealingFailureReason;
+	origin: RPGHealingOrigin;
+	side: SideID;
+	position: number;
+	species: string;
+	previousHP: number;
+	hp: number;
+	maxHP: number;
+	previousPP: number[];
+	pp: number[];
+	previousStatus: string;
+	status: string;
+	state: RPGPokemonState;
+}
+
+export type RPGBattleOutcome = 'win' | 'tie' | 'flee' | 'capture';
+export type RPGSideOutcome = 'winner' | 'loser' | 'tied' | 'fled' | 'captured' | 'neutral';
+
+export interface RPGSideResult {
+	side: SideID;
+	name: string;
+	outcome: RPGSideOutcome;
+}
+
+export interface RPGFieldResult {
+	weather: string;
+	weatherDuration?: number;
+	terrain: string;
+	terrainDuration?: number;
+}
+
+export interface RPGFormChangeResult {
+	side: SideID;
+	position: number;
+	fromSpecies: string;
+	toSpecies: string;
+	kind: 'mega' | 'ultra';
+	reverted: boolean;
+}
+
+export interface RPGBattleResult {
+	/** Versão do contrato de resultado estruturado. */
+	version: number;
+	battleType: RPGBattleType;
+	/** Papeis informados pelo RPG externo para cada lado. */
+	sideRoles: Partial<Record<SideID, RPGSideRole>>;
+	/** Fotografia das regras efetivas usada para auditoria do resultado. */
+	rules: RPGResolvedBattleModeRules;
+	rewards: RPGReward[];
+	capture?: RPGCaptureResult;
+	flee?: RPGFleeResult;
+	revives: RPGReviveResult[];
+	healing: RPGHealingResult[];
+	outcome: RPGBattleOutcome;
+	winner: string;
+	winnerSide?: SideID;
+	loserSides: SideID[];
+	sides: RPGSideResult[];
+	field: RPGFieldResult;
+	pokemon: RPGPokemonResult[];
+	defeats: RPGDefeatResult[];
+	experience: RPGExperienceGainResult[];
+	friendship: RPGFriendshipChangeResult[];
+}
+
+export interface RPGBattleState {
+	/** Versão usada para migração do estado persistente. */
+	version?: number;
+	weather?: string;
+	weatherDuration?: number;
+	terrain?: string;
+	terrainDuration?: number;
+	battleType?: RPGBattleType;
+	/** Identifica jogador, treinador, NPC, selvagem, chefe ou ginasio por lado. */
+	sideRoles?: Partial<Record<SideID, RPGSideRole>>;
+	/** Lado que representa o encontro selvagem; padrão p2. */
+	wildSide?: SideID;
+	/** Nível escolhido para lendários selvagens, limitado pelo RPG entre 1 e 999. */
+	wildLegendaryLevel?: number;
+	experienceRules?: RPGExperienceRules;
+	/** Sobrescritas por modalidade; as regras-padrão ficam no módulo RPG. */
+	modeRules?: Partial<Record<RPGBattleType, RPGBattleModeRules>>;
+	friendshipRules?: RPGFriendshipRules;
+	result?: RPGBattleResult;
+}

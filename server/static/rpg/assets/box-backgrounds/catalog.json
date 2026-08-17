@@ -1,0 +1,31 @@
+{
+	"version": 1,
+	"backgrounds": [
+		{"id":"type-normal","name":"Normal","category":"type","image":"type-normal.png"},
+		{"id":"type-fire","name":"Fire","category":"type","image":"type-fire.png"},
+		{"id":"type-water","name":"Water","category":"type","image":"type-water.png"},
+		{"id":"type-electric","name":"Electric","category":"type","image":"type-electric.png"},
+		{"id":"type-grass","name":"Grass","category":"type","image":"type-grass.png"},
+		{"id":"type-ice","name":"Ice","category":"type","image":"type-ice.png"},
+		{"id":"type-fighting","name":"Fighting","category":"type","image":"type-fighting.png"},
+		{"id":"type-poison","name":"Poison","category":"type","image":"type-poison.png"},
+		{"id":"type-ground","name":"Ground","category":"type","image":"type-ground.png"},
+		{"id":"type-flying","name":"Flying","category":"type","image":"type-flying.png"},
+		{"id":"type-psychic","name":"Psychic","category":"type","image":"type-psychic.png"},
+		{"id":"type-bug","name":"Bug","category":"type","image":"type-bug.png"},
+		{"id":"type-rock","name":"Rock","category":"type","image":"type-rock.png"},
+		{"id":"type-ghost","name":"Ghost","category":"type","image":"type-ghost.png"},
+		{"id":"type-dragon","name":"Dragon","category":"type","image":"type-dragon.png"},
+		{"id":"type-dark","name":"Dark","category":"type","image":"type-dark.png"},
+		{"id":"type-steel","name":"Steel","category":"type","image":"type-steel.png"},
+		{"id":"type-fairy","name":"Fairy","category":"type","image":"type-fairy.png"},
+		{"id":"scene-city","name":"Cidade","category":"scene","image":"scene-city.png"},
+		{"id":"scene-beach","name":"Praia","category":"scene","image":"scene-beach.png"},
+		{"id":"scene-forest","name":"Floresta","category":"scene","image":"scene-forest.png"},
+		{"id":"scene-cave","name":"Caverna","category":"scene","image":"scene-cave.png"},
+		{"id":"scene-mountain","name":"Montanha","category":"scene","image":"scene-mountain.png"},
+		{"id":"scene-desert","name":"Deserto","category":"scene","image":"scene-desert.png"},
+		{"id":"scene-snowfield","name":"Campo Nevado","category":"scene","image":"scene-snowfield.png"},
+		{"id":"scene-sky","name":"Céu","category":"scene","image":"scene-sky.png"}
+	]
+}

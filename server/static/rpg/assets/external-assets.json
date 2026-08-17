@@ -1,0 +1,464 @@
+{
+    "version":  1,
+    "policy":  "RPG-ASSET-POLICY.md",
+    "local":  [
+                  {
+                      "path":  "hud/battle-effects.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Sprite sheet original dos estados estruturados do HUD, criado para o RPG."
+                  },
+                  {
+                      "path":  "item-icons/potion.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Sprite original do item potion, criado para o RPG com auxÃƒÂ­lio de geraÃƒÂ§ÃƒÂ£o de imagens."
+                  },
+                  {
+                      "path":  "item-icons/superpotion.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Sprite original do item superpotion, criado para o RPG com auxÃƒÂ­lio de geraÃƒÂ§ÃƒÂ£o de imagens."
+                  },
+                  {
+                      "path":  "item-icons/hyperpotion.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Sprite original do item hyperpotion, criado para o RPG com auxÃƒÂ­lio de geraÃƒÂ§ÃƒÂ£o de imagens."
+                  },
+                  {
+                      "path":  "item-icons/maxpotion.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Sprite original do item maxpotion, criado para o RPG com auxÃƒÂ­lio de geraÃƒÂ§ÃƒÂ£o de imagens."
+                  },
+                  {
+                      "path":  "item-icons/fullrestore.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Sprite original do item fullrestore, criado para o RPG com auxÃƒÂ­lio de geraÃƒÂ§ÃƒÂ£o de imagens."
+                  },
+                  {
+                      "path":  "item-icons/antidote.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Sprite original do item antidote, criado para o RPG com auxÃƒÂ­lio de geraÃƒÂ§ÃƒÂ£o de imagens."
+                  },
+                  {
+                      "path":  "item-icons/burnheal.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Sprite original do item burnheal, criado para o RPG com auxÃƒÂ­lio de geraÃƒÂ§ÃƒÂ£o de imagens."
+                  },
+                  {
+                      "path":  "item-icons/iceheal.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Sprite original do item iceheal, criado para o RPG com auxÃƒÂ­lio de geraÃƒÂ§ÃƒÂ£o de imagens."
+                  },
+                  {
+                      "path":  "item-icons/awakening.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Sprite original do item awakening, criado para o RPG com auxÃƒÂ­lio de geraÃƒÂ§ÃƒÂ£o de imagens."
+                  },
+                  {
+                      "path":  "item-icons/paralyzeheal.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Sprite original do item paralyzeheal, criado para o RPG com auxÃƒÂ­lio de geraÃƒÂ§ÃƒÂ£o de imagens."
+                  },
+                  {
+                      "path":  "item-icons/fullheal.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Sprite original do item fullheal, criado para o RPG com auxÃƒÂ­lio de geraÃƒÂ§ÃƒÂ£o de imagens."
+                  },
+                  {
+                      "path":  "item-icons/ether.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Sprite original do item ether, criado para o RPG com auxÃƒÂ­lio de geraÃƒÂ§ÃƒÂ£o de imagens."
+                  },
+                  {
+                      "path":  "item-icons/maxether.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Sprite original do item maxether, criado para o RPG com auxÃƒÂ­lio de geraÃƒÂ§ÃƒÂ£o de imagens."
+                  },
+                  {
+                      "path":  "item-icons/elixir.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Sprite original do item elixir, criado para o RPG com auxÃƒÂ­lio de geraÃƒÂ§ÃƒÂ£o de imagens."
+                  },
+                  {
+                      "path":  "item-icons/maxelixir.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Sprite original do item maxelixir, criado para o RPG com auxÃƒÂ­lio de geraÃƒÂ§ÃƒÂ£o de imagens."
+                  },
+                  {
+                      "path":  "item-icons/revive.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Sprite original do item revive, criado para o RPG com auxÃƒÂ­lio de geraÃƒÂ§ÃƒÂ£o de imagens."
+                  },
+                  {
+                      "path":  "item-icons/maxrevive.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Sprite original do item maxrevive, criado para o RPG com auxÃƒÂ­lio de geraÃƒÂ§ÃƒÂ£o de imagens."
+                  },
+                  {
+                      "path":  "item-icons/revivalherb.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Sprite original do item revivalherb, criado para o RPG com auxÃƒÂ­lio de geraÃƒÂ§ÃƒÂ£o de imagens."
+                  },
+                  {
+                      "path":  "item-icons/sacredash.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Sprite original do item sacredash, criado para o RPG com auxÃƒÂ­lio de geraÃƒÂ§ÃƒÂ£o de imagens."
+                  },
+                  {
+                      "path":  "item-icons/blackaugurite.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Sprite original do Black Augurite, criado para o RPG com auxílio de geração de imagens."
+                  },
+                  {
+                      "path":  "item-icons/tm-normal.png",
+                      "classification":  "original-project-asset",
+                      "description":  "CD original das TMs do tipo normal, criado para o RPG com auxílio de geração de imagens."
+                  },
+                  {
+                      "path":  "item-icons/tm-fire.png",
+                      "classification":  "original-project-asset",
+                      "description":  "CD original das TMs do tipo fire, criado para o RPG com auxílio de geração de imagens."
+                  },
+                  {
+                      "path":  "item-icons/tm-water.png",
+                      "classification":  "original-project-asset",
+                      "description":  "CD original das TMs do tipo water, criado para o RPG com auxílio de geração de imagens."
+                  },
+                  {
+                      "path":  "item-icons/tm-electric.png",
+                      "classification":  "original-project-asset",
+                      "description":  "CD original das TMs do tipo electric, criado para o RPG com auxílio de geração de imagens."
+                  },
+                  {
+                      "path":  "item-icons/tm-grass.png",
+                      "classification":  "original-project-asset",
+                      "description":  "CD original das TMs do tipo grass, criado para o RPG com auxílio de geração de imagens."
+                  },
+                  {
+                      "path":  "item-icons/tm-ice.png",
+                      "classification":  "original-project-asset",
+                      "description":  "CD original das TMs do tipo ice, criado para o RPG com auxílio de geração de imagens."
+                  },
+                  {
+                      "path":  "item-icons/tm-fighting.png",
+                      "classification":  "original-project-asset",
+                      "description":  "CD original das TMs do tipo fighting, criado para o RPG com auxílio de geração de imagens."
+                  },
+                  {
+                      "path":  "item-icons/tm-poison.png",
+                      "classification":  "original-project-asset",
+                      "description":  "CD original das TMs do tipo poison, criado para o RPG com auxílio de geração de imagens."
+                  },
+                  {
+                      "path":  "item-icons/tm-ground.png",
+                      "classification":  "original-project-asset",
+                      "description":  "CD original das TMs do tipo ground, criado para o RPG com auxílio de geração de imagens."
+                  },
+                  {
+                      "path":  "item-icons/tm-flying.png",
+                      "classification":  "original-project-asset",
+                      "description":  "CD original das TMs do tipo flying, criado para o RPG com auxílio de geração de imagens."
+                  },
+                  {
+                      "path":  "item-icons/tm-psychic.png",
+                      "classification":  "original-project-asset",
+                      "description":  "CD original das TMs do tipo psychic, criado para o RPG com auxílio de geração de imagens."
+                  },
+                  {
+                      "path":  "item-icons/tm-bug.png",
+                      "classification":  "original-project-asset",
+                      "description":  "CD original das TMs do tipo bug, criado para o RPG com auxílio de geração de imagens."
+                  },
+                  {
+                      "path":  "item-icons/tm-rock.png",
+                      "classification":  "original-project-asset",
+                      "description":  "CD original das TMs do tipo rock, criado para o RPG com auxílio de geração de imagens."
+                  },
+                  {
+                      "path":  "item-icons/tm-ghost.png",
+                      "classification":  "original-project-asset",
+                      "description":  "CD original das TMs do tipo ghost, criado para o RPG com auxílio de geração de imagens."
+                  },
+                  {
+                      "path":  "item-icons/tm-dragon.png",
+                      "classification":  "original-project-asset",
+                      "description":  "CD original das TMs do tipo dragon, criado para o RPG com auxílio de geração de imagens."
+                  },
+                  {
+                      "path":  "item-icons/tm-dark.png",
+                      "classification":  "original-project-asset",
+                      "description":  "CD original das TMs do tipo dark, criado para o RPG com auxílio de geração de imagens."
+                  },
+                  {
+                      "path":  "item-icons/tm-steel.png",
+                      "classification":  "original-project-asset",
+                      "description":  "CD original das TMs do tipo steel, criado para o RPG com auxílio de geração de imagens."
+                  },
+                  {
+                      "path":  "item-icons/tm-fairy.png",
+                      "classification":  "original-project-asset",
+                      "description":  "CD original das TMs do tipo fairy, criado para o RPG com auxílio de geração de imagens."
+                  },
+                  {
+                      "path":  "bags/starter.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Sprite original da Bolsa de Ombro (Starter), criado para o RPG com auxilio de geracao de imagens."
+                  },
+                  {
+                      "path":  "bags/trainer.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Sprite original da Mochila Escolar (Trainer), criado para o RPG com auxilio de geracao de imagens."
+                  },
+                  {
+                      "path":  "bags/adventurer.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Sprite original da Mochila de Hiking (Adventurer), criado para o RPG com auxilio de geracao de imagens."
+                  },
+                  {
+                      "path":  "bags/expert.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Sprite original da Mochila de Trekking (Expert), criado para o RPG com auxilio de geracao de imagens."
+                  },
+                  {
+                      "path":  "bags/master.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Sprite original da Mochila Cargueira Lateral (Master), criado para o RPG com auxilio de geracao de imagens."
+                  },
+                  {
+                      "path":  "bags/legendary.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Sprite original da Mochila de Expedicao Vertical (Legendary), criado para o RPG com auxilio de geracao de imagens."
+                  },
+                  {
+                      "path":  "box-backgrounds/type-normal.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Fundo original da Box Normal, criado para o RPG com auxÃ­lio de geraÃ§Ã£o de imagens."
+                  },
+                  {
+                      "path":  "box-backgrounds/type-fire.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Fundo original da Box Fire, criado para o RPG com auxÃ­lio de geraÃ§Ã£o de imagens."
+                  },
+                  {
+                      "path":  "box-backgrounds/type-water.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Fundo original da Box Water, criado para o RPG com auxÃ­lio de geraÃ§Ã£o de imagens."
+                  },
+                  {
+                      "path":  "box-backgrounds/type-electric.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Fundo original da Box Electric, criado para o RPG com auxÃ­lio de geraÃ§Ã£o de imagens."
+                  },
+                  {
+                      "path":  "box-backgrounds/type-grass.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Fundo original da Box Grass, criado para o RPG com auxÃ­lio de geraÃ§Ã£o de imagens."
+                  },
+                  {
+                      "path":  "box-backgrounds/type-ice.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Fundo original da Box Ice, criado para o RPG com auxÃ­lio de geraÃ§Ã£o de imagens."
+                  },
+                  {
+                      "path":  "box-backgrounds/type-fighting.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Fundo original da Box Fighting, criado para o RPG com auxÃ­lio de geraÃ§Ã£o de imagens."
+                  },
+                  {
+                      "path":  "box-backgrounds/type-poison.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Fundo original da Box Poison, criado para o RPG com auxÃ­lio de geraÃ§Ã£o de imagens."
+                  },
+                  {
+                      "path":  "box-backgrounds/type-ground.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Fundo original da Box Ground, criado para o RPG com auxÃ­lio de geraÃ§Ã£o de imagens."
+                  },
+                  {
+                      "path":  "box-backgrounds/type-flying.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Fundo original da Box Flying, criado para o RPG com auxÃ­lio de geraÃ§Ã£o de imagens."
+                  },
+                  {
+                      "path":  "box-backgrounds/type-psychic.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Fundo original da Box Psychic, criado para o RPG com auxÃ­lio de geraÃ§Ã£o de imagens."
+                  },
+                  {
+                      "path":  "box-backgrounds/type-bug.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Fundo original da Box Bug, criado para o RPG com auxÃ­lio de geraÃ§Ã£o de imagens."
+                  },
+                  {
+                      "path":  "box-backgrounds/type-rock.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Fundo original da Box Rock, criado para o RPG com auxÃ­lio de geraÃ§Ã£o de imagens."
+                  },
+                  {
+                      "path":  "box-backgrounds/type-ghost.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Fundo original da Box Ghost, criado para o RPG com auxÃ­lio de geraÃ§Ã£o de imagens."
+                  },
+                  {
+                      "path":  "box-backgrounds/type-dragon.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Fundo original da Box Dragon, criado para o RPG com auxÃ­lio de geraÃ§Ã£o de imagens."
+                  },
+                  {
+                      "path":  "box-backgrounds/type-dark.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Fundo original da Box Dark, criado para o RPG com auxÃ­lio de geraÃ§Ã£o de imagens."
+                  },
+                  {
+                      "path":  "box-backgrounds/type-steel.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Fundo original da Box Steel, criado para o RPG com auxÃ­lio de geraÃ§Ã£o de imagens."
+                  },
+                  {
+                      "path":  "box-backgrounds/type-fairy.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Fundo original da Box Fairy, criado para o RPG com auxÃ­lio de geraÃ§Ã£o de imagens."
+                  },
+                  {
+                      "path":  "box-backgrounds/scene-city.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Fundo original da Box Cidade, criado para o RPG com auxÃ­lio de geraÃ§Ã£o de imagens."
+                  },
+                  {
+                      "path":  "box-backgrounds/scene-beach.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Fundo original da Box Praia, criado para o RPG com auxÃ­lio de geraÃ§Ã£o de imagens."
+                  },
+                  {
+                      "path":  "box-backgrounds/scene-forest.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Fundo original da Box Floresta, criado para o RPG com auxÃ­lio de geraÃ§Ã£o de imagens."
+                  },
+                  {
+                      "path":  "box-backgrounds/scene-cave.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Fundo original da Box Caverna, criado para o RPG com auxÃ­lio de geraÃ§Ã£o de imagens."
+                  },
+                  {
+                      "path":  "box-backgrounds/scene-mountain.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Fundo original da Box Montanha, criado para o RPG com auxÃ­lio de geraÃ§Ã£o de imagens."
+                  },
+                  {
+                      "path":  "box-backgrounds/scene-desert.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Fundo original da Box Deserto, criado para o RPG com auxÃ­lio de geraÃ§Ã£o de imagens."
+                  },
+                  {
+                      "path":  "box-backgrounds/scene-snowfield.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Fundo original da Box Campo Nevado, criado para o RPG com auxÃ­lio de geraÃ§Ã£o de imagens."
+                  },
+                  {
+                      "path":  "box-backgrounds/scene-sky.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Fundo original da Box CÃƒÂ©u, criado para o RPG com auxÃ­lio de geraÃ§Ã£o de imagens."
+                  },
+                  {
+                      "path":  "favorites/favorite-markers.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Folha original de sprites pixelados para os marcadores de favoritos da Box, criada para o RPG com auxílio de geração de imagens."
+                  }
+              ,
+                  {
+                      "path":  "item-icons/tinymushroom.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Sprite original de tinymushroom, criado para o RPG com auxilio de geracao de imagens."
+                  },
+                  {
+                      "path":  "item-icons/bigmushroom.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Sprite original de bigmushroom, criado para o RPG com auxilio de geracao de imagens."
+                  },
+                  {
+                      "path":  "item-icons/balmmushroom.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Sprite original de balmmushroom, criado para o RPG com auxilio de geracao de imagens."
+                  },
+                  {
+                      "path":  "item-icons/pearl.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Sprite original de pearl, criado para o RPG com auxilio de geracao de imagens."
+                  },
+                  {
+                      "path":  "item-icons/bigpearl.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Sprite original de bigpearl, criado para o RPG com auxilio de geracao de imagens."
+                  },
+                  {
+                      "path":  "item-icons/pearlstring.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Sprite original de pearlstring, criado para o RPG com auxilio de geracao de imagens."
+                  },
+                  {
+                      "path":  "item-icons/stardust.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Sprite original de stardust, criado para o RPG com auxilio de geracao de imagens."
+                  },
+                  {
+                      "path":  "item-icons/starpiece.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Sprite original de starpiece, criado para o RPG com auxilio de geracao de imagens."
+                  },
+                  {
+                      "path":  "item-icons/cometshard.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Sprite original de cometshard, criado para o RPG com auxilio de geracao de imagens."
+                  },
+                  {
+                      "path":  "item-icons/nugget.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Sprite original de nugget, criado para o RPG com auxilio de geracao de imagens."
+                  },
+                  {
+                      "path":  "item-icons/tinybambooshoot.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Sprite original de tinybambooshoot, criado para o RPG com auxilio de geracao de imagens."
+                  },
+                  {
+                      "path":  "item-icons/bigbambooshoot.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Sprite original de bigbambooshoot, criado para o RPG com auxilio de geracao de imagens."
+                  },
+                  {
+                      "path":  "item-icons/abilitycapsule.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Sprite original de abilitycapsule, criado para o RPG com auxilio de geracao de imagens."
+                  },
+                  {
+                      "path":  "item-icons/abilitypatch.png",
+                      "classification":  "original-project-asset",
+                      "description":  "Sprite original de abilitypatch, criado para o RPG com auxilio de geracao de imagens."
+                  }
+              ],
+    "external":  [
+                     {
+                         "provider":  "pokemon-showdown-external",
+                         "baseUrl":  "https://play.pokemonshowdown.com/",
+                         "bundled":  false,
+                         "temporary":  true,
+                         "categories":  [
+                                            "pokemon-sprites",
+                                            "trainer-sprites",
+                                            "battle-backgrounds",
+                                            "battle-effects",
+                                            "move-category-icons",
+                                            "item-icon-sheet",
+                                            "mega-evolution-symbol",
+                                            "battle-music",
+                                            "pokemon-cries"
+                                        ],
+                         "notice":  "As URLs sao uma camada temporaria de compatibilidade e nao concedem licenca ao projeto."
+                     }
+                 ],
+    "thirdPartyCode":  [
+                           {
+                               "path":  "../vendor/showdown/",
+                               "source":  "https://github.com/smogon/pokemon-showdown-client",
+                               "notice":  "../vendor/showdown/LICENSES.md"
+                           }
+                       ]
+}
