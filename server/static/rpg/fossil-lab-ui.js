@@ -83,7 +83,7 @@
 			const panel = el('section', 'fossil-panel fossil-inventory');
 			panel.append(el('h2', '', 'Inventário de fósseis'));
 			const filters = el('div', 'fossil-filters');
-			for (const [id, label] of [['fragmented', 'Fragmentados'], ['preserved', 'Preservados'], ['exceptional', 'Excepcionais']]) {
+			for (const [id, label] of [['fragmented', 'Fragm.'], ['preserved', 'Pres.'], ['exceptional', 'Excep.']]) {
 				const button = el('button', filter === id ? 'active' : '', label);
 				button.addEventListener('click', () => { filter = id; paint(); });
 				filters.append(button);
@@ -130,13 +130,13 @@
 				return panel;
 			}
 			const identity = el('div', 'fossil-identity');
-			const fossilSprite = fossilIcon(fossil, true);
+			const fossilSprite = fossilIcon(fossil);
 			const pokemon = el('img', 'fossil-species-sprite');
 			pokemon.src = options.spriteUrl({species: fossil.displaySpecies}); pokemon.alt = '';
 			const names = el('div');
 			names.append(el('small', '', fossil.name), el('h3', '', fossil.displaySpecies),
 				el('span', 'fossil-quality ' + fossil.quality, fossil.qualityLabel));
-			identity.append(fossilSprite, pokemon, names); hero.append(identity); panel.append(hero);
+			identity.append(pokemon, fossilSprite, names); hero.append(identity); panel.append(hero);
 			const data = el('dl', 'fossil-data');
 			data.append(el('dt', '', 'Era'), el('dd', '', fossil.era),
 				el('dt', '', 'DNA necessário'), el('dd', '', fossil.dnaNeeded + ' amostras'),
@@ -153,45 +153,136 @@
 				return panel;
 			}
 			let method = 'standard';
-			const sampleRow = el('label', 'fossil-sample-count');
-			sampleRow.append(el('span', '', 'Amostras'));
-			const sampleCount = el('input'); sampleCount.type = 'number'; sampleCount.min = '1';
-			sampleCount.max = String(fossil.quantity); sampleCount.value = '1';
-			const chanceValue = el('strong', '', fossil.contribution + '%');
+			const qualities = [
+				['fragmented', 'Fragm.', 10],
+				['preserved', 'Pres.', 20],
+				['exceptional', 'Excep.', 50],
+			];
+			const quantities = fossil.qualityQuantities || {[fossil.quality]: fossil.quantity};
+			const sampleInputs = {};
+			const sampleGrid = el('div', 'fossil-sample-grid');
+			for (const [quality, label, contribution] of qualities) {
+				const card = el('label', 'fossil-sample-box ' + quality);
+				card.append(el('span', '', label));
+				const input = el('input');
+				const available = Number(quantities[quality]) || 0;
+				input.type = 'number'; input.min = '0'; input.max = String(available);
+				input.value = fossil.quality === quality && available ? '1' : '0';
+				input.dataset.contribution = String(contribution);
+				sampleInputs[quality] = input;
+				card.append(input, el('small', '', '×' + available));
+				sampleGrid.append(card);
+			}
+			const chanceValue = el('strong', '', '0%');
 			const chanceRow = el('p', 'fossil-restoration-chance');
-			chanceRow.append('Chance de restauração ', chanceValue);
-			sampleCount.addEventListener('input', () => {
-				const count = Math.max(1, Math.min(fossil.quantity, Number(sampleCount.value) || 1));
-				sampleCount.value = String(count); chanceValue.textContent = Math.min(100, count * fossil.contribution) + '%';
-			});
-			sampleRow.append(sampleCount, el('small', '', 'de ' + fossil.quantity + ' disponíveis'));
-			panel.append(sampleRow, chanceRow);
+			chanceRow.append('Chance de resta\u00e7\u00e3o ', chanceValue);
+			const updateChance = changedQuality => {
+				if (changedQuality) {
+					const input = sampleInputs[changedQuality];
+					const contribution = Number(input.dataset.contribution);
+					const usedByOthers = qualities.reduce((total, [quality]) =>
+						quality === changedQuality ? total :
+							total + Math.max(0, Math.floor(Number(sampleInputs[quality].value) || 0)) *
+							Number(sampleInputs[quality].dataset.contribution), 0);
+					const available = Number(quantities[changedQuality]) || 0;
+					const allowed = Math.max(0, Math.min(available, Math.floor((100 - usedByOthers) / contribution)));
+					input.value = String(Math.max(0, Math.min(allowed, Math.floor(Number(input.value) || 0))));
+				} else {
+					let remaining = 100;
+					for (const [quality, , contribution] of qualities) {
+						const input = sampleInputs[quality];
+						const available = Number(quantities[quality]) || 0;
+						const allowed = Math.max(0, Math.min(available, Math.floor(remaining / contribution)));
+						const count = Math.max(0, Math.min(allowed, Math.floor(Number(input.value) || 0)));
+						input.value = String(count);
+						remaining -= count * contribution;
+					}
+				}
+				let chance = 0;
+				for (const [quality] of qualities) {
+					const count = Math.max(0, Math.floor(Number(sampleInputs[quality].value) || 0));
+					chance += count * Number(sampleInputs[quality].dataset.contribution);
+				}
+				for (const [quality] of qualities) {
+					const input = sampleInputs[quality];
+					const contribution = Number(input.dataset.contribution);
+					const own = Math.max(0, Math.floor(Number(input.value) || 0));
+					const otherChance = chance - own * contribution;
+					input.max = String(Math.max(0, Math.min(Number(quantities[quality]) || 0,
+						Math.floor((100 - otherChance) / contribution))));
+				}
+				chanceValue.textContent = chance + '%';
+			};
+			for (const [quality] of qualities) {
+				sampleInputs[quality].addEventListener('input', () => updateChance(quality));
+			}
+			updateChance();
+			panel.append(sampleGrid, chanceRow);
 			const choices = el('div', 'fossil-method-choices');
-			const advancedFields = el('div', 'fossil-advanced hidden');
-			const standard = methodCard('standard', 'Padrão', 'Espécie garantida; características naturais aleatórias.', 12000, '2 dias');
+			const advancedFields = el('div', 'fossil-advanced locked');
+			const standard = methodCard('standard', 'Padrão', 'Características naturais aleatórias; respeita a chance genética.', 12000, '2 dias');
 			const advanced = methodCard('advanced', 'Avançado', 'Escolha natureza, habilidade disponível e sexo.', 30000, '4 dias');
 			standard.classList.add('selected');
+			choices.append(standard, advanced); panel.append(choices);
+
+			const randomChoice = {value: '', label: 'Aleatório'};
+			const natureChoices = [randomChoice, ...(fossil.natureDetails || fossil.natures.map(name => ({name})))
+				.map(nature => ({value: nature.name, label: nature.name, plus: nature.plus, minus: nature.minus}))];
+			const abilityChoices = [randomChoice, ...(fossil.abilityDetails || fossil.abilities.map(name => ({name})))
+				.map(ability => ({value: ability.name, label: ability.name, description: ability.description || ''}))];
+			const genderChoices = [randomChoice, ...fossil.genders.map(value => ({
+				value, label: value === 'M' ? 'Macho' : value === 'F' ? 'Fêmea' : 'Sem sexo',
+			}))];
+			const nature = richSelectField('Natureza', natureChoices, option => {
+				if (!option.value) return null;
+				const modifiers = el('span', 'fossil-rich-nature');
+				if (option.plus) modifiers.append(el('strong', 'raised', '+' + option.plus));
+				if (option.minus) modifiers.append(el('strong', 'lowered', '-' + option.minus));
+				if (!option.plus && !option.minus) modifiers.append(el('span', 'neutral', 'Sem alteração'));
+				return modifiers;
+			});
+			const ability = richSelectField('Habilidade', abilityChoices, option =>
+				option.value ? el('span', 'fossil-rich-ability-description', option.description) : null);
+			const gender = selectField('Sexo', genderChoices);
+			advancedFields.append(nature.wrap, ability.wrap, gender.wrap);
+			panel.append(advancedFields);
+
+			const updateMethodFields = () => {
+				const editable = method === 'advanced';
+				advancedFields.classList.toggle('locked', !editable);
+				nature.setDisabled(!editable); ability.setDisabled(!editable);
+				gender.select.disabled = !editable;
+				if (!editable) {
+					nature.setValue(''); ability.setValue(''); gender.select.value = '';
+				} else {
+					if (!nature.value) nature.setValue(nature.firstValue);
+					if (!ability.value) ability.setValue(ability.firstValue);
+					if (!gender.select.value && gender.select.options.length > 1) gender.select.selectedIndex = 1;
+				}
+			};
 			for (const card of [standard, advanced]) card.addEventListener('click', () => {
-				method = card.dataset.method; standard.classList.toggle('selected', method === 'standard');
+				method = card.dataset.method;
+				standard.classList.toggle('selected', method === 'standard');
 				advanced.classList.toggle('selected', method === 'advanced');
-				advancedFields.classList.toggle('hidden', method !== 'advanced');
+				updateMethodFields();
 				summaryCost.textContent = money(method === 'advanced' ? 30000 : 12000);
 				summaryTime.textContent = method === 'advanced' ? '4 dias' : '2 dias';
 			});
-			choices.append(standard, advanced); panel.append(choices);
-			const nature = selectField('Natureza', fossil.natures);
-			const ability = selectField('Habilidade', fossil.abilities);
-			const genders = fossil.genders.map(value => ({value, label: value === 'M' ? 'Macho' : value === 'F' ? 'Fêmea' : 'Sem sexo'}));
-			const gender = selectField('Sexo', genders);
-			advancedFields.append(nature.wrap, ability.wrap, gender.wrap); panel.append(advancedFields);
+			updateMethodFields();
 			const summary = el('div', 'fossil-project-summary');
 			summary.append(el('h3', '', 'Resumo do projeto'));
 			const row1 = el('p'); row1.append('Custo ', summaryCost = el('strong', '', money(12000)));
 			const row2 = el('p'); row2.append('Prazo ', summaryTime = el('strong', '', '2 dias'));
 			const start = el('button', 'button fossil-primary', 'Iniciar restauração');
-			start.addEventListener('click', () => action('start', {itemId: fossil.itemId, quality: fossil.quality,
-				sampleCount: Number(sampleCount.value), method, nature: nature.select.value,
-				ability: ability.select.value, gender: gender.select.value}));
+			start.addEventListener('click', () => action('start', {
+				itemId: fossil.itemId,
+				samples: {
+					fragmented: Number(sampleInputs.fragmented.value),
+					preserved: Number(sampleInputs.preserved.value),
+					exceptional: Number(sampleInputs.exceptional.value),
+				},
+				method, nature: nature.value, ability: ability.value, gender: gender.select.value,
+			}));
 			summary.append(row1, row2, start); panel.append(summary);
 			return panel;
 			var summaryCost, summaryTime;
@@ -201,6 +292,88 @@
 			const card = el('button', 'fossil-method'); card.dataset.method = id;
 			card.append(el('strong', '', title), el('span', '', description), el('small', '', money(cost) + ' · ' + time));
 			return card;
+		}
+		function richSelectField(label, values, decorate) {
+			const wrap = el('div', 'fossil-rich-field');
+			wrap.append(el('span', '', label));
+			const details = el('details', 'fossil-rich-select');
+			const summary = el('summary', '', 'Aleatório');
+			const list = el('div', 'fossil-rich-options');
+			let value = '';
+			const buttons = new Map();
+			for (const option of values) {
+				const button = el('button', 'fossil-rich-option');
+				button.type = 'button';
+				button.append(el('strong', '', option.label));
+				const decoration = decorate ? decorate(option) : null;
+				if (decoration) button.append(decoration);
+				button.addEventListener('click', event => {
+					event.preventDefault();
+					control.setValue(option.value);
+					details.open = false;
+				});
+				buttons.set(option.value, button);
+				list.append(button);
+			}
+			details.append(summary, list); wrap.append(details);
+			const control = {
+				wrap,
+				get value() { return value; },
+				firstValue: values.find(option => option.value)?.value || '',
+				setValue(next) {
+					value = buttons.has(next) ? next : '';
+					const option = values.find(entry => entry.value === value);
+					summary.textContent = option?.label || 'Aleatório';
+					for (const [id, button] of buttons) button.classList.toggle('selected', id === value);
+				},
+				setDisabled(disabled) {
+					details.classList.toggle('disabled', disabled);
+					details.dataset.disabled = disabled ? 'true' : 'false';
+					if (disabled) details.open = false;
+				},
+			};
+			summary.addEventListener('click', event => {
+				if (details.dataset.disabled === 'true') event.preventDefault();
+			});
+			const restoreOptions = () => {
+				if (list.parentNode !== details) details.append(list);
+				list.classList.remove('portaled');
+				list.style.left = '';
+				list.style.right = '';
+				list.style.top = '';
+				list.style.width = '';
+			};
+			const portalOptions = () => {
+				const rect = summary.getBoundingClientRect();
+				const margin = 8;
+				const width = Math.max(240, rect.width);
+				document.body.append(list);
+				list.classList.add('portaled');
+				const height = Math.min(205, list.scrollHeight);
+				const maxLeft = Math.max(margin, window.innerWidth - width - margin);
+				const left = Math.min(Math.max(margin, rect.left), maxLeft);
+				let top = rect.bottom + 3;
+				if (top + height > window.innerHeight - margin && rect.top > height + margin) {
+					top = rect.top - height - 3;
+				}
+				list.style.left = left + 'px';
+				list.style.right = 'auto';
+				list.style.top = Math.max(margin, top) + 'px';
+				list.style.width = width + 'px';
+			};
+			details.addEventListener('toggle', () => {
+				if (details.dataset.disabled === 'true') { details.open = false; restoreOptions(); return; }
+				if (details.open) {
+					for (const other of root.querySelectorAll('.fossil-rich-select[open]')) {
+						if (other !== details) other.open = false;
+					}
+					portalOptions();
+				} else {
+					restoreOptions();
+				}
+			});
+			control.setValue('');
+			return control;
 		}
 		function selectField(label, values) {
 			const wrap = el('label'); wrap.append(el('span', '', label));
@@ -220,7 +393,8 @@
 				const card = el('article', 'fossil-project' + (project.complete ? ' complete' : ''));
 				const top = el('div', 'fossil-project-top');
 				const sprite = el('img'); sprite.src = options.spriteUrl({species: project.species}); sprite.alt = '';
-				const title = el('div'); title.append(el('strong', '', project.species + ' · Nv. 1'), el('small', '', project.phase));
+				const title = el('div'); title.append(el('strong', '', project.species + ' · Nv. 1'),
+					el('small', '', project.outcome === 'failed' ? 'Restauração sem sucesso' : project.phase));
 				const remaining = el('span', 'fossil-remaining', duration(project.remainingMs));
 				top.append(sprite, title, remaining); card.append(top);
 				const progress = el('div', 'fossil-progress'); progress.append(el('i'));
@@ -230,10 +404,11 @@
 					phases.append(el('span', project.progress * 5 >= index ? 'done' : '', phase)));
 				card.append(phases);
 				if (project.complete) {
-					const receive = el('button', 'button fossil-primary', 'Receber na Box');
+					const receive = el('button', 'button fossil-primary', project.outcome === 'failed' ? 'Finalizar projeto' : 'Receber na Box');
 					receive.addEventListener('click', async () => {
 						const result = await action('receive', {projectId: project.id});
-						if (result) options.toast(result.pokemon.species + ' foi enviado para a Box.');
+						if (result?.pokemon) options.toast(result.pokemon.species + ' foi enviado para a Box.');
+						else if (result) options.toast('A restauração não obteve DNA viável.', true);
 					});
 					card.append(receive);
 				}

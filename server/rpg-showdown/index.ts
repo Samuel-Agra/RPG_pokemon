@@ -671,6 +671,7 @@ export class RPGLoginService {
 
 	startFossilRestoration(token: string, characterId: string | undefined, input: {
 		itemId: string, method: RPGFossilMethod, quality?: RPGFossilQuality, sampleCount?: number,
+		samples?: Partial<Record<RPGFossilQuality, number>>,
 		nature?: string, ability?: string, gender?: 'M' | 'F' | 'N',
 	}) {
 		const record = this.requireBagRecord(token, characterId, 'bag:edit');

@@ -89,9 +89,47 @@
 .fossil-analysis-actions { display: grid; gap: 7px; grid-template-columns: 1fr 1fr; margin-top: 12px; }
 .fossil-analysis-actions .fossil-primary { grid-column: 1 / -1; margin: 0; }
 .fossil-analysis-actions button:not(.fossil-primary) { background: #edf2f5; border: 1px solid #b7c4cc; border-radius: 5px; color: #40596c; cursor: pointer; padding: 8px; }
-.fossil-identity { align-items: center; display: grid; gap: 10px; grid-template-columns: 94px 62px 1fr; width: 100%; }
-.fossil-species-sprite { image-rendering: pixelated; max-height: 58px; max-width: 62px; }
+.fossil-identity { align-items: center; display: grid; gap: 10px; grid-template-columns: 94px 50px 1fr; width: 100%; }
+.fossil-species-sprite { image-rendering: pixelated; max-height: 86px; max-width: 94px; }
 .fossil-sample-count { align-items: center; display: grid; gap: 6px; grid-template-columns: 1fr 70px auto; margin-bottom: 5px; }
 .fossil-sample-count input { border: 1px solid #aebbc4; border-radius: 4px; padding: 6px; width: 56px; }
 .fossil-sample-count small { color: #6d7c87; }
 .fossil-restoration-chance { display: flex; justify-content: space-between; margin: 5px 0 12px; }
+
+.fossil-filters { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.fossil-filters button { min-width: 0; overflow: hidden; padding-left: 4px; padding-right: 4px; text-overflow: ellipsis; }
+.fossil-sample-grid { display: grid; gap: 7px; grid-template-columns: repeat(3, minmax(0, 1fr)); margin-bottom: 7px; }
+.fossil-sample-box { align-items: center; background: #edf2f5; border: 1px solid #bac6ce; border-radius: 6px; display: grid; gap: 4px; grid-template-columns: 1fr 52px auto; min-width: 0; padding: 7px; }
+.fossil-sample-box span { font-size: 11px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; }
+.fossil-sample-box input { border: 1px solid #aebbc4; border-radius: 4px; box-sizing: border-box; min-width: 0; padding: 5px; width: 100%; }
+.fossil-sample-box small { color: #687986; font-size: 10px; }
+@media (max-width: 1050px) { .fossil-sample-grid { grid-template-columns: repeat(3, minmax(120px, 1fr)); } }
+@media (max-width: 560px) { .fossil-sample-grid { grid-template-columns: 1fr; } }
+
+.fossil-inventory, .fossil-methods { box-sizing: border-box; height: 526px; }
+.fossil-methods { overflow-x: hidden; overflow-y: auto; scrollbar-width: thin; }
+.fossil-sample-box { grid-template-columns: minmax(0, 1fr) auto; margin-top: 6px; padding: 13px 7px 7px; position: relative; }
+.fossil-sample-box > span { background: #f8fafc; border: 1px solid #afbdc6; border-radius: 9px; left: 7px; line-height: 16px; max-width: calc(100% - 14px); padding: 0 7px; position: absolute; top: -9px; }
+.fossil-advanced.locked { opacity: .72; }
+.fossil-advanced.locked select { cursor: not-allowed; }
+@media (max-width: 720px) { .fossil-inventory, .fossil-methods { height: auto; } .fossil-inventory .fossil-list { height: 425px; } }
+
+
+.fossil-rich-field { min-width: 0; position: relative; }
+.fossil-rich-field > span { color: #5f6f7c; display: block; font-size: 11px; margin-bottom: 3px; }
+.fossil-rich-select { position: relative; }
+.fossil-rich-select summary { background: #fff; border: 1px solid #aebbc4; border-radius: 4px; box-sizing: border-box; color: #34485d; cursor: pointer; font-size: 12px; list-style: none; min-height: 29px; padding: 6px 26px 6px 7px; position: relative; }
+.fossil-rich-select summary::-webkit-details-marker { display: none; }
+.fossil-rich-select summary::after { content: "▾"; position: absolute; right: 8px; top: 5px; }
+.fossil-rich-select.disabled summary { background: #e8ecef; color: #737f88; cursor: not-allowed; }
+.fossil-rich-options { background: #fff; border: 1px solid #9eabb5; border-radius: 5px; box-shadow: 0 5px 14px #1f344633; display: grid; left: 0; max-height: 205px; min-width: 240px; overflow-y: auto; padding: 4px; position: absolute; right: 0; top: calc(100% + 3px); z-index: 15; }
+.fossil-rich-option { background: transparent; border: 0; border-radius: 4px; color: #34485d; cursor: pointer; display: grid; gap: 2px; padding: 6px 7px; text-align: left; }
+.fossil-rich-option:hover, .fossil-rich-option.selected { background: #e7eef3; }
+.fossil-rich-option > strong { font-size: 12px; }
+.fossil-rich-nature { display: flex; font-size: 10px; gap: 7px; }
+.fossil-rich-nature .raised { color: #278342; }
+.fossil-rich-nature .lowered { color: #b33b3b; }
+.fossil-rich-nature .neutral { color: #697884; font-weight: 700; }
+.fossil-rich-ability-description { color: #667681; font-size: 10px; font-weight: normal; line-height: 1.3; }
+
+.fossil-rich-options.portaled { box-sizing: border-box; position: fixed; right: auto; z-index: 10000; }

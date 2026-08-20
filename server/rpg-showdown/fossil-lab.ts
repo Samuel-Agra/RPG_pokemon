@@ -7,6 +7,7 @@ import {
 import type { RPGCharacterState } from './index';
 import { RPGBoxManagement, type RPGManagedStoredPokemon } from './box-management';
 import { getRPGItemIconPath } from './item-icons';
+import { getRPGAbilityDescriptionPTBR } from './ability-descriptions-pt-br';
 
 export type RPGFossilQuality = 'fragmented' | 'preserved' | 'exceptional';
 export type RPGFossilMethod = 'standard' | 'advanced';
@@ -37,7 +38,12 @@ export interface RPGFossilProjectState {
 	receivedAt?: number;
 	quality?: RPGFossilQuality;
 	sampleCount?: number;
+	samples?: Record<RPGFossilQuality, number>;
 	restorationChance?: number;
+	shinyDenominator?: number;
+	ivBonus?: number;
+	shiny?: boolean;
+	successful?: boolean;
 }
 
 export interface RPGFossilLabState {
@@ -139,31 +145,44 @@ export class RPGFossilLab {
 	}
 	static view(character: RPGCharacterState, now: number, random: () => number) {
 		const lab = this.ensure(character, random);
-		const natures = Dex.mod('gen9').natures.all().map(n => n.name).sort();
+		const statLabels: Record<string, string> = {
+			atk: 'Attack', def: 'Defense', spa: 'Sp. Attack', spd: 'Sp. Defense', spe: 'Speed',
+		};
+		const natureDetails = Dex.mod('gen9').natures.all().map(nature => ({
+			name: nature.name, plus: nature.plus ? statLabels[nature.plus] : undefined,
+			minus: nature.minus ? statLabels[nature.minus] : undefined,
+		})).sort((left, right) => left.name.localeCompare(right.name));
+		const natures = natureDetails.map(nature => nature.name);
 		const fossils = RPG_FOSSILS.flatMap(def => {
 			const item = RPGItems.require(def.itemId);
 			const sprite = Dex.items.get(item.id).spritenum;
 			const sample = lab.samples[def.itemId];
 			const species = def.species ? Dex.mod('gen9').species.get(def.species) : undefined;
+			const abilities = species ? [...new Set(Object.values(species.abilities).filter(Boolean))] : [];
 			const known = sample.genome >= 100;
 			return FOSSIL_QUALITIES.flatMap(quality => sample.quantities[quality] ? [{
 				...def, id: item.id, itemId: item.id, sampleKey: item.id + ':' + quality, name: item.name,
 				icon: getRPGItemIconPath(item.id), sprite: Number.isInteger(sprite) ? sprite : null,
 				quantity: sample.quantities[quality], totalQuantity: sample.trackedQuantity,
+				qualityQuantities: {...sample.quantities},
 				quality, qualityLabel: QUALITY_LABELS[quality], genome: sample.genome, genomeKnown: known,
 				analyzed: known, displaySpecies: known && species ? species.name : '???',
 				speciesId: known && species ? species.id : undefined, dnaNeeded: 10,
 				contribution: QUALITY_GENOME[quality], chance: QUALITY_GENOME[quality],
-				abilities: species ? [...new Set(Object.values(species.abilities).filter(Boolean))] : [],
-				genders: species ? this.genders(species) : [], natures,
+				abilities, abilityDetails: abilities.map(name => {
+					const ability = Dex.mod('gen9').abilities.get(name);
+					return {name: ability.name, description: getRPGAbilityDescriptionPTBR(ability.id)};
+				}),
+				genders: species ? this.genders(species) : [], natures, natureDetails,
 				sellPrice: Math.round((item.price?.sell || 0) * QUALITY_PRICE[quality]),
 			}] : []);
 		});
 		const projects = lab.projects.filter(p => !p.receivedAt).map(project => {
+			const { successful, shiny, ...publicProject } = project;
 			const duration = project.durationMs ?? Math.max(1, project.completesAt - project.startedAt);
 			project.durationMs = duration; project.remainingMs ??= Math.max(0, project.completesAt - now);
 			const progress = Math.max(0, Math.min(1, 1 - project.remainingMs / duration));
-			return {...project, progress, phase: PHASES[progress >= 1 ? 5 : Math.min(4, Math.floor(progress * 5))],
+			return {...publicProject, progress, outcome: progress >= 1 ? (successful === false ? 'failed' : 'success') : 'pending', phase: PHASES[progress >= 1 ? 5 : Math.min(4, Math.floor(progress * 5))],
 				complete: progress >= 1, remainingMs: project.remainingMs};
 		});
 		const archive = RPG_FOSSILS.filter(f => f.species).map(def => {
@@ -188,6 +207,7 @@ export class RPGFossilLab {
 	}
 	static start(character: RPGCharacterState, input: {
 		itemId: string, method: RPGFossilMethod, quality?: RPGFossilQuality, sampleCount?: number,
+		samples?: Partial<Record<RPGFossilQuality, number>>,
 		nature?: string, ability?: string, gender?: 'M' | 'F' | 'N',
 	}, now: number, random: () => number, id: string): void {
 		const fossil = this.requireFossil(input.itemId);
@@ -195,10 +215,26 @@ export class RPGFossilLab {
 		const lab = this.ensure(character, random), sample = lab.samples[fossil.itemId];
 		if (sample.genome < 100) throw new Error('Conclua 100% do genoma antes de iniciar a restauração');
 		if (!['standard', 'advanced'].includes(input.method)) throw new Error('Método de restauração inválido');
-		const quality = this.resolveQuality(sample, input.quality);
-		const sampleCount = Math.max(1, Math.floor(input.sampleCount || 1));
-		if (sampleCount > sample.quantities[quality]) throw new Error('Amostras insuficientes deste grau');
-		const restorationChance = Math.min(100, sampleCount * QUALITY_GENOME[quality]);
+		const samples = this.emptyQuantities();
+		if (input.samples) {
+			for (const quality of FOSSIL_QUALITIES) {
+				samples[quality] = Math.max(0, Math.floor(Number(input.samples[quality]) || 0));
+			}
+		} else {
+			const quality = this.resolveQuality(sample, input.quality);
+			samples[quality] = Math.max(1, Math.floor(input.sampleCount || 1));
+		}
+		const sampleCount = FOSSIL_QUALITIES.reduce((total, quality) => total + samples[quality], 0);
+		if (!sampleCount) throw new Error('Selecione ao menos uma amostra');
+		for (const quality of FOSSIL_QUALITIES) {
+			if (samples[quality] > sample.quantities[quality]) throw new Error('Amostras insuficientes deste grau');
+		}
+		const geneticContribution = FOSSIL_QUALITIES.reduce(
+			(total, quality) => total + samples[quality] * QUALITY_GENOME[quality], 0);
+		if (geneticContribution > 100) throw new Error('As amostras selecionadas ultrapassam 100% do DNA necess\u00e1rio');
+		const restorationChance = geneticContribution;
+		const shinyDenominator = Math.max(1, 4096 - samples.exceptional * 1000 - samples.preserved * 100);
+		const ivBonus = Math.min(31, samples.exceptional * 5 + samples.preserved);
 		const cost = input.method === 'advanced' ? 30_000 : 12_000;
 		if (character.money < cost) throw new Error('Pokécoins insuficientes');
 		const species = Dex.mod('gen9').species.get(fossil.species);
@@ -212,12 +248,14 @@ export class RPGFossilLab {
 			gender = input.gender;
 			if (!gender || !this.genders(species).includes(gender)) throw new Error('Sexo inválido para esta espécie');
 		}
-		this.consume(character, fossil.itemId, quality, sampleCount, random);
+		this.consumeSamples(character, fossil.itemId, samples, random);
 		character.money -= cost; sample.restored++;
 		const durationMs = (input.method === 'advanced' ? 4 : 2) * 86_400_000;
 		lab.projects.push({id, itemId: fossil.itemId, species: species.name, method: input.method,
 			startedAt: now, completesAt: now + durationMs, durationMs, remainingMs: durationMs,
-			integrity: restorationChance, quality, sampleCount, restorationChance, nature, ability, gender});
+			integrity: restorationChance, sampleCount, samples, restorationChance, shinyDenominator, ivBonus,
+			successful: random() < restorationChance / 100, shiny: random() < 1 / shinyDenominator,
+			nature, ability, gender});
 	}
 	static donate(character: RPGCharacterState, itemId: string, quality: RPGFossilQuality | undefined,
 		random: () => number): void {
@@ -233,10 +271,11 @@ export class RPGFossilLab {
 		const value = Math.round((item.price?.sell || 0) * QUALITY_PRICE[q]);
 		character.money += value; lab.samples[fossil.itemId].sold++; return value;
 	}
-	static receive(character: RPGCharacterState, projectId: string, now: number, random: () => number): RPGCapturedPokemon {
+	static receive(character: RPGCharacterState, projectId: string, now: number, random: () => number): RPGCapturedPokemon | null {
 		const lab = this.ensure(character, random), project = lab.projects.find(p => p.id === projectId);
 		if (!project || project.receivedAt) throw new Error('Projeto de restauração indisponível');
 		if ((project.remainingMs ?? Math.max(0, project.completesAt - now)) > 0) throw new Error('A restauração ainda não foi concluída');
+		if (project.successful === false) { project.receivedAt = now; return null; }
 		const pokemon = this.createPokemon(project, random);
 		RPGBoxManagement.insert(character, {pokemonId: character.id + ':fossil:' + project.id, pokemon,
 			metadata: {ot: character.characterName, training: 'none'}});
@@ -256,11 +295,26 @@ export class RPGFossilLab {
 	}
 	private static consume(character: RPGCharacterState, itemId: string, quality: RPGFossilQuality,
 		quantity: number, random: () => number): void {
+		const quantities = this.emptyQuantities();
+		quantities[quality] = quantity;
+		this.consumeSamples(character, itemId, quantities, random);
+	}
+	private static consumeSamples(character: RPGCharacterState, itemId: string,
+		quantities: Record<RPGFossilQuality, number>, random: () => number): void {
 		const sample = this.ensure(character, random).samples[itemId];
-		if (sample.quantities[quality] < quantity) throw new Error('Amostras insuficientes deste grau');
+		let total = 0;
+		for (const quality of FOSSIL_QUALITIES) {
+			const quantity = Math.max(0, Math.floor(quantities[quality] || 0));
+			if (sample.quantities[quality] < quantity) throw new Error('Amostras insuficientes deste grau');
+			total += quantity;
+		}
+		if (!total) throw new Error('Selecione ao menos uma amostra');
 		character.inventory = {...character.inventory, bag: RPGBagSystem.remove(
-			character.inventory.bag, itemId, quantity, character.inventory.bag.revision).bag};
-		sample.quantities[quality] -= quantity; sample.trackedQuantity -= quantity;
+			character.inventory.bag, itemId, total, character.inventory.bag.revision).bag};
+		for (const quality of FOSSIL_QUALITIES) {
+			sample.quantities[quality] -= Math.max(0, Math.floor(quantities[quality] || 0));
+		}
+		sample.trackedQuantity -= total;
 	}
 	private static takeRandomFromSample(sample: RPGFossilSampleState, quantity: number, random: () => number) {
 		if (!Number.isSafeInteger(quantity) || quantity < 0 || quantity > sample.trackedQuantity) throw new Error('Quantidade de fósseis inválida');
@@ -300,10 +354,11 @@ export class RPGFossilLab {
 		const nature = project.nature || natures[Math.floor(random() * natures.length)].name;
 		const ability = project.ability || abilities[Math.floor(random() * abilities.length)];
 		const gender = project.gender || genders[Math.floor(random() * genders.length)];
-		return {name: species.name, species: species.name, level: 1, gender, shiny: false, item: '', ability, nature,
+		const ivBonus = Math.max(0, Math.min(31, Math.floor(project.ivBonus || 0)));
+		return {name: species.name, species: species.name, level: 1, gender, shiny: !!project.shiny, item: '', ability, nature,
 			moves, evs: {hp: values[0] * 4, atk: values[1] * 4, def: values[2] * 4,
 				spa: values[3] * 4, spd: values[4] * 4, spe: values[5] * 4},
-			ivs: {hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0},
+			ivs: {hp: ivBonus, atk: ivBonus, def: ivBonus, spa: ivBonus, spd: ivBonus, spe: ivBonus},
 			rpg: {version: RPG_STATE_VERSION, level: 1, friendship: 50, item: '', captureBall: 'pokeball',
 				experience: getSpeciesExperience(species.id) ? 0 : undefined}};
 	}

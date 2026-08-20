@@ -535,6 +535,11 @@ export class RPGHttpServer {
 						itemId: this.string(body.itemId), method: this.string(body.method) as 'standard' | 'advanced',
 						quality: typeof body.quality === 'string' ? body.quality as import('./fossil-lab').RPGFossilQuality : undefined,
 						sampleCount: Number.isSafeInteger(Number(body.sampleCount)) ? Number(body.sampleCount) : undefined,
+						samples: body.samples && typeof body.samples === 'object' ? {
+							fragmented: Number((body.samples as Record<string, unknown>).fragmented),
+							preserved: Number((body.samples as Record<string, unknown>).preserved),
+							exceptional: Number((body.samples as Record<string, unknown>).exceptional),
+						} : undefined,
 						nature: typeof body.nature === 'string' ? body.nature : undefined,
 						ability: typeof body.ability === 'string' ? body.ability : undefined,
 						gender: typeof body.gender === 'string' ? body.gender as 'M' | 'F' | 'N' : undefined,

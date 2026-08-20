@@ -25,10 +25,22 @@ describe('RPG fossil restoration laboratory frontend', () => {
 	it('renders restoration, archive, locked research, project progress and responsive layout', () => {
 		for (const expected of [
 			'Restauração', 'Arquivo Paleontológico', 'Pesquisa Experimental',
-			'Iniciar restauração', 'Doar à pesquisa', 'Receber na Box',
+			'Iniciar restauração', 'Fragm.', 'Pres.', 'Excep.', 'Genoma conhecido',
+			'Receber na Box',
 		]) assert(ui.includes(expected), expected);
 		assert(css.includes('@media (max-width: 720px)'));
 		assert(css.includes('.fossil-progress'));
+		assert(css.includes('height: 425px'));
+		assert(ui.includes('samples: {'));
+		assert(ui.includes('identity.append(pokemon, fossilSprite, names)'));
+		assert(css.includes('.fossil-sample-grid'));
+		assert(ui.includes("label: 'Aleatório'"));
+		assert(ui.includes('richSelectField'));
+		assert(ui.includes('fossil-rich-nature'));
+		assert(ui.includes('fossil-rich-ability-description'));
+		assert(ui.includes('100 - usedByOthers'));
+		assert(css.includes('.fossil-rich-options'));
+		assert(css.includes('.fossil-rich-nature .raised'));
 	});
 
 	it('preserves page and fossil-list scroll positions when repainting a selection', () => {
