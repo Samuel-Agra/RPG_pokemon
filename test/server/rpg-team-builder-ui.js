@@ -37,10 +37,20 @@ describe('RPG Team Builder frontend', () => {
 		assert.doesNotMatch(box, /A pÃ¯Â¿Â½gina TeamBulder serÃ¯Â¿Â½ criada/);
 	});
 
+	it('shows a carried Egg as a read-only Team Builder member', () => {
+		assert.match(rpg, /const eggTeam = teamEggs\(character\)\.map/);
+		assert.match(rpg, /pokemonId: 'egg:' \+ egg\.eggId/);
+		assert.match(teamBuilder, /if \(deps\.selectedEgg\)/);
+		assert.match(teamBuilder, /deps\.spriteUrl\(\{species: 'Egg'\}\)/);
+		assert.match(teamBuilder, /for \(const label of \['Shiny', 'Gênero', 'Level', 'XP'\]\)/);
+		assert.match(teamBuilder, /Parece que tem algo se mexendo\./);
+		assert.match(css, /\.team-builder-egg-message/);
+	});
 	it('keeps a Box Pokemon selected in read-only mode until a party Pokemon is chosen', () => {
 		assert.match(rpg, /const canKeepBoxSelection = state\.teamBuilderReturnView === 'box'/);
-		assert.match(rpg, /const boxPokemonReadOnly = !team\.some/);
-		assert.match(rpg, /readOnly: boxPokemonReadOnly/);
+		assert.match(rpg, /const selectedEgg = eggTeam\.find/);
+		assert.match(rpg, /const boxPokemonReadOnly = !selectedEgg && !pokemonTeam\.some/);
+		assert.match(rpg, /readOnly: !!selectedEgg \|\| boxPokemonReadOnly/);
 		assert.match(teamBuilder, /const isReadOnly = \(\) => deps\.readOnly === true \|\| data\?\.readOnly === true/);
 		assert.match(teamBuilder, /button\('Box →', 'team-builder-box-origin'\)/);
 		assert.match(teamBuilder, /toolbar\.append\(boxOrigin\)/);

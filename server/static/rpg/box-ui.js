@@ -159,13 +159,18 @@
 	function teamPanel(deps, view) {
 		const panel = el('section', 'panel box-team-panel');
 		const heading = el('div', 'box-section-heading');
-		heading.append(el('h2', '', 'Equipe atual'), el('span', 'tag', view.team.length + ' / 6'));
+		const eggs = Array.isArray(deps.teamEggs) ? deps.teamEggs : [];
+		const teamUsed = view.team.length + eggs.length;
+		heading.append(el('h2', '', 'Equipe atual'), el('span', 'tag', teamUsed + ' / 6'));
 		panel.append(heading);
 		const grid = el('div', 'box-team-grid');
 		const byPosition = new Map(view.team.map(pokemon => [pokemon.location.position, pokemon]));
+		const eggsByPosition = new Map(eggs.map((egg, index) => [view.team.length + index, egg]));
 		for (let position = 0; position < 6; position++) {
 			const pokemon = byPosition.get(position);
-			const slot = button('', 'box-team-slot ' + (pokemon ? 'occupied' : 'empty'));
+			const egg = eggsByPosition.get(position);
+			const slot = button('', 'box-team-slot ' + (pokemon || egg ? 'occupied' : 'empty') +
+				(egg ? ' box-team-egg-slot' : ''));
 			slot.append(el('span', 'box-team-number', String(position + 1)));
 			if (pokemon) {
 				slot.dataset.pokemonId = pokemon.pokemonId;
@@ -177,6 +182,11 @@
 				});
 				draggable(slot, pokemon.pokemonId);
 				droppable(slot, deps, view, { destination: 'party', position });
+			} else if (egg) {
+				const image = pokemonImage(deps, {name: 'Egg', species: 'Egg'});
+				slot.append(image, el('strong', '', 'Egg'), el('small', 'box-egg-locked', 'Não pode ser movido'));
+				slot.disabled = true;
+				slot.setAttribute('aria-label', 'Egg no slot ' + (position + 1) + '. Não pode ser movido para a Box.');
 			} else {
 				slot.append(el('span', 'box-empty-label', 'Adicionar'));
 				droppable(slot, deps, view, { destination: 'party', position });
@@ -550,13 +560,13 @@
 		const panel = el('div', 'panel box-action-picker box-secondary-window');
 		panel.append(el('h3', '', 'Enviar ' + pokemon.name + ' para'));
 		const list = el('div', 'box-destination-list');
-		const teamFull = view.team.length >= 6;
+		const teamFull = view.team.length + (deps.teamEggs?.length || 0) >= 6;
 		const inTeam = pokemon.location.destination === 'party';
 		const teamChoice = button('', 'box-destination' +
 			(teamFull ? ' full' : '') + (inTeam ? ' current' : ''));
 		teamChoice.append(
 			el('strong', '', 'Equipe'),
-			el('small', '', teamFull ? 'Equipe cheia' : view.team.length + ' / 6')
+			el('small', '', teamFull ? 'Equipe cheia' : (view.team.length + (deps.teamEggs?.length || 0)) + ' / 6')
 		);
 		teamChoice.disabled = teamFull || inTeam;
 		teamChoice.addEventListener('click', () => void move(deps, view, pokemon.pokemonId, {

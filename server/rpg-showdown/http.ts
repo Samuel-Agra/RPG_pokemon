@@ -131,7 +131,7 @@ export class RPGHttpServer {
 			const body = await this.body(req);
 			this.json(res, 200, { character: this.login.setCharacterPageAccess(
 				this.token(req), this.string(body.characterId),
-				this.string(body.page) as 'bag' | 'box' | 'training' | 'center', body.allowed === true
+				this.string(body.page) as 'bag' | 'box' | 'training' | 'center' | 'fossils' | 'nursery', body.allowed === true
 			) });
 			return;
 		}
@@ -514,6 +514,51 @@ export class RPGHttpServer {
 			return;
 		}
 
+		if (method === 'GET' && url.pathname === '/api/rpg/nursery') {
+			this.json(res, 200, {nursery: this.login.getNursery(
+				this.token(req), url.searchParams.get('characterId') || undefined
+			)});
+			return;
+		}
+		const nurseryAction = new RegExp('^/api/rpg/nursery/(create|accept|confirm|cancel|collect|insert|remove|hatch)$').exec(url.pathname);
+		if (method === 'POST' && nurseryAction) {
+			const body = await this.body(req);
+			const characterId = typeof body.characterId === 'string' ? body.characterId : undefined;
+			let result;
+			switch (nurseryAction[1]) {
+			case 'create':
+				result = {nursery: this.login.createNurseryProject(
+					this.token(req), characterId, this.string(body.pokemonId)
+				)};
+				break;
+			case 'accept':
+				result = {nursery: this.login.acceptNurseryInvitation(
+					this.token(req), this.string(body.projectId), this.string(body.pokemonId)
+				)};
+				break;
+			case 'confirm':
+				result = {nursery: this.login.confirmNurseryProject(this.token(req), this.string(body.projectId))};
+				break;
+			case 'cancel':
+				result = {nursery: this.login.cancelNurseryProject(this.token(req), this.string(body.projectId))};
+				break;
+			case 'collect':
+				result = {nursery: this.login.collectNurseryEgg(this.token(req), this.string(body.projectId))};
+				break;
+			case 'insert':
+				result = {nursery: this.login.insertNurseryEgg(
+					this.token(req), this.string(body.eggId), this.string(body.incubatorId)
+				)};
+				break;
+			case 'remove':
+				result = {nursery: this.login.removeNurseryEgg(this.token(req), this.string(body.eggId))};
+				break;
+			default:
+				result = this.login.hatchNurseryEgg(this.token(req), this.string(body.eggId));
+			}
+			this.json(res, 200, result);
+			return;
+		}
 		if (method === 'GET' && url.pathname === '/api/rpg/fossil-lab') {
 			this.json(res, 200, { fossilLab: this.login.getFossilLab(
 				this.token(req), url.searchParams.get('characterId') || undefined

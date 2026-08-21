@@ -16,9 +16,10 @@ const ORIGINAL_RPG_ITEM_ICONS = new Set([
 	'pearl', 'bigpearl', 'pearlstring',
 	'stardust', 'starpiece', 'cometshard', 'nugget',
 	'tinybambooshoot', 'bigbambooshoot', 'abilitycapsule', 'abilitypatch',
+	'portableincubator',
 ]);
 
-const RPG_ITEM_ICON_VERSION = '20260815-1';
+const RPG_ITEM_ICON_VERSION = '20260821-1';
 
 const RPG_TM_ICON_TYPES = new Set([
 	'normal', 'fire', 'water', 'electric', 'grass', 'ice', 'fighting', 'poison',

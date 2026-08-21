@@ -487,6 +487,17 @@ const irrelevantRareItems: RPGItemDefinition[] = [
 	usableInBattle: false, consumedOnUse: false, source: 'showdown',
 	effect: { type: 'treasure', description }, tags: ['treasure', 'rare', 'rpg-irrelevant', 'sell-only'],
 }));
+const keyItems: RPGItemDefinition[] = [
+	{
+		id: 'portableincubator', name: 'Incubadora Portátil', category: 'key', stackLimit: 6,
+		usableInBattle: false, consumedOnUse: false, source: 'rpg',
+		effect: {
+			type: 'portable-incubator',
+			description: 'Uma incubadora portátil com câmara de vidro para proteger um Ovo durante a incubação.',
+		},
+		tags: ['key-item', 'incubator', 'nursery'],
+	},
+];
 const gen9Price = (buy?: number, sell?: number): RPGItemPrice => ({
 	currency: 'pokedollar',
 	source: 'gen9-sv',
@@ -764,6 +775,7 @@ export const RPG_BALANCED_ITEM_PRICES: Readonly<Record<string, RPGItemPrice>> = 
 	elixir: balancedPrice(3000, 750),
 	maxelixir: balancedPrice(4000, 1000),
 	sacredash: balancedPrice(100000, 25000),
+	portableincubator: balancedPrice(50000, 12500),
 });
 
 export const RPG_DEFAULT_ITEM_PRICES: Readonly<Record<string, RPGItemPrice>> = Object.freeze({
@@ -783,5 +795,6 @@ export const RPG_DEFAULT_ITEMS: readonly RPGItemDefinition[] = Object.freeze([
 	...fossilItems,
 	...treasureItems,
 	...irrelevantRareItems,
+	...keyItems,
 	...RPG_GEN9_TECHNICAL_MACHINES,
 ].map(item => ({ ...item, price: RPG_DEFAULT_ITEM_PRICES[item.id] })));

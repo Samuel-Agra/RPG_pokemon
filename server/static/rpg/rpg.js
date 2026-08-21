@@ -523,14 +523,17 @@ function dashboardNav(isMaster) {
 	const bagBlocked = !masterViewingPlayer && state.currentCharacter?.pageAccess?.bag === false;
 	const boxBlocked = !masterViewingPlayer && state.currentCharacter?.pageAccess?.box === false;
 	const centerBlocked = !masterViewingPlayer && state.currentCharacter?.pageAccess?.center === false;
+	const fossilsBlocked = !masterViewingPlayer && state.currentCharacter?.pageAccess?.fossils === false;
+	const nurseryBlocked = !masterViewingPlayer && state.currentCharacter?.pageAccess?.nursery === false;
 	const entries = isMaster ? [
 		['overview', 'Vis\u00e3o geral'], ['players', 'Jogadores'], ['battles', 'Batalhas'],
-		['npcs', 'NPCs e selvagens'], ['tournaments', 'Torneios'],
+		['npcs', 'NPCs e selvagens'], ['tournaments', 'Torneios'], ['nursery', 'Berçário'],
 	] : [
 		['overview', 'Vis\u00e3o geral'], ['team', 'Equipe'],
 		['team-builder', 'Team Builder'],
 		['center', 'Centro Pokémon', centerBlocked],
-		['fossils', 'Paleontologia', bagBlocked],
+		['fossils', 'Paleontologia', fossilsBlocked],
+		['nursery', 'Berçário', nurseryBlocked],
 		['bag', 'Bag', bagBlocked],
 		['box', 'Box', boxBlocked],
 		['battles', 'Batalhas'],
@@ -558,8 +561,16 @@ function formatMoney(value) {
 	return new Intl.NumberFormat('pt-BR').format(value || 0) + ' \u20bd';
 }
 
+function teamEggs(character) {
+	return Array.isArray(character.teamEggs) ? character.teamEggs : [];
+}
+
+function teamUsed(character) {
+	return (character.team?.length || 0) + teamEggs(character).length;
+}
+
 function bagUsed(character) {
-	return character.inventory?.bag?.items?.length || 0;
+	return (character.inventory?.bag?.items?.length || 0) + teamEggs(character).length * 5;
 }
 
 function boxCapacity(character) {
@@ -574,7 +585,7 @@ function renderStats(character) {
 	const grid = createElement('div', 'stat-grid');
 	const stats = [
 		['Pokécoins', formatMoney(character.money)],
-		['Equipe', (character.team?.length || 0) + ' / 6'],
+		['Equipe', teamUsed(character) + ' / 6'],
 		['Bag', bagUsed(character) + ' / ' + (character.inventory?.bag?.maxSlots || 0)],
 		['Box', boxCapacity(character) + ' espa\u00e7os'],
 	];
@@ -629,7 +640,19 @@ function renderPlayerBody(character) {
 		row.append(info, createElement('span', 'tag', pokemon.gender || 'N'), builder);
 		list.append(row);
 	}
-	if (!list.children.length) list.append(createElement('p', '', 'Nenhum Pok\u00e9mon na equipe.'));
+
+	for (const egg of teamEggs(character)) {
+		const row = createElement('div', 'pokemon-row pokemon-egg-row');
+		const frame = createElement('div', 'pokemon-sprite pokemon-egg-sprite');
+		frame.append(spriteImage({species: 'Egg'}));
+		const info = createElement('div', 'pokemon-info');
+		info.append(createElement('strong', '', 'Egg'));
+		const status = egg.status === 'ready_to_hatch' ? 'Pronto para chocar' :
+			egg.status === 'incubating' ? 'Incubando · ' + egg.progress + '%' : 'Sendo carregado';
+		info.append(createElement('small', '', status + ' · ocupa 1 vaga da equipe e 5 espaços da Bag'));
+		row.append(frame, info, createElement('span', 'tag', 'OVO'));
+		list.append(row);
+	}	if (!list.children.length) list.append(createElement('p', '', 'Nenhum Pok\u00e9mon na equipe.'));
 	team.body.append(list);
 	root.append(team.panel);
 
@@ -649,7 +672,7 @@ function openTeamBuilder(pokemonId, returnView = state.dashboardView) {
 
 async function renderPlayerBox(character) {
 	return window.RPGBoxUI.render({
-		api, characterId: character.id, isMaster: state.session.role === 'master',
+		api, characterId: character.id, isMaster: state.session.role === 'master', teamEggs: teamEggs(character),
 		refresh: renderDashboard, toast: showToast, openTeamBuilder,
 		spriteUrl: pokemon => spriteUrl(pokemon),
 	});
@@ -661,11 +684,21 @@ async function renderFossilLab(character) {
 		spriteUrl: pokemon => spriteUrl(pokemon),
 	});
 }
+async function renderNursery(character = null) {
+	return window.RPGNurseryUI.render({
+		api, characterId: character?.id, toast: showToast,
+		spriteUrl: pokemon => spriteUrl(pokemon),
+	});
+}
 async function renderPlayerTeamBuilder(character) {
-	const team = (character.team || []).slice(0, 6).map((pokemon, index) => ({
+	const pokemonTeam = (character.team || []).slice(0, 6).map((pokemon, index) => ({
 		...pokemon,
 		pokemonId: character.box?.party?.[index]?.pokemonId,
 	}));
+	const eggTeam = teamEggs(character).map(egg => ({
+		...egg, pokemonId: 'egg:' + egg.eggId, name: 'Egg', species: 'Egg', virtualEgg: true,
+	}));
+	const team = [...pokemonTeam, ...eggTeam].slice(0, 6);
 	const selectedInTeam = team.some(pokemon => pokemon.pokemonId === state.teamBuilderPokemonId);
 	const canKeepBoxSelection = state.teamBuilderReturnView === 'box' && !!state.teamBuilderPokemonId;
 	if (!state.teamBuilderPokemonId || (!selectedInTeam && !canKeepBoxSelection)) {
@@ -674,10 +707,11 @@ async function renderPlayerTeamBuilder(character) {
 	if (!state.teamBuilderPokemonId) {
 		return createElement('div', 'panel empty-state', 'Nenhum Pokémon disponível na equipe.');
 	}
-	const boxPokemonReadOnly = !team.some(pokemon => pokemon.pokemonId === state.teamBuilderPokemonId);
+	const selectedEgg = eggTeam.find(egg => egg.pokemonId === state.teamBuilderPokemonId);
+	const boxPokemonReadOnly = !selectedEgg && !pokemonTeam.some(pokemon => pokemon.pokemonId === state.teamBuilderPokemonId);
 	return window.RPGTeamBuilderUI.render({
-		api, characterId: character.id, pokemonId: state.teamBuilderPokemonId, team,
-		readOnly: boxPokemonReadOnly, isMaster: state.session.role === 'master', toast: showToast,
+		api, characterId: character.id, pokemonId: state.teamBuilderPokemonId, team, selectedEgg,
+		readOnly: !!selectedEgg || boxPokemonReadOnly, isMaster: state.session.role === 'master', toast: showToast,
 		spriteUrl: pokemon => spriteUrl(pokemon),
 		switchPokemon: pokemonId => {
 			state.teamBuilderPokemonId = pokemonId;
@@ -1355,7 +1389,8 @@ function renderMasterBody(characters) {
 				const data = await api('/campaign/time/advance', { method: 'POST', body: { hours } });
 				const time = data.time;
 				showToast('Campanha avançada em ' + hours + 'h · ' +
-					time.trainings.completed + ' treinamento(s) e ' + time.fossils.completed + ' fóssil(is) concluído(s).');
+					time.trainings.completed + ' treinamento(s), ' + time.fossils.completed + ' fóssil(is), ' +
+					time.breedings.completed + ' ovo(s) produzido(s) e ' + time.incubations.completed + ' incubação(ões) concluída(s).');
 				await renderDashboard();
 			} catch (error) {
 				for (const control of clockActions.querySelectorAll('button')) control.disabled = false;
@@ -1380,7 +1415,7 @@ function renderMasterBody(characters) {
 		));
 		const actions = createElement('div', 'master-row-actions');
 		const permissions = createElement('div', 'master-page-access');
-		for (const [page, label] of [['box', 'Box'], ['bag', 'Bag'], ['training', 'Treinamento'], ['center', 'Centro Pokémon']]) {
+		for (const [page, label] of [['box', 'Box'], ['bag', 'Bag'], ['training', 'Treinamento'], ['center', 'Centro Pokémon'], ['fossils', 'Paleontologia'], ['nursery', 'Berçário']]) {
 			const allowed = character.pageAccess?.[page] !== false;
 			const toggle = button(
 				(allowed ? '✓ ' : '✕ ') + label,
@@ -1512,7 +1547,7 @@ async function renderDashboard() {
 
 	try {
 		if (isMasterMode) {
-			$('.dashboard-heading').classList.remove('hidden');
+			$('.dashboard-heading').classList.toggle('hidden', state.dashboardView === 'nursery');
 			const data = await api('/characters/all');
 			const characters = data.characters;
 			state.campaignCharacters = characters;
@@ -1524,9 +1559,13 @@ async function renderDashboard() {
 			$('#dashboard-title').textContent = state.dashboardView === 'battles' ? 'Prepara\u00e7\u00e3o de batalhas' : 'Vis\u00e3o geral da campanha';
 			$('#dashboard-description').textContent = state.dashboardView === 'battles' ? 'Monte o confronto, envie convites e aguarde as confirma\u00e7\u00f5es.' : 'Acompanhe personagens, equipes, recursos e batalhas.';
 			$('#view-banner').classList.add('hidden');
-			body.replaceChildren(state.dashboardView === 'battles' ? await renderMasterBattles(characters) : renderMasterBody(characters));
+			body.replaceChildren(
+				state.dashboardView === 'battles' ? await renderMasterBattles(characters) :
+				state.dashboardView === 'nursery' ? await renderNursery() :
+				renderMasterBody(characters)
+			);
 		} else {
-			$('.dashboard-heading').classList.toggle('hidden', ['overview', 'team', 'box', 'bag', 'team-builder', 'center', 'fossils'].includes(state.dashboardView));
+			$('.dashboard-heading').classList.toggle('hidden', ['overview', 'team', 'box', 'bag', 'team-builder', 'center', 'fossils', 'nursery'].includes(state.dashboardView));
 			const data = await api('/character');
 			const character = data.character;
 			state.currentCharacter = character;
@@ -1547,6 +1586,7 @@ async function renderDashboard() {
 				state.dashboardView === 'team-builder' ? await renderPlayerTeamBuilder(character) :
 				state.dashboardView === 'center' ? await renderPokemonCenter(character) :
 				state.dashboardView === 'fossils' ? await renderFossilLab(character) :
+				state.dashboardView === 'nursery' ? await renderNursery(character) :
 				renderPlayerBody(character);
 			body.replaceChildren(playerView);
 		}

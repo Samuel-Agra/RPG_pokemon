@@ -131,6 +131,56 @@
 	}
 	async function render(deps) {
 		const root = el('div', 'team-builder-page');
+		if (deps.selectedEgg) {
+			root.classList.add('read-only', 'team-builder-egg-view');
+			const strip = el('section', 'panel team-builder-team-strip');
+			const slots = el('div', 'team-builder-team-slots');
+			for (let index = 0; index < 6; index++) {
+				const member = deps.team?.[index];
+				if (!member?.pokemonId) {
+					const empty = el('span', 'team-builder-team-slot empty');
+					empty.setAttribute('aria-label', 'Espaço vazio ' + (index + 1));
+					slots.append(empty);
+					continue;
+				}
+				const slot = button('', 'team-builder-team-slot' +
+					(member.virtualEgg ? ' team-builder-team-egg-slot' : '') +
+					(member.pokemonId === deps.pokemonId ? ' active' : ''));
+				const sprite = el('img');
+				sprite.src = deps.spriteUrl(member);
+				sprite.alt = member.virtualEgg ? 'Egg' : (member.species || member.name);
+				slot.append(sprite, el('strong', '', member.name || member.species),
+					el('small', '', member.virtualEgg ? 'Lv. ?' : 'Lv. ' + (member.level || 1)));
+				slot.addEventListener('click', () => {
+					if (member.pokemonId !== deps.pokemonId) deps.switchPokemon(member.pokemonId);
+				});
+				slots.append(slot);
+			}
+			strip.append(slots);
+			const card = el('section', 'panel team-builder-showdown-card team-builder-egg-card');
+			const toolbar = el('div', 'team-builder-showdown-toolbar');
+			const nicknameBox = el('div', 'team-builder-nickname-box team-builder-egg-nickname-box');
+			nicknameBox.append(el('span', '', 'Apelido'), el('strong', 'team-builder-egg-nickname', 'Egg'));
+			const detailGrid = el('div', 'team-builder-detail-grid');
+			for (const label of ['Shiny', 'Gênero', 'Level', 'XP']) {
+				const cell = el('div', 'team-builder-detail-cell');
+				cell.append(el('small', '', label), el('strong', '', '?'));
+				detailGrid.append(cell);
+			}
+			toolbar.append(nicknameBox, detailGrid);
+			const body = el('div', 'team-builder-showdown-body team-builder-egg-body');
+			const portrait = el('div', 'team-builder-portrait');
+			const sprite = el('img', 'team-builder-large-sprite team-builder-large-egg-sprite');
+			sprite.src = deps.spriteUrl({species: 'Egg'});
+			sprite.alt = 'Egg';
+			portrait.append(sprite, el('strong', '', 'Egg'));
+			const message = el('div', 'team-builder-egg-message');
+			message.append(el('p', '', 'Parece que tem algo se mexendo.'));
+			body.append(portrait, message);
+			card.append(toolbar, body);
+			root.append(strip, card);
+			return root;
+		}
 		let data;
 		const isReadOnly = () => deps.readOnly === true || data?.readOnly === true;
 		let draftMoves = [];
@@ -273,6 +323,7 @@
 					continue;
 				}
 				const slot = button('', 'team-builder-team-slot' +
+					(pokemon.virtualEgg ? ' team-builder-team-egg-slot' : '') +
 					(pokemon.pokemonId === deps.pokemonId ? ' active' : ''));
 				const sprite = el('img');
 				sprite.src = deps.spriteUrl(pokemon);
@@ -280,7 +331,7 @@
 				slot.append(
 					sprite,
 					el('strong', '', pokemon.name || pokemon.species),
-					el('small', '', 'Lv. ' + (pokemon.level || 1))
+					el('small', '', pokemon.virtualEgg ? 'Lv. ?' : 'Lv. ' + (pokemon.level || 1))
 				);
 				slot.addEventListener('click', () => {
 					if (pokemon.pokemonId !== deps.pokemonId) deps.switchPokemon(pokemon.pokemonId);

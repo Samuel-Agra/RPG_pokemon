@@ -856,6 +856,17 @@ export class RPGBoxManagement {
 		this.commit(character);
 	}
 
+	static insertParty(character: RPGBoxCharacterData, entry: RPGManagedStoredPokemon): void {
+		if (!entry || typeof entry.pokemonId !== 'string' || !entry.pokemonId.trim() || !entry.pokemon) {
+			throw new Error('Invalid RPG Box Pokemon');
+		}
+		if (character.box.party.length >= 6) throw new Error('A equipe está cheia');
+		if (this.location(character.box, entry.pokemonId)) throw new Error('RPG Box Pokemon is already stored');
+		const species = Dex.mod('gen9').species.get(entry.pokemon.species);
+		if (!species.exists) throw new Error('Invalid RPG Pokemon species');
+		character.box.party.push(structuredClone(entry));
+		this.commit(character);
+	}
 	static insert(character: RPGBoxCharacterData, entry: RPGManagedStoredPokemon): void {
 		if (!entry || typeof entry.pokemonId !== 'string' || !entry.pokemonId.trim() || !entry.pokemon) {
 			throw new Error('Invalid RPG Box Pokemon');

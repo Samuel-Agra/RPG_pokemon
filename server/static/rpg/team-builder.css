@@ -1745,3 +1745,46 @@ button.team-builder-main-property:hover { border-color: #5a7ead; box-shadow: 0 0
 	border-color: #aab5c4;
 	box-shadow: none;
 }
+/* Read-only Egg presentation inside the Team Builder. */
+.team-builder-team-egg-slot img { object-fit: contain; }
+.team-builder-egg-nickname-box {
+	min-height: 40px;
+	display: flex;
+	align-items: center;
+	padding: 0 12px;
+	box-sizing: border-box;
+	border: 1px solid #aeb9c8;
+	border-radius: 4px;
+	background: #fff;
+}
+.team-builder-egg-nickname {
+	color: #243956;
+	font-size: 17px;
+}
+.team-builder-egg-body {
+	grid-template-columns: 180px minmax(0, 1fr);
+}
+.team-builder-large-egg-sprite {
+	width: 150px;
+	height: 142px;
+}
+.team-builder-egg-message {
+	min-height: 150px;
+	display: grid;
+	place-items: center;
+	padding: 24px;
+	box-sizing: border-box;
+	border: 1px solid #b7c2d1;
+	border-radius: 6px;
+	background: linear-gradient(145deg, #f9fbfd, #e5ebf3);
+	color: #43556f;
+	text-align: center;
+}
+.team-builder-egg-message p {
+	margin: 0;
+	font: italic 700 20px Georgia, serif;
+}
+@media (max-width: 700px) {
+	.team-builder-egg-body { grid-template-columns: 1fr; }
+	.team-builder-egg-message { min-height: 100px; }
+}

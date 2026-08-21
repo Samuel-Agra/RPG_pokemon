@@ -173,7 +173,8 @@
 		['pokeballs', 'Poké Balls'], ['medicines', 'Medicamentos'],
 		['held-items', 'Held Items'], ['evolution-items', 'Itens de Evolução'],
 		['tms', 'TMs'], ['fossils', 'Fósseis'], ['treasures', 'Tesouros'],
-		['mega-stones', 'Mega Pedras'], ['mission-items', 'Itens de Missão'],
+		['mega-stones', 'Mega Pedras'], ['key-items', 'Itens-chave'],
+		['mission-items', 'Itens de Missão'],
 	];
 	function catalogCategoryId(item) {
 		if (item.tags?.includes('mission')) return 'mission-items';
@@ -182,6 +183,7 @@
 		if (item.category === 'tm') return 'tms';
 		if (item.category === 'evolution') return 'evolution-items';
 		if (item.category === 'held') return item.tags?.includes('megastone') ? 'mega-stones' : 'held-items';
+		if (item.category === 'key') return 'key-items';
 		if (item.tags?.includes('fossil') || item.effect?.type === 'revive-fossil') return 'fossils';
 		return 'treasures';
 	}

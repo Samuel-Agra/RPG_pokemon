@@ -68,6 +68,10 @@ import {
 	RPGFossilLab, type RPGFossilLabState, type RPGFossilMethod, type RPGFossilQuality,
 } from './fossil-lab';
 import {
+	RPGNurseryGenetics, type RPGNurseryCharacterState, type RPGNurseryParent, type RPGNurseryProject,
+} from './nursery';
+import { RPGIncubation } from './incubation';
+import {
 	RPGFileCustomItemRepository,
 	RPGMemoryCustomItemRepository,
 	type RPGCustomItemRepository,
@@ -78,6 +82,8 @@ export * from './box-management';
 export * from './bag-management';
 export * from './team-builder-management';
 export * from './custom-item-repository';
+export * from './nursery';
+export * from './incubation';
 export * from './pokemon-catalog';
 export * from './fossil-lab';
 
@@ -108,6 +114,8 @@ export interface RPGCharacterPageAccess {
 	box: boolean;
 	training: boolean;
 	center: boolean;
+	fossils: boolean;
+	nursery: boolean;
 }
 
 export interface RPGCampaignTimeAdvanceResult {
@@ -116,15 +124,31 @@ export interface RPGCampaignTimeAdvanceResult {
 	charactersAffected: number;
 	fossils: { advanced: number, completed: number };
 	trainings: { advanced: number, completed: number };
+	breedings: { advanced: number, completed: number };
+	incubations: { advanced: number, completed: number };
 }
+export interface RPGTeamEggView {
+	eggId: string;
+	name: 'Egg';
+	species: 'Egg';
+	virtual: true;
+	status: 'carried' | 'incubating' | 'ready_to_hatch';
+	progress: number;
+	remainingIncubationTimeMs: number;
+	incubatorId?: string;
+}
+
 export interface RPGCharacterState extends RPGCharacterSelection {
 	version: number;
 	pageAccess: RPGCharacterPageAccess;
 	money: number;
 	team: PokemonSet[];
+	/** Presentation-only Eggs that reserve party slots; never persisted as battle Pokémon. */
+	teamEggs?: RPGTeamEggView[];
 	box: RPGBoxState;
 	inventory: RPGInventoryState;
 	fossilLab?: RPGFossilLabState;
+	nursery?: RPGNurseryCharacterState;
 	createdAt: number;
 	updatedAt: number;
 }
@@ -432,7 +456,9 @@ export class RPGLoginService {
 				const record = this.repository.get(characterId);
 				if (!record) return false;
 				this.resolveCompletedEVTrainings(record);
-				return !record.state.box.party[teamIndex]?.metadata?.evTraining;
+				const pokemon = record.state.box.party[teamIndex];
+				return !!pokemon && !pokemon.metadata?.evTraining &&
+					!this.isPokemonBreeding(record.state.id, pokemon.pokemonId);
 			},
 			random: this.random,
 		});
@@ -468,7 +494,7 @@ export class RPGLoginService {
 		const inventory = RPGInventorySystem.create(RPGBagSystem.createForTier(id, 'starter'));
 		const state: RPGCharacterState = {
 			version: RPG_ACCOUNT_VERSION, id, characterName, playerName, avatar,
-			pageAccess: { bag: true, box: true, training: true, center: true },
+			pageAccess: { bag: true, box: true, training: true, center: true, fossils: true, nursery: true },
 			money: request.initialMoney, team: [starter], box, inventory,
 			createdAt: now, updatedAt: now,
 		};
@@ -605,33 +631,64 @@ export class RPGLoginService {
 			hours, milliseconds, charactersAffected: 0,
 			fossils: { advanced: 0, completed: 0 },
 			trainings: { advanced: 0, completed: 0 },
+			breedings: { advanced: 0, completed: 0 },
+			incubations: { advanced: 0, completed: 0 },
 		};
 		for (const record of this.repository.list()) {
 			const fossils = record.state.fossilLab ?
 				RPGFossilLab.advanceTime(record.state, milliseconds, now, this.random) : { advanced: 0, completed: 0 };
 			const trainings = RPGBoxManagement.advanceTime(record.state, milliseconds, now);
-			if (!fossils.advanced && !trainings.advanced) continue;
+			const breedings = {advanced: 0, completed: 0};
+			const incubations = {advanced: 0, completed: 0};
+			for (const project of record.state.nursery?.projects || []) {
+				if (project.status === 'breeding' && project.slot2) {
+					const before = Math.max(0, project.remainingBreedingTimeMs ?? project.requiredBreedingTimeMs ?? 0);
+					const after = Math.max(0, before - milliseconds);
+					project.remainingBreedingTimeMs = after;
+					if (after < before) breedings.advanced++;
+					if (before > 0 && after === 0) {
+						project.egg = RPGNurseryGenetics.createEgg(
+							project.id, project.slot1, project.slot2, now, this.random
+						);
+						RPGIncubation.ensureEgg(project.egg);
+						project.status = 'egg_ready';
+						breedings.completed++;
+					}
+				}
+				if (project.egg) {
+					const advanced = RPGIncubation.advance(project.egg, milliseconds);
+					if (advanced.advanced) incubations.advanced++;
+					if (advanced.completed) incubations.completed++;
+				}
+			}
+			if (!fossils.advanced && !trainings.advanced && !breedings.advanced && !incubations.advanced) continue;
 			result.charactersAffected++;
 			result.fossils.advanced += fossils.advanced;
 			result.fossils.completed += fossils.completed;
 			result.trainings.advanced += trainings.advanced;
 			result.trainings.completed += trainings.completed;
+			result.breedings.advanced += breedings.advanced;
+			result.breedings.completed += breedings.completed;
+			result.incubations.advanced += incubations.advanced;
+			result.incubations.completed += incubations.completed;
 			record.state.updatedAt = now;
 			this.repository.set(record);
 		}
 		return result;
 	}
 	setCharacterPageAccess(
-		token: string, characterId: string, page: 'bag' | 'box' | 'training' | 'center', allowed: boolean
+		token: string, characterId: string, page: 'bag' | 'box' | 'training' | 'center' | 'fossils' | 'nursery', allowed: boolean
 	): RPGCharacterState {
 		this.requireMasterRole(token);
-		if (!['bag', 'box', 'training', 'center'].includes(page)) throw new Error('Invalid RPG character page access');
+		if (!['bag', 'box', 'training', 'center', 'fossils', 'nursery'].includes(page)) throw new Error('Invalid RPG character page access');
 		const record = this.requireCharacter(characterId);
 		record.state.pageAccess = {
 			bag: record.state.pageAccess?.bag !== false,
 			box: record.state.pageAccess?.box !== false,
 			training: record.state.pageAccess?.training !== false,
 			center: record.state.pageAccess?.center !== false,
+			fossils: record.state.pageAccess?.fossils !== false,
+			nursery: record.state.pageAccess?.nursery !== false,
 			[page]: allowed,
 		};
 		record.state.version = RPG_ACCOUNT_VERSION;
@@ -646,11 +703,12 @@ export class RPGLoginService {
 		this.requirePermission(token, 'character:read', target);
 		const record = this.requireCharacter(target);
 		this.resolveCompletedEVTrainings(record);
-		return structuredClone(record.state);
+		return this.characterView(record);
 	}
 
 	getFossilLab(token: string, characterId?: string) {
-		const record = this.requireBagRecord(token, characterId, 'bag:read');
+		const record = this.requireBagRecord(token, characterId, 'bag:read', true);
+		this.requireFossilLabAccess(token, record);
 		const before = JSON.stringify(record.state.fossilLab || null);
 		const view = RPGFossilLab.view(record.state, this.now(), this.random);
 		if (JSON.stringify(record.state.fossilLab || null) !== before) {
@@ -661,7 +719,8 @@ export class RPGLoginService {
 	}
 
 	analyzeFossil(token: string, characterId: string | undefined, itemId: string, quality?: RPGFossilQuality) {
-		const record = this.requireBagRecord(token, characterId, 'bag:edit');
+		const record = this.requireBagRecord(token, characterId, 'bag:edit', true);
+		this.requireFossilLabAccess(token, record);
 		this.requireWorldBagItemUse(token, record.state.id);
 		RPGFossilLab.analyze(record.state, itemId, quality, this.random);
 		record.state.updatedAt = this.now();
@@ -674,7 +733,8 @@ export class RPGLoginService {
 		samples?: Partial<Record<RPGFossilQuality, number>>,
 		nature?: string, ability?: string, gender?: 'M' | 'F' | 'N',
 	}) {
-		const record = this.requireBagRecord(token, characterId, 'bag:edit');
+		const record = this.requireBagRecord(token, characterId, 'bag:edit', true);
+		this.requireFossilLabAccess(token, record);
 		this.requireWorldBagItemUse(token, record.state.id);
 		RPGFossilLab.start(record.state, input, this.now(), this.random, this.bytes(12).toString('base64url'));
 		record.state.updatedAt = this.now();
@@ -683,7 +743,8 @@ export class RPGLoginService {
 	}
 
 	donateFossil(token: string, characterId: string | undefined, itemId: string, quality?: RPGFossilQuality) {
-		const record = this.requireBagRecord(token, characterId, 'bag:edit');
+		const record = this.requireBagRecord(token, characterId, 'bag:edit', true);
+		this.requireFossilLabAccess(token, record);
 		this.requireWorldBagItemUse(token, record.state.id);
 		RPGFossilLab.donate(record.state, itemId, quality, this.random);
 		record.state.updatedAt = this.now();
@@ -692,7 +753,8 @@ export class RPGLoginService {
 	}
 
 	sellFossil(token: string, characterId: string | undefined, itemId: string, quality?: RPGFossilQuality) {
-		const record = this.requireBagRecord(token, characterId, 'bag:edit');
+		const record = this.requireBagRecord(token, characterId, 'bag:edit', true);
+		this.requireFossilLabAccess(token, record);
 		this.requireWorldBagItemUse(token, record.state.id);
 		const value = RPGFossilLab.sell(record.state, itemId, quality, this.random);
 		record.state.updatedAt = this.now();
@@ -701,11 +763,177 @@ export class RPGLoginService {
 	}
 
 	receiveRestoredFossil(token: string, characterId: string | undefined, projectId: string) {
-		const record = this.requireBoxRecord(token, characterId, 'box:edit');
+		const record = this.requireBoxRecord(token, characterId, 'box:edit', true);
+		this.requireFossilLabAccess(token, record);
 		const pokemon = RPGFossilLab.receive(record.state, projectId, this.now(), this.random);
 		record.state.updatedAt = this.now();
 		this.repository.set(record);
 		return { pokemon, fossilLab: RPGFossilLab.view(record.state, this.now(), this.random) };
+	}
+	getNursery(token: string, characterId?: string) {
+		const session = this.getSession(token);
+		const requestedCharacterId = characterId || session.viewAsCharacterId || session.characterId;
+		if (session.role === 'master' && !requestedCharacterId) return this.nurseryView();
+		const record = this.requireBoxRecord(token, requestedCharacterId, 'box:read', true);
+		this.requireNurseryAccess(token, record);
+		const before = JSON.stringify(record.state.nursery || null);
+		this.ensureNursery(record);
+		if (JSON.stringify(record.state.nursery || null) !== before) this.persistNurseryRecord(record);
+		return this.nurseryView(record);
+	}
+
+	createNurseryProject(token: string, characterId: string | undefined, pokemonId: string) {
+		const owner = this.requireBoxRecord(token, characterId, 'box:edit', true);
+		this.requireNurseryAccess(token, owner);
+		this.requireAvailablePokemon(owner, pokemonId);
+		const slot1 = this.nurseryParent(owner, pokemonId);
+		if (this.isPokemonBreeding(owner.state.id, pokemonId)) {
+			throw new Error('Este Pokémon já está em um slot do Berçário');
+		}
+		const now = this.now();
+		const project: RPGNurseryProject = {
+			id: this.bytes(18).toString('base64url'),
+			slot1,
+			slot2ParticipantType: 'player',
+			eggOwnerId: owner.state.id,
+			status: 'inviting',
+			confirmed: {[owner.state.id]: false},
+			createdAt: now,
+		};
+		this.ensureNursery(owner).projects.push(project);
+		this.persistNurseryRecord(owner);
+		return this.nurseryView(owner);
+	}
+
+	acceptNurseryInvitation(token: string, projectId: string, pokemonId: string) {
+		const actor = this.requireNurseryActor(token);
+		this.requireNurseryAccess(token, actor);
+		const found = this.requireNurseryProject(projectId);
+		if (found.project.status !== 'inviting' && found.project.status !== 'configuring') {
+			throw new Error('Este convite não está aguardando a seleção do segundo Pokémon');
+		}
+
+		if (found.project.slot1.ownerId === actor.state.id && found.project.slot1.pokemonId === pokemonId) {
+			throw new Error('Escolha dois Pokémon diferentes');
+		}
+		this.requireAvailablePokemon(actor, pokemonId);
+		if (this.isPokemonBreeding(actor.state.id, pokemonId, found.project.id)) {
+			throw new Error('Este Pokémon já está em uma procriação');
+		}
+		found.project.slot2 = this.nurseryParent(actor, pokemonId);
+		found.project.slot2OwnerId = actor.state.id;
+		found.project.slot2OwnerName = actor.state.characterName;
+		found.project.slot2ParticipantType = 'player';
+		found.project.status = 'configuring';
+		found.project.confirmed = {
+			[found.project.slot1.ownerId]: false,
+			[found.project.slot2.ownerId]: false,
+		};
+		this.persistNurseryRecord(found.record);
+		return this.nurseryView(actor);
+	}
+
+	confirmNurseryProject(token: string, projectId: string) {
+		const actor = this.requireNurseryActor(token);
+		const found = this.requireNurseryProject(projectId);
+		const project = found.project;
+		if (project.status !== 'configuring' && project.status !== 'awaiting_confirmation') {
+			throw new Error('Esta procriação não está aguardando confirmação');
+		}
+		if (!project.slot2) throw new Error('O segundo participante ainda não selecionou um Pokémon');
+		if (![project.slot1.ownerId, project.slot2.ownerId].includes(actor.state.id)) {
+			throw new Error('Você não participa desta procriação');
+		}
+		const preview = RPGNurseryGenetics.preview(project.slot1, project.slot2);
+		if (!preview.compatibility.compatible) {
+			throw new Error('Os Pokémon selecionados não são compatíveis: ' + preview.compatibility.reason);
+		}
+		project.confirmed[actor.state.id] = true;
+		const participants = [...new Set([project.slot1.ownerId, project.slot2.ownerId])];
+		if (participants.every(ownerId => project.confirmed[ownerId])) {
+			const now = this.now();
+			project.status = 'breeding';
+			project.breedingStartedAt = now;
+			project.requiredBreedingTimeMs = preview.requiredBreedingTimeMs;
+			project.remainingBreedingTimeMs = preview.requiredBreedingTimeMs;
+		} else {
+			project.status = 'awaiting_confirmation';
+		}
+		this.persistNurseryRecord(found.record);
+		return this.nurseryView(actor);
+	}
+
+	cancelNurseryProject(token: string, projectId: string) {
+		const actor = this.requireNurseryActor(token);
+		const found = this.requireNurseryProject(projectId);
+		const project = found.project;
+		if (![project.slot1.ownerId, project.slot2OwnerId].includes(actor.state.id)) {
+			throw new Error('Você não participa desta procriação');
+		}
+		if (project.egg || ['egg_ready', 'collected'].includes(project.status)) {
+			throw new Error('Uma procriação que já produziu um ovo não pode ser cancelada');
+		}
+		project.status = 'cancelled';
+		this.persistNurseryRecord(found.record);
+		return this.nurseryView(actor);
+	}
+
+	collectNurseryEgg(token: string, projectId: string) {
+		const actor = this.requireNurseryActor(token);
+		const project = this.ensureNursery(actor).projects.find(value => value.id === projectId);
+		if (!project || project.eggOwnerId !== actor.state.id) {
+			throw new Error('Somente o proprietário do ovo pode retirá-lo');
+		}
+		if (project.status !== 'egg_ready' || !project.egg) throw new Error('Este ovo ainda não está disponível');
+		const nursery = this.ensureNursery(actor);
+		const carriedEggs = this.activeEggs(actor).length;
+		RPGIncubation.carry(project.egg, {
+			teamPokemon: actor.state.box.party.length,
+			carriedEggs,
+			bagUsedSlots: RPGBagSystem.getUsedSlots(RPGInventorySystem.migrate(actor.state.inventory).bag),
+			bagMaxSlots: RPGInventorySystem.migrate(actor.state.inventory).bag.maxSlots,
+		});
+		project.status = 'collected';
+		this.persistNurseryRecord(actor);
+		return this.nurseryView(actor);
+	}
+
+	insertNurseryEgg(token: string, eggId: string, incubatorId: string) {
+		const actor = this.requireNurseryActor(token);
+		const egg = this.requireOwnedEgg(actor, eggId);
+		const incubator = this.ensureNursery(actor).incubators.find(value => value.id === incubatorId);
+		if (!incubator) throw new Error('Incubadora desconhecida');
+		RPGIncubation.insert(egg, incubator, this.now());
+		this.persistNurseryRecord(actor);
+		return this.nurseryView(actor);
+	}
+
+	removeNurseryEgg(token: string, eggId: string) {
+		const actor = this.requireNurseryActor(token);
+		const egg = this.requireOwnedEgg(actor, eggId);
+		const incubator = this.ensureNursery(actor).incubators.find(value => value.id === egg.incubatorId);
+		if (!incubator) throw new Error('Ovo sem incubadora válida');
+		RPGIncubation.remove(egg, incubator);
+		this.persistNurseryRecord(actor);
+		return this.nurseryView(actor);
+	}
+
+	hatchNurseryEgg(token: string, eggId: string) {
+		const actor = this.requireNurseryActor(token);
+		const egg = this.requireOwnedEgg(actor, eggId);
+		const incubator = this.ensureNursery(actor).incubators.find(value => value.id === egg.incubatorId);
+		if (!incubator) throw new Error('Ovo sem incubadora válida');
+		if (actor.state.box.party.length >= 6) {
+			throw new Error('O espaço reservado pelo ovo na equipe não está disponível');
+		}
+		const result = RPGIncubation.hatch(egg, incubator, this.now());
+		RPGBoxManagement.insertParty(actor.state, {
+			pokemonId: actor.state.id + ':hatch:' + egg.id,
+			pokemon: result.pokemon,
+			metadata: {ot: actor.state.characterName, training: 'none'},
+		});
+		this.persistNurseryRecord(actor);
+		return {hatch: result, nursery: this.nurseryView(actor)};
 	}
 	getBag(
 		token: string, characterId?: string,
@@ -714,7 +942,7 @@ export class RPGLoginService {
 		const record = this.requireBagRecord(token, characterId, 'bag:read', query.context === 'battle');
 		const itemUseLockReason = query.context === 'battle' ? undefined :
 			this.getWorldBagItemUseLock(token, record.state.id);
-		return RPGBagManagement.view(record.state, {
+		return this.managedBagView(record, {
 			...query, itemUseLocked: !!itemUseLockReason, itemUseLockReason,
 		});
 	}
@@ -745,7 +973,7 @@ export class RPGLoginService {
 		const record = this.requireBagRecord(token, characterId, 'bag:edit');
 		RPGBagManagement.setFavorite(record.state, itemId, favorite, expectedRevision);
 		this.persistBoxRecord(record);
-		return RPGBagManagement.view(record.state);
+		return this.managedBagView(record);
 	}
 
 	setBagItemMission(
@@ -755,7 +983,7 @@ export class RPGLoginService {
 		const record = this.requireBagRecord(token, characterId, 'bag:edit');
 		RPGBagManagement.setMissionItem(record.state, itemId, mission, expectedRevision, quantity, note);
 		this.persistBoxRecord(record);
-		return RPGBagManagement.view(record.state);
+		return this.managedBagView(record);
 	}
 
 	setBagItemMissionNote(
@@ -765,14 +993,15 @@ export class RPGLoginService {
 		const record = this.requireBagRecord(token, characterId, 'bag:edit');
 		RPGBagManagement.setMissionNote(record.state, itemId, note, expectedRevision);
 		this.persistBoxRecord(record);
-		return RPGBagManagement.view(record.state);
+		return this.managedBagView(record);
 	}
 
 	equipBagHeldItem(
 		token: string, characterId: string | undefined, pokemonId: string, itemId: string,
 		expectedBagRevision: number, expectedBoxRevision: number
 	): { bag: RPGManagedBagView, box: RPGBoxManagementView } {
-		const record = this.requireBagRecord(token, characterId, 'bag:edit');
+		const record = this.requireBagRecord(token, characterId, 'bag:edit', true);
+		this.requireFossilLabAccess(token, record);
 		this.requireWorldBagItemUse(token, record.state.id);
 		this.requirePermission(token, 'box:edit', record.state.id);
 		this.requireAvailablePokemon(record, pokemonId);
@@ -782,14 +1011,15 @@ export class RPGLoginService {
 		);
 		record.state = working;
 		this.persistBoxRecord(record);
-		return { bag: RPGBagManagement.view(record.state), box: RPGBoxManagement.view(record.state) };
+		return { bag: this.managedBagView(record), box: RPGBoxManagement.view(record.state) };
 	}
 
 	removeBagHeldItem(
 		token: string, characterId: string | undefined, pokemonId: string,
 		expectedBagRevision: number, expectedBoxRevision: number
 	): { bag: RPGManagedBagView, box: RPGBoxManagementView } {
-		const record = this.requireBagRecord(token, characterId, 'bag:edit');
+		const record = this.requireBagRecord(token, characterId, 'bag:edit', true);
+		this.requireFossilLabAccess(token, record);
 		this.requireWorldBagItemUse(token, record.state.id);
 		this.requirePermission(token, 'box:edit', record.state.id);
 		this.requireAvailablePokemon(record, pokemonId);
@@ -797,7 +1027,7 @@ export class RPGLoginService {
 		RPGBagManagement.removeHeldItem(working, pokemonId, expectedBagRevision, expectedBoxRevision);
 		record.state = working;
 		this.persistBoxRecord(record);
-		return { bag: RPGBagManagement.view(record.state), box: RPGBoxManagement.view(record.state) };
+		return { bag: this.managedBagView(record), box: RPGBoxManagement.view(record.state) };
 	}
 
 	masterSetBagItemQuantity(
@@ -808,7 +1038,7 @@ export class RPGLoginService {
 		const record = this.requireCharacter(characterId);
 		RPGBagManagement.updateQuantity(record.state, itemId, quantity, expectedRevision, operation);
 		this.persistBoxRecord(record);
-		return RPGBagManagement.view(record.state);
+		return this.managedBagView(record);
 	}
 
 	listBagItemCatalog(token: string, search = ''): (RPGItemDefinition & {
@@ -869,7 +1099,7 @@ export class RPGLoginService {
 			record.state.inventory.bag, item.id, quantity, expectedRevision
 		).bag;
 		this.persistBoxRecord(record);
-		return RPGBagManagement.view(record.state);
+		return this.managedBagView(record);
 	}
 
 	transferBagItem(
@@ -945,7 +1175,7 @@ export class RPGLoginService {
 		record.state.inventory.bag = RPGBagSystem.apply(prepared, operations, expectedRevision).bag;
 		if (reward.type === 'pokecoin') record.state.money += reward.amount;
 		this.persistBoxRecord(record);
-		return { bag: RPGBagManagement.view(record.state), money: record.state.money };
+		return { bag: this.managedBagView(record), money: record.state.money };
 	}
 
 	createCustomBagItem(token: string, input: Omit<RPGItemDefinition, 'source'>): RPGItemDefinition {
@@ -1878,16 +2108,190 @@ export class RPGLoginService {
 			'Itens da Bag externa não podem ser usados enquanto existe um convite de batalha ativo.';
 	}
 
+	private ensureNursery(record: RPGStoredCharacter): RPGNurseryCharacterState {
+		if (!record.state.nursery || record.state.nursery.version !== 1) {
+			record.state.nursery = {
+				version: 1,
+				projects: [],
+				incubators: [{id: record.state.id + ':incubator:1', ownerId: record.state.id}],
+			};
+		}
+		if (!Array.isArray(record.state.nursery.projects)) record.state.nursery.projects = [];
+		if (!Array.isArray(record.state.nursery.incubators) || !record.state.nursery.incubators.length) {
+			record.state.nursery.incubators = [{id: record.state.id + ':incubator:1', ownerId: record.state.id}];
+		}
+		return record.state.nursery;
+	}
+
+	private characterView(record: RPGStoredCharacter): RPGCharacterState {
+		const view = structuredClone(record.state);
+		view.teamEggs = this.activeEggs(record).map(egg => ({
+			...RPGIncubation.view(egg), name: 'Egg', species: 'Egg', virtual: true as const,
+		}));
+		return view;
+	}
+
+	private managedBagView(
+		record: RPGStoredCharacter,
+		query: Parameters<typeof RPGBagManagement.view>[1] = {}
+	): RPGManagedBagView {
+		const view = RPGBagManagement.view(record.state, query);
+		const reservedSlots = this.activeEggs(record).length * 5;
+		view.capacity.usedSlots += reservedSlots;
+		if (view.capacity.maxSlots === undefined) {
+			view.capacity.freeSlots = undefined;
+			view.capacity.full = false;
+		} else {
+			view.capacity.freeSlots = Math.max(0, view.capacity.maxSlots - view.capacity.usedSlots);
+			view.capacity.full = view.capacity.usedSlots >= view.capacity.maxSlots;
+		}
+		return view;
+	}
+	private activeEggs(record: RPGStoredCharacter) {
+		return this.ensureNursery(record).projects
+			.map(project => project.egg)
+			.filter((egg): egg is NonNullable<typeof egg> =>
+				!!egg && ['carried', 'incubating', 'ready_to_hatch'].includes(egg.status));
+	}
+
+	private nurseryView(record?: RPGStoredCharacter) {
+		const nursery = record ? this.ensureNursery(record) : undefined;
+		const projects = this.repository.list().flatMap(owner =>
+			(owner.state.nursery?.projects || []).map(project => {
+				const preview = project.slot2 ? RPGNurseryGenetics.preview(project.slot1, project.slot2) : undefined;
+				const egg = project.egg ? RPGIncubation.view(project.egg) : undefined;
+				return {
+					id: project.id,
+					status: project.status,
+					slot1: structuredClone(project.slot1),
+					slot2: project.slot2 ? structuredClone(project.slot2) : undefined,
+					slot2OwnerId: project.slot2OwnerId,
+					slot2OwnerName: project.slot2OwnerName,
+					eggOwnerId: project.eggOwnerId,
+					confirmed: structuredClone(project.confirmed),
+					createdAt: project.createdAt,
+					requiredBreedingTimeMs: project.requiredBreedingTimeMs,
+					remainingBreedingTimeMs: project.remainingBreedingTimeMs,
+					preview,
+					egg,
+				};
+			})
+		);
+		const eggs = nursery ? nursery.projects
+			.map(project => project.egg)
+			.filter((egg): egg is NonNullable<typeof egg> => !!egg && egg.status !== 'hatched')
+			.map(egg => RPGIncubation.view(egg)) : [];
+		const bag = record ? RPGInventorySystem.migrate(record.state.inventory).bag : undefined;
+		const activeEggs = record ? this.activeEggs(record) : [];
+		return {
+			version: 2,
+			shared: true,
+			viewerRole: record ? 'player' : 'master',
+			ownerId: record?.state.id || '',
+			accessAllowed: record ? record.state.pageAccess?.nursery !== false : true,
+			pokemon: record ? record.state.box.party.map(entry => ({
+				pokemonId: entry.pokemonId,
+				name: entry.pokemon.name || entry.pokemon.species,
+				species: entry.pokemon.species,
+				level: entry.pokemon.level,
+				gender: entry.pokemon.gender,
+				shiny: !!entry.pokemon.shiny,
+				busy: !!entry.metadata?.evTraining || this.isPokemonBreeding(record.state.id, entry.pokemonId),
+			})) : [],
+			projects,
+			eggs,
+			teamEggs: activeEggs.map(egg => ({
+				...RPGIncubation.view(egg), name: 'Egg', species: 'Egg', virtual: true as const,
+			})),
+			incubators: nursery ? nursery.incubators.map(incubator => ({
+				...incubator,
+				egg: incubator.eggId ? eggs.find(egg => egg.eggId === incubator.eggId) : undefined,
+			})) : [],
+			capacity: {
+				teamPokemon: record?.state.box.party.length || 0,
+				carriedEggs: activeEggs.length,
+				teamUsed: (record?.state.box.party.length || 0) + activeEggs.length,
+				teamMax: 6,
+				bagUsedSlots: bag ? RPGBagSystem.getUsedSlots(bag) + activeEggs.length * 5 : 0,
+				bagMaxSlots: bag?.maxSlots,
+			},
+		};
+	}
+
+	private nurseryParent(record: RPGStoredCharacter, pokemonId: string): RPGNurseryParent {
+		const entry = record.state.box.party.find(candidate => candidate.pokemonId === pokemonId);
+		if (!entry) throw new Error('Somente um Pokémon da equipe pode participar da procriação');
+		if (entry.metadata?.evTraining) throw new Error('Pokémon em treinamento está indisponível');
+		return RPGNurseryGenetics.parent(
+			record.state.id, record.state.characterName, 'player', pokemonId, entry.pokemon
+		);
+	}
+
+	private requireNurseryActor(token: string): RPGStoredCharacter {
+		const session = this.getSession(token);
+		const id = toID(session.characterId || session.viewAsCharacterId || '');
+		if (!id) throw new Error('Abra um personagem para usar o Berçário');
+		const record = this.requireCharacter(id);
+		this.requirePermission(token, 'box:edit', id);
+		this.requireNurseryAccess(token, record);
+		return record;
+	}
+
+	private requireNurseryProject(projectId: string): {record: RPGStoredCharacter, project: RPGNurseryProject} {
+		for (const record of this.repository.list()) {
+			const project = record.state.nursery?.projects?.find(value => value.id === projectId);
+			if (project) return {record, project};
+		}
+		throw new Error('Projeto de procriação desconhecido');
+	}
+
+	private requireOwnedEgg(record: RPGStoredCharacter, eggId: string) {
+		for (const project of this.ensureNursery(record).projects) {
+			if (project.egg?.id === eggId && project.egg.ownerId === record.state.id) return project.egg;
+		}
+		throw new Error('Ovo desconhecido ou pertencente a outro treinador');
+	}
+
+	private isPokemonBreeding(ownerId: string, pokemonId: string, ignoredProjectId?: string): boolean {
+		return this.repository.list().some(record => (record.state.nursery?.projects || []).some(project =>
+			project.id !== ignoredProjectId &&
+			['inviting', 'configuring', 'awaiting_confirmation', 'breeding'].includes(project.status) &&
+			(project.slot1.ownerId === ownerId && project.slot1.pokemonId === pokemonId ||
+				project.slot2?.ownerId === ownerId && project.slot2.pokemonId === pokemonId)
+		));
+	}
+
+	private requireNurseryAccess(token: string, record: RPGStoredCharacter): void {
+		const session = this.getSession(token);
+		if (session.role === 'player' && record.state.pageAccess?.nursery === false) {
+			throw new Error('O acesso ao Berçário está bloqueado');
+		}
+	}
+
+	private persistNurseryRecord(record: RPGStoredCharacter): void {
+		record.state.updatedAt = this.now();
+		this.repository.set(record);
+	}
 	private requireAvailablePokemon(record: RPGStoredCharacter, pokemonId: string): void {
 		const entry = record.state.box.party.find(pokemon => pokemon.pokemonId === pokemonId);
 		if (entry?.metadata?.evTraining) {
 			throw new Error('Pok\u00e9mon em treinamento est\u00e1 indispon\u00edvel at\u00e9 a conclus\u00e3o');
+		}
+		if (this.isPokemonBreeding(record.state.id, pokemonId)) {
+			throw new Error('Pok\u00e9mon em procria\u00e7\u00e3o est\u00e1 indispon\u00edvel at\u00e9 a produ\u00e7\u00e3o do ovo');
 		}
 	}
 
 	private requireWorldBagItemUse(token: string, ownerId: string): void {
 		const reason = this.getWorldBagItemUseLock(token, ownerId);
 		if (reason) throw new Error(reason);
+	}
+
+	private requireFossilLabAccess(token: string, record: RPGStoredCharacter): void {
+		const session = this.getSession(token);
+		if (session.role === 'player' && record.state.pageAccess?.fossils === false) {
+			throw new Error('O Mestre bloqueou o acesso ao laborat\u00f3rio de Paleontologia.');
+		}
 	}
 
 	private requireBagRecord(
@@ -2643,6 +3047,8 @@ function migrateCharacterPageAccess(service: RPGLoginService): void {
 			box: record.state.pageAccess?.box !== false,
 			training: record.state.pageAccess?.training !== false,
 			center: record.state.pageAccess?.center !== false,
+			fossils: record.state.pageAccess?.fossils !== false,
+			nursery: record.state.pageAccess?.nursery !== false,
 		};
 		if (record.state.version === RPG_ACCOUNT_VERSION &&
 			JSON.stringify(record.state.pageAccess) === JSON.stringify(pageAccess)) continue;

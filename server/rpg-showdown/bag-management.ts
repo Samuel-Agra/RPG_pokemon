@@ -17,7 +17,7 @@ export const RPG_BAG_MANAGEMENT_VERSION = 1;
 export type RPGManagedBagContext = 'world' | 'battle';
 export type RPGManagedBagCategory = 'pokeballs' | 'medicines' | 'held-items' |
 	'evolution-items' | 'tms' | 'fossils' | 'treasures' | 'favorites' | 'mission-items' |
-	'mega-stones' | 'battle-items';
+	'mega-stones' | 'key-items' | 'battle-items';
 export type RPGManagedBagAction = 'use' | 'equip' | 'remove' | 'teach' | 'favorite' | 'unfavorite' |
 	'move-to-mission' | 'remove-from-mission' | 'edit-mission-note' | 'discard' | 'give';
 
@@ -115,6 +115,7 @@ const WORLD_CATEGORIES: readonly { id: RPGManagedBagCategory, name: string }[] =
 	{ id: 'fossils', name: 'Fósseis' },
 	{ id: 'treasures', name: 'Tesouros' },
 	{ id: 'mega-stones', name: 'Mega Pedras' },
+	{ id: 'key-items', name: 'Itens-chave' },
 	{ id: 'mission-items', name: 'Itens de Missão' },
 ];
 const BATTLE_CATEGORIES: readonly { id: RPGManagedBagCategory, name: string }[] = [
@@ -332,6 +333,7 @@ export class RPGBagManagement {
 		if (item.category === 'tm') return 'tms';
 		if (item.category === 'evolution') return 'evolution-items';
 		if (item.category === 'held') return item.tags?.includes('megastone') ? 'mega-stones' : 'held-items';
+		if (item.category === 'key') return 'key-items';
 		if (item.tags?.includes('fossil') || item.effect?.type === 'revive-fossil') return 'fossils';
 		return 'treasures';
 	}

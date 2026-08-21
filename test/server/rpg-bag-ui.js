@@ -26,6 +26,8 @@ describe('RPG Bag frontend', () => {
 		assert.match(rpgUi, /\['bag', 'Bag', bagBlocked\]/);
 		assert.match(rpgUi, /\['box', 'Box', boxBlocked\]/);
 		assert.match(rpgUi, /\['center', 'Centro Pokémon', centerBlocked\]/);
+		assert.match(rpgUi, /\['fossils', 'Paleontologia', fossilsBlocked\]/);
+		assert.match(rpgUi, /\['fossils', 'Paleontologia'\]/);
 		assert.match(rpgUi, /item\.disabled = blocked/);
 		assert.match(rpgUi, /if \(blocked\) return/);
 		assert.match(rpgUi, /currentEntry\?\.\[2\]/);

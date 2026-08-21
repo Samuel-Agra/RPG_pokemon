@@ -204,4 +204,16 @@ describe('RPG fossil restoration laboratory', () => {
 		assert.deepEqual(result.pokemon.ivs, {hp: 7, atk: 7, def: 7, spa: 7, spd: 7, spe: 7});
 	});
 
+
+	it('lets the Master enable or disable Player access to Paleontology', () => {
+		const { service, master, player } = setup();
+		let character = service.setCharacterPageAccess(master.token, 'samuel', 'fossils', false);
+		assert.equal(character.pageAccess.fossils, false);
+		assert.throws(() => service.getFossilLab(player.token), /Paleontologia/);
+		assert.equal(service.getFossilLab(master.token, 'samuel').fossils.length > 0, true);
+		character = service.setCharacterPageAccess(master.token, 'samuel', 'fossils', true);
+		assert.equal(character.pageAccess.fossils, true);
+		assert.equal(service.getFossilLab(player.token).fossils.length > 0, true);
+	});
+
 });
