@@ -104,6 +104,29 @@ describe('RPG Egg incubation backend', () => {
 		assert.deepEqual(result.revealed.parentIds, ['gardevoir-1', 'gallade-1']);
 	});
 
+	it('progresses in a Portable Incubator while continuing to reserve Team and Bag space', () => {
+		const value = egg();
+		RPGIncubation.carry(value, {
+			teamPokemon: 0, carriedEggs: 0, bagUsedSlots: 0, bagMaxSlots: 10,
+		});
+		RPGIncubation.usePortable(value, 2000, 'portable-1');
+		assert.equal(value.status, 'incubating');
+		assert.equal(value.portableIncubator, true);
+		assert.equal(RPGIncubation.view(value).portableIncubator, true);
+		RPGIncubation.advance(value, 6 * 60 * 60 * 1000);
+		const accumulated = value.accumulatedIncubationTimeMs;
+		RPGIncubation.stopPortable(value);
+		assert.equal(value.status, 'carried');
+		assert.equal(value.portableIncubator, undefined);
+		RPGIncubation.advance(value, 6 * 60 * 60 * 1000);
+		assert.equal(value.accumulatedIncubationTimeMs, accumulated);
+		RPGIncubation.usePortable(value, 3000, 'portable-1');
+		RPGIncubation.advance(value, value.requiredIncubationTimeMs);
+		const result = RPGIncubation.hatch(value, undefined, 9000);
+		assert.equal(result.pokemon.species, 'Ralts');
+		assert.equal(value.portableIncubator, undefined);
+	});
+
 	it('uses configurable species times without Ability acceleration', () => {
 		assert(RPGIncubation.requiredTime('Magikarp') < RPGIncubation.requiredTime('Dratini'));
 		assert.equal(RPGIncubation.requiredTime('Ralts'), 72 * 60 * 60 * 1000);

@@ -497,12 +497,17 @@ function rpgPlayerPokemonSelection(session, character) {
 	const selected = new Set(participant.pokemon.map(choice => choice.teamIndex));
 	const grid = createElement('div', 'pokemon-choice-grid');
 	for (const [index, pokemon] of (character.team || []).entries()) {
-		const choice = rpgBattleCheck('', selected.has(index));
+		const breeding = character.box?.party?.[index]?.metadata?.breeding;
+		if (breeding) selected.delete(index);
+		const choice = rpgBattleCheck('', !breeding && selected.has(index));
 		choice.wrapper.classList.add('pokemon-choice');
+		if (breeding) choice.wrapper.classList.add('is-breeding');
+		choice.input.disabled = !!breeding;
 		choice.wrapper.append(pokemonSprite(pokemon));
 		const info = createElement('span');
 		info.append(createElement('strong', '', pokemon.name || pokemon.species));
-		info.append(createElement('small', '', 'Nv. ' + (pokemon.level || 1)));
+\t\tinfo.append(createElement('small', '', 'Nv. ' + (pokemon.level || 1)));
+		if (breeding) info.append(createElement('small', 'breeding-time', 'Em procria\u00e7\u00e3o \u00b7 Indispon\u00edvel para batalha'));
 		choice.wrapper.append(info);
 		choice.input.addEventListener('change', () => {
 			if (choice.input.checked) selected.add(index); else selected.delete(index);

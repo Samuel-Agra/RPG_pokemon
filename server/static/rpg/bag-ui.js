@@ -19,6 +19,10 @@
 
 	function itemIcon(item, className = '') {
 		const frame = el('span', 'bag-ui-item-icon' + (className ? ' ' + className : ''));
+		if (item.loaded && typeof window.rpgPortableIncubatorVisual === 'function') {
+			frame.append(window.rpgPortableIncubatorVisual(true, 'bag-ui-item-glyph'));
+			return frame;
+		}
 		const icon = typeof rpgRuntimeItemIcon === 'function' ? rpgRuntimeItemIcon(item) : null;
 		if (icon) {
 			icon.classList.add('bag-ui-item-glyph');
@@ -387,6 +391,7 @@
 						mission, expectedRevision: bagData.revision,
 						...(quantity === undefined ? {} : { quantity }),
 						...(note === undefined ? {} : { note }),
+						...(item.linkedEggId ? {linkedEggId: item.linkedEggId} : {}),
 					},
 				});
 				options.toast(mission ? 'Item movido para Itens de Missão.' : 'Item retirado dos Itens de Missão.');
@@ -457,7 +462,7 @@
 						showMoveToMission(item, dialog);
 					} else if (action === 'remove-from-mission') {
 						close();
-						void toggleMission(item, false);
+						void toggleMission(item, false, item.quantity);
 					} else if (action === 'edit-mission-note') {
 						showEditMissionNote(item, dialog);
 					} else if (action === 'discard') {
@@ -775,7 +780,9 @@
 			const close = () => dialog.overlay.remove();
 			dialogHeading(dialog.card, 'Descartar ' + item.name, close);
 			const content = el('div', 'bag-ui-transfer-content');
-			content.append(el('p', '', 'Escolha quantas unidades serão descartadas permanentemente.'));
+			content.append(el('p', '', item.linkedEggId ?
+				'O Egg dentro desta incubadora também será descartado permanentemente.' :
+				'Escolha quantas unidades serão descartadas permanentemente.'));
 			const quantity = quantityInput(item.quantity);
 			const actions = el('div', 'bag-ui-dialog-inline-actions');
 			const confirm = makeButton('Confirmar descarte', 'button danger');
@@ -788,6 +795,7 @@
 						method: 'POST', body: {
 							characterId: options.characterId, itemId: item.id,
 							quantity: Number(quantity.value), expectedRevision: bagData.revision,
+							...(item.linkedEggId ? {linkedEggId: item.linkedEggId} : {}),
 						},
 					});
 					close();
@@ -808,7 +816,9 @@
 			const close = () => dialog.overlay.remove();
 			dialogHeading(dialog.card, 'Dar ' + item.name, close);
 			const content = el('div', 'bag-ui-transfer-content');
-			content.append(el('p', '', 'Escolha a quantidade e o Player que receberá o item.'));
+			content.append(el('p', '', item.linkedEggId ?
+				'A incubadora e o Egg serão entregues juntos. O destino precisa ter espaço para ambos.' :
+				'Escolha a quantidade e o Player que receberá o item.'));
 			const quantity = quantityInput(item.quantity);
 			const targets = el('div', 'bag-ui-transfer-targets');
 			content.append(quantity, targets);
@@ -816,7 +826,8 @@
 			try {
 				const data = await options.api(
 					'/bag/items/' + encodeURIComponent(item.id) + '/transfer-targets?characterId=' +
-					encodeURIComponent(options.characterId)
+					encodeURIComponent(options.characterId) +
+					(item.linkedEggId ? '&linkedEggId=' + encodeURIComponent(item.linkedEggId) : '')
 				);
 				const transfer = data.transfer;
 				if (!transfer.targets.length) {
@@ -840,6 +851,7 @@
 									itemId: item.id, quantity: Number(quantity.value),
 									expectedSenderRevision: transfer.senderRevision,
 									expectedTargetRevision: target.revision,
+									...(item.linkedEggId ? {linkedEggId: item.linkedEggId} : {}),
 								},
 							});
 							close();

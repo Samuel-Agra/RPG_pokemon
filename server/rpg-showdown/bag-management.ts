@@ -55,6 +55,8 @@ export interface RPGManagedBagItemView {
 	favorite: boolean;
 	mission: boolean;
 	missionNote?: string;
+	loaded?: boolean;
+	linkedEggId?: string;
 	actions: RPGManagedBagAction[];
 	equippedIn: RPGManagedBagEquippedPokemon[];
 	icon: string | null;

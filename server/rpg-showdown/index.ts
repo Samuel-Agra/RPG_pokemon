@@ -136,6 +136,8 @@ export interface RPGTeamEggView {
 	progress: number;
 	remainingIncubationTimeMs: number;
 	incubatorId?: string;
+	portableIncubator: boolean;
+	portableIncubatorId?: string;
 }
 
 export interface RPGCharacterState extends RPGCharacterSelection {
@@ -145,6 +147,7 @@ export interface RPGCharacterState extends RPGCharacterSelection {
 	team: PokemonSet[];
 	/** Presentation-only Eggs that reserve party slots; never persisted as battle Pokémon. */
 	teamEggs?: RPGTeamEggView[];
+	portableIncubators?: {id: string, loaded: boolean, eggId?: string, mission?: boolean}[];
 	box: RPGBoxState;
 	inventory: RPGInventoryState;
 	fossilLab?: RPGFossilLabState;
@@ -619,7 +622,7 @@ export class RPGLoginService {
 
 	listAllCharacters(token: string): RPGCharacterState[] {
 		this.requirePermission(token, 'characters:list-all');
-		return this.repository.list().map(record => structuredClone(record.state));
+		return this.repository.list().map(record => this.characterView(record));
 	}
 
 	advanceCampaignTime(token: string, hours: number): RPGCampaignTimeAdvanceResult {
@@ -652,6 +655,7 @@ export class RPGLoginService {
 						);
 						RPGIncubation.ensureEgg(project.egg);
 						project.status = 'egg_ready';
+						project.parentCollected = {};
 						breedings.completed++;
 					}
 				}
@@ -878,6 +882,26 @@ export class RPGLoginService {
 		return this.nurseryView(actor);
 	}
 
+	collectNurseryParent(token: string, projectId: string) {
+		const actor = this.requireNurseryActor(token);
+		const found = this.requireNurseryProject(projectId);
+		const project = found.project;
+		const ownedParents = [project.slot1, project.slot2].filter(parent =>
+			parent?.ownerId === actor.state.id
+		);
+		if (!ownedParents.length) throw new Error('Você não possui um Pokémon nesta procriação');
+		if (!project.egg || !['egg_ready', 'collected'].includes(project.status)) {
+			throw new Error('A procriação ainda não terminou');
+		}
+		project.parentCollected ||= {};
+		if (project.parentCollected[actor.state.id]) {
+			throw new Error('Seu Pokémon já foi resgatado desta procriação');
+		}
+		project.parentCollected[actor.state.id] = true;
+		this.persistNurseryRecord(found.record);
+		return this.nurseryView(actor);
+	}
+
 	collectNurseryEgg(token: string, projectId: string) {
 		const actor = this.requireNurseryActor(token);
 		const project = this.ensureNursery(actor).projects.find(value => value.id === projectId);
@@ -898,6 +922,22 @@ export class RPGLoginService {
 		return this.nurseryView(actor);
 	}
 
+	collectNurseryEggToLocal(token: string, projectId: string, incubatorId: string) {
+		const actor = this.requireNurseryActor(token);
+		const nursery = this.ensureNursery(actor);
+		const project = nursery.projects.find(value => value.id === projectId);
+		if (!project || project.eggOwnerId !== actor.state.id) {
+			throw new Error('Somente o proprietário do ovo pode depositá-lo');
+		}
+		if (project.status !== 'egg_ready' || !project.egg) throw new Error('Este ovo ainda não está disponível');
+		const incubator = nursery.incubators.find(value => value.id === incubatorId);
+		if (!incubator) throw new Error('Incubadora local desconhecida');
+		RPGIncubation.insertCreated(project.egg, incubator, this.now());
+		project.status = 'collected';
+		this.persistNurseryRecord(actor);
+		return this.nurseryView(actor);
+	}
+
 	insertNurseryEgg(token: string, eggId: string, incubatorId: string) {
 		const actor = this.requireNurseryActor(token);
 		const egg = this.requireOwnedEgg(actor, eggId);
@@ -913,7 +953,36 @@ export class RPGLoginService {
 		const egg = this.requireOwnedEgg(actor, eggId);
 		const incubator = this.ensureNursery(actor).incubators.find(value => value.id === egg.incubatorId);
 		if (!incubator) throw new Error('Ovo sem incubadora válida');
+		const inventory = RPGInventorySystem.migrate(actor.state.inventory);
+		const capacity = RPGIncubation.canCarry({
+			teamPokemon: actor.state.box.party.length,
+			carriedEggs: this.activeEggs(actor).length,
+			bagUsedSlots: RPGBagSystem.getUsedSlots(inventory.bag),
+			bagMaxSlots: inventory.bag.maxSlots,
+		}, 1);
+		if (!capacity.allowed) throw new Error('A retirada exige 1 espaço na equipe e 5 espaços na Bag');
 		RPGIncubation.remove(egg, incubator);
+		this.persistNurseryRecord(actor);
+		return this.nurseryView(actor);
+	}
+
+	startPortableNurseryIncubator(token: string, eggId: string) {
+		const actor = this.requireNurseryActor(token);
+		const egg = this.requireOwnedEgg(actor, eggId);
+		const inventory = RPGInventorySystem.migrate(actor.state.inventory);
+		actor.state.inventory = inventory;
+		const total = RPGBagSystem.getRegularQuantity(inventory.bag, 'portableincubator');
+		const inUse = this.portableEggProjects(actor).filter(project => !project.egg?.portableIncubatorMission).length;
+		if (inUse >= total) throw new Error('Você precisa ter uma Incubadora Portátil disponível na Bag');
+		RPGIncubation.usePortable(egg, this.now(), actor.state.id + ':portable:' + egg.id);
+		this.persistNurseryRecord(actor);
+		return this.nurseryView(actor);
+	}
+
+	stopPortableNurseryIncubator(token: string, eggId: string) {
+		const actor = this.requireNurseryActor(token);
+		const egg = this.requireOwnedEgg(actor, eggId);
+		RPGIncubation.stopPortable(egg);
 		this.persistNurseryRecord(actor);
 		return this.nurseryView(actor);
 	}
@@ -921,10 +990,12 @@ export class RPGLoginService {
 	hatchNurseryEgg(token: string, eggId: string) {
 		const actor = this.requireNurseryActor(token);
 		const egg = this.requireOwnedEgg(actor, eggId);
-		const incubator = this.ensureNursery(actor).incubators.find(value => value.id === egg.incubatorId);
-		if (!incubator) throw new Error('Ovo sem incubadora válida');
-		if (actor.state.box.party.length >= 6) {
-			throw new Error('O espaço reservado pelo ovo na equipe não está disponível');
+		const incubator = egg.portableIncubator ? undefined :
+			this.ensureNursery(actor).incubators.find(value => value.id === egg.incubatorId);
+		if (!egg.portableIncubator && !incubator) throw new Error('Ovo sem incubadora válida');
+		const otherReservedEggs = this.activeEggs(actor).filter(activeEgg => activeEgg.id !== egg.id).length;
+		if (actor.state.box.party.length + otherReservedEggs >= 6) {
+			throw new Error('Não há espaço livre na equipe para resgatar o Pokémon chocado');
 		}
 		const result = RPGIncubation.hatch(egg, incubator, this.now());
 		RPGBoxManagement.insertParty(actor.state, {
@@ -978,10 +1049,33 @@ export class RPGLoginService {
 
 	setBagItemMission(
 		token: string, characterId: string | undefined, itemId: string,
-		mission: boolean, expectedRevision: number, quantity?: number, note?: string
+		mission: boolean, expectedRevision: number, quantity?: number, note?: string, linkedEggId?: string
 	): RPGManagedBagView {
 		const record = this.requireBagRecord(token, characterId, 'bag:edit');
-		RPGBagManagement.setMissionItem(record.state, itemId, mission, expectedRevision, quantity, note);
+		const id = toID(itemId);
+		if (id === 'portableincubator') {
+			const loaded = this.portableEggProjects(record);
+			if (linkedEggId) {
+				const project = loaded.find(candidate => candidate.egg?.id === linkedEggId);
+				if (!project?.egg) throw new Error('Incubadora carregada desconhecida');
+				if (!!project.egg.portableIncubatorMission === mission) {
+					throw new Error('A incubadora já está nesta categoria');
+				}
+				RPGBagManagement.setMissionItem(record.state, id, mission, expectedRevision, 1, note);
+				project.egg.portableIncubatorMission = mission || undefined;
+			} else {
+				const inventory = RPGInventorySystem.migrate(record.state.inventory);
+				const inUse = loaded.filter(project => !!project.egg?.portableIncubatorMission === !mission).length;
+				const pool = mission ? RPGBagSystem.getRegularQuantity(inventory.bag, id) :
+					RPGBagSystem.getMissionQuantity(inventory.bag, id);
+				const movable = Math.max(0, pool - inUse);
+				const amount = quantity === undefined ? movable : quantity;
+				if (amount > movable) throw new Error('A quantidade inclui uma Incubadora Portátil carregada');
+				RPGBagManagement.setMissionItem(record.state, id, mission, expectedRevision, amount, note);
+			}
+		} else {
+			RPGBagManagement.setMissionItem(record.state, id, mission, expectedRevision, quantity, note);
+		}
 		this.persistBoxRecord(record);
 		return this.managedBagView(record);
 	}
@@ -1036,6 +1130,13 @@ export class RPGLoginService {
 	): RPGManagedBagView {
 		this.requireMasterRole(token);
 		const record = this.requireCharacter(characterId);
+		if (toID(itemId) === 'portableincubator' && operation !== 'add') {
+			const current = RPGBagSystem.getQuantity(RPGInventorySystem.migrate(record.state.inventory).bag, itemId);
+			const resulting = operation === 'remove' ? current - quantity : quantity;
+			if (resulting < this.portableEggProjects(record).length) {
+				throw new Error('Remova ou descarte os Eggs das incubadoras carregadas primeiro');
+			}
+		}
 		RPGBagManagement.updateQuantity(record.state, itemId, quantity, expectedRevision, operation);
 		this.persistBoxRecord(record);
 		return this.managedBagView(record);
@@ -1056,7 +1157,7 @@ export class RPGLoginService {
 			}));
 	}
 
-	getBagTransferTargets(token: string, characterId: string | undefined, itemId: string): {
+	getBagTransferTargets(token: string, characterId: string | undefined, itemId: string, linkedEggId?: string): {
 		itemId: string,
 		senderRevision: number,
 		targets: {
@@ -1068,6 +1169,11 @@ export class RPGLoginService {
 		const sender = this.requireBagRecord(token, characterId, 'bag:read');
 		const item = this.requireTransferableBagItem(sender, itemId);
 		const senderBag = RPGInventorySystem.migrate(sender.state.inventory).bag;
+		const loaded = item.id === 'portableincubator' && !!linkedEggId;
+		if (loaded && !this.portableEggProjects(sender).some(project =>
+			project.egg?.id === linkedEggId && !project.egg.portableIncubatorMission)) {
+			throw new Error('Incubadora carregada desconhecida');
+		}
 		const targets = this.repository.list().filter(record => record.state.id !== sender.state.id).map(record => {
 			const inventory = RPGInventorySystem.migrate(record.state.inventory);
 			const capacity = RPGBagSystem.getCapacity(inventory.bag);
@@ -1075,11 +1181,20 @@ export class RPGLoginService {
 			const hasItem = currentQuantity > 0;
 			const hasStackSpace = currentQuantity < item.stackLimit;
 			const bagAllowed = record.state.pageAccess?.bag !== false;
+			let canReceive = bagAllowed && hasStackSpace && (hasItem || !capacity.full);
+			if (canReceive && loaded) {
+				canReceive = RPGIncubation.canCarry({
+					teamPokemon: record.state.box.party.length,
+					carriedEggs: this.activeEggs(record).length,
+					bagUsedSlots: capacity.usedSlots + (hasItem ? 0 : 1),
+					bagMaxSlots: capacity.maxSlots,
+				}, 1).allowed;
+			}
 			return {
 				characterId: record.state.id, characterName: record.state.characterName,
 				revision: inventory.bag.revision, usedSlots: capacity.usedSlots,
 				...(capacity.maxSlots === undefined ? {} : { maxSlots: capacity.maxSlots }),
-				hasItem, bagAllowed, canReceive: bagAllowed && hasStackSpace && (hasItem || !capacity.full),
+				hasItem, bagAllowed, canReceive,
 			};
 		}).sort((left, right) => left.characterName.localeCompare(right.characterName));
 		return { itemId: item.id, senderRevision: senderBag.revision, targets };
@@ -1087,24 +1202,37 @@ export class RPGLoginService {
 
 	discardBagItem(
 		token: string, characterId: string | undefined, itemId: string,
-		quantity: number, expectedRevision: number
+		quantity: number, expectedRevision: number, linkedEggId?: string
 	): RPGManagedBagView {
 		const record = this.requireBagRecord(token, characterId, 'bag:edit');
 		const item = this.requireTransferableBagItem(record, itemId);
 		record.state.inventory = RPGInventorySystem.migrate(record.state.inventory);
-		if (quantity > RPGBagSystem.getRegularQuantity(record.state.inventory.bag, item.id)) {
+		const loaded = item.id === 'portableincubator' && !!linkedEggId;
+		if (loaded && quantity !== 1) throw new Error('A incubadora carregada deve ser descartada individualmente');
+		const occupiedRegular = item.id === 'portableincubator' ? this.portableEggProjects(record)
+			.filter(project => !project.egg?.portableIncubatorMission).length : 0;
+		const regular = RPGBagSystem.getRegularQuantity(record.state.inventory.bag, item.id);
+		if (loaded) {
+			const project = this.portableEggProjects(record).find(candidate =>
+				candidate.egg?.id === linkedEggId && !candidate.egg.portableIncubatorMission);
+			if (!project) throw new Error('Incubadora carregada desconhecida');
+		} else if (item.id === 'portableincubator' && quantity > regular - occupiedRegular) {
+			throw new Error('A quantidade inclui uma Incubadora Portátil carregada');
+		} else if (quantity > regular) {
 			throw new Error('A quantidade excede os itens fora de Itens de Missão');
 		}
 		record.state.inventory.bag = RPGBagSystem.remove(
 			record.state.inventory.bag, item.id, quantity, expectedRevision
 		).bag;
+		if (loaded) this.removePortableEggProject(record, linkedEggId!);
 		this.persistBoxRecord(record);
 		return this.managedBagView(record);
 	}
 
 	transferBagItem(
 		token: string, characterId: string | undefined, targetCharacterId: string,
-		itemId: string, quantity: number, expectedSenderRevision: number, expectedTargetRevision: number
+		itemId: string, quantity: number, expectedSenderRevision: number, expectedTargetRevision: number,
+		linkedEggId?: string
 	): { sender: RPGManagedBagView, targetCharacterId: string } {
 		const sender = this.requireBagRecord(token, characterId, 'bag:edit');
 		const item = this.requireTransferableBagItem(sender, itemId);
@@ -1112,26 +1240,55 @@ export class RPGLoginService {
 		if (target.state.id === sender.state.id) throw new Error('Escolha outro Player para receber o item');
 		if (target.state.pageAccess?.bag === false) throw new Error('A Bag do Player escolhido está bloqueada');
 		if (!Number.isSafeInteger(quantity) || quantity < 1) throw new Error('A quantidade deve ser um inteiro positivo');
+		const loaded = item.id === 'portableincubator' && !!linkedEggId;
+		if (loaded && quantity !== 1) throw new Error('A incubadora carregada deve ser entregue individualmente');
 		const senderInventory = RPGInventorySystem.migrate(sender.state.inventory);
-		if (quantity > RPGBagSystem.getRegularQuantity(senderInventory.bag, item.id)) {
-			throw new Error('A quantidade excede os itens fora de Itens de Missão');
+		const occupiedRegular = item.id === 'portableincubator' ? this.portableEggProjects(sender)
+			.filter(project => !project.egg?.portableIncubatorMission).length : 0;
+		if (!loaded && quantity > RPGBagSystem.getRegularQuantity(senderInventory.bag, item.id) - occupiedRegular) {
+			throw new Error('A quantidade inclui uma Incubadora Portátil carregada');
+		}
+		let eggProject: RPGNurseryProject | undefined;
+		if (loaded) {
+			eggProject = this.portableEggProjects(sender).find(project =>
+				project.egg?.id === linkedEggId && !project.egg.portableIncubatorMission);
+			if (!eggProject?.egg) throw new Error('Incubadora carregada desconhecida');
+		}
+		const targetInventory = RPGInventorySystem.migrate(target.state.inventory);
+		if (loaded) {
+			const capacity = RPGBagSystem.getCapacity(targetInventory.bag);
+			const hasItem = RPGBagSystem.getQuantity(targetInventory.bag, item.id) > 0;
+			const carrying = RPGIncubation.canCarry({
+				teamPokemon: target.state.box.party.length, carriedEggs: this.activeEggs(target).length,
+				bagUsedSlots: capacity.usedSlots + (hasItem ? 0 : 1), bagMaxSlots: capacity.maxSlots,
+			}, 1);
+			if (!carrying.allowed) throw new Error('O Player precisa de 1 vaga na equipe e 5 espaços na Bag para receber o Egg');
 		}
 		const originalSender = structuredClone(sender);
-		const targetInventory = RPGInventorySystem.migrate(target.state.inventory);
+		const originalTarget = structuredClone(target);
 		const fossilQualities = RPGFossilLab.takeRandomQualities(sender.state, item.id, quantity, this.random);
 		if (fossilQualities) RPGFossilLab.addKnownQualities(target.state, item.id, fossilQualities, this.random);
 		const removed = RPGBagSystem.remove(senderInventory.bag, item.id, quantity, expectedSenderRevision);
 		const added = RPGBagSystem.add(targetInventory.bag, item.id, quantity, expectedTargetRevision);
 		sender.state.inventory = { ...senderInventory, bag: removed.bag };
 		target.state.inventory = { ...targetInventory, bag: added.bag };
+		if (eggProject?.egg) {
+			this.removePortableEggProject(sender, eggProject.egg.id);
+			eggProject.egg.ownerId = target.state.id;
+			eggProject.eggOwnerId = target.state.id;
+			eggProject.egg.portableIncubatorId = target.state.id + ':portable:' + eggProject.egg.id;
+			delete eggProject.egg.portableIncubatorMission;
+			this.ensureNursery(target).projects.push(eggProject);
+		}
 		this.persistBoxRecord(sender);
 		try {
 			this.persistBoxRecord(target);
 		} catch (error) {
 			this.repository.set(originalSender);
+			this.repository.set(originalTarget);
 			throw error;
 		}
-		return { sender: RPGBagManagement.view(sender.state), targetCharacterId: target.state.id };
+		return { sender: this.managedBagView(sender), targetCharacterId: target.state.id };
 	}
 
 	completeMissionItem(
@@ -1173,6 +1330,11 @@ export class RPGLoginService {
 			}
 		}
 		record.state.inventory.bag = RPGBagSystem.apply(prepared, operations, expectedRevision).bag;
+		if (item.id === 'portableincubator') {
+			for (const project of [...this.portableEggProjects(record)]) {
+				if (project.egg?.portableIncubatorMission) this.removePortableEggProject(record, project.egg.id);
+			}
+		}
 		if (reward.type === 'pokecoin') record.state.money += reward.amount;
 		this.persistBoxRecord(record);
 		return { bag: this.managedBagView(record), money: record.state.money };
@@ -1201,7 +1363,7 @@ export class RPGLoginService {
 	getBox(token: string, characterId?: string, query: RPGBoxQuery = {}): RPGBoxManagementView {
 		const record = this.requireBoxRecord(token, characterId, 'box:read');
 		this.resolveCompletedEVTrainings(record);
-		return RPGBoxManagement.view(record.state, query);
+		return this.managedBoxView(record, query);
 	}
 
 	renameCharacterBox(
@@ -1210,16 +1372,27 @@ export class RPGLoginService {
 		const record = this.requireBoxRecord(token, characterId, 'box:edit');
 		RPGBoxManagement.rename(record.state, boxIndex, name, expectedRevision);
 		this.persistBoxRecord(record);
-		return RPGBoxManagement.view(record.state);
+		return this.managedBoxView(record);
 	}
 
 	moveBoxPokemon(
 		token: string, characterId: string | undefined, input: RPGBoxMoveInput
 	): RPGBoxManagementView {
 		const record = this.requireBoxRecord(token, characterId, 'box:edit');
+		const sourceInParty = record.state.box.party.some(entry => entry.pokemonId === input.pokemonId);
+		const destinationEntry = input.destination.destination === 'party' ?
+			record.state.box.party[input.destination.position] :
+			record.state.box.boxes[input.destination.boxIndex]?.slots[input.destination.slot];
+		const destinationInParty = input.destination.destination === 'party';
+		if (sourceInParty !== destinationInParty && (
+			this.isPokemonBreeding(record.state.id, input.pokemonId) ||
+			(destinationEntry && this.isPokemonBreeding(record.state.id, destinationEntry.pokemonId))
+		)) {
+			throw new Error('Pokémon em procriação deve permanecer na equipe até a produção do ovo');
+		}
 		RPGBoxManagement.move(record.state, input);
 		this.persistBoxRecord(record);
-		return RPGBoxManagement.view(record.state);
+		return this.managedBoxView(record);
 	}
 
 	updateBoxPokemonMetadata(
@@ -1229,7 +1402,7 @@ export class RPGLoginService {
 		const record = this.requireBoxRecord(token, characterId, 'box:edit');
 		RPGBoxManagement.metadata(record.state, pokemonId, metadata, expectedRevision);
 		this.persistBoxRecord(record);
-		return RPGBoxManagement.view(record.state);
+		return this.managedBoxView(record);
 	}
 
 	getBoxHealingItems(token: string, characterId: string | undefined, pokemonId: string): {
@@ -1475,7 +1648,7 @@ export class RPGLoginService {
 		const record = this.requireBoxRecord(token, characterId, 'box:edit');
 		RPGBoxManagement.healAtCenter(record.state, pokemonId, expectedRevision);
 		this.persistBoxRecord(record);
-		return RPGBoxManagement.view(record.state);
+		return this.managedBoxView(record);
 	}
 
 	getPokemonCenter(token: string, characterId?: string) {
@@ -1533,6 +1706,7 @@ export class RPGLoginService {
 		token: string, characterId: string | undefined, pokemonId: string, expectedRevision: number
 	): RPGPokemonReleaseChallenge {
 		const record = this.requireBoxRecord(token, characterId, 'box:edit');
+		this.requirePokemonNotBreeding(record, pokemonId);
 		if (record.state.box.revision !== expectedRevision) throw new Error('RPG Box revision conflict');
 		const pokemon = RPGBoxManagement.view(record.state).results.find(entry => entry.pokemonId === pokemonId);
 		if (!pokemon) throw new Error('Unknown RPG Box Pokemon');
@@ -1555,9 +1729,10 @@ export class RPGLoginService {
 		this.pokemonReleaseChallenges.delete(challengeId);
 		if (confirmed !== true) throw new Error('RPG Pokemon release was not confirmed');
 		const record = this.requireBoxRecord(token, challenge.characterId, 'box:edit');
+		this.requirePokemonNotBreeding(record, challenge.pokemonId);
 		RPGBoxManagement.release(record.state, challenge.pokemonId, challenge.expectedRevision);
 		this.persistBoxRecord(record);
-		return RPGBoxManagement.view(record.state);
+		return this.managedBoxView(record);
 	}
 
 	editBoxPokemonWithTeamBuilder(
@@ -1603,7 +1778,7 @@ export class RPGLoginService {
 			RPGBoxManagement.playerTeamBuilder(record.state, pokemonId, candidate, expectedRevision);
 		}
 		this.persistBoxRecord(record);
-		return RPGBoxManagement.view(record.state);
+		return this.managedBoxView(record);
 	}
 
 	getPokemonTeamBuilder(
@@ -1733,7 +1908,7 @@ export class RPGLoginService {
 		const record = this.requireCharacter(characterId);
 		RPGBoxManagement.masterEdit(record.state, pokemonId, edit, expectedRevision);
 		this.persistBoxRecord(record);
-		return RPGBoxManagement.view(record.state);
+		return this.managedBoxView(record);
 	}
 
 	masterAddBoxPokemon(
@@ -1748,7 +1923,7 @@ export class RPGLoginService {
 		};
 		RPGBoxManagement.insert(record.state, entry);
 		this.persistBoxRecord(record);
-		return RPGBoxManagement.view(record.state);
+		return this.managedBoxView(record);
 	}
 
 	transferBoxPokemon(
@@ -1760,6 +1935,7 @@ export class RPGLoginService {
 		const destination = this.requireCharacter(toCharacterId);
 		if (source.state.id === destination.state.id) throw new Error('RPG Pokemon transfer requires different characters');
 		if (destination.state.box.revision !== destinationRevision) throw new Error('RPG destination Box revision conflict');
+		this.requirePokemonNotBreeding(source, pokemonId);
 		const originalSource = structuredClone(source);
 		const entry = RPGBoxManagement.extract(source.state, pokemonId, sourceRevision);
 		RPGBoxManagement.insert(destination.state, entry);
@@ -1771,14 +1947,17 @@ export class RPGLoginService {
 			throw error;
 		}
 		return {
-			source: RPGBoxManagement.view(source.state),
-			destination: RPGBoxManagement.view(destination.state),
+			source: this.managedBoxView(source),
+			destination: this.managedBoxView(destination),
 		};
 	}
 
 	replaceCharacterTeam(token: string, characterId: string, input: PokemonSet[]): RPGCharacterState {
 		this.requireViewedMasterCharacter(token, characterId);
 		const record = this.requireCharacter(characterId);
+		if (record.state.box.party.some(entry => this.isPokemonBreeding(record.state.id, entry.pokemonId))) {
+			throw new Error('A equipe não pode ser substituída enquanto houver Pokémon em procriação');
+		}
 		if (!Array.isArray(input) || input.length < 1 || input.length > 6) {
 			throw new Error('RPG character team must contain between 1 and 6 Pokemon');
 		}
@@ -2109,25 +2288,77 @@ export class RPGLoginService {
 	}
 
 	private ensureNursery(record: RPGStoredCharacter): RPGNurseryCharacterState {
+		const createLocalIncubators = () => Array.from({length: 3}, (_, groupIndex) =>
+			Array.from({length: 3}, (_, slotIndex) => ({
+				id: record.state.id + ':incubator:' + (groupIndex + 1) + ':' + (slotIndex + 1),
+				ownerId: record.state.id, kind: 'local' as const, group: groupIndex + 1, slot: slotIndex + 1,
+			}))
+		).flat();
 		if (!record.state.nursery || record.state.nursery.version !== 1) {
-			record.state.nursery = {
-				version: 1,
-				projects: [],
-				incubators: [{id: record.state.id + ':incubator:1', ownerId: record.state.id}],
-			};
+			record.state.nursery = {version: 1, projects: [], incubators: createLocalIncubators()};
 		}
 		if (!Array.isArray(record.state.nursery.projects)) record.state.nursery.projects = [];
-		if (!Array.isArray(record.state.nursery.incubators) || !record.state.nursery.incubators.length) {
-			record.state.nursery.incubators = [{id: record.state.id + ':incubator:1', ownerId: record.state.id}];
+		for (const project of record.state.nursery.projects) {
+			if (!['egg_ready', 'collected'].includes(project.status) || project.parentCollected !== undefined) continue;
+			project.parentCollected = Object.fromEntries(
+				[...new Set([project.slot1.ownerId, project.slot2?.ownerId].filter(Boolean) as string[])]
+					.map(ownerId => [ownerId, true])
+			);
+		}
+		const desired = createLocalIncubators();
+		const existing = Array.isArray(record.state.nursery.incubators) ?
+			record.state.nursery.incubators : [];
+		const desiredIds = new Set(desired.map(incubator => incubator.id));
+		const legacy = existing.filter(incubator => !desiredIds.has(incubator.id));
+		record.state.nursery.incubators = desired.map(target => {
+			const source = existing.find(incubator => incubator.id === target.id) || legacy.shift();
+			if (!source?.eggId) return target;
+			if (source.id !== target.id) {
+				for (const project of record.state.nursery!.projects) {
+					if (project.egg?.incubatorId === source.id) project.egg.incubatorId = target.id;
+				}
+			}
+			return {...target, eggId: source.eggId};
+		});
+		const eggs = record.state.nursery.projects.map(project => project.egg);
+		for (const incubator of record.state.nursery.incubators) {
+			const egg = eggs.find(candidate => candidate?.id === incubator.eggId);
+			if (!egg || egg.incubatorId !== incubator.id || egg.portableIncubator ||
+				!['incubating', 'ready_to_hatch'].includes(egg.status)) {
+				delete incubator.eggId;
+			}
+		}
+		for (const egg of eggs) {
+			if (!egg?.incubatorId || egg.portableIncubator ||
+				!['incubating', 'ready_to_hatch'].includes(egg.status)) continue;
+			const incubator = record.state.nursery.incubators.find(value => value.id === egg.incubatorId);
+			if (incubator && (!incubator.eggId || incubator.eggId === egg.id)) incubator.eggId = egg.id;
 		}
 		return record.state.nursery;
 	}
 
 	private characterView(record: RPGStoredCharacter): RPGCharacterState {
 		const view = structuredClone(record.state);
+		for (const entry of view.box.party) {
+			if (!this.isPokemonBreeding(record.state.id, entry.pokemonId)) continue;
+			entry.metadata = {...entry.metadata, breeding: true};
+		}
 		view.teamEggs = this.activeEggs(record).map(egg => ({
 			...RPGIncubation.view(egg), name: 'Egg', species: 'Egg', virtual: true as const,
 		}));
+		view.portableIncubators = this.portableIncubatorSlots(record);
+		return view;
+	}
+
+	private managedBoxView(record: RPGStoredCharacter, query: RPGBoxQuery = {}): RPGBoxManagementView {
+		const view = RPGBoxManagement.view(record.state, query);
+		for (const pokemon of view.results) {
+			if (!this.isPokemonBreeding(record.state.id, pokemon.pokemonId)) continue;
+			pokemon.metadata.breeding = true;
+			pokemon.actions.move = false;
+			pokemon.actions.release = false;
+			if (!pokemon.indicators.includes('breeding')) pokemon.indicators.push('breeding');
+		}
 		return view;
 	}
 
@@ -2145,13 +2376,65 @@ export class RPGLoginService {
 			view.capacity.freeSlots = Math.max(0, view.capacity.maxSlots - view.capacity.usedSlots);
 			view.capacity.full = view.capacity.usedSlots >= view.capacity.maxSlots;
 		}
+		if (view.context === 'world') {
+			const loaded = this.portableEggProjects(record);
+			const expanded: RPGManagedBagItemView[] = [];
+			for (const item of view.items) {
+				if (item.id !== 'portableincubator') {
+					expanded.push(item);
+					continue;
+				}
+				const matching = loaded.filter(project => !!project.egg?.portableIncubatorMission === item.mission);
+				const emptyQuantity = Math.max(0, item.quantity - matching.length);
+				if (emptyQuantity) expanded.push({...item, quantity: emptyQuantity});
+				for (const project of matching) {
+					expanded.push({
+						...item, name: 'Incubadora Portátil carregada', quantity: 1,
+						description: 'Contém um Egg em incubação. Qualquer movimentação desta incubadora também movimenta o Egg.',
+						loaded: true, linkedEggId: project.egg!.id,
+						icon: './assets/item-icons/portableincubator.png?v=20260821-3', sprite: null,
+						actions: item.actions.filter(action => !['favorite', 'unfavorite'].includes(action)),
+					});
+				}
+			}
+			view.items = expanded;
+
+		}
 		return view;
 	}
+
+	private portableEggProjects(record: RPGStoredCharacter): RPGNurseryProject[] {
+		return this.ensureNursery(record).projects.filter(project =>
+			project.egg?.portableIncubator === true && project.egg.status !== 'hatched'
+		);
+	}
+
+	private portableIncubatorSlots(record: RPGStoredCharacter) {
+		const inventory = RPGInventorySystem.migrate(record.state.inventory);
+		const total = RPGBagSystem.getQuantity(inventory.bag, 'portableincubator');
+		const loaded = this.portableEggProjects(record).map(project => ({
+			id: project.egg!.portableIncubatorId || record.state.id + ':portable:' + project.egg!.id,
+			loaded: true, eggId: project.egg!.id,
+			...(project.egg!.portableIncubatorMission ? {mission: true} : {}),
+		}));
+		return [...loaded, ...Array.from({length: Math.max(0, total - loaded.length)}, (_, index) => ({
+			id: record.state.id + ':portable:empty:' + (index + 1), loaded: false,
+		}))];
+	}
+
+	private removePortableEggProject(record: RPGStoredCharacter, eggId: string): RPGNurseryProject {
+		const nursery = this.ensureNursery(record);
+		const index = nursery.projects.findIndex(project => project.egg?.id === eggId && project.egg.portableIncubator);
+		if (index < 0) throw new Error('A incubadora carregada não está ligada a este Egg');
+		return nursery.projects.splice(index, 1)[0];
+	}
+
 	private activeEggs(record: RPGStoredCharacter) {
 		return this.ensureNursery(record).projects
 			.map(project => project.egg)
 			.filter((egg): egg is NonNullable<typeof egg> =>
-				!!egg && ['carried', 'incubating', 'ready_to_hatch'].includes(egg.status));
+				!!egg && (egg.status === 'carried' ||
+					(egg.portableIncubator === true && ['incubating', 'ready_to_hatch'].includes(egg.status))));
 	}
 
 	private nurseryView(record?: RPGStoredCharacter) {
@@ -2172,6 +2455,11 @@ export class RPGLoginService {
 					createdAt: project.createdAt,
 					requiredBreedingTimeMs: project.requiredBreedingTimeMs,
 					remainingBreedingTimeMs: project.remainingBreedingTimeMs,
+					parentCollected: structuredClone(project.parentCollected ??
+						Object.fromEntries(
+							[...new Set([project.slot1.ownerId, project.slot2?.ownerId].filter(Boolean))]
+								.map(ownerId => [ownerId, true])
+						)),
 					preview,
 					egg,
 				};
@@ -2181,8 +2469,11 @@ export class RPGLoginService {
 			.map(project => project.egg)
 			.filter((egg): egg is NonNullable<typeof egg> => !!egg && egg.status !== 'hatched')
 			.map(egg => RPGIncubation.view(egg)) : [];
-		const bag = record ? RPGInventorySystem.migrate(record.state.inventory).bag : undefined;
+		const inventory = record ? RPGInventorySystem.migrate(record.state.inventory) : undefined;
+		const bag = inventory?.bag;
 		const activeEggs = record ? this.activeEggs(record) : [];
+		const portableTotal = inventory ? RPGInventorySystem.getAvailableQuantity(inventory, 'portableincubator') : 0;
+		const portableInUse = eggs.filter(egg => egg.portableIncubator).length;
 		return {
 			version: 2,
 			shared: true,
@@ -2204,9 +2495,12 @@ export class RPGLoginService {
 				...RPGIncubation.view(egg), name: 'Egg', species: 'Egg', virtual: true as const,
 			})),
 			incubators: nursery ? nursery.incubators.map(incubator => ({
-				...incubator,
+				...incubator, kind: 'local' as const,
 				egg: incubator.eggId ? eggs.find(egg => egg.eggId === incubator.eggId) : undefined,
 			})) : [],
+			portableIncubators: {
+				total: portableTotal, inUse: portableInUse, available: Math.max(0, portableTotal - portableInUse),
+			},
 			capacity: {
 				teamPokemon: record?.state.box.party.length || 0,
 				carriedEggs: activeEggs.length,
@@ -2253,12 +2547,15 @@ export class RPGLoginService {
 	}
 
 	private isPokemonBreeding(ownerId: string, pokemonId: string, ignoredProjectId?: string): boolean {
-		return this.repository.list().some(record => (record.state.nursery?.projects || []).some(project =>
-			project.id !== ignoredProjectId &&
-			['inviting', 'configuring', 'awaiting_confirmation', 'breeding'].includes(project.status) &&
-			(project.slot1.ownerId === ownerId && project.slot1.pokemonId === pokemonId ||
-				project.slot2?.ownerId === ownerId && project.slot2.pokemonId === pokemonId)
-		));
+		return this.repository.list().some(record => (record.state.nursery?.projects || []).some(project => {
+			if (project.id === ignoredProjectId) return false;
+			const participates = project.slot1.ownerId === ownerId && project.slot1.pokemonId === pokemonId ||
+				project.slot2?.ownerId === ownerId && project.slot2.pokemonId === pokemonId;
+			if (!participates) return false;
+			if (['inviting', 'configuring', 'awaiting_confirmation', 'breeding'].includes(project.status)) return true;
+			return ['egg_ready', 'collected'].includes(project.status) &&
+				project.parentCollected !== undefined && project.parentCollected[ownerId] !== true;
+		}));
 	}
 
 	private requireNurseryAccess(token: string, record: RPGStoredCharacter): void {
@@ -2279,6 +2576,12 @@ export class RPGLoginService {
 		}
 		if (this.isPokemonBreeding(record.state.id, pokemonId)) {
 			throw new Error('Pok\u00e9mon em procria\u00e7\u00e3o est\u00e1 indispon\u00edvel at\u00e9 a produ\u00e7\u00e3o do ovo');
+		}
+	}
+
+	private requirePokemonNotBreeding(record: RPGStoredCharacter, pokemonId: string): void {
+		if (this.isPokemonBreeding(record.state.id, pokemonId)) {
+			throw new Error('Pokémon em procriação deve permanecer na equipe até a produção do ovo');
 		}
 	}
 

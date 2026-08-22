@@ -26,8 +26,11 @@
 		ready_to_hatch: 'Pronto para chocar',
 	};
 
-	function eggIcon(options) {
-		const icon = el('img', 'nursery-egg');
+	function eggIcon(options, egg) {
+		if (egg?.portableIncubator && options.eggVisual) {
+			return options.eggVisual(egg, 'nursery-egg portable');
+		}
+		const icon = el('img', 'nursery-egg plain-egg-visual');
 		icon.src = options.spriteUrl({species: 'Egg'});
 		icon.alt = 'Egg';
 		icon.draggable = false;
@@ -165,7 +168,7 @@
 			}
 			for (const egg of (view.teamEggs || [])) {
 				const card = el('span', 'nursery-team-card nursery-team-egg busy');
-				const icon = eggIcon(options);
+				const icon = eggIcon(options, egg);
 				icon.classList.add('nursery-team-egg-icon');
 				const copy = el('span', 'nursery-team-copy');
 				copy.append(el('strong', '', 'Egg'));
@@ -291,15 +294,79 @@
 				board.append(stack);
 			}
 			page.append(board);
+
+			const rescueEntries = [];
+			for (const project of view.projects) {
+				if (!['egg_ready', 'collected'].includes(project.status)) continue;
+				const owners = [...new Set([project.slot1.ownerId, project.slot2OwnerId].filter(Boolean))];
+				for (const ownerId of owners) {
+					if (project.parentCollected?.[ownerId] === true) continue;
+					if (view.ownerId && ownerId !== view.ownerId) continue;
+					const parents = [project.slot1, project.slot2].filter(parent => parent?.ownerId === ownerId);
+					if (parents.length) rescueEntries.push({project, ownerId, parents});
+				}
+			}
+			const rescueBoard = el('section', 'nursery-shared-board nursery-rescue-board');
+			const rescueHead = el('header', 'nursery-shared-board-head nursery-rescue-head');
+			rescueHead.append(
+				el('div', '', ''),
+				el('h2', '', 'Pokémon aguardando resgate'),
+				el('span', 'nursery-board-count', rescueEntries.length +
+					(rescueEntries.length === 1 ? ' resgate pendente' : ' resgates pendentes'))
+			);
+			rescueBoard.append(rescueHead);
+			if (!rescueEntries.length) {
+				rescueBoard.append(el('div', 'nursery-empty nursery-board-empty',
+					'Nenhum Pokémon aguardando resgate.'));
+			} else {
+				const rescueStack = el('div', 'nursery-rescue-stack');
+				for (const entry of rescueEntries) {
+					const rescueCard = el('article', 'nursery-rescue-card');
+					const ownerName = entry.parents[0]?.ownerName || entry.ownerId;
+					rescueCard.append(el('h3', '', view.ownerId ? 'Seus Pokémon' : 'Treinador: ' + ownerName));
+					const pokemonGrid = el('div', 'nursery-rescue-pokemon-grid');
+					for (const parent of entry.parents) pokemonGrid.append(parentCard(parent, options));
+					rescueCard.append(pokemonGrid);
+					if (view.ownerId === entry.ownerId) {
+						const collectParent = el('button', 'button primary', 'Resgatar Pokémon');
+						collectParent.addEventListener('click', () =>
+							action('collect-parent', {projectId: entry.project.id}));
+						rescueCard.append(collectParent);
+					} else {
+						rescueCard.append(el('small', 'nursery-rescue-waiting',
+							'Aguardando o treinador resgatar.'));
+					}
+					rescueStack.append(rescueCard);
+				}
+				rescueBoard.append(rescueStack);
+			}
+			page.append(rescueBoard);
 			return page;
 		}
+		function localChamber(incubator) {
+			const egg = incubator.egg;
+			const chamber = el('div', 'nursery-local-chamber' + (egg ? ' occupied' : ' empty'));
+			const glass = el('div', 'nursery-local-glass');
+			if (egg) glass.append(eggIcon(options, egg));
+			chamber.append(glass);
+			if (egg) {
+				const meter = el('div', 'nursery-local-progress');
+				meter.setAttribute('aria-label', 'Progresso da incubação: ' + egg.progress + '%');
+				const fill = el('i');
+				fill.style.width = egg.progress + '%';
+				meter.append(fill);
+				chamber.append(meter);
+			}
+			return chamber;
+		}
 		function incubationPage() {
-			const page = el('div', 'nursery-content');
+			const page = el('div', 'nursery-content nursery-incubation-page');
 			if (!view.ownerId) {
 				page.append(el('div', 'nursery-master-note',
 					'A incubação pertence a cada treinador. Abra um Player para administrar seus ovos e sua Incubadora.'));
 				return page;
 			}
+			const emptyLocal = view.incubators.find(incubator => !incubator.egg);
 			const readyProjects = view.projects.filter(project =>
 				project.status === 'egg_ready' && project.eggOwnerId === view.ownerId);
 			for (const project of readyProjects) {
@@ -307,57 +374,100 @@
 				const copy = el('div', 'nursery-produced-copy');
 				copy.append(el('span', 'nursery-eyebrow', 'OVO PRODUZIDO'));
 				copy.append(el('h2', '', 'Pronto para retirada'));
-				copy.append(el('p', '', 'O acasalamento foi concluído. Retire o ovo para iniciar a incubação.'));
-				const collect = el('button', 'button primary', 'Retirar ovo');
+				copy.append(el('p', '', 'Leve o ovo com você ou coloque-o diretamente na incubadora local.'));
+				const actions = el('div', 'nursery-produced-actions');
+				const collect = el('button', 'button primary', 'Pegar o ovo');
 				collect.addEventListener('click', () => action('collect', {projectId: project.id}));
-				ready.append(eggIcon(options), copy, collect);
+				const deposit = el('button', 'button', 'Colocar na incubadora local');
+				deposit.disabled = !emptyLocal;
+				deposit.title = emptyLocal ? '' : 'A incubadora local está ocupada';
+				deposit.addEventListener('click', () => action('collect-local', {
+					projectId: project.id, incubatorId: emptyLocal?.id,
+				}));
+				actions.append(collect, deposit);
+				ready.append(eggIcon(options), copy, actions);
 				page.append(ready);
 			}
+
 			const carried = view.eggs.filter(egg => egg.status === 'carried');
-			for (const incubator of view.incubators) {
-				const panel = el('section', 'nursery-panel nursery-incubator');
-				const head = el('div', 'nursery-project-head');
-				head.append(el('h2', '', 'Incubadora'), el('span', 'nursery-status', incubator.egg ? statusLabels[incubator.egg.status] : 'Vazia'));
-				panel.append(head);
-				if (!incubator.egg) {
-					panel.append(eggIcon(options), el('p', '', 'Selecione um ovo carregado para iniciar a incubação.'));
-					if (carried.length) {
-						const select = el('select');
-						for (const egg of carried) {
-							const option = el('option', '', 'Ovo · Progresso ' + egg.progress + '%');
-							option.value = egg.eggId;
-							select.append(option);
+			const localSummary = el('section', 'nursery-local-summary');
+			const occupiedLocals = view.incubators.filter(incubator => incubator.egg).length;
+			localSummary.append(
+				el('div', '', ''),
+				el('h2', '', 'Incubadoras locais'),
+				el('span', 'nursery-board-count', occupiedLocals + ' / 9 vagas ocupadas')
+			);
+			page.append(localSummary);
+			const incubatorGroups = el('div', 'nursery-local-incubators');
+			for (let groupNumber = 1; groupNumber <= 3; groupNumber++) {
+				const slots = view.incubators.filter(incubator => Number(incubator.group) === groupNumber);
+				const panel = el('section', 'nursery-panel nursery-incubator nursery-local-incubator');
+				const machine = el('div', 'nursery-local-machine');
+				const machineSlots = el('div', 'nursery-local-machine-slots');
+				const controls = el('div', 'nursery-local-controls-grid');
+				for (const incubator of slots) {
+					machineSlots.append(localChamber(incubator));
+					const control = el('article', 'nursery-local-control' + (incubator.egg ? ' occupied' : ' empty'));
+					if (incubator.egg) {
+						const egg = incubator.egg;
+						if (egg.status === 'ready_to_hatch') {
+							const hatch = el('button', 'button primary', 'Chocar Egg');
+							const teamFull = Number(view.capacity?.teamUsed || 0) >= Number(view.capacity?.teamMax || 6);
+							hatch.disabled = teamFull;
+							hatch.title = teamFull ?
+								'É necessária uma vaga realmente livre na equipe para resgatar este Pokémon' : '';
+							hatch.addEventListener('click', () => action('hatch', {eggId: egg.eggId}));
+							control.append(hatch);
+						} else {
+							const remove = el('button', 'button', 'Pegar Egg e pausar');
+							remove.addEventListener('click', () => action('remove', {eggId: egg.eggId}));
+							control.append(remove);
 						}
-						const insert = el('button', 'button primary', 'Colocar na Incubadora');
-						insert.addEventListener('click', () => action('insert', {eggId: select.value, incubatorId: incubator.id}));
-						panel.append(select, insert);
 					}
-				} else {
-					const egg = incubator.egg;
-					panel.append(eggIcon(options), el('p', 'nursery-egg-message', egg.message));
-					const meter = el('div', 'nursery-meter');
-					const fill = el('i');
-					fill.style.width = egg.progress + '%';
-					meter.append(fill);
-					panel.append(meter, el('p', 'nursery-time', egg.progress + '% · Restam ' + duration(egg.remainingIncubationTimeMs)));
-					if (egg.status === 'ready_to_hatch') {
+					controls.append(control);
+				}
+				machine.append(machineSlots);
+				panel.append(machine, controls);
+				incubatorGroups.append(panel);
+			}
+			page.append(incubatorGroups);
+
+			const portable = view.eggs.filter(egg => egg.portableIncubator);
+			if (carried.length || portable.length) {
+				const list = el('section', 'nursery-panel nursery-carried-eggs');
+				const available = view.portableIncubators?.available || 0;
+				list.append(el('h2', '', 'Ovos com o treinador'));
+				list.append(el('p', 'nursery-portable-count', 'Incubadoras Portáteis: ' +
+					(view.portableIncubators?.inUse || 0) + ' em uso · ' + available + ' disponíveis'));
+				for (const egg of [...portable, ...carried]) {
+					const row = el('div', 'nursery-egg-row nursery-portable-row');
+					const info = el('span', 'nursery-carried-copy');
+					info.append(el('strong', '', egg.portableIncubator ? 'Ovo na Incubadora Portátil' : 'Egg'));
+					info.append(el('small', '', egg.portableIncubator ?
+						'Incubando · ' + egg.progress + '%' : 'Sendo carregado · progresso ' + egg.progress + '%'));
+					const commands = el('span', 'nursery-egg-actions');
+					if (egg.portableIncubator && egg.status === 'ready_to_hatch') {
 						const hatch = el('button', 'button primary', 'Chocar ovo');
 						hatch.addEventListener('click', () => action('hatch', {eggId: egg.eggId}));
-						panel.append(hatch);
+						commands.append(hatch);
+					} else if (egg.portableIncubator) {
+						const stop = el('button', 'button', 'Guardar incubadora');
+						stop.addEventListener('click', () => action('portable-stop', {eggId: egg.eggId}));
+						commands.append(stop);
 					} else {
-						const remove = el('button', 'button', 'Retirar e pausar');
-						remove.addEventListener('click', () => action('remove', {eggId: egg.eggId}));
-						panel.append(remove);
+						const deposit = el('button', 'button primary', 'Depositar Egg');
+						deposit.disabled = !emptyLocal;
+						deposit.title = emptyLocal ? 'Depositar na primeira vaga local disponível' :
+							'As nove vagas das incubadoras locais estão ocupadas';
+						deposit.addEventListener('click', () => action('insert', {
+							eggId: egg.eggId, incubatorId: emptyLocal?.id,
+						}));
+						const start = el('button', 'button', 'Usar Incubadora Portátil');
+						start.disabled = available < 1;
+						start.addEventListener('click', () => action('portable-start', {eggId: egg.eggId}));
+						commands.append(deposit, start);
 					}
-				}
-				page.append(panel);
-			}
-			if (carried.length) {
-				const list = el('section', 'nursery-panel');
-				list.append(el('h2', '', 'Ovos carregados'));
-				for (const egg of carried) {
-					const row = el('div', 'nursery-egg-row');
-					row.append(eggIcon(options), el('span', '', egg.message), el('strong', '', egg.progress + '%'));
+					row.append(eggIcon(options, egg), info, commands);
 					list.append(row);
 				}
 				page.append(list);

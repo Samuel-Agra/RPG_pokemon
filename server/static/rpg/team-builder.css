@@ -1218,8 +1218,9 @@ button.team-builder-main-property:hover { border-color: #5a7ead; box-shadow: 0 0
 	align-self: center;
 }
 .team-builder-four-moves {
-	grid-template-columns: repeat(4, minmax(245px, 1fr));
-	overflow-x: auto;
+	grid-template-columns: repeat(4, minmax(0, 1fr));
+	min-width: 0;
+	overflow-x: hidden;
 }
 .team-builder-move-slot {
 	position: relative;
@@ -1787,4 +1788,61 @@ button.team-builder-main-property:hover { border-color: #5a7ead; box-shadow: 0 0
 @media (max-width: 700px) {
 	.team-builder-egg-body { grid-template-columns: 1fr; }
 	.team-builder-egg-message { min-height: 100px; }
+}
+/* Portable Incubators linked to an Egg. */
+.team-builder-egg-incubators{margin-top:14px;padding:18px}.team-builder-egg-incubators h2{margin:0 0 14px;color:#293e60;font:700 22px Georgia,serif}.team-builder-incubator-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px}.team-builder-incubator-unit{display:grid;grid-template-columns:72px minmax(0,1fr) auto;align-items:center;gap:12px;min-height:82px;padding:10px;border:1px solid #aeb9c8;border-radius:6px;background:linear-gradient(#fbfcfe,#e7ecf3)}.team-builder-incubator-unit.selected{border-color:#657fba;box-shadow:0 0 0 2px #748fd055}.team-builder-incubator-sprite{width:68px;height:68px;object-fit:contain}.team-builder-incubator-copy{display:grid;gap:3px}.team-builder-incubator-copy small{color:#62728a}.team-builder-incubator-unit .button{white-space:nowrap}@media(max-width:700px){.team-builder-incubator-grid{grid-template-columns:1fr}.team-builder-incubator-unit{grid-template-columns:62px 1fr}.team-builder-incubator-unit .button{grid-column:1/-1;width:100%}}
+
+/* O painel do Egg ocupa a mesma largura do painel Pokémon e usa um ícone compacto na equipe. */
+.dashboard-content > .team-builder-page,
+.team-builder-egg-view {
+	inline-size: 100%;
+	min-inline-size: 0;
+	max-inline-size: none;
+	box-sizing: border-box;
+	grid-template-columns: minmax(0, 1fr);
+	justify-self: stretch;
+}
+.team-builder-egg-view > .panel {
+	inline-size: auto;
+	min-inline-size: 0;
+	max-inline-size: none;
+	box-sizing: border-box;
+	justify-self: stretch;
+}
+.team-builder-egg-card .team-builder-showdown-toolbar {
+	min-height: 75px;
+}
+.team-builder-team-egg-slot {
+	overflow: hidden;
+}
+.team-builder-team-egg-slot > .team-builder-team-egg-visual {
+	grid-row: 1 / 3;
+	align-self: center;
+	justify-self: center;
+}
+.team-builder-team-egg-slot > .portable-incubator-visual.team-builder-team-egg-visual {
+	width: 38px;
+	height: 44px;
+	overflow: hidden;
+}
+.team-builder-team-egg-slot > .portable-incubator-visual > .portable-incubator-shell {
+	position: absolute;
+	inset: 0;
+	grid-row: auto;
+	width: 100%;
+	height: 100%;
+}
+.team-builder-team-egg-slot > .portable-incubator-visual > .portable-incubator-egg {
+	position: absolute;
+	top: 54%;
+	left: 50%;
+	grid-row: auto;
+	width: 56%;
+	height: 58%;
+	transform: translate(-50%, -50%) scale(1);
+}
+.team-builder-team-egg-slot > .plain-egg-visual.team-builder-team-egg-visual {
+	width: 38px;
+	height: 44px;
+	transform: none;
 }

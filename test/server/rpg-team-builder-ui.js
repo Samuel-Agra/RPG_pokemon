@@ -41,10 +41,21 @@ describe('RPG Team Builder frontend', () => {
 		assert.match(rpg, /const eggTeam = teamEggs\(character\)\.map/);
 		assert.match(rpg, /pokemonId: 'egg:' \+ egg\.eggId/);
 		assert.match(teamBuilder, /if \(deps\.selectedEgg\)/);
+		assert.match(teamBuilder, /const sprite = pokemon\.virtualEgg && deps\.eggVisual/);
+		assert.match(teamBuilder, /deps\.eggVisual\(pokemon, 'team-builder-team-egg-visual'\)/);
 		assert.match(teamBuilder, /deps\.spriteUrl\(\{species: 'Egg'\}\)/);
 		assert.match(teamBuilder, /for \(const label of \['Shiny', 'Gênero', 'Level', 'XP'\]\)/);
 		assert.match(teamBuilder, /Parece que tem algo se mexendo\./);
 		assert.match(css, /\.team-builder-egg-message/);
+		assert.match(css, /\.dashboard-content > \.team-builder-page/);
+		assert.match(css, /grid-template-columns: minmax\(0, 1fr\)/);
+		assert.match(css, /team-builder-four-moves \{\s*grid-template-columns: repeat\(4, minmax\(0, 1fr\)\);\s*min-width: 0;\s*overflow-x: hidden/);
+		assert.match(css, /team-builder-egg-card \.team-builder-showdown-toolbar \{\s*min-height: 75px/);
+		assert.match(css, /team-builder-team-egg-slot > \.portable-incubator-visual\.team-builder-team-egg-visual/);
+		assert.match(css, /width: 38px;\s*height: 44px;\s*overflow: hidden/);
+		assert.match(css, /team-builder-team-egg-slot > \.portable-incubator-visual > \.portable-incubator-shell/);
+		assert.match(css, /team-builder-team-egg-slot > \.portable-incubator-visual > \.portable-incubator-egg/);
+		assert.match(css, /top: 54%;\s*left: 50%;[\s\S]*?width: 56%;\s*height: 58%/);
 	});
 	it('keeps a Box Pokemon selected in read-only mode until a party Pokemon is chosen', () => {
 		assert.match(rpg, /const canKeepBoxSelection = state\.teamBuilderReturnView === 'box'/);

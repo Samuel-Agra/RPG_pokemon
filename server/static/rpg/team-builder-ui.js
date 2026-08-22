@@ -146,9 +146,12 @@
 				const slot = button('', 'team-builder-team-slot' +
 					(member.virtualEgg ? ' team-builder-team-egg-slot' : '') +
 					(member.pokemonId === deps.pokemonId ? ' active' : ''));
-				const sprite = el('img');
-				sprite.src = deps.spriteUrl(member);
-				sprite.alt = member.virtualEgg ? 'Egg' : (member.species || member.name);
+				const sprite = member.virtualEgg && deps.eggVisual ?
+					deps.eggVisual(member, 'team-builder-team-egg-visual') : el('img');
+				if (!member.virtualEgg || !deps.eggVisual) {
+					sprite.src = deps.spriteUrl(member);
+					sprite.alt = member.virtualEgg ? 'Egg' : (member.species || member.name);
+				}
 				slot.append(sprite, el('strong', '', member.name || member.species),
 					el('small', '', member.virtualEgg ? 'Lv. ?' : 'Lv. ' + (member.level || 1)));
 				slot.addEventListener('click', () => {
@@ -170,15 +173,67 @@
 			toolbar.append(nicknameBox, detailGrid);
 			const body = el('div', 'team-builder-showdown-body team-builder-egg-body');
 			const portrait = el('div', 'team-builder-portrait');
-			const sprite = el('img', 'team-builder-large-sprite team-builder-large-egg-sprite');
-			sprite.src = deps.spriteUrl({species: 'Egg'});
-			sprite.alt = 'Egg';
+			const sprite = deps.eggVisual ?
+				deps.eggVisual(deps.selectedEgg, 'team-builder-large-sprite team-builder-large-egg-sprite') :
+				el('img', 'team-builder-large-sprite team-builder-large-egg-sprite');
+			if (!deps.eggVisual) {
+				sprite.src = deps.spriteUrl({species: 'Egg'});
+				sprite.alt = 'Egg';
+			}
 			portrait.append(sprite, el('strong', '', 'Egg'));
 			const message = el('div', 'team-builder-egg-message');
 			message.append(el('p', '', 'Parece que tem algo se mexendo.'));
 			body.append(portrait, message);
 			card.append(toolbar, body);
-			root.append(strip, card);
+			const incubatorPanel = el('section', 'panel team-builder-egg-incubators');
+			incubatorPanel.append(el('h2', '', 'Incubadoras Portáteis'));
+			const incubatorGrid = el('div', 'team-builder-incubator-grid');
+			const incubators = Array.isArray(deps.portableIncubators) ? deps.portableIncubators : [];
+			for (const [index, incubator] of incubators.entries()) {
+				const linkedHere = incubator.eggId === deps.selectedEgg.eggId;
+				const unit = el('article', 'team-builder-incubator-unit' +
+					(linkedHere ? ' selected' : '') + (incubator.loaded ? ' loaded' : ' empty'));
+				const image = deps.portableIncubatorVisual ?
+					deps.portableIncubatorVisual(incubator.loaded, 'team-builder-incubator-sprite') :
+					el('span', 'team-builder-incubator-sprite');
+				const copy = el('div', 'team-builder-incubator-copy');
+				copy.append(el('strong', '', 'Incubadora Portátil ' + (index + 1)));
+				copy.append(el('small', '', incubator.loaded ?
+					(linkedHere ? 'Contém este Egg' : 'Contém outro Egg') : 'Disponível'));
+				unit.append(image, copy);
+				if (linkedHere) {
+					const remove = button('Retirar Egg', 'button');
+					remove.addEventListener('click', async () => {
+						remove.disabled = true;
+						try {
+							await deps.api('/nursery/portable-stop', {method: 'POST', body: {
+								characterId: deps.characterId, eggId: deps.selectedEgg.eggId,
+							}});
+							deps.toast('Egg retirado da Incubadora Portátil.');
+							await deps.refresh();
+						} catch (error) { remove.disabled = false; deps.toast(error.message, true); }
+					});
+					unit.append(remove);
+				} else if (!incubator.loaded && !deps.selectedEgg.portableIncubator) {
+					const insert = button('Colocar Egg', 'button primary');
+					insert.addEventListener('click', async () => {
+						insert.disabled = true;
+						try {
+							await deps.api('/nursery/portable-start', {method: 'POST', body: {
+								characterId: deps.characterId, eggId: deps.selectedEgg.eggId,
+							}});
+							deps.toast('Egg colocado na Incubadora Portátil.');
+							await deps.refresh();
+						} catch (error) { insert.disabled = false; deps.toast(error.message, true); }
+					});
+					unit.append(insert);
+				}
+				incubatorGrid.append(unit);
+			}
+			if (!incubators.length) incubatorGrid.append(el('p', 'empty-state',
+				'Você não possui nenhuma Incubadora Portátil.'));
+			incubatorPanel.append(incubatorGrid);
+			root.append(strip, card, incubatorPanel);
 			return root;
 		}
 		let data;
@@ -325,9 +380,12 @@
 				const slot = button('', 'team-builder-team-slot' +
 					(pokemon.virtualEgg ? ' team-builder-team-egg-slot' : '') +
 					(pokemon.pokemonId === deps.pokemonId ? ' active' : ''));
-				const sprite = el('img');
-				sprite.src = deps.spriteUrl(pokemon);
-				sprite.alt = pokemon.species || pokemon.name;
+				const sprite = pokemon.virtualEgg && deps.eggVisual ?
+					deps.eggVisual(pokemon, 'team-builder-team-egg-visual') : el('img');
+				if (!pokemon.virtualEgg || !deps.eggVisual) {
+					sprite.src = deps.spriteUrl(pokemon);
+					sprite.alt = pokemon.species || pokemon.name;
+				}
 				slot.append(
 					sprite,
 					el('strong', '', pokemon.name || pokemon.species),

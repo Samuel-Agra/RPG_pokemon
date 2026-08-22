@@ -561,6 +561,36 @@ function formatMoney(value) {
 	return new Intl.NumberFormat('pt-BR').format(value || 0) + ' \u20bd';
 }
 
+const PORTABLE_INCUBATOR_ICON = './assets/item-icons/portableincubator.png?v=20260821-3';
+
+function portableIncubatorVisual(loaded = true, className = '') {
+	const frame = createElement('span', 'portable-incubator-visual' + (className ? ' ' + className : ''));
+	const incubator = document.createElement('img');
+	incubator.className = 'portable-incubator-shell';
+	incubator.src = PORTABLE_INCUBATOR_ICON;
+	incubator.alt = loaded ? 'Incubadora Portátil com Egg' : 'Incubadora Portátil vazia';
+	frame.append(incubator);
+	if (loaded) {
+		const egg = document.createElement('img');
+		egg.className = 'portable-incubator-egg';
+		egg.src = spriteUrl({species: 'Egg'});
+		egg.alt = '';
+		frame.append(egg);
+	}
+	return frame;
+}
+
+function eggVisual(egg, className = '') {
+	if (egg?.portableIncubator) return portableIncubatorVisual(true, className);
+	const image = document.createElement('img');
+	image.className = 'plain-egg-visual' + (className ? ' ' + className : '');
+	image.src = spriteUrl({species: 'Egg'});
+	image.alt = 'Egg';
+	return image;
+}
+
+window.rpgPortableIncubatorVisual = portableIncubatorVisual;
+
 function teamEggs(character) {
 	return Array.isArray(character.teamEggs) ? character.teamEggs : [];
 }
@@ -644,7 +674,7 @@ function renderPlayerBody(character) {
 	for (const egg of teamEggs(character)) {
 		const row = createElement('div', 'pokemon-row pokemon-egg-row');
 		const frame = createElement('div', 'pokemon-sprite pokemon-egg-sprite');
-		frame.append(spriteImage({species: 'Egg'}));
+		frame.append(eggVisual(egg));
 		const info = createElement('div', 'pokemon-info');
 		info.append(createElement('strong', '', 'Egg'));
 		const status = egg.status === 'ready_to_hatch' ? 'Pronto para chocar' :
@@ -674,7 +704,7 @@ async function renderPlayerBox(character) {
 	return window.RPGBoxUI.render({
 		api, characterId: character.id, isMaster: state.session.role === 'master', teamEggs: teamEggs(character),
 		refresh: renderDashboard, toast: showToast, openTeamBuilder,
-		spriteUrl: pokemon => spriteUrl(pokemon),
+		spriteUrl: pokemon => spriteUrl(pokemon), eggVisual, portableIncubatorVisual,
 	});
 }
 
@@ -687,7 +717,7 @@ async function renderFossilLab(character) {
 async function renderNursery(character = null) {
 	return window.RPGNurseryUI.render({
 		api, characterId: character?.id, toast: showToast,
-		spriteUrl: pokemon => spriteUrl(pokemon),
+		spriteUrl: pokemon => spriteUrl(pokemon), eggVisual, portableIncubatorVisual,
 	});
 }
 async function renderPlayerTeamBuilder(character) {
@@ -711,8 +741,9 @@ async function renderPlayerTeamBuilder(character) {
 	const boxPokemonReadOnly = !selectedEgg && !pokemonTeam.some(pokemon => pokemon.pokemonId === state.teamBuilderPokemonId);
 	return window.RPGTeamBuilderUI.render({
 		api, characterId: character.id, pokemonId: state.teamBuilderPokemonId, team, selectedEgg,
+		portableIncubators: character.portableIncubators || [], refresh: renderDashboard,
 		readOnly: !!selectedEgg || boxPokemonReadOnly, isMaster: state.session.role === 'master', toast: showToast,
-		spriteUrl: pokemon => spriteUrl(pokemon),
+		spriteUrl: pokemon => spriteUrl(pokemon), eggVisual, portableIncubatorVisual,
 		switchPokemon: pokemonId => {
 			state.teamBuilderPokemonId = pokemonId;
 			state.dashboardView = 'team-builder';

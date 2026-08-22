@@ -19,7 +19,7 @@ const ORIGINAL_RPG_ITEM_ICONS = new Set([
 	'portableincubator',
 ]);
 
-const RPG_ITEM_ICON_VERSION = '20260821-1';
+const RPG_ITEM_ICON_VERSION = '20260821-3';
 
 const RPG_TM_ICON_TYPES = new Set([
 	'normal', 'fire', 'water', 'electric', 'grass', 'ice', 'fighting', 'poison',

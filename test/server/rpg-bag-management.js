@@ -399,7 +399,7 @@ describe('RPG Bag management backend', () => {
 		character = service.setCharacterPageAccess(master.token, 'samuel', 'training', false);
 		character = service.setCharacterPageAccess(master.token, 'samuel', 'center', false);
 		character = service.setCharacterPageAccess(master.token, 'samuel', 'fossils', false);
-		assert.deepEqual(character.pageAccess, { bag: false, box: false, training: false, center: false, fossils: false });
+		assert.deepEqual(character.pageAccess, { bag: false, box: false, training: false, center: false, fossils: false, nursery: true });
 		assert.throws(() => service.getPokemonCenter(player.token), /Centro Pokémon/);
 		assert.throws(() => service.getBag(player.token), /bloqueou o acesso à página da Bag/);
 		assert.throws(() => service.getBox(player.token), /bloqueou o acesso à página da Box/);

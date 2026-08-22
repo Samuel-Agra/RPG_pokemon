@@ -545,7 +545,7 @@ export class RPGBattleSessionService {
 
 	private requireAvailablePlayerPokemon(characterId: string, teamIndex: number): void {
 		if (!this.isCharacterPokemonAvailable(characterId, teamIndex)) {
-			throw new Error('Este Pok\u00e9mon est\u00e1 em treinamento e n\u00e3o pode participar da batalha');
+			throw new Error('Este Pok\u00e9mon est\u00e1 indispon\u00edvel e n\u00e3o pode participar da batalha');
 		}
 	}
 

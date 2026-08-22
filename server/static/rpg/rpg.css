@@ -898,6 +898,10 @@ footer { padding: 12px; color: #687382; font-size: 10px; text-align: center; }
 }
 .box-grid-slot.filtered { opacity: 0.16; filter: grayscale(1); pointer-events: none; }
 .box-grid-slot.dragging, .box-team-slot.dragging { opacity: 0.35; }
+.box-team-slot.is-breeding, .box-grid-slot.is-breeding { border-color: #c88da3; background-color: #f7e8ee; }
+.box-breeding-lock { margin-left: auto; color: #9b4263; font-size: 9px; font-weight: bold; white-space: nowrap; }
+.pokemon-choice.is-breeding { opacity: .58; cursor: not-allowed; }
+.breeding-time { color: #9b4263; }
 .box-grid-slot .box-pokemon-image {
 	width: 100px;
 	height: 95px;
@@ -2528,3 +2532,9 @@ footer { padding: 12px; color: #687382; font-size: 10px; text-align: center; }
 .box-team-egg-slot:disabled{opacity:1;cursor:not-allowed;background:linear-gradient(#fffaf0,#eee2cf)}
 .box-team-egg-slot .box-pokemon-image{filter:none}
 .box-egg-locked{color:#7a684e;font-size:9px;line-height:1.1}
+
+/* Incubadora Portátil composta: base vazia + sprite oficial do Egg. */
+.portable-incubator-visual{position:relative;display:inline-block;box-sizing:border-box;width:100%;height:100%;overflow:visible;vertical-align:middle}.portable-incubator-shell{position:absolute;inset:0;width:100%;height:100%;object-fit:contain;image-rendering:auto}.portable-incubator-egg{position:absolute;z-index:1;left:50%;top:51%;width:43%;height:45%;object-fit:contain;transform:translate(-50%,-50%) scale(1.5);image-rendering:pixelated;filter:drop-shadow(0 1px 1px #26394a66)}.bag-ui-item-icon .portable-incubator-visual.bag-ui-item-glyph{width:42px;height:42px}.bag-ui-item-icon.large .portable-incubator-visual.bag-ui-item-glyph{width:58px;height:58px}.box-team-egg-slot .portable-incubator-visual{width:76px;height:76px}.pokemon-egg-sprite .portable-incubator-visual{width:58px;height:58px}.nursery-egg.portable.portable-incubator-visual{width:64px;height:72px}.team-builder-team-slot .portable-incubator-visual{width:54px;height:58px}.team-builder-large-egg-sprite.portable-incubator-visual{width:150px;height:142px}.team-builder-incubator-sprite.portable-incubator-visual{width:68px;height:68px}
+
+/* Escalas distintas para Eggs livres e Eggs dentro da incubadora portátil. */
+.plain-egg-visual{transform:scale(1.75);transform-origin:center}

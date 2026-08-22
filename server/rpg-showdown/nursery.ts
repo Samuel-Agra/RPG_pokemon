@@ -76,6 +76,9 @@ export interface RPGNurseryEgg {
 	accumulatedIncubationTimeMs?: number;
 	incubationStartedAt?: number;
 	incubatorId?: string;
+	portableIncubator?: boolean;
+	portableIncubatorId?: string;
+	portableIncubatorMission?: boolean;
 	hatchedAt?: number;
 }
 
@@ -93,13 +96,14 @@ export interface RPGNurseryProject {
 	breedingStartedAt?: number;
 	requiredBreedingTimeMs?: number;
 	remainingBreedingTimeMs?: number;
+	parentCollected?: Record<string, boolean>;
 	egg?: RPGNurseryEgg;
 }
 
 export interface RPGNurseryCharacterState {
 	version: 1;
 	projects: RPGNurseryProject[];
-	incubators: { id: string, ownerId: string, eggId?: string }[];
+	incubators: { id: string, ownerId: string, eggId?: string, kind?: 'local', group?: number, slot?: number }[];
 }
 
 const STATS: readonly RPGGeneticStat[] = ['hp', 'atk', 'def', 'spa', 'spd', 'spe'];

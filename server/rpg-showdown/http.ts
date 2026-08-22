@@ -175,7 +175,7 @@ export class RPGHttpServer {
 		if (method === 'GET' && transferTargetsMatch) {
 			this.json(res, 200, { transfer: this.login.getBagTransferTargets(
 				this.token(req), url.searchParams.get('characterId') || undefined,
-				decodeURIComponent(transferTargetsMatch[1])
+				decodeURIComponent(transferTargetsMatch[1]), url.searchParams.get('linkedEggId') || undefined
 			) });
 			return;
 		}
@@ -201,7 +201,8 @@ export class RPGHttpServer {
 				this.token(req), typeof body.characterId === 'string' ? body.characterId : undefined,
 				this.string(body.itemId), body.mission === true, Number(body.expectedRevision),
 				body.quantity === undefined ? undefined : Number(body.quantity),
-				typeof body.note === 'string' ? body.note : undefined
+				typeof body.note === 'string' ? body.note : undefined,
+				typeof body.linkedEggId === 'string' ? body.linkedEggId : undefined
 			) });
 			return;
 		}
@@ -217,7 +218,8 @@ export class RPGHttpServer {
 			const body = await this.body(req);
 			this.json(res, 200, { bag: this.login.discardBagItem(
 				this.token(req), typeof body.characterId === 'string' ? body.characterId : undefined,
-				this.string(body.itemId), Number(body.quantity), Number(body.expectedRevision)
+				this.string(body.itemId), Number(body.quantity), Number(body.expectedRevision),
+				typeof body.linkedEggId === 'string' ? body.linkedEggId : undefined
 			) });
 			return;
 		}
@@ -226,7 +228,8 @@ export class RPGHttpServer {
 			this.json(res, 200, this.login.transferBagItem(
 				this.token(req), typeof body.characterId === 'string' ? body.characterId : undefined,
 				this.string(body.targetCharacterId), this.string(body.itemId), Number(body.quantity),
-				Number(body.expectedSenderRevision), Number(body.expectedTargetRevision)
+				Number(body.expectedSenderRevision), Number(body.expectedTargetRevision),
+				typeof body.linkedEggId === 'string' ? body.linkedEggId : undefined
 			));
 			return;
 		}
@@ -520,7 +523,9 @@ export class RPGHttpServer {
 			)});
 			return;
 		}
-		const nurseryAction = new RegExp('^/api/rpg/nursery/(create|accept|confirm|cancel|collect|insert|remove|hatch)$').exec(url.pathname);
+		const nurseryAction = new RegExp(
+			'^/api/rpg/nursery/(create|accept|confirm|cancel|collect-parent|collect|collect-local|insert|remove|portable-start|portable-stop|hatch)$'
+		).exec(url.pathname);
 		if (method === 'POST' && nurseryAction) {
 			const body = await this.body(req);
 			const characterId = typeof body.characterId === 'string' ? body.characterId : undefined;
@@ -542,12 +547,30 @@ export class RPGHttpServer {
 			case 'cancel':
 				result = {nursery: this.login.cancelNurseryProject(this.token(req), this.string(body.projectId))};
 				break;
+			case 'collect-parent':
+				result = {nursery: this.login.collectNurseryParent(this.token(req), this.string(body.projectId))};
+				break;
 			case 'collect':
 				result = {nursery: this.login.collectNurseryEgg(this.token(req), this.string(body.projectId))};
+				break;
+			case 'collect-local':
+				result = {nursery: this.login.collectNurseryEggToLocal(
+					this.token(req), this.string(body.projectId), this.string(body.incubatorId)
+				)};
 				break;
 			case 'insert':
 				result = {nursery: this.login.insertNurseryEgg(
 					this.token(req), this.string(body.eggId), this.string(body.incubatorId)
+				)};
+				break;
+			case 'portable-start':
+				result = {nursery: this.login.startPortableNurseryIncubator(
+					this.token(req), this.string(body.eggId)
+				)};
+				break;
+			case 'portable-stop':
+				result = {nursery: this.login.stopPortableNurseryIncubator(
+					this.token(req), this.string(body.eggId)
 				)};
 				break;
 			case 'remove':

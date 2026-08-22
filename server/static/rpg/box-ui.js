@@ -80,7 +80,7 @@
 	function indicators(pokemon) {
 		const names = {
 			legendary: ['★', 'Lendário'], companion: ['❤', 'Companheiro'],
-			training: ['⚔', 'Em treinamento'], fainted: ['💀', 'Desmaiado'],
+			training: ['⚔', 'Em treinamento'], breeding: ['⚭', 'Em procriação'], fainted: ['💀', 'Desmaiado'],
 		};
 		const group = el('span', 'box-indicators');
 		for (const id of pokemon.indicators || []) {
@@ -170,6 +170,7 @@
 			const pokemon = byPosition.get(position);
 			const egg = eggsByPosition.get(position);
 			const slot = button('', 'box-team-slot ' + (pokemon || egg ? 'occupied' : 'empty') +
+				(pokemon?.metadata?.breeding ? ' is-breeding' : '') +
 				(egg ? ' box-team-egg-slot' : ''));
 			slot.append(el('span', 'box-team-number', String(position + 1)));
 			if (pokemon) {
@@ -180,10 +181,13 @@
 					ui.anchorId = pokemon.pokemonId;
 					void deps.refresh();
 				});
-				draggable(slot, pokemon.pokemonId);
-				droppable(slot, deps, view, { destination: 'party', position });
+				if (!pokemon.metadata?.breeding) {
+					draggable(slot, pokemon.pokemonId);
+					droppable(slot, deps, view, { destination: 'party', position });
+				}
 			} else if (egg) {
-				const image = pokemonImage(deps, {name: 'Egg', species: 'Egg'});
+				const image = deps.eggVisual ? deps.eggVisual(egg, 'box-pokemon-image box-pokemon-sprite') :
+					pokemonImage(deps, {name: 'Egg', species: 'Egg'});
 				slot.append(image, el('strong', '', 'Egg'), el('small', 'box-egg-locked', 'Não pode ser movido'));
 				slot.disabled = true;
 				slot.setAttribute('aria-label', 'Egg no slot ' + (position + 1) + '. Não pode ser movido para a Box.');
@@ -403,7 +407,8 @@
 		const bySlot = new Map(box.pokemon.map(pokemon => [pokemon.location.slot, pokemon]));
 		for (let slotIndex = 0; slotIndex < box.capacity; slotIndex++) {
 			const pokemon = bySlot.get(slotIndex);
-			const slot = button('', 'box-grid-slot ' + (pokemon ? 'occupied' : 'empty'));
+			const slot = button('', 'box-grid-slot ' + (pokemon ? 'occupied' : 'empty') +
+				(pokemon?.metadata?.breeding ? ' is-breeding' : ''));
 			if (pokemon) {
 				if (pokemon.pokemonId === ui.selectedId) slot.classList.add('selected');
 				slot.dataset.pokemonId = pokemon.pokemonId;
@@ -413,8 +418,10 @@
 					ui.anchorId = pokemon.pokemonId;
 					void deps.refresh();
 				});
-				draggable(slot, pokemon.pokemonId);
-				droppable(slot, deps, view, { destination: 'box', boxIndex: box.index, slot: slotIndex });
+				if (!pokemon.metadata?.breeding) {
+					draggable(slot, pokemon.pokemonId);
+					droppable(slot, deps, view, { destination: 'box', boxIndex: box.index, slot: slotIndex });
+				}
 			} else {
 				slot.setAttribute('aria-label', 'Espaço vazio ' + (slotIndex + 1));
 				droppable(slot, deps, view, { destination: 'box', boxIndex: box.index, slot: slotIndex });
@@ -637,6 +644,7 @@
 			identity.append(condition);
 		}
 		identity.append(el('strong', 'box-compact-level', 'Lv. ' + pokemon.level));
+		if (pokemon.metadata?.breeding) identity.append(el('span', 'box-breeding-lock', 'Em procriação'));
 		hpHeading.append(identity);
 		const track = el('div', 'box-hp-track' + (pokemon.hp <= 0 ? ' empty' : '')); 
 		const hpRatio = pokemon.maxHP > 0 ? pokemon.hp / pokemon.maxHP : 0;
@@ -658,8 +666,10 @@
 		const favorite = button(pokemon.metadata.favorite ? 'Alterar favorito' : 'Favoritar');
 		favorite.addEventListener('click', () => openFavoritePicker(deps, view, pokemon, drawer));
 		const send = button('Enviar para');
+		send.disabled = pokemon.metadata?.breeding === true;
 		send.addEventListener('click', () => openDestinationPicker(deps, view, pokemon, drawer));
 		const release = button('Liberar Pokémon', 'button danger');
+		release.disabled = pokemon.metadata?.breeding === true;
 		release.addEventListener('click', () => openRelease(deps, view, pokemon, drawer));
 		actions.append(heal, builder, favorite, send, release);
 		drawer.append(actions);

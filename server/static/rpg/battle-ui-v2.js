@@ -410,7 +410,8 @@ function rpgBattleEditor(characters, existing, onClose) {
 					id: 'player-' + teamId.toLowerCase() + '-' + characterId, team: teamId, kind: 'player', characterId,
 					displayName: character.characterName, selectionLimit: isRaid ? 6 : Number(teamLimit.value),
 					pokemon: isRaid ? (character.team || []).slice(0, 6).flatMap((_, teamIndex) =>
-						character.box?.party?.[teamIndex]?.metadata?.evTraining ? [] : [{ teamIndex }]
+						(character.box?.party?.[teamIndex]?.metadata?.evTraining ||
+							character.box?.party?.[teamIndex]?.metadata?.breeding) ? [] : [{ teamIndex }]
 					) : [],
 				});
 			}
@@ -505,15 +506,19 @@ function rpgPlayerPokemonSelection(session, character) {
 	const grid = createElement('div', 'pokemon-choice-grid');
 	for (const [index, pokemon] of (character.team || []).entries()) {
 		const training = character.box?.party?.[index]?.metadata?.evTraining;
-		if (training) selected.delete(index);
-		const choice = rpgBattleCheck('', !training && selected.has(index));
+		const breeding = character.box?.party?.[index]?.metadata?.breeding;
+		const unavailable = !!training || !!breeding;
+		if (unavailable) selected.delete(index);
+		const choice = rpgBattleCheck('', !unavailable && selected.has(index));
 		choice.wrapper.classList.add('pokemon-choice');
 		if (training) choice.wrapper.classList.add('is-training');
-		choice.input.disabled = !!training;
+		if (breeding) choice.wrapper.classList.add('is-breeding');
+		choice.input.disabled = unavailable;
 		choice.wrapper.append(pokemonSprite(pokemon));
 		const info = createElement('span');
 		info.append(createElement('strong', '', pokemon.name || pokemon.species), createElement('small', '', (pokemon.species || '') + ' \u00b7 Nv. ' + (pokemon.level || 1)));
 		if (training) info.append(createElement('small', 'training-time', 'Em treinamento \u00b7 Restam ' + rpgTrainingDuration(training.remainingMs)));
+		if (breeding) info.append(createElement('small', 'breeding-time', 'Em procria\u00e7\u00e3o \u00b7 Indispon\u00edvel para batalha'));
 		choice.wrapper.append(info);
 		choice.input.addEventListener('change', () => { if (choice.input.checked) selected.add(index); else selected.delete(index); });
 		grid.append(choice.wrapper);

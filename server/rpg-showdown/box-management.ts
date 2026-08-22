@@ -100,6 +100,7 @@ export interface RPGBoxPokemonMetadata {
 	lastBattleAt?: number;
 	ot?: string;
 	evTraining?: RPGEVTrainingJob;
+	breeding?: boolean;
 }
 
 export interface RPGManagedStoredPokemon extends RPGStoredPokemon {
