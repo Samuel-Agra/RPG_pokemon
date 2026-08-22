@@ -102,6 +102,7 @@ export const Repl = new class {
 		const directory = path.dirname(
 			path.resolve(FS.ROOT_PATH, config.replsocketprefix || 'logs/repl', 'app')
 		);
+		await fs.promises.mkdir(directory, {recursive: true});
 		const files = await fs.promises.readdir(directory);
 		await runParallelWithLimit(files, MAX_CONCURRENT_CLEANUP_SOCKETS, async (file: string) => {
 			const pathname = path.resolve(directory, file);
