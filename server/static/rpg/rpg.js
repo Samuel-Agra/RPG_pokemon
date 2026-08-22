@@ -1506,6 +1506,7 @@ async function exitPlayerView() {
 	try {
 		const data = await api('/session/view-as', { method: 'DELETE' });
 		saveSession(data.session);
+		state.dashboardView = 'overview';
 		await renderDashboard();
 	} catch (error) {
 		showToast(error.message, true);
