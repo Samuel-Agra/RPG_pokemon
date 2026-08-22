@@ -1589,7 +1589,9 @@ async function renderDashboard() {
 			$('#dashboard-eyebrow').classList.remove('hidden');
 			$('#dashboard-title').textContent = state.dashboardView === 'battles' ? 'Prepara\u00e7\u00e3o de batalhas' : 'Vis\u00e3o geral da campanha';
 			$('#dashboard-description').textContent = state.dashboardView === 'battles' ? 'Monte o confronto, envie convites e aguarde as confirma\u00e7\u00f5es.' : 'Acompanhe personagens, equipes, recursos e batalhas.';
-			$('#view-banner').classList.add('hidden');
+			$('#logout-button').textContent = 'Sair da sess\u00e3o';
+			$('#logout-button').classList.add('danger');
+			$('#delete-character').classList.add('hidden');
 			body.replaceChildren(
 				state.dashboardView === 'battles' ? await renderMasterBattles(characters) :
 				state.dashboardView === 'nursery' ? await renderNursery() :
@@ -1609,8 +1611,9 @@ async function renderDashboard() {
 			$('#dashboard-title').textContent = state.dashboardView === 'battles' ? 'Convites de batalha' : 'Ol\u00e1, ' + character.characterName;
 			$('#dashboard-description').textContent = state.dashboardView === 'battles' ? 'Aceite, recuse ou escolha seus Pok\u00e9mon quando o Mestre permitir.' : 'Sua equipe e seus recursos persistentes.';
 			const viewing = state.session.role === 'master';
-			$('#view-banner').classList.toggle('hidden', !viewing);
-			$('#view-name').textContent = character.characterName;
+			$('#logout-button').textContent = viewing ? 'Voltar como Mestre' : 'Sair da sess\u00e3o';
+			$('#logout-button').classList.toggle('danger', !viewing);
+			$('#delete-character').classList.toggle('hidden', !viewing);
 			const playerView = state.dashboardView === 'battles' ? await renderPlayerBattles(character) :
 				state.dashboardView === 'box' ? await renderPlayerBox(character) :
 				state.dashboardView === 'bag' ? await renderPlayerBag(character) :
@@ -1669,8 +1672,10 @@ $('#avatar-picker-toggle').addEventListener('click', () => {
 });
 $('#avatar-search').addEventListener('input', renderAvatarOptions);
 $('#character-search').addEventListener('input', renderCharacterList);
-$('#logout-button').addEventListener('click', logout);
-$('#exit-view').addEventListener('click', exitPlayerView);
+$('#logout-button').addEventListener('click', () => {
+	if (state.session?.role === 'master' && state.session.mode !== 'master') return exitPlayerView();
+	return logout();
+});
 $('#delete-character').addEventListener('click', openDeleteDialog);
 $('#cancel-delete').addEventListener('click', closeDeleteDialog);
 $('#delete-form').addEventListener('submit', confirmCharacterDeletion);
