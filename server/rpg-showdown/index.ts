@@ -837,6 +837,28 @@ export class RPGLoginService {
 		return this.nurseryView(actor);
 	}
 
+	withdrawNurserySlot2(token: string, projectId: string) {
+		const actor = this.requireNurseryActor(token);
+		const found = this.requireNurseryProject(projectId);
+		const project = found.project;
+		if (!project.slot2 || project.slot2.ownerId !== actor.state.id || project.slot1.ownerId === actor.state.id) {
+			throw new Error('Somente o treinador do Pokémon no Slot 2 pode retirá-lo');
+		}
+		if (project.egg || ['egg_ready', 'collected', 'cancelled'].includes(project.status)) {
+			throw new Error('O Pokémon do Slot 2 não pode mais ser retirado desta procriação');
+		}
+		delete project.slot2;
+		delete project.slot2OwnerId;
+		delete project.slot2OwnerName;
+		delete project.breedingStartedAt;
+		delete project.requiredBreedingTimeMs;
+		delete project.remainingBreedingTimeMs;
+		project.status = 'inviting';
+		project.confirmed = {[project.slot1.ownerId]: false};
+		this.persistNurseryRecord(found.record);
+		return this.nurseryView(actor);
+	}
+
 	confirmNurseryProject(token: string, projectId: string) {
 		const actor = this.requireNurseryActor(token);
 		const found = this.requireNurseryProject(projectId);
@@ -871,8 +893,8 @@ export class RPGLoginService {
 		const actor = this.requireNurseryActor(token);
 		const found = this.requireNurseryProject(projectId);
 		const project = found.project;
-		if (![project.slot1.ownerId, project.slot2OwnerId].includes(actor.state.id)) {
-			throw new Error('Você não participa desta procriação');
+		if (project.slot1.ownerId !== actor.state.id) {
+			throw new Error('Somente o dono da requisi\u00e7\u00e3o do Slot 1 pode cancel\u00e1-la');
 		}
 		if (project.egg || ['egg_ready', 'collected'].includes(project.status)) {
 			throw new Error('Uma procriação que já produziu um ovo não pode ser cancelada');

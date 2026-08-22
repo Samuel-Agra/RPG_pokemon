@@ -263,10 +263,15 @@
 				card.append(ready);
 			}
 			if (['inviting', 'configuring', 'awaiting_confirmation', 'breeding'].includes(project.status) &&
-				[project.slot1.ownerId, project.slot2OwnerId].includes(view.ownerId)) {
+				project.slot1.ownerId === view.ownerId) {
 				const cancel = el('button', 'button nursery-cancel', 'Cancelar');
 				cancel.addEventListener('click', () => action('cancel', {projectId: project.id}));
 				card.append(cancel);
+			} else if (['configuring', 'awaiting_confirmation', 'breeding'].includes(project.status) &&
+				project.slot2?.ownerId === view.ownerId) {
+				const withdraw = el('button', 'button nursery-cancel', 'Retirar Pokémon');
+				withdraw.addEventListener('click', () => action('withdraw-slot2', {projectId: project.id}));
+				card.append(withdraw);
 			}
 			return card;
 		}

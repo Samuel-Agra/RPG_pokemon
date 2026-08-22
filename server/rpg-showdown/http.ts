@@ -524,7 +524,7 @@ export class RPGHttpServer {
 			return;
 		}
 		const nurseryAction = new RegExp(
-			'^/api/rpg/nursery/(create|accept|confirm|cancel|collect-parent|collect|collect-local|insert|remove|portable-start|portable-stop|hatch)$'
+			'^/api/rpg/nursery/(create|accept|withdraw-slot2|confirm|cancel|collect-parent|collect|collect-local|insert|remove|portable-start|portable-stop|hatch)$'
 		).exec(url.pathname);
 		if (method === 'POST' && nurseryAction) {
 			const body = await this.body(req);
@@ -539,6 +539,11 @@ export class RPGHttpServer {
 			case 'accept':
 				result = {nursery: this.login.acceptNurseryInvitation(
 					this.token(req), this.string(body.projectId), this.string(body.pokemonId)
+				)};
+				break;
+			case 'withdraw-slot2':
+				result = {nursery: this.login.withdrawNurserySlot2(
+					this.token(req), this.string(body.projectId)
 				)};
 				break;
 			case 'confirm':

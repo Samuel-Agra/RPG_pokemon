@@ -39,6 +39,10 @@ describe('RPG Egg presentation outside incubation', () => {
 		assert.match(nursery, /ownerId !== view\.ownerId/);
 		assert.match(nursery, /page\.append\(board\)[\s\S]*page\.append\(rescueBoard\)/);
 		assert.match(nursery, /const visible = view\.projects\.filter\(project => activeStatuses\.includes\(project\.status\)\)/);
+		assert.match(nursery, /withdraw-slot2/);
+		assert.match(nursery, /Retirar Pok\u00e9mon/);
+		assert.match(nursery, /project\.slot1\.ownerId === view\.ownerId/);
+		assert.match(nursery, /project\.slot2\?\.ownerId === view\.ownerId/);
 	});
 
 	it('uses a plain Egg normally and the active Portable Incubator only while equipped', () => {

@@ -37,6 +37,42 @@ describe('RPG connected Nursery and Incubation flow', () => {
 		assert.equal(view.incubators.some(incubator => incubator.egg), false);
 		assert.equal(repository.get('samuel').state.nursery.incubators.some(incubator => incubator.eggId), false);
 	});
+
+	it('lets the Slot 2 owner withdraw without cancelling the Slot 1 request', () => {
+		let byte = 30;
+		const service = new RPGLoginService({
+			masterCode: '14081998', repository: new RPGMemoryCharacterRepository(),
+			random: () => 0.5, randomBytes: size => Buffer.alloc(size, ++byte),
+		});
+		create(service, 'Samuel');
+		create(service, 'Marina');
+		const master = service.loginMaster('14081998');
+		service.replaceCharacterTeam(master.token, 'samuel', [set('Gardevoir', 'F', 'Synchronize')]);
+		service.replaceCharacterTeam(master.token, 'marina', [set('Gallade', 'M', 'Sharpness')]);
+		const samuel = service.loginPlayer('samuel', '1234');
+		const marina = service.loginPlayer('marina', '1234');
+		const samuelPokemon = service.getCharacter(samuel.token).box.party[0].pokemonId;
+		const marinaPokemon = service.getCharacter(marina.token).box.party[0].pokemonId;
+
+		let view = service.createNurseryProject(samuel.token, undefined, samuelPokemon);
+		const projectId = view.projects.find(project => project.status === 'inviting').id;
+		view = service.acceptNurseryInvitation(marina.token, projectId, marinaPokemon);
+		assert.equal(view.projects.find(project => project.id === projectId).status, 'configuring');
+		assert.equal(view.pokemon.find(pokemon => pokemon.pokemonId === marinaPokemon).busy, true);
+		assert.throws(() => service.cancelNurseryProject(marina.token, projectId), /Slot 1/);
+
+		view = service.withdrawNurserySlot2(marina.token, projectId);
+		const project = view.projects.find(entry => entry.id === projectId);
+		assert.equal(project.status, 'inviting');
+		assert.equal(project.slot1.ownerId, 'samuel');
+		assert.equal(project.slot2, undefined);
+		assert.equal(project.slot2OwnerId, undefined);
+		assert.deepEqual(project.confirmed, {samuel: false});
+		assert.equal(view.pokemon.find(pokemon => pokemon.pokemonId === marinaPokemon).busy, false);
+		assert.equal(service.getNursery(samuel.token).projects.find(entry => entry.id === projectId).status, 'inviting');
+		assert.throws(() => service.withdrawNurserySlot2(samuel.token, projectId), /Slot 2/);
+	});
+
 	it('moves one persistent Egg from breeding through hatching', () => {
 		let byte = 0;
 		const service = new RPGLoginService({
