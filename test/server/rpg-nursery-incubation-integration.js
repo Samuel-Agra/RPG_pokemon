@@ -73,6 +73,86 @@ describe('RPG connected Nursery and Incubation flow', () => {
 		assert.throws(() => service.withdrawNurserySlot2(samuel.token, projectId), /Slot 2/);
 	});
 
+	it('lets the Master configure a compatible system partner for Slot 2', () => {
+		let byte = 40;
+		const service = new RPGLoginService({
+			masterCode: '14081998', repository: new RPGMemoryCharacterRepository(),
+			random: () => 0.5, randomBytes: size => Buffer.alloc(size, ++byte),
+		});
+		create(service, 'Samuel');
+		const master = service.loginMaster('14081998');
+		service.replaceCharacterTeam(master.token, 'samuel', [set('Gardevoir', 'F', 'Synchronize')]);
+		const samuel = service.loginPlayer('samuel', '1234');
+		const pokemonId = service.getCharacter(samuel.token).box.party[0].pokemonId;
+		const created = service.createNurseryProject(samuel.token, undefined, pokemonId);
+		const projectId = created.projects.find(project => project.status === 'inviting').id;
+
+		const masterView = service.getNursery(master.token);
+		const options = masterView.projects.find(project => project.id === projectId).masterSlot2Options;
+		assert.ok(options.some(option => option.species === 'Gallade' && option.sex === 'M'));
+		assert.equal(options.some(option => option.species === 'Pikachu'), false);
+		assert.deepEqual(masterView.breedingItems.map(item => item.id), ['', 'everstone', 'destinyknot']);
+
+		const ivs = {hp: 31, atk: 30, def: 29, spa: 28, spd: 27, spe: 26};
+		const configured = service.setMasterNurserySlot2(master.token, {
+			projectId, species: 'Gallade', sex: 'M', level: 72, ivs, item: 'destinyknot',
+		});
+		const project = configured.projects.find(entry => entry.id === projectId);
+		assert.equal(project.status, 'awaiting_confirmation');
+		assert.equal(project.slot2.participantType, 'npc');
+		assert.equal(project.slot2.level, 72);
+		assert.equal(project.slot2.item, 'destinyknot');
+		assert.deepEqual(project.slot2.ivs, ivs);
+		assert.equal(project.confirmed[project.slot2.ownerId], true);
+		assert.equal(project.confirmed[project.slot1.ownerId], false);
+
+		const started = service.confirmNurseryProject(samuel.token, projectId);
+		assert.equal(started.projects.find(entry => entry.id === projectId).status, 'breeding');
+		let completed;
+		for (let i = 0; i < 10; i++) {
+			service.advanceCampaignTime(master.token, 8);
+			completed = service.getNursery(master.token).projects.find(entry => entry.id === projectId);
+			if (completed.status === 'egg_ready') break;
+		}
+		assert.equal(completed.status, 'egg_ready');
+		assert.equal(completed.parentCollected[completed.slot2.ownerId], true,
+			'o parceiro do sistema não deve aguardar resgate');
+		assert.notEqual(completed.parentCollected[completed.slot1.ownerId], true);
+		assert.throws(() => service.setMasterNurserySlot2(samuel.token, {
+			projectId, species: 'Gallade', sex: 'M', level: 72, ivs, item: '',
+		}), /Somente o Mestre/);
+	});
+
+	it('rejects invalid Master-controlled Nursery partners and breeding settings', () => {
+		let byte = 50;
+		const service = new RPGLoginService({
+			masterCode: '14081998', repository: new RPGMemoryCharacterRepository(),
+			random: () => 0.5, randomBytes: size => Buffer.alloc(size, ++byte),
+		});
+		create(service, 'Samuel');
+		const master = service.loginMaster('14081998');
+		service.replaceCharacterTeam(master.token, 'samuel', [set('Gardevoir', 'F', 'Synchronize')]);
+		const samuel = service.loginPlayer('samuel', '1234');
+		const pokemonId = service.getCharacter(samuel.token).box.party[0].pokemonId;
+		const projectId = service.createNurseryProject(
+			samuel.token, undefined, pokemonId
+		).projects.find(project => project.status === 'inviting').id;
+		const validIvs = stats(31);
+
+		assert.throws(() => service.setMasterNurserySlot2(master.token, {
+			projectId, species: 'Pikachu', sex: 'M', level: 50, ivs: validIvs, item: '',
+		}), /n\u00e3o pode reproduzir/);
+		assert.throws(() => service.setMasterNurserySlot2(master.token, {
+			projectId, species: 'Gallade', sex: 'M', level: 101, ivs: validIvs, item: '',
+		}), /entre 1 e 100/);
+		assert.throws(() => service.setMasterNurserySlot2(master.token, {
+			projectId, species: 'Gallade', sex: 'M', level: 50, ivs: {...validIvs, hp: 32}, item: '',
+		}), /IV deve estar entre 0 e 31/);
+		assert.throws(() => service.setMasterNurserySlot2(master.token, {
+			projectId, species: 'Gallade', sex: 'M', level: 50, ivs: validIvs, item: 'leftovers',
+		}), /n\u00e3o afeta a procria\u00e7\u00e3o/);
+	});
+
 	it('moves one persistent Egg from breeding through hatching', () => {
 		let byte = 0;
 		const service = new RPGLoginService({

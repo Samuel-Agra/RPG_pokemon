@@ -68,7 +68,9 @@ import {
 	RPGFossilLab, type RPGFossilLabState, type RPGFossilMethod, type RPGFossilQuality,
 } from './fossil-lab';
 import {
-	RPGNurseryGenetics, type RPGNurseryCharacterState, type RPGNurseryParent, type RPGNurseryProject,
+	RPGNurseryGenetics, RPG_NURSERY_BREEDING_ITEMS,
+	type RPGNurseryCharacterState, type RPGNurseryMasterSlot2Input,
+	type RPGNurseryParent, type RPGNurseryProject,
 } from './nursery';
 import { RPGIncubation } from './incubation';
 import {
@@ -655,7 +657,8 @@ export class RPGLoginService {
 						);
 						RPGIncubation.ensureEgg(project.egg);
 						project.status = 'egg_ready';
-						project.parentCollected = {};
+						project.parentCollected = project.slot2ParticipantType === 'npc' ?
+							{[project.slot2.ownerId]: true} : {};
 						breedings.completed++;
 					}
 				}
@@ -835,6 +838,64 @@ export class RPGLoginService {
 		};
 		this.persistNurseryRecord(found.record);
 		return this.nurseryView(actor);
+	}
+
+	setMasterNurserySlot2(token: string, input: RPGNurseryMasterSlot2Input) {
+		const session = this.getSession(token);
+		if (session.role !== 'master' || session.mode !== 'master') {
+			throw new Error('Somente o Mestre pode configurar o Slot 2 do sistema');
+		}
+		const found = this.requireNurseryProject(input.projectId);
+		const project = found.project;
+		if (project.status !== 'inviting' || project.slot2) {
+			throw new Error('O Slot 2 desta requisi\u00e7\u00e3o n\u00e3o est\u00e1 dispon\u00edvel');
+		}
+		const compatible = RPGNurseryGenetics.compatiblePartners(project.slot1);
+		const selected = compatible.find(option =>
+			toID(option.species) === toID(input.species) && option.sex === input.sex
+		);
+		if (!selected) throw new Error('O Pok\u00e9mon escolhido n\u00e3o pode reproduzir com o Slot 1');
+		const level = Number(input.level);
+		if (!Number.isInteger(level) || level < 1 || level > 100) {
+			throw new Error('O n\u00edvel do parceiro deve estar entre 1 e 100');
+		}
+		const item = toID(input.item || '');
+		if (!RPG_NURSERY_BREEDING_ITEMS.some(option => option.id === item)) {
+			throw new Error('Este held item n\u00e3o afeta a procria\u00e7\u00e3o');
+		}
+		const stats = ['hp', 'atk', 'def', 'spa', 'spd', 'spe'] as const;
+		const ivs = Object.fromEntries(stats.map(stat => {
+			const value = Number(input.ivs?.[stat]);
+			if (!Number.isInteger(value) || value < 0 || value > 31) {
+				throw new Error('Cada IV deve estar entre 0 e 31');
+			}
+			return [stat, value];
+		})) as RPGCapturedPokemon['ivs'];
+		const species = Dex.mod('gen9').species.get(selected.species);
+		const abilities = [...new Set(Object.values(species.abilities).filter(Boolean))];
+		const natures = Dex.mod('gen9').natures.all();
+		const ability = abilities[Math.floor(this.random() * abilities.length)] || species.abilities[0];
+		const nature = natures[Math.floor(this.random() * natures.length)]?.name || 'Hardy';
+		const ownerId = toID('nursery-npc-' + project.id);
+		const pokemon: RPGCapturedPokemon = {
+			name: species.name, species: species.name, level, gender: selected.sex, shiny: false,
+			item, ability, nature, moves: ['tackle'],
+			evs: {hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0}, ivs,
+			rpg: {version: RPG_STATE_VERSION, level, friendship: 50, item, captureBall: 'pokeball'},
+		};
+		project.slot2 = RPGNurseryGenetics.parent(
+			ownerId, 'Mestre', 'npc', ownerId + '-pokemon', pokemon
+		);
+		project.slot2OwnerId = project.slot2.ownerId;
+		project.slot2OwnerName = project.slot2.ownerName;
+		project.slot2ParticipantType = 'npc';
+		project.status = 'awaiting_confirmation';
+		project.confirmed = {
+			[project.slot1.ownerId]: false,
+			[project.slot2.ownerId]: true,
+		};
+		this.persistNurseryRecord(found.record);
+		return this.nurseryView();
 	}
 
 	withdrawNurserySlot2(token: string, projectId: string) {
@@ -2483,6 +2544,8 @@ export class RPGLoginService {
 								.map(ownerId => [ownerId, true])
 						)),
 					preview,
+					masterSlot2Options: !record && !project.slot2 && project.status === 'inviting' ?
+						RPGNurseryGenetics.compatiblePartners(project.slot1) : [],
 					egg,
 				};
 			})
@@ -2520,6 +2583,7 @@ export class RPGLoginService {
 				...incubator, kind: 'local' as const,
 				egg: incubator.eggId ? eggs.find(egg => egg.eggId === incubator.eggId) : undefined,
 			})) : [],
+			breedingItems: RPG_NURSERY_BREEDING_ITEMS.map(item => ({...item})),
 			portableIncubators: {
 				total: portableTotal, inUse: portableInUse, available: Math.max(0, portableTotal - portableInUse),
 			},

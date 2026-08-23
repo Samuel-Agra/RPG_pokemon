@@ -45,6 +45,16 @@ describe('RPG Egg presentation outside incubation', () => {
 		assert.match(nursery, /project\.slot2\?\.ownerId === view\.ownerId/);
 	});
 
+	it('lets only the Master configure a compatible system partner in Slot 2', () => {
+		assert.match(nursery, /masterSlot2Options/);
+		assert.match(nursery, /openMasterSlot2Menu/);
+		assert.match(nursery, /master-slot2/);
+		assert.match(nursery, /Held item reprodutivo/);
+		assert.match(nursery, /Adicionar ao Slot 2/);
+		assert.match(nurseryCss, /nursery-master-slot-layer/);
+		assert.match(nurseryCss, /nursery-master-ivs/);
+	});
+
 	it('uses a plain Egg normally and the active Portable Incubator only while equipped', () => {
 		assert.match(nursery, /egg\?\.portableIncubator/);
 		assert.match(nursery, /options\.spriteUrl\(\{species: 'Egg'\}\)/);

@@ -524,7 +524,7 @@ export class RPGHttpServer {
 			return;
 		}
 		const nurseryAction = new RegExp(
-			'^/api/rpg/nursery/(create|accept|withdraw-slot2|confirm|cancel|collect-parent|collect|collect-local|insert|remove|portable-start|portable-stop|hatch)$'
+			'^/api/rpg/nursery/(create|accept|master-slot2|withdraw-slot2|confirm|cancel|collect-parent|collect|collect-local|insert|remove|portable-start|portable-stop|hatch)$'
 		).exec(url.pathname);
 		if (method === 'POST' && nurseryAction) {
 			const body = await this.body(req);
@@ -540,6 +540,16 @@ export class RPGHttpServer {
 				result = {nursery: this.login.acceptNurseryInvitation(
 					this.token(req), this.string(body.projectId), this.string(body.pokemonId)
 				)};
+				break;
+			case 'master-slot2':
+				result = {nursery: this.login.setMasterNurserySlot2(this.token(req), {
+					projectId: this.string(body.projectId),
+					species: this.string(body.species),
+					sex: this.string(body.sex) as import('../../sim/rpg-showdown').RPGPokemonSex,
+					level: Number(body.level),
+					ivs: body.ivs as import('./nursery').RPGNurseryMasterSlot2Input['ivs'],
+					item: this.string(body.item) as import('./nursery').RPGNurseryMasterSlot2Input['item'],
+				})};
 				break;
 			case 'withdraw-slot2':
 				result = {nursery: this.login.withdrawNurserySlot2(

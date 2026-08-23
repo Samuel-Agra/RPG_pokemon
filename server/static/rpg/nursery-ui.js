@@ -36,16 +36,18 @@
 		icon.draggable = false;
 		return icon;
 	}
-	function parentCard(parent, options, onEmpty) {
+	function parentCard(parent, options, onEmpty, masterControlled) {
 		const card = el(parent ? 'article' : 'button',
 			'nursery-parent' + (!parent ? ' nursery-slot-empty' : ''));
 		if (!parent) {
 			card.type = 'button';
 			card.disabled = !onEmpty;
 			card.append(el('span', 'nursery-slot-plus', '+'));
-			card.append(el('strong', '', onEmpty ? 'Ocupar Slot 2' : 'Slot 2 vazio'));
+			card.append(el('strong', '', onEmpty ?
+				(masterControlled ? 'Escolher Pokémon' : 'Ocupar Slot 2') : 'Slot 2 vazio'));
 			card.append(el('small', '', onEmpty ?
-				'Use o Pokémon destacado acima' : 'Aguardando outro treinador'));
+				(masterControlled ? 'Configurar parceiro do Mestre' : 'Use o Pokémon destacado acima') :
+				'Aguardando outro treinador'));
 			if (onEmpty) card.addEventListener('click', onEmpty);
 			return card;
 		}
@@ -209,6 +211,128 @@
 			for (const effect of preview.itemEffects || []) box.append(el('small', '', effect));
 			return box;
 		}
+		function openMasterSlot2Menu(project) {
+			const choices = Array.isArray(project.masterSlot2Options) ? project.masterSlot2Options : [];
+			if (!choices.length) {
+				options.toast('Nenhum parceiro compat\u00edvel foi encontrado para o Slot 1.', true);
+				return;
+			}
+			const layer = el('div', 'nursery-master-slot-layer');
+			const menu = el('form', 'nursery-master-slot-menu');
+			const close = () => layer.remove();
+			layer.addEventListener('mousedown', event => {
+				if (event.target === layer) close();
+			});
+			const heading = el('header', 'nursery-master-slot-head');
+			const title = el('div');
+			title.append(el('small', 'nursery-eyebrow', 'CONTROLE DO MESTRE'));
+			title.append(el('h3', '', 'Configurar Slot 2'));
+			const closeButton = el('button', 'nursery-master-slot-close', '\u00d7');
+			closeButton.type = 'button';
+			closeButton.setAttribute('aria-label', 'Fechar');
+			closeButton.addEventListener('click', close);
+			heading.append(title, closeButton);
+
+			const preview = el('div', 'nursery-master-slot-preview');
+			const sprite = el('img', 'nursery-master-slot-sprite');
+			const previewCopy = el('div');
+			const previewName = el('strong', '', choices[0].species);
+			const previewSex = el('span', '', choices[0].sex === 'M' ? 'Macho' :
+				choices[0].sex === 'F' ? 'F\u00eamea' : 'Sem sexo');
+			previewCopy.append(previewName, previewSex);
+			preview.append(sprite, previewCopy);
+
+			const field = (label, control) => {
+				const wrapper = el('label', 'nursery-master-field');
+				wrapper.append(el('span', '', label), control);
+				return wrapper;
+			};
+			const species = el('select', 'textbox');
+			for (let index = 0; index < choices.length; index++) {
+				const choice = choices[index];
+				const option = el('option', '', choice.species + ' \u00b7 ' +
+					(choice.sex === 'M' ? '\u2642' : choice.sex === 'F' ? '\u2640' : '\u26b2'));
+				option.value = String(index);
+				species.append(option);
+			}
+			const updatePreview = () => {
+				const choice = choices[Number(species.value)] || choices[0];
+				sprite.src = options.spriteUrl({species: choice.species});
+				sprite.alt = choice.species;
+				previewName.textContent = choice.species;
+				previewSex.textContent = choice.sex === 'M' ? 'Macho' :
+					choice.sex === 'F' ? 'F\u00eamea' : 'Sem sexo';
+			};
+			species.addEventListener('change', updatePreview);
+			updatePreview();
+
+			const level = el('input', 'textbox');
+			level.type = 'number';
+			level.min = '1';
+			level.max = '100';
+			level.step = '1';
+			level.value = String(Math.max(1, Math.min(100, Number(project.slot1.level) || 1)));
+
+			const mainFields = el('div', 'nursery-master-main-fields');
+			mainFields.append(field('Pok\u00e9mon compat\u00edvel', species), field('N\u00edvel', level));
+
+			const ivs = el('fieldset', 'nursery-master-ivs');
+			ivs.append(el('legend', '', 'IVs'));
+			const statLabels = {hp: 'HP', atk: 'Atk', def: 'Def', spa: 'SpA', spd: 'SpD', spe: 'Spe'};
+			const ivInputs = {};
+			for (const stat of Object.keys(statLabels)) {
+				const input = el('input', 'textbox');
+				input.type = 'number';
+				input.min = '0';
+				input.max = '31';
+				input.step = '1';
+				input.value = '31';
+				ivInputs[stat] = input;
+				ivs.append(field(statLabels[stat], input));
+			}
+
+			const heldItem = el('select', 'textbox');
+			for (const item of view.breedingItems || []) {
+				const option = el('option', '', item.name);
+				option.value = item.id;
+				heldItem.append(option);
+			}
+			const itemDescription = el('small', 'nursery-master-item-description');
+			const updateItem = () => {
+				const selected = (view.breedingItems || []).find(item => item.id === heldItem.value);
+				itemDescription.textContent = selected?.description || '';
+			};
+			heldItem.addEventListener('change', updateItem);
+			updateItem();
+			const itemField = field('Held item reprodutivo', heldItem);
+			itemField.append(itemDescription);
+
+			const actions = el('div', 'nursery-master-slot-actions');
+			const cancel = el('button', 'button', 'Cancelar');
+			cancel.type = 'button';
+			cancel.addEventListener('click', close);
+			const submit = el('button', 'button primary', 'Adicionar ao Slot 2');
+			submit.type = 'submit';
+			actions.append(cancel, submit);
+			menu.append(heading, preview, mainFields, ivs, itemField, actions);
+			menu.addEventListener('submit', async event => {
+				event.preventDefault();
+				const choice = choices[Number(species.value)] || choices[0];
+				submit.disabled = true;
+				close();
+				await action('master-slot2', {
+					projectId: project.id,
+					species: choice.species,
+					sex: choice.sex,
+					level: Number(level.value),
+					ivs: Object.fromEntries(Object.entries(ivInputs).map(([stat, input]) =>
+						[stat, Number(input.value)])),
+					item: heldItem.value,
+				});
+			});
+			layer.append(menu);
+			document.body.append(layer);
+		}
 		function projectCard(project) {
 			const card = el('article', 'nursery-project nursery-project-row');
 			const top = el('div', 'nursery-project-head');
@@ -216,14 +340,18 @@
 			top.append(el('span', 'nursery-status status-' + project.status, statusLabels[project.status] || project.status));
 			card.append(top);
 			const parents = el('div', 'nursery-parents');
-			const canFillSlot2 = project.status === 'inviting' && !!selectedPokemon();
-			const fillSlot2 = canFillSlot2 ? () => action('accept', {
-				projectId: project.id, pokemonId: selectedPokemonId,
-			}) : null;
+			const masterCanFillSlot2 = view.viewerRole === 'master' && project.status === 'inviting' &&
+				Array.isArray(project.masterSlot2Options) && project.masterSlot2Options.length > 0;
+			const playerCanFillSlot2 = view.viewerRole !== 'master' &&
+				project.status === 'inviting' && !!selectedPokemon();
+			const fillSlot2 = masterCanFillSlot2 ? () => openMasterSlot2Menu(project) :
+				playerCanFillSlot2 ? () => action('accept', {
+					projectId: project.id, pokemonId: selectedPokemonId,
+				}) : null;
 			parents.append(
 				parentCard(project.slot1, options),
 				el('span', 'nursery-heart', '♥'),
-				parentCard(project.slot2, options, fillSlot2)
+				parentCard(project.slot2, options, fillSlot2, masterCanFillSlot2)
 			);
 			card.append(parents);
 			card.append(el('p', 'nursery-owner', 'O ovo pertencerá a ' + project.slot1.ownerName + ' (Slot 1).'));

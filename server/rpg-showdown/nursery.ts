@@ -5,6 +5,7 @@ import {
 	checkRPGBreedingCompatibility,
 	getRPGBreedingOffspringSpecies,
 	getRPGBreedingProfile,
+	getRPGAllowedSexes,
 	rollRPGPokemonSex,
 	type RPGBreedingCompatibility,
 	type RPGBreedingFamilyId,
@@ -106,6 +107,26 @@ export interface RPGNurseryCharacterState {
 	incubators: { id: string, ownerId: string, eggId?: string, kind?: 'local', group?: number, slot?: number }[];
 }
 
+export interface RPGNurseryMasterPartnerOption {
+	species: string;
+	sex: RPGPokemonSex;
+}
+
+export interface RPGNurseryMasterSlot2Input {
+	projectId: string;
+	species: string;
+	sex: RPGPokemonSex;
+	level: number;
+	ivs: Record<RPGGeneticStat, number>;
+	item: '' | 'everstone' | 'destinyknot';
+}
+
+export const RPG_NURSERY_BREEDING_ITEMS = Object.freeze([
+	{id: '', name: 'Nenhum', description: 'Sem efeito adicional na procria\u00e7\u00e3o.'},
+	{id: 'everstone', name: 'Everstone', description: 'Permite que a Nature deste progenitor seja herdada.'},
+	{id: 'destinyknot', name: 'Destiny Knot', description: 'Faz cinco IVs serem herdados dos progenitores.'},
+] as const);
+
 const STATS: readonly RPGGeneticStat[] = ['hp', 'atk', 'def', 'spa', 'spd', 'spe'];
 const BASE_BREEDING_TIME_MS = 24 * 60 * 60 * 1000;
 const LEVEL_PENALTY_STEP_MS = 2 * 60 * 60 * 1000;
@@ -123,6 +144,22 @@ export class RPGNurseryGenetics {
 			ability: pokemon.ability, item: toID(pokemon.item || pokemon.rpg?.item || ''),
 			ivs: this.ivs(pokemon.ivs), moves: [...pokemon.moves],
 		};
+	}
+
+	static compatiblePartners(slot1: RPGNurseryParent): RPGNurseryMasterPartnerOption[] {
+		const dex = Dex.mod('gen9');
+		const options: RPGNurseryMasterPartnerOption[] = [];
+		for (const species of dex.species.all()) {
+			if (!species.exists || species.isNonstandard || species.battleOnly) continue;
+			if (toID(species.name) !== toID(species.baseSpecies || species.name)) continue;
+			for (const sex of getRPGAllowedSexes(species.name)) {
+				const compatibility = checkRPGBreedingCompatibility(
+					{species: slot1.species, sex: slot1.sex}, {species: species.name, sex}
+				);
+				if (compatibility.compatible) options.push({species: species.name, sex});
+			}
+		}
+		return options.sort((a, b) => a.species.localeCompare(b.species) || a.sex.localeCompare(b.sex));
 	}
 
 	static preview(slot1: RPGNurseryParent, slot2: RPGNurseryParent): RPGNurseryGeneticPreview {
