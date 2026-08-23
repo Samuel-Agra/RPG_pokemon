@@ -202,18 +202,33 @@
 					(linkedHere ? 'Contém este Egg' : 'Contém outro Egg') : 'Disponível'));
 				unit.append(image, copy);
 				if (linkedHere) {
-					const remove = button('Retirar Egg', 'button');
-					remove.addEventListener('click', async () => {
-						remove.disabled = true;
-						try {
-							await deps.api('/nursery/portable-stop', {method: 'POST', body: {
-								characterId: deps.characterId, eggId: deps.selectedEgg.eggId,
-							}});
-							deps.toast('Egg retirado da Incubadora Portátil.');
-							await deps.refresh();
-						} catch (error) { remove.disabled = false; deps.toast(error.message, true); }
-					});
-					unit.append(remove);
+					if (deps.selectedEgg.status === 'ready_to_hatch') {
+						const hatch = button('Chocar', 'button primary');
+						hatch.addEventListener('click', async () => {
+							hatch.disabled = true;
+							try {
+								const result = await deps.api('/nursery/hatch', {method: 'POST', body: {
+									characterId: deps.characterId, eggId: deps.selectedEgg.eggId,
+								}});
+								deps.toast((result.hatch?.pokemon?.species || 'O Pok\u00e9mon') + ' nasceu!');
+								await deps.refresh();
+							} catch (error) { hatch.disabled = false; deps.toast(error.message, true); }
+						});
+						unit.append(hatch);
+					} else {
+						const remove = button('Retirar Egg', 'button');
+						remove.addEventListener('click', async () => {
+							remove.disabled = true;
+							try {
+								await deps.api('/nursery/portable-stop', {method: 'POST', body: {
+									characterId: deps.characterId, eggId: deps.selectedEgg.eggId,
+								}});
+								deps.toast('Egg retirado da Incubadora Portátil.');
+								await deps.refresh();
+							} catch (error) { remove.disabled = false; deps.toast(error.message, true); }
+						});
+						unit.append(remove);
+					}
 				} else if (!incubator.loaded && !deps.selectedEgg.portableIncubator) {
 					const insert = button('Colocar Egg', 'button primary');
 					insert.addEventListener('click', async () => {

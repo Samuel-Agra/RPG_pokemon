@@ -100,6 +100,9 @@ describe('RPG Egg presentation outside incubation', () => {
 		assert.match(teamBuilder, /Incubadoras Portáteis/);
 		assert.match(teamBuilder, /Retirar Egg/);
 		assert.match(teamBuilder, /Colocar Egg/);
+		assert.match(teamBuilder, /deps\.selectedEgg\.status === 'ready_to_hatch'/);
+		assert.match(teamBuilder, /button\('Chocar', 'button primary'\)/);
+		assert.match(teamBuilder, /deps\.api\('\/nursery\/hatch'/);
 		assert.match(bag, /linkedEggId/);
 	});
 
