@@ -2,6 +2,7 @@ import { Dex } from '../../sim/dex';
 import { toID } from '../../sim/dex-data';
 import type { RPGCapturedPokemon } from '../../sim/rpg-showdown';
 import {
+	canRPGPokemonBreedAtCurrentStage,
 	checkRPGBreedingCompatibility,
 	getRPGBreedingOffspringSpecies,
 	getRPGBreedingProfile,
@@ -153,6 +154,7 @@ export class RPGNurseryGenetics {
 			if (!species.exists || species.isNonstandard || species.battleOnly) continue;
 			if (toID(species.name) !== toID(species.baseSpecies || species.name)) continue;
 			if (!getRPGAllowedSexes(species.name).includes(automaticSex)) continue;
+			if (!canRPGPokemonBreedAtCurrentStage(species.name, automaticSex)) continue;
 			const compatibility = checkRPGBreedingCompatibility(
 				{species: slot1.species, sex: slot1.sex}, {species: species.name, sex: automaticSex}
 			);
