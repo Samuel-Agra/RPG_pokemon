@@ -24,6 +24,7 @@ const DIRECT: Readonly<Record<string, string>> = {
 	covertcloak: 'Protege o portador dos efeitos secundários dos golpes usados por outros Pokémon.',
 	ejectbutton: 'Se o portador sobreviver a um golpe, troca imediatamente por um aliado escolhido e o item é consumido.',
 	ejectpack: 'Quando algum estágio de atributo do portador é reduzido, troca por um aliado escolhido e o item é consumido.',
+	destinyknot: 'Na procriação, faz o filhote herdar os seis IVs deste progenitor.',
 	eviolite: 'Se a espécie do portador ainda puder evoluir, multiplica Defense e Sp. Def por 1,5.',
 	expertbelt: 'Aumenta em 20% o dano de golpes superefetivos usados pelo portador.',
 	flameorb: 'Ao final de cada turno, tenta causar Burn no portador.',

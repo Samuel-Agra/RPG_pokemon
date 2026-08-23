@@ -102,6 +102,14 @@ const RPG_DELETE_WORDS = [
 	'Sinnoh', 'Unova', 'Kalos', 'Alola', 'Galar', 'Paldea',
 ] as const;
 
+const RPG_HATCH_BALL_PRIORITY = [
+	'pokeball', 'premierball', 'healball', 'greatball', 'ultraball',
+	'nestball', 'repeatball', 'timerball', 'quickball', 'duskball', 'diveball', 'netball',
+	'luxuryball', 'friendball', 'loveball', 'lureball', 'levelball', 'heavyball', 'fastball',
+	'moonball', 'dreamball', 'sportball', 'safariball', 'beastball', 'parkball',
+	'strangeball', 'cherishball', 'masterball',
+] as const;
+
 export type RPGAccountRole = 'master' | 'player';
 export type RPGSessionMode = 'master' | 'player';
 export type RPGCharacterGender = 'M' | 'F' | 'N';
@@ -1242,15 +1250,40 @@ export class RPGLoginService {
 		if (actor.state.box.party.length + otherReservedEggs >= 6) {
 			throw new Error('Não há espaço livre na equipe para resgatar o Pokémon chocado');
 		}
-		const result = RPGIncubation.hatch(egg, incubator, this.now());
-		RPGBoxManagement.insertParty(actor.state, {
-			pokemonId: actor.state.id + ':hatch:' + egg.id,
+
+		const inventory = RPGInventorySystem.migrate(actor.state.inventory);
+		const registeredBalls = RPGItems.list('ball').map(item => item.id);
+		const ballPriority = [...new Set([...RPG_HATCH_BALL_PRIORITY, ...registeredBalls])];
+		const captureBall = ballPriority.find(ball =>
+			RPGBagSystem.getRegularQuantity(inventory.bag, ball) > 0
+		);
+		if (!captureBall) {
+			throw new Error('É necessário ter ao menos uma Poké Ball na Bag para o Pokémon nascer');
+		}
+
+		const working = structuredClone(actor.state);
+		working.inventory = RPGInventorySystem.migrate(working.inventory);
+		const workingEgg = working.nursery?.projects
+			.flatMap(project => project.egg ? [project.egg] : [])
+			.find(candidate => candidate.id === egg.id && candidate.ownerId === working.id);
+		if (!workingEgg) throw new Error('Ovo persistente não encontrado durante a eclosão');
+		const workingIncubator = workingEgg.portableIncubator ? undefined :
+			working.nursery?.incubators.find(value => value.id === workingEgg.incubatorId);
+		const result = RPGIncubation.hatch(workingEgg, workingIncubator, this.now());
+		working.inventory.bag = RPGBagSystem.remove(
+			working.inventory.bag, captureBall, 1, working.inventory.bag.revision
+		).bag;
+		result.pokemon.rpg.captureBall = captureBall;
+		RPGBoxManagement.insertParty(working, {
+			pokemonId: working.id + ':hatch:' + workingEgg.id,
 			pokemon: result.pokemon,
-			metadata: {ot: actor.state.characterName, training: 'none'},
+			metadata: {ot: working.characterName, training: 'none'},
 		});
+		actor.state = working;
 		this.persistNurseryRecord(actor);
 		return {hatch: result, nursery: this.nurseryView(actor)};
 	}
+
 	getBag(
 		token: string, characterId?: string,
 		query: { context?: RPGManagedBagContext, category?: RPGManagedBagCategory, search?: string } = {}

@@ -336,7 +336,14 @@ describe('RPG connected Nursery and Incubation flow', () => {
 		service.collectNurseryParent(marina.token, projectId);
 		assert.equal(service.getBox(marina.token).team[0].metadata.breeding, undefined);
 
-		const bagSlotsBeforeEgg = service.getBag(samuel.token).capacity.usedSlots;
+		let hatchBag = service.getBag(samuel.token);
+		hatchBag = service.masterSetBagItemQuantity(
+			master.token, 'samuel', 'pokeball', 2, hatchBag.revision, 'add'
+		);
+		hatchBag = service.masterSetBagItemQuantity(
+			master.token, 'samuel', 'greatball', 2, hatchBag.revision, 'add'
+		);
+		const bagSlotsBeforeEgg = hatchBag.capacity.usedSlots;
 		view = service.collectNurseryEgg(samuel.token, projectId);
 		const eggId = view.eggs[0].eggId;
 		assert.equal(view.eggs[0].status, 'carried');
@@ -366,9 +373,16 @@ describe('RPG connected Nursery and Incubation flow', () => {
 		for (let i = 0; i < 9; i++) service.advanceCampaignTime(master.token, 8);
 		view = service.getNursery(samuel.token);
 		assert.equal(view.incubators[0].egg.status, 'ready_to_hatch');
+		hatchBag = service.getBag(samuel.token);
+		const pokeBallsBeforeHatch = hatchBag.items.find(item => item.id === 'pokeball').quantity;
+		const greatBallsBeforeHatch = hatchBag.items.find(item => item.id === 'greatball').quantity;
 		const result = service.hatchNurseryEgg(samuel.token, eggId);
 		assert.equal(result.hatch.pokemon.species, 'Ralts');
 		assert.equal(result.hatch.pokemon.level, 1);
+		assert.equal(result.hatch.pokemon.rpg.captureBall, 'pokeball');
+		hatchBag = service.getBag(samuel.token);
+		assert.equal(hatchBag.items.find(item => item.id === 'pokeball').quantity, pokeBallsBeforeHatch - 1);
+		assert.equal(hatchBag.items.find(item => item.id === 'greatball').quantity, greatBallsBeforeHatch);
 		const characterAfterHatch = service.getCharacter(samuel.token);
 		assert.deepEqual(characterAfterHatch.team.map(pokemon => pokemon.species), ['Gardevoir', 'Ralts']);
 		assert.deepEqual(characterAfterHatch.teamEggs, []);
@@ -388,6 +402,32 @@ describe('RPG connected Nursery and Incubation flow', () => {
 		assert.equal(view.incubators[0].egg.status, 'incubating');
 		assert.equal(view.capacity.teamUsed, 2);
 		assert.equal(view.capacity.bagUsedSlots, bagSlotsBeforeEgg);
+		for (let i = 0; i < 9; i++) service.advanceCampaignTime(master.token, 8);
+		view = service.getNursery(samuel.token);
+		assert.equal(view.incubators[0].egg.status, 'ready_to_hatch');
+
+		hatchBag = service.getBag(samuel.token);
+		const remainingPokeBalls = hatchBag.items.find(item => item.id === 'pokeball')?.quantity || 0;
+		if (remainingPokeBalls) {
+			hatchBag = service.masterSetBagItemQuantity(
+				master.token, 'samuel', 'pokeball', 0, hatchBag.revision, 'set'
+			);
+		}
+		const remainingGreatBalls = hatchBag.items.find(item => item.id === 'greatball')?.quantity || 0;
+		if (remainingGreatBalls) {
+			hatchBag = service.masterSetBagItemQuantity(
+				master.token, 'samuel', 'greatball', 0, hatchBag.revision, 'set'
+			);
+		}
+		assert.throws(() => service.hatchNurseryEgg(samuel.token, view.incubators[0].egg.eggId), /Poké Ball/);
+		assert.equal(service.getNursery(samuel.token).incubators[0].egg.status, 'ready_to_hatch');
+
+		hatchBag = service.masterSetBagItemQuantity(
+			master.token, 'samuel', 'greatball', 1, hatchBag.revision, 'add'
+		);
+		const fallback = service.hatchNurseryEgg(samuel.token, view.incubators[0].egg.eggId);
+		assert.equal(fallback.hatch.pokemon.rpg.captureBall, 'greatball');
+		assert.equal(service.getBag(samuel.token).items.find(item => item.id === 'greatball'), undefined);
 	});
 
 

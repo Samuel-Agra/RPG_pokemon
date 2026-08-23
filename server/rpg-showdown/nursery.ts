@@ -150,7 +150,7 @@ export interface RPGNurseryMasterSlot2Input extends RPGNurseryMasterPokemonInput
 export const RPG_NURSERY_BREEDING_ITEMS = Object.freeze([
 	{id: '', name: 'Nenhum', description: 'Sem efeito adicional na procria\u00e7\u00e3o.'},
 	{id: 'everstone', name: 'Everstone', description: 'Permite que a Nature deste progenitor seja herdada.'},
-	{id: 'destinyknot', name: 'Destiny Knot', description: 'Faz cinco IVs serem herdados dos progenitores.'},
+	{id: 'destinyknot', name: 'Destiny Knot', description: 'Faz os seis IVs deste progenitor serem herdados pelo filhote.'},
 	{id: 'powerweight', name: 'Power Weight', description: 'Garante que o IV de HP deste progenitor seja herdado.'},
 	{id: 'powerbracer', name: 'Power Bracer', description: 'Garante que o IV de Attack deste progenitor seja herdado.'},
 	{id: 'powerbelt', name: 'Power Belt', description: 'Garante que o IV de Defense deste progenitor seja herdado.'},
@@ -309,27 +309,39 @@ export class RPGNurseryGenetics {
 	private static inheritIVs(a: RPGNurseryParent, b: RPGNurseryParent, random: () => number) {
 		const ivs = {} as Record<RPGGeneticStat, number>;
 		const origins = {} as Record<RPGGeneticStat, RPGGeneticOrigin>;
-		const inheritedCount = a.item === 'destinyknot' || b.item === 'destinyknot' ? 5 : 3;
+		const parents = ([['slot1', a], ['slot2', b]] as const);
 		const inherited = new Map<RPGGeneticStat, Exclude<RPGGeneticOrigin, 'random'>>();
-		const powerHolders = ([['slot1', a], ['slot2', b]] as const).flatMap(([origin, parent]) => {
+		const destinyHolders = parents.filter(([, parent]) => parent.item === 'destinyknot');
+		const powerByStat = new Map<RPGGeneticStat, Exclude<RPGGeneticOrigin, 'random'>[]>();
+		for (const [origin, parent] of parents) {
 			const stat = POWER_ITEM_STATS[parent.item];
-			return stat ? [{origin, stat}] : [];
-		});
-		if (powerHolders.length) {
-			// Quando ambos seguram Power items, a geração 9 sorteia qual efeito dirigido prevalece.
-			const selected = powerHolders[this.randomIndex(powerHolders.length, random)];
-			inherited.set(selected.stat, selected.origin);
+			if (!stat) continue;
+			const holders = powerByStat.get(stat) || [];
+			holders.push(origin);
+			powerByStat.set(stat, holders);
 		}
-		const pool = STATS.filter(stat => !inherited.has(stat));
-		while (inherited.size < inheritedCount) {
-			const stat = pool.splice(this.randomIndex(pool.length, random), 1)[0];
-			inherited.set(stat, random() < .5 ? 'slot1' : 'slot2');
+
+		if (destinyHolders.length) {
+			const [origin] = destinyHolders[this.randomIndex(destinyHolders.length, random)];
+			for (const stat of STATS) inherited.set(stat, origin);
+		} else {
+			// Os três IVs aleatórios não ocupam os atributos já garantidos por Power Items.
+			const pool = STATS.filter(stat => !powerByStat.has(stat));
+			const randomInheritedCount = Math.min(3, pool.length);
+			while (inherited.size < randomInheritedCount) {
+				const stat = pool.splice(this.randomIndex(pool.length, random), 1)[0];
+				inherited.set(stat, random() < .5 ? 'slot1' : 'slot2');
+			}
+		}
+
+		// Power Items são aplicados depois do cálculo base e substituem a origem daquele atributo.
+		for (const [stat, holders] of powerByStat) {
+			inherited.set(stat, holders[this.randomIndex(holders.length, random)]);
 		}
 		for (const stat of STATS) {
 			const origin: RPGGeneticOrigin = inherited.get(stat) || 'random';
 			origins[stat] = origin;
-			ivs[stat] = origin === 'slot1' ? a.ivs[stat] : origin === 'slot2' ? b.ivs[stat] :
-				Math.floor(random() * 32);
+			ivs[stat] = origin === 'slot1' ? a.ivs[stat] : origin === 'slot2' ? b.ivs[stat] : 0;
 		}
 		return {ivs, origins};
 	}
@@ -337,9 +349,12 @@ export class RPGNurseryGenetics {
 	private static selectEggMoves(species: string, random: () => number): string[] {
 		const pool = this.eggMoves(species);
 		if (!pool.length) return [];
-		const count = 1 + this.randomIndex(Math.min(4, pool.length), random);
+		const roll = random();
+		const requested = roll < .5 ? 1 : roll < .8 ? 2 : roll < .95 ? 3 : 4;
+		// A probabilidade de uma quantidade impossível acumula na maior quantidade disponível.
+		const count = Math.min(requested, pool.length);
 		const available = [...pool], selected: string[] = [];
-		while (selected.length < count && available.length) {
+		while (selected.length < count) {
 			selected.push(available.splice(this.randomIndex(available.length, random), 1)[0]);
 		}
 		return selected;
@@ -367,8 +382,11 @@ export class RPGNurseryGenetics {
 
 	private static itemEffects(a: RPGNurseryParent, b: RPGNurseryParent): string[] {
 		const effects: string[] = [];
-		if (a.item === 'destinyknot' || b.item === 'destinyknot') {
-			effects.push('Destiny Knot: cinco IVs ser\\u00e3o herdados dos progenitores.');
+		for (const [parent, slot] of [[a, 1], [b, 2]] as const) {
+			if (parent.item === 'destinyknot') {
+				effects.push('Destiny Knot no Slot ' + slot + ': os seis IVs de ' + parent.name +
+					' ser\\u00e3o herdados.');
+			}
 		}
 		if (a.item === 'everstone') effects.push('Everstone no Slot 1: Nature de ' + a.name + ' pode ser herdada.');
 		if (b.item === 'everstone') effects.push('Everstone no Slot 2: Nature de ' + b.name + ' pode ser herdada.');

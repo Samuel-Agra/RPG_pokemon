@@ -57,7 +57,72 @@ describe('RPG Pokemon Nursery genetics backend', () => {
 		assert.deepEqual(egg.genetics.parentOwnerIds, ['samuel', 'marina']);
 		assert.equal(Object.keys(egg.genetics.ivs).length, 6);
 		assert.equal(Object.keys(egg.genetics.ivOrigins).length, 6);
-		assert.equal(Object.values(egg.genetics.ivOrigins).filter(origin => origin !== 'random').length, 5);
+		assert.equal(Object.values(egg.genetics.ivOrigins).filter(origin => origin !== 'random').length, 6);
+		assert(Object.values(egg.genetics.ivOrigins).every(origin => origin === 'slot2'));
+		assert.deepEqual(egg.genetics.ivs, slot2.ivs);
+	});
+
+	it('uses weighted Egg Move counts and caps impossible quantities at the available pool', () => {
+		const originalEggMoves = RPGNurseryGenetics.eggMoves;
+		const sequence = values => {
+			let index = 0;
+			return () => values[Math.min(index++, values.length - 1)];
+		};
+		try {
+			RPGNurseryGenetics.eggMoves = () => ['a', 'b', 'c', 'd'];
+			assert.equal(RPGNurseryGenetics.selectEggMoves('Ralts', sequence([0.49, 0])).length, 1);
+			assert.equal(RPGNurseryGenetics.selectEggMoves('Ralts', sequence([0.50, 0])).length, 2);
+			assert.equal(RPGNurseryGenetics.selectEggMoves('Ralts', sequence([0.80, 0])).length, 3);
+			assert.equal(RPGNurseryGenetics.selectEggMoves('Ralts', sequence([0.95, 0])).length, 4);
+			const first = RPGNurseryGenetics.selectEggMoves('Ralts', sequence([0, 0]))[0];
+			const last = RPGNurseryGenetics.selectEggMoves('Ralts', sequence([0, 0.99]))[0];
+			assert.notEqual(first, last, 'a escolha do Egg Move usa o sorteio fornecido');
+
+			RPGNurseryGenetics.eggMoves = () => ['a', 'b', 'c'];
+			assert.equal(RPGNurseryGenetics.selectEggMoves('Ralts', sequence([0.99, 0])).length, 3);
+			RPGNurseryGenetics.eggMoves = () => ['a', 'b'];
+			assert.equal(RPGNurseryGenetics.selectEggMoves('Ralts', sequence([0.99, 0])).length, 2);
+			RPGNurseryGenetics.eggMoves = () => ['a'];
+			assert.equal(RPGNurseryGenetics.selectEggMoves('Ralts', sequence([0.99, 0])).length, 1);
+		} finally {
+			RPGNurseryGenetics.eggMoves = originalEggMoves;
+		}
+	});
+
+	it('sets non-inherited IVs to zero and adds both distinct Power Item guarantees', () => {
+		const plainSlot1 = RPGNurseryGenetics.parent(
+			'samuel', 'Samuel', 'player', 'gardevoir-plain',
+			pokemon('Gardevoir', 'F', 50, 'Modest', 'Synchronize')
+		);
+		const plainSlot2 = RPGNurseryGenetics.parent(
+			'marina', 'Marina', 'player', 'gallade-plain',
+			pokemon('Gallade', 'M', 50, 'Jolly', 'Sharpness')
+		);
+		const plain = RPGNurseryGenetics.createEgg('breeding-plain', plainSlot1, plainSlot2, 1234, () => 0);
+		assert.equal(Object.values(plain.genetics.ivOrigins).filter(origin => origin !== 'random').length, 3);
+		for (const [stat, origin] of Object.entries(plain.genetics.ivOrigins)) {
+			if (origin === 'random') assert.equal(plain.genetics.ivs[stat], 0, stat);
+		}
+
+		const poweredSlot1 = RPGNurseryGenetics.parent(
+			'samuel', 'Samuel', 'player', 'gardevoir-powered',
+			pokemon('Gardevoir', 'F', 50, 'Modest', 'Synchronize', 'powerlens')
+		);
+		const poweredSlot2 = RPGNurseryGenetics.parent(
+			'marina', 'Marina', 'player', 'gallade-powered',
+			pokemon('Gallade', 'M', 50, 'Jolly', 'Sharpness', 'powerband')
+		);
+		poweredSlot1.ivs.spa = 31;
+		poweredSlot2.ivs.spd = 27;
+		const powered = RPGNurseryGenetics.createEgg(
+			'breeding-powered', poweredSlot1, poweredSlot2, 1234, () => 0
+		);
+		assert.equal(powered.genetics.ivOrigins.spa, 'slot1');
+		assert.equal(powered.genetics.ivs.spa, 31);
+		assert.equal(powered.genetics.ivOrigins.spd, 'slot2');
+		assert.equal(powered.genetics.ivs.spd, 27);
+		assert.equal(Object.values(powered.genetics.ivOrigins).filter(origin => origin !== 'random').length, 5);
+		assert.equal(Object.values(powered.genetics.ivOrigins).filter(origin => origin === 'random').length, 1);
 	});
 
 	it('forces the matching parent IV for every held Power item', () => {
@@ -81,7 +146,7 @@ describe('RPG Pokemon Nursery genetics backend', () => {
 			const egg = RPGNurseryGenetics.createEgg('breeding-' + item, slot1, slot2, 1234, () => 0);
 			assert.equal(egg.genetics.ivOrigins[stat], 'slot1', name);
 			assert.equal(egg.genetics.ivs[stat], 31, name);
-			assert.equal(Object.values(egg.genetics.ivOrigins).filter(origin => origin !== 'random').length, 3);
+			assert.equal(Object.values(egg.genetics.ivOrigins).filter(origin => origin !== 'random').length, 4);
 		}
 	});
 
