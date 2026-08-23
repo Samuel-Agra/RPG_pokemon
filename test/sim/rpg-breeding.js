@@ -66,6 +66,12 @@ describe('RPG breeding foundation', () => {
 			{ species: 'Ralts', sex: 'F' }, { species: 'Ralts', sex: 'M' }
 		).reason, 'first-stage-pair');
 		assert.equal(checkRPGBreedingCompatibility(
+			{ species: 'Gardevoir', sex: 'F' }, { species: 'Ralts', sex: 'M' }
+		).reason, 'first-stage-pair');
+		assert.equal(checkRPGBreedingCompatibility(
+			{ species: 'Gardevoir', sex: 'F' }, { species: 'Kirlia', sex: 'M' }
+		).compatible, true);
+		assert.equal(checkRPGBreedingCompatibility(
 			{ species: 'Nidorina', sex: 'F' }, { species: 'Nidoking', sex: 'M' }
 		).compatible, true);
 		assert.equal(checkRPGBreedingCompatibility(
@@ -94,9 +100,15 @@ describe('RPG breeding foundation', () => {
 		).reason, 'first-stage-pair');
 		assert.equal(checkRPGBreedingCompatibility(
 			{ species: 'Combee', sex: 'M' }, { species: 'Combee', sex: 'F' }
+		).reason, 'first-stage-pair');
+		assert.equal(checkRPGBreedingCompatibility(
+			{ species: 'Combee', sex: 'M' }, { species: 'Vespiquen', sex: 'F' }
 		).compatible, true);
 		assert.equal(checkRPGBreedingCompatibility(
 			{ species: 'Salandit', sex: 'M' }, { species: 'Salandit', sex: 'F' }
+		).reason, 'first-stage-pair');
+		assert.equal(checkRPGBreedingCompatibility(
+			{ species: 'Salandit', sex: 'M' }, { species: 'Salazzle', sex: 'F' }
 		).compatible, true);
 		assert.equal(checkRPGBreedingCompatibility(
 			{ species: 'Vileplume', sex: 'M' }, { species: 'Bellossom', sex: 'F' }

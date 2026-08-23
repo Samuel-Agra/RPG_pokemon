@@ -237,8 +237,8 @@
 			const sprite = el('img', 'nursery-master-slot-sprite');
 			const previewCopy = el('div');
 			const previewName = el('strong', '', choices[0].species);
-			const previewSex = el('span', '', choices[0].sex === 'M' ? 'Macho' :
-				choices[0].sex === 'F' ? 'F\u00eamea' : 'Sem sexo');
+			const previewSex = el('span', '', 'G\u00eanero autom\u00e1tico: ' +
+				(choices[0].sex === 'M' ? 'Macho' : choices[0].sex === 'F' ? 'F\u00eamea' : 'Sem sexo'));
 			previewCopy.append(previewName, previewSex);
 			preview.append(sprite, previewCopy);
 
@@ -250,8 +250,7 @@
 			const species = el('select', 'textbox');
 			for (let index = 0; index < choices.length; index++) {
 				const choice = choices[index];
-				const option = el('option', '', choice.species + ' \u00b7 ' +
-					(choice.sex === 'M' ? '\u2642' : choice.sex === 'F' ? '\u2640' : '\u26b2'));
+				const option = el('option', '', choice.species);
 				option.value = String(index);
 				species.append(option);
 			}
@@ -260,8 +259,8 @@
 				sprite.src = options.spriteUrl({species: choice.species});
 				sprite.alt = choice.species;
 				previewName.textContent = choice.species;
-				previewSex.textContent = choice.sex === 'M' ? 'Macho' :
-					choice.sex === 'F' ? 'F\u00eamea' : 'Sem sexo';
+				previewSex.textContent = 'G\u00eanero autom\u00e1tico: ' + (choice.sex === 'M' ? 'Macho' :
+					choice.sex === 'F' ? 'F\u00eamea' : 'Sem sexo');
 			};
 			species.addEventListener('change', updatePreview);
 			updatePreview();
@@ -323,7 +322,6 @@
 				await action('master-slot2', {
 					projectId: project.id,
 					species: choice.species,
-					sex: choice.sex,
 					level: Number(level.value),
 					ivs: Object.fromEntries(Object.entries(ivInputs).map(([stat, input]) =>
 						[stat, Number(input.value)])),

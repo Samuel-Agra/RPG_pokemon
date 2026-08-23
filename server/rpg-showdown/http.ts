@@ -545,7 +545,6 @@ export class RPGHttpServer {
 				result = {nursery: this.login.setMasterNurserySlot2(this.token(req), {
 					projectId: this.string(body.projectId),
 					species: this.string(body.species),
-					sex: this.string(body.sex) as import('../../sim/rpg-showdown').RPGPokemonSex,
 					level: Number(body.level),
 					ivs: body.ivs as import('./nursery').RPGNurseryMasterSlot2Input['ivs'],
 					item: this.string(body.item) as import('./nursery').RPGNurseryMasterSlot2Input['item'],

@@ -115,7 +115,6 @@ export interface RPGNurseryMasterPartnerOption {
 export interface RPGNurseryMasterSlot2Input {
 	projectId: string;
 	species: string;
-	sex: RPGPokemonSex;
 	level: number;
 	ivs: Record<RPGGeneticStat, number>;
 	item: '' | 'everstone' | 'destinyknot';
@@ -149,15 +148,15 @@ export class RPGNurseryGenetics {
 	static compatiblePartners(slot1: RPGNurseryParent): RPGNurseryMasterPartnerOption[] {
 		const dex = Dex.mod('gen9');
 		const options: RPGNurseryMasterPartnerOption[] = [];
+		const automaticSex: RPGPokemonSex = slot1.sex === 'M' ? 'F' : slot1.sex === 'F' ? 'M' : 'N';
 		for (const species of dex.species.all()) {
 			if (!species.exists || species.isNonstandard || species.battleOnly) continue;
 			if (toID(species.name) !== toID(species.baseSpecies || species.name)) continue;
-			for (const sex of getRPGAllowedSexes(species.name)) {
-				const compatibility = checkRPGBreedingCompatibility(
-					{species: slot1.species, sex: slot1.sex}, {species: species.name, sex}
-				);
-				if (compatibility.compatible) options.push({species: species.name, sex});
-			}
+			if (!getRPGAllowedSexes(species.name).includes(automaticSex)) continue;
+			const compatibility = checkRPGBreedingCompatibility(
+				{species: slot1.species, sex: slot1.sex}, {species: species.name, sex: automaticSex}
+			);
+			if (compatibility.compatible) options.push({species: species.name, sex: automaticSex});
 		}
 		return options.sort((a, b) => a.species.localeCompare(b.species) || a.sex.localeCompare(b.sex));
 	}

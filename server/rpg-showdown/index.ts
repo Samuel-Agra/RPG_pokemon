@@ -11,6 +11,7 @@ import { Dex } from "../../sim/dex";
 import { toID } from "../../sim/dex-data";
 import type { PokemonSet } from "../../sim/teams";
 import {
+	canRPGPokemonBreedAtCurrentStage,
 	getExperienceForLevel,
 	getRPGAllowedSexes,
 	getRPGPokemonSizeClass,
@@ -794,6 +795,9 @@ export class RPGLoginService {
 		this.requireNurseryAccess(token, owner);
 		this.requireAvailablePokemon(owner, pokemonId);
 		const slot1 = this.nurseryParent(owner, pokemonId);
+		if (!canRPGPokemonBreedAtCurrentStage(slot1.species, slot1.sex)) {
+			throw new Error('Pokémon no primeiro estágio que ainda podem evoluir não podem procriar');
+		}
 		if (this.isPokemonBreeding(owner.state.id, pokemonId)) {
 			throw new Error('Este Pokémon já está em um slot do Berçário');
 		}
@@ -827,7 +831,12 @@ export class RPGLoginService {
 		if (this.isPokemonBreeding(actor.state.id, pokemonId, found.project.id)) {
 			throw new Error('Este Pokémon já está em uma procriação');
 		}
-		found.project.slot2 = this.nurseryParent(actor, pokemonId);
+		const slot2 = this.nurseryParent(actor, pokemonId);
+		const compatibility = RPGNurseryGenetics.preview(found.project.slot1, slot2).compatibility;
+		if (!compatibility.compatible) {
+			throw new Error('Este Pokémon não pode reproduzir com o Slot 1: ' + compatibility.reason);
+		}
+		found.project.slot2 = slot2;
 		found.project.slot2OwnerId = actor.state.id;
 		found.project.slot2OwnerName = actor.state.characterName;
 		found.project.slot2ParticipantType = 'player';
@@ -851,9 +860,7 @@ export class RPGLoginService {
 			throw new Error('O Slot 2 desta requisi\u00e7\u00e3o n\u00e3o est\u00e1 dispon\u00edvel');
 		}
 		const compatible = RPGNurseryGenetics.compatiblePartners(project.slot1);
-		const selected = compatible.find(option =>
-			toID(option.species) === toID(input.species) && option.sex === input.sex
-		);
+		const selected = compatible.find(option => toID(option.species) === toID(input.species));
 		if (!selected) throw new Error('O Pok\u00e9mon escolhido n\u00e3o pode reproduzir com o Slot 1');
 		const level = Number(input.level);
 		if (!Number.isInteger(level) || level < 1 || level > 100) {

@@ -150,6 +150,12 @@ export function getRPGBreedingProfile(speciesName: string): RPGBreedingProfile {
 	};
 }
 
+export function canRPGPokemonBreedAtCurrentStage(speciesName: string, sex: RPGPokemonSex): boolean {
+	const profile = getRPGBreedingProfile(speciesName);
+	const family = RPG_SPECIAL_BREEDING_FAMILIES[profile.breedingFamily];
+	return profile.evolutionStage !== 1 || !profile.canEvolveBySex[sex] || !!family?.allowFirstStagePair;
+}
+
 /** Data-level validation only; egg creation and breeding progression are intentionally not implemented yet. */
 export function checkRPGBreedingCompatibility(
 	first: { species: string, sex: RPGPokemonSex }, second: { species: string, sex: RPGPokemonSex }
@@ -165,10 +171,8 @@ export function checkRPGBreedingCompatibility(
 	if (firstProfile.breedingFamily !== secondProfile.breedingFamily) {
 		return { compatible: false, reason: 'different-family' };
 	}
-	const family = RPG_SPECIAL_BREEDING_FAMILIES[firstProfile.breedingFamily];
-	const bothCanEvolve = firstProfile.canEvolveBySex[first.sex] && secondProfile.canEvolveBySex[second.sex];
-	if (firstProfile.evolutionStage === 1 && secondProfile.evolutionStage === 1 &&
-		bothCanEvolve && !family?.allowFirstStagePair) {
+	if (!canRPGPokemonBreedAtCurrentStage(first.species, first.sex) ||
+		!canRPGPokemonBreedAtCurrentStage(second.species, second.sex)) {
 		return { compatible: false, reason: 'first-stage-pair', family: firstProfile.breedingFamily };
 	}
 	return { compatible: true, reason: 'compatible', family: firstProfile.breedingFamily };

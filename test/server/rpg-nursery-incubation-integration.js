@@ -90,12 +90,16 @@ describe('RPG connected Nursery and Incubation flow', () => {
 		const masterView = service.getNursery(master.token);
 		const options = masterView.projects.find(project => project.id === projectId).masterSlot2Options;
 		assert.ok(options.some(option => option.species === 'Gallade' && option.sex === 'M'));
+		assert.equal(options.every(option => option.sex === 'M'), true,
+			'o gênero deve ser automaticamente oposto ao Slot 1');
+		assert.equal(options.some(option => option.species === 'Ralts'), false,
+			'primeiros estágios evoluíveis não devem aparecer');
 		assert.equal(options.some(option => option.species === 'Pikachu'), false);
 		assert.deepEqual(masterView.breedingItems.map(item => item.id), ['', 'everstone', 'destinyknot']);
 
 		const ivs = {hp: 31, atk: 30, def: 29, spa: 28, spd: 27, spe: 26};
 		const configured = service.setMasterNurserySlot2(master.token, {
-			projectId, species: 'Gallade', sex: 'M', level: 72, ivs, item: 'destinyknot',
+			projectId, species: 'Gallade', level: 72, ivs, item: 'destinyknot',
 		});
 		const project = configured.projects.find(entry => entry.id === projectId);
 		assert.equal(project.status, 'awaiting_confirmation');
@@ -119,7 +123,7 @@ describe('RPG connected Nursery and Incubation flow', () => {
 			'o parceiro do sistema não deve aguardar resgate');
 		assert.notEqual(completed.parentCollected[completed.slot1.ownerId], true);
 		assert.throws(() => service.setMasterNurserySlot2(samuel.token, {
-			projectId, species: 'Gallade', sex: 'M', level: 72, ivs, item: '',
+			projectId, species: 'Gallade', level: 72, ivs, item: '',
 		}), /Somente o Mestre/);
 	});
 
@@ -140,17 +144,43 @@ describe('RPG connected Nursery and Incubation flow', () => {
 		const validIvs = stats(31);
 
 		assert.throws(() => service.setMasterNurserySlot2(master.token, {
-			projectId, species: 'Pikachu', sex: 'M', level: 50, ivs: validIvs, item: '',
+			projectId, species: 'Pikachu', level: 50, ivs: validIvs, item: '',
 		}), /n\u00e3o pode reproduzir/);
 		assert.throws(() => service.setMasterNurserySlot2(master.token, {
-			projectId, species: 'Gallade', sex: 'M', level: 101, ivs: validIvs, item: '',
+			projectId, species: 'Gallade', level: 101, ivs: validIvs, item: '',
 		}), /entre 1 e 100/);
 		assert.throws(() => service.setMasterNurserySlot2(master.token, {
-			projectId, species: 'Gallade', sex: 'M', level: 50, ivs: {...validIvs, hp: 32}, item: '',
+			projectId, species: 'Gallade', level: 50, ivs: {...validIvs, hp: 32}, item: '',
 		}), /IV deve estar entre 0 e 31/);
 		assert.throws(() => service.setMasterNurserySlot2(master.token, {
-			projectId, species: 'Gallade', sex: 'M', level: 50, ivs: validIvs, item: 'leftovers',
+			projectId, species: 'Gallade', level: 50, ivs: validIvs, item: 'leftovers',
 		}), /n\u00e3o afeta a procria\u00e7\u00e3o/);
+	});
+
+	it('blocks evolvable first stages before they occupy a Nursery slot', () => {
+		let byte = 60;
+		const service = new RPGLoginService({
+			masterCode: '14081998', repository: new RPGMemoryCharacterRepository(),
+			random: () => 0.5, randomBytes: size => Buffer.alloc(size, ++byte),
+		});
+		create(service, 'Samuel');
+		create(service, 'Marina');
+		const master = service.loginMaster('14081998');
+		service.replaceCharacterTeam(master.token, 'samuel', [set('Ralts', 'F', 'Synchronize')]);
+		const samuel = service.loginPlayer('samuel', '1234');
+		const raltsF = service.getCharacter(samuel.token).box.party[0].pokemonId;
+		assert.throws(() => service.createNurseryProject(samuel.token, undefined, raltsF), /primeiro est\u00e1gio/);
+
+		service.replaceCharacterTeam(master.token, 'samuel', [set('Gardevoir', 'F', 'Synchronize')]);
+		service.replaceCharacterTeam(master.token, 'marina', [set('Ralts', 'M', 'Trace')]);
+		const gardevoir = service.getCharacter(samuel.token).box.party[0].pokemonId;
+		const marina = service.loginPlayer('marina', '1234');
+		const raltsM = service.getCharacter(marina.token).box.party[0].pokemonId;
+		const projectId = service.createNurseryProject(
+			samuel.token, undefined, gardevoir
+		).projects.find(project => project.status === 'inviting').id;
+		assert.throws(() => service.acceptNurseryInvitation(marina.token, projectId, raltsM), /first-stage-pair/);
+		assert.equal(service.getNursery(samuel.token).projects.find(project => project.id === projectId).slot2, undefined);
 	});
 
 	it('moves one persistent Egg from breeding through hatching', () => {

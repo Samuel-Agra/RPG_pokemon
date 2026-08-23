@@ -51,6 +51,8 @@ describe('RPG Egg presentation outside incubation', () => {
 		assert.match(nursery, /master-slot2/);
 		assert.match(nursery, /Held item reprodutivo/);
 		assert.match(nursery, /Adicionar ao Slot 2/);
+		assert.match(nursery, /G\\u00eanero autom\\u00e1tico/);
+		assert.doesNotMatch(nursery, /species: choice\.species,\s*sex:/);
 		assert.match(nurseryCss, /nursery-master-slot-layer/);
 		assert.match(nurseryCss, /nursery-master-ivs/);
 	});
