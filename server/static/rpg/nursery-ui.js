@@ -107,7 +107,7 @@
 			const head = el('header', 'nursery-header');
 			const copy = el('div');
 			copy.append(el('span', 'nursery-eyebrow', 'BERÇÁRIO POKÉMON'));
-			copy.append(el('h1', '', 'Procriação e Incubação'));
+			copy.append(el('h1', '', view.ownerId ? 'Procriação e Incubação' : 'Procriação e Abandono'));
 			copy.append(el('p', '', 'Um espaço compartilhado: os Pokémon depositados aparecem para todos.'));
 			const stats = el('div', 'nursery-capacity');
 			if (view.ownerId) {
@@ -121,7 +121,8 @@
 		}
 		function tabs() {
 			const bar = el('nav', 'nursery-tabs');
-			for (const [id, label] of [['breeding', 'Procriação'], ['incubation', 'Incubação']]) {
+			const incubationLabel = view.ownerId ? 'Incubação' : 'Abandono';
+			for (const [id, label] of [['breeding', 'Procriação'], ['incubation', incubationLabel]]) {
 				const button = el('button', 'nursery-tab' + (currentTab === id ? ' active' : ''), label);
 				button.type = 'button';
 				button.addEventListener('click', () => { currentTab = id; paint(); });

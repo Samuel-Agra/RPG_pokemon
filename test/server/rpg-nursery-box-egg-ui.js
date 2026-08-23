@@ -104,6 +104,8 @@ describe('RPG Egg presentation outside incubation', () => {
 
 	it('shows released Pokémon only in the Master incubation area with restore and permanent release controls', () => {
 		assert.match(nursery, /Pokémon libertados/);
+		assert.match(nursery, /view\.ownerId \? 'Incubação' : 'Abandono'/);
+		assert.match(nursery, /Procriação e Abandono/);
 		assert.match(nursery, /restore-released/);
 		assert.match(nursery, /delete-released/);
 		assert.match(nursery, /Liberar ' \+ pokemon\.name \+ ' definitivamente/);
