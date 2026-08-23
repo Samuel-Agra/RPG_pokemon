@@ -922,6 +922,10 @@ button.team-builder-main-property:hover { border-color: #5a7ead; box-shadow: 0 0
 	border-bottom: 1px solid #bdc7d4;
 	font-size: 13px;
 }
+.team-builder-browser-heading + .team-builder-browser-heading {
+	margin-top: 0;
+	border-top: 0;
+}
 .team-builder-browser-list,
 .team-builder-simple-move-list { display: grid; }
 .team-builder-browser-row {

@@ -303,6 +303,11 @@ describe('RPG Team Builder frontend', () => {
 	it('keeps empty move slots from reading maxPP from an undefined move', () => {
 		assert.match(teamBuilder, /if \(current && current\.id === draftMoves\[slot\]\) return current\.maxPP/);
 	});
+	it('keeps empty move groups as adjacent headings without placeholder content', () => {
+		assert.match(teamBuilder, /pane\.append\(el\('h3', 'team-builder-browser-heading', title\)\);\s*if \(!choices\.length\) return/);
+		assert.doesNotMatch(teamBuilder, /Nenhum golpe nesta categoria\./);
+		assert.match(css, /\.team-builder-browser-heading \+ \.team-builder-browser-heading \{\s*margin-top: 0;\s*border-top: 0;/);
+	});
 	it('uses the new Showdown-inspired responsive visual structure', () => {
 		assert.match(css, /\.team-builder-showdown-card/);
 		assert.match(css, /\.team-builder-showdown-body/);

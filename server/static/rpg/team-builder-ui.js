@@ -951,6 +951,7 @@
 		}
 		function appendMoveGroup(pane, title, choices, mode) {
 			pane.append(el('h3', 'team-builder-browser-heading', title));
+			if (!choices.length) return;
 			const list = el('div', 'team-builder-simple-move-list');
 			const typeOrder = {
 				Normal: 0, Grass: 1, Fire: 2, Water: 3, Electric: 4, Bug: 5,
@@ -968,7 +969,6 @@
 				if (selectable) row.addEventListener('click', () => chooseMove(choice));
 				list.append(row);
 			}
-			if (!choices.length) list.append(el('p', 'empty-state', 'Nenhum golpe nesta categoria.'));
 			pane.append(list);
 		}
 		function movePane() {
