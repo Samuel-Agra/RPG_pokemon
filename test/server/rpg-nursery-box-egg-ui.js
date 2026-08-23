@@ -48,8 +48,11 @@ describe('RPG Egg presentation outside incubation', () => {
 	it('lets only the Master configure a compatible system partner in Slot 2', () => {
 		assert.match(nursery, /masterSlot1Options/);
 		assert.match(nursery, /openMasterSlot1Menu/);
-		assert.match(nursery, /pokemonSearch.type = 'search'/);
-		assert.match(nursery, /filterSpecies/);
+		assert.match(nursery, /species\.setAttribute\('role', 'combobox'\)/);
+		assert.match(nursery, /species\.addEventListener\('input'/);
+		assert.match(nursery, /renderSuggestions/);
+		assert.match(nursery, /nursery-master-pokemon-option/);
+		assert.doesNotMatch(nursery, /Buscar Pok\u00e9mon por nome/);
 		assert.match(nursery, /field\('Sexo', sex\)/);
 		assert.match(nursery, /sex: sex.value/);
 		assert.match(nursery, /master-slot1/);
@@ -61,7 +64,6 @@ describe('RPG Egg presentation outside incubation', () => {
 		assert.match(nursery, /Held item reprodutivo/);
 		assert.match(nursery, /Adicionar ao Slot 2/);
 		assert.match(nursery, /G\\u00eanero autom\\u00e1tico/);
-		assert.doesNotMatch(nursery, /species: choice\.species,\s*sex:/);
 		assert.match(nurseryCss, /nursery-master-slot-layer/);
 		assert.match(nurseryCss, /nursery-master-ivs/);
 	});
