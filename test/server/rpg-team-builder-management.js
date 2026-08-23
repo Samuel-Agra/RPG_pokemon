@@ -54,8 +54,8 @@ describe('RPG Team Builder management backend', () => {
 			assert.equal(item.usableInBattle, false);
 			assert.equal(item.consumedOnUse, true);
 			assert.deepEqual(item.effect, { type: 'raise-iv', stat, amount: 2 });
-			assert.equal(item.price.buy, 1500);
-			assert.equal(item.price.sell, 375);
+			assert.equal(item.price.buy, 150000);
+			assert.equal(item.price.sell, 37500);
 		}
 	});
 
