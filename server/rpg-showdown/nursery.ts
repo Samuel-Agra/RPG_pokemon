@@ -113,6 +113,11 @@ export interface RPGNurseryMasterPartnerOption {
 	sex: RPGPokemonSex;
 }
 
+export interface RPGNurseryMasterParentOption {
+	species: string;
+	sexes: RPGPokemonSex[];
+}
+
 export interface RPGNurseryMasterPokemonInput {
 	species: string;
 	level: number;
@@ -122,6 +127,7 @@ export interface RPGNurseryMasterPokemonInput {
 
 export interface RPGNurseryMasterSlot1Input extends RPGNurseryMasterPokemonInput {
 	npcName: string;
+	sex: RPGPokemonSex;
 }
 
 export interface RPGNurseryMasterSlot2Input extends RPGNurseryMasterPokemonInput {
@@ -153,24 +159,19 @@ export class RPGNurseryGenetics {
 		};
 	}
 
-	static masterParentOptions(): string[] {
+	static masterParentOptions(): RPGNurseryMasterParentOption[] {
 		const dex = Dex.mod('gen9');
 		return dex.species.all()
 			.filter(species => species.exists && !species.isNonstandard && !species.battleOnly)
 			.filter(species => toID(species.name) === toID(species.baseSpecies || species.name))
 			.filter(species => getRPGAllowedSexes(species.name)
 				.some(sex => canRPGPokemonBreedAtCurrentStage(species.name, sex)))
-			.map(species => species.name)
-			.sort((a, b) => a.localeCompare(b));
-	}
-
-	static masterParentSex(speciesName: string, random: () => number = Math.random): RPGPokemonSex {
-		const allowed = getRPGAllowedSexes(speciesName)
-			.filter(sex => canRPGPokemonBreedAtCurrentStage(speciesName, sex));
-		if (!allowed.length) throw new Error('Este Pok\u00e9mon n\u00e3o pode procriar no est\u00e1gio atual');
-		if (allowed.length === 1) return allowed[0];
-		const rolled = rollRPGPokemonSex(speciesName, random);
-		return allowed.includes(rolled) ? rolled : allowed[0];
+			.map(species => ({
+				species: species.name,
+				sexes: getRPGAllowedSexes(species.name)
+					.filter(sex => canRPGPokemonBreedAtCurrentStage(species.name, sex)),
+			}))
+			.sort((a, b) => a.species.localeCompare(b.species));
 	}
 
 	static compatiblePartners(slot1: RPGNurseryParent): RPGNurseryMasterPartnerOption[] {

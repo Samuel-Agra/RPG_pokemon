@@ -540,6 +540,7 @@ export class RPGHttpServer {
 				result = {nursery: this.login.createMasterNurseryProject(this.token(req), {
 					npcName: this.string(body.npcName),
 					species: this.string(body.species),
+					sex: this.string(body.sex) as import('./nursery').RPGNurseryMasterSlot1Input['sex'],
 					level: Number(body.level),
 					ivs: body.ivs as import('./nursery').RPGNurseryMasterSlot1Input['ivs'],
 					item: this.string(body.item) as import('./nursery').RPGNurseryMasterSlot1Input['item'],

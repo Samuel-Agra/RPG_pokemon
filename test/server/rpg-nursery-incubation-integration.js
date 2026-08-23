@@ -88,20 +88,23 @@ describe('RPG connected Nursery and Incubation flow', () => {
 		const ivs = {hp: 31, atk: 30, def: 29, spa: 28, spd: 27, spe: 26};
 
 		let view = service.createMasterNurseryProject(master.token, {
-			npcName: 'L\u00edder Blaine', species: 'Charizard', level: 65, ivs, item: 'everstone',
+			npcName: 'L\u00edder Blaine', species: 'Charizard', sex: 'M', level: 65, ivs, item: 'everstone',
 		});
 		const project = view.projects.find(entry => entry.slot1.ownerName === 'L\u00edder Blaine');
 		assert.ok(project);
 		assert.equal(project.slot1.participantType, 'npc');
 		assert.equal(project.slot1.level, 65);
+		assert.equal(project.slot1.sex, 'M');
 		assert.deepEqual(project.slot1.ivs, ivs);
 		assert.equal(project.slot1.item, 'everstone');
 		assert.equal(project.status, 'inviting');
 		assert.equal(project.confirmed[project.slot1.ownerId], true);
 		assert.deepEqual(project.masterSlot2Options, [],
 			'o Mestre n\u00e3o deve preencher o Slot 2 da pr\u00f3pria requisi\u00e7\u00e3o de NPC');
-		assert.equal(view.masterSlot1Options.includes('Charmander'), false);
-		assert.equal(view.masterSlot1Options.includes('Charizard'), true);
+		assert.equal(view.masterSlot1Options.some(option => option.species === 'Charmander'), false);
+		assert.deepEqual(
+			view.masterSlot1Options.find(option => option.species === 'Charizard').sexes, ['M', 'F']
+		);
 
 		view = service.acceptNurseryInvitation(marina.token, project.id, playerPokemonId);
 		const joined = view.projects.find(entry => entry.id === project.id);
@@ -142,14 +145,17 @@ describe('RPG connected Nursery and Incubation flow', () => {
 		const master = service.loginMaster('14081998');
 		const ivs = stats(31);
 		const view = service.createMasterNurseryProject(master.token, {
-			npcName: 'Criador', species: 'Charizard', level: 50, ivs, item: '',
+			npcName: 'Criador', species: 'Charizard', sex: 'F', level: 50, ivs, item: '',
 		});
 		const project = view.projects.find(entry => entry.slot1.ownerName === 'Criador');
 		const cancelled = service.cancelMasterNurseryProject(master.token, project.id);
 		assert.equal(cancelled.projects.find(entry => entry.id === project.id).status, 'cancelled');
 		assert.throws(() => service.createMasterNurseryProject(master.token, {
-			npcName: 'Criador', species: 'Charmander', level: 50, ivs, item: '',
+			npcName: 'Criador', species: 'Charmander', sex: 'M', level: 50, ivs, item: '',
 		}), /n\u00e3o pode iniciar/);
+		assert.throws(() => service.createMasterNurseryProject(master.token, {
+			npcName: 'Criadora', species: 'Gardevoir', sex: 'M', level: 50, ivs, item: '',
+		}), /sexo v\u00e1lido/);
 	});
 
 	it('lets the Master configure a compatible system partner for Slot 2', () => {

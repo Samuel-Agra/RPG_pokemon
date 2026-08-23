@@ -805,15 +805,19 @@ export class RPGLoginService {
 			throw new Error('Informe um nome de NPC com at\u00e9 40 caracteres');
 		}
 		const availableSpecies = RPGNurseryGenetics.masterParentOptions();
-		const selectedSpecies = availableSpecies.find(species => toID(species) === toID(input.species));
-		if (!selectedSpecies) {
+		const selected = availableSpecies.find(option => toID(option.species) === toID(input.species));
+		if (!selected) {
 			throw new Error('Este Pok\u00e9mon n\u00e3o pode iniciar uma requisi\u00e7\u00e3o de procria\u00e7\u00e3o');
 		}
+		const sex = String(input.sex || '').toUpperCase() as import('../../sim/rpg-showdown').RPGPokemonSex;
+		if (!selected.sexes.includes(sex)) {
+			throw new Error('Escolha um sexo v\u00e1lido para esta esp\u00e9cie');
+		}
+		const selectedSpecies = selected.species;
 		const records = this.repository.list();
 		if (!records.length) throw new Error('Crie ao menos um Player antes de abrir a requisi\u00e7\u00e3o do NPC');
 		const projectId = this.bytes(18).toString('base64url');
 		const ownerId = toID('nursery-npc-' + projectId);
-		const sex = RPGNurseryGenetics.masterParentSex(selectedSpecies, this.random);
 		const pokemon = this.masterNurseryPokemon(input, sex);
 		const slot1 = RPGNurseryGenetics.parent(
 			ownerId, npcName, 'npc', ownerId + '-pokemon', pokemon

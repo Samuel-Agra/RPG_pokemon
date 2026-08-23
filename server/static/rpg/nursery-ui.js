@@ -212,7 +212,8 @@
 			return box;
 		}
 		function openMasterSlot1Menu() {
-			const choices = Array.isArray(view.masterSlot1Options) ? view.masterSlot1Options : [];
+			const choices = Array.isArray(view.masterSlot1Options) ?
+				view.masterSlot1Options.filter(option => option?.species && Array.isArray(option.sexes)) : [];
 			if (!choices.length) {
 				options.toast('Nenhum Pok\u00e9mon eleg\u00edvel foi encontrado para iniciar a requisi\u00e7\u00e3o.', true);
 				return;
@@ -236,8 +237,8 @@
 			const preview = el('div', 'nursery-master-slot-preview');
 			const sprite = el('img', 'nursery-master-slot-sprite');
 			const previewCopy = el('div');
-			const previewName = el('strong', '', choices[0]);
-			const previewSex = el('span', '', 'G\u00eanero definido automaticamente');
+			const previewName = el('strong', '', choices[0].species);
+			const previewSex = el('span');
 			previewCopy.append(previewName, previewSex);
 			preview.append(sprite, previewCopy);
 
@@ -252,19 +253,72 @@
 			npcName.required = true;
 			npcName.placeholder = 'Nome do NPC';
 
+			const pokemonSearch = el('input', 'textbox nursery-master-pokemon-search');
+			pokemonSearch.type = 'search';
+			pokemonSearch.placeholder = 'Digite o nome do Pok\u00e9mon';
+			pokemonSearch.autocomplete = 'off';
+
 			const species = el('select', 'textbox');
-			for (const speciesName of choices) {
-				const option = el('option', '', speciesName);
-				option.value = speciesName;
-				species.append(option);
-			}
+			species.required = true;
+			const sex = el('select', 'textbox');
+			sex.required = true;
+			const sexLabels = {M: 'Macho', F: 'F\u00eamea', N: 'Sem sexo'};
+			const selectedChoice = () => choices.find(option => option.species === species.value);
 			const updatePreview = () => {
-				sprite.src = options.spriteUrl({species: species.value});
-				sprite.alt = species.value;
-				previewName.textContent = species.value;
+				const choice = selectedChoice();
+				if (!choice) {
+					sprite.removeAttribute('src');
+					sprite.alt = '';
+					previewName.textContent = 'Nenhum Pok\u00e9mon encontrado';
+					previewSex.textContent = '';
+					return;
+				}
+				sprite.src = options.spriteUrl({species: choice.species});
+				sprite.alt = choice.species;
+				previewName.textContent = choice.species;
+				previewSex.textContent = sexLabels[sex.value] || '';
 			};
-			species.addEventListener('change', updatePreview);
-			updatePreview();
+			const updateSexOptions = () => {
+				const previous = sex.value;
+				const choice = selectedChoice();
+				sex.replaceChildren();
+				for (const allowedSex of choice?.sexes || []) {
+					const option = el('option', '', sexLabels[allowedSex] || allowedSex);
+					option.value = allowedSex;
+					sex.append(option);
+				}
+				if ([...(choice?.sexes || [])].includes(previous)) sex.value = previous;
+				sex.disabled = !choice;
+				updatePreview();
+			};
+			const filterSpecies = () => {
+				const query = pokemonSearch.value.trim().toLowerCase();
+				const previous = species.value;
+				const filtered = choices.filter(option => option.species.toLowerCase().includes(query));
+				species.replaceChildren();
+				if (!filtered.length) {
+					const empty = el('option', '', 'Nenhum Pok\u00e9mon encontrado');
+					empty.value = '';
+					empty.disabled = true;
+					empty.selected = true;
+					species.append(empty);
+				} else {
+					for (const choice of filtered) {
+						const option = el('option', '', choice.species);
+						option.value = choice.species;
+						species.append(option);
+					}
+					if (filtered.some(choice => choice.species === previous)) species.value = previous;
+				}
+				updateSexOptions();
+			};
+			pokemonSearch.addEventListener('input', filterSpecies);
+			pokemonSearch.addEventListener('keydown', event => {
+				if (event.key === 'Enter') event.preventDefault();
+			});
+			species.addEventListener('change', updateSexOptions);
+			sex.addEventListener('change', updatePreview);
+			filterSpecies();
 
 			const level = el('input', 'textbox');
 			level.type = 'number';
@@ -273,10 +327,13 @@
 			level.step = '1';
 			level.value = '50';
 
+			const searchField = field('Buscar Pok\u00e9mon por nome', pokemonSearch);
+			searchField.classList.add('nursery-master-search-field');
 			const mainFields = el('div', 'nursery-master-main-fields nursery-master-slot1-fields');
 			mainFields.append(
 				field('Nome do NPC', npcName),
 				field('Pok\u00e9mon', species),
+				field('Sexo', sex),
 				field('N\u00edvel', level)
 			);
 
@@ -318,14 +375,16 @@
 			const submit = el('button', 'button primary', 'Abrir requisi\u00e7\u00e3o');
 			submit.type = 'submit';
 			actions.append(cancel, submit);
-			menu.append(heading, preview, mainFields, ivs, itemField, actions);
+			menu.append(heading, preview, searchField, mainFields, ivs, itemField, actions);
 			menu.addEventListener('submit', async event => {
 				event.preventDefault();
+				if (!species.value || !sex.value) return;
 				submit.disabled = true;
 				close();
 				await action('master-slot1', {
 					npcName: npcName.value.trim(),
 					species: species.value,
+					sex: sex.value,
 					level: Number(level.value),
 					ivs: Object.fromEntries(Object.entries(ivInputs).map(([stat, input]) =>
 						[stat, Number(input.value)])),

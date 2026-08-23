@@ -75,5 +75,6 @@ img.nursery-egg{object-fit:contain;image-rendering:pixelated;border:0;border-rad
 
 .nursery-master-tools{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:12px 0;padding:12px 14px;border:1px solid #aeb9c8;border-radius:7px;background:linear-gradient(120deg,#eef2f7,#dde6f1)}
 .nursery-master-tools .nursery-master-note{margin:0;padding:0;border:0;background:transparent}.nursery-master-tools .button{flex:0 0 auto;min-width:230px}
-.nursery-master-slot1-fields{grid-template-columns:minmax(150px,1fr) minmax(170px,1fr) 90px}
+.nursery-master-search-field{margin-bottom:10px}
+.nursery-master-slot1-fields{grid-template-columns:minmax(145px,1fr) minmax(160px,1fr) 110px 82px}
 @media(max-width:650px){.nursery-master-tools{align-items:stretch;flex-direction:column}.nursery-master-tools .button{width:100%;min-width:0}.nursery-master-slot1-fields{grid-template-columns:1fr}}
