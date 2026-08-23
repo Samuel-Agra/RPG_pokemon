@@ -46,9 +46,9 @@ describe('RPG wild held items', () => {
 		assert.equal(configuredSet(() => 0, 'wild', 'Leftovers').item, 'Leftovers');
 		assert.equal(configuredSet(() => 0, 'npc').item, '');
 	});
-	it('keeps training modifiers excluded while allowing breeding-only Power items', () => {
+	it('keeps training modifiers excluded while allowing breeding-only held items', () => {
 		for (const item of [
-			'Bottle Cap', 'Gold Bottle Cap', 'Destiny Knot', 'Macho Brace',
+			'Bottle Cap', 'Gold Bottle Cap', 'Macho Brace',
 			'Pomeg Berry', 'Kelpsy Berry', 'Qualot Berry', 'Hondew Berry', 'Grepa Berry', 'Tamato Berry',
 			'HP Up', 'Protein', 'Iron', 'Calcium', 'Zinc', 'Carbos',
 			'Health Feather', 'Muscle Feather', 'Resist Feather', 'Genius Feather', 'Clever Feather', 'Swift Feather',
@@ -57,7 +57,9 @@ describe('RPG wild held items', () => {
 		]) assert(RPG_EXCLUDED_IV_EV_ITEM_IDS.has(Dex.toID(item)), item);
 		assert(!RPG_EXCLUDED_IV_EV_ITEM_IDS.has(Dex.toID('Pretty Feather')));
 		assert(!RPG_EXCLUDED_IV_EV_ITEM_IDS.has(Dex.toID('Fairy Feather')));
-		for (const item of ['Power Weight', 'Power Bracer', 'Power Belt', 'Power Lens', 'Power Band', 'Power Anklet']) {
+		for (const item of [
+			'Destiny Knot', 'Power Weight', 'Power Bracer', 'Power Belt', 'Power Lens', 'Power Band', 'Power Anklet',
+		]) {
 			assert(!RPG_EXCLUDED_IV_EV_ITEM_IDS.has(Dex.toID(item)), item);
 		}
 	});

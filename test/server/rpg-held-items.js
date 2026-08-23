@@ -7,24 +7,24 @@ const { RPGBagManagement } = require('../../dist/server/rpg-showdown/bag-managem
 const { RPG_EXCLUDED_IV_EV_ITEM_IDS } = require('../../dist/server/rpg-showdown/battle-session');
 
 const FORBIDDEN_REQUEST_ITEMS = [
-	'Destiny Knot',
 	'Macho Brace',
 	'Grepa Berry', 'Hondew Berry', 'Kelpsy Berry', 'Pomeg Berry', 'Qualot Berry', 'Tamato Berry',
 ];
 
 describe('RPG held item registry', () => {
-	it('registers the 174 allowed current held items from the requested lists', () => {
+	it('registers the 175 allowed current held items from the requested lists', () => {
 		const dex = Dex.mod('gen9');
 		const held = RPGItems.list('held');
 		const currentHeld = held.filter(item =>
 			!item.tags?.includes('megastone') && !item.tags?.includes('legacy')
 		);
-		assert.equal(currentHeld.length, 174);
-		assert.equal(held.length, 243);
+		assert.equal(currentHeld.length, 175);
+		assert.equal(held.length, 244);
 		assert.equal(held.filter(item => item.tags?.includes('megastone')).length, 47);
 		assert.equal(held.filter(item => item.tags?.includes('berry')).length, 47);
 		assert.deepEqual(held.filter(item => item.tags?.includes('gem')).map(item => item.id), ['normalgem']);
 		assert.deepEqual(held.filter(item => item.tags?.includes('breeding')).map(item => item.id).sort(), [
+			'destinyknot',
 			'poweranklet', 'powerband', 'powerbelt', 'powerbracer', 'powerlens', 'powerweight',
 		].sort());
 		for (const item of held) {
@@ -58,6 +58,16 @@ describe('RPG held item registry', () => {
 		assert.equal(RPGItems.require('leftovers').price.buy, 20000);
 		assert.equal(RPGItems.require('oranberry').price.buy, 500);
 		assert.equal(RPGItems.require('normalgem').price.buy, 15000);
+		assert.deepEqual(
+			[RPGItems.require('destinyknot').price.buy, RPGItems.require('destinyknot').price.sell],
+			[20000, 5000]
+		);
+		for (const id of ['powerweight', 'powerbracer', 'powerbelt', 'powerlens', 'powerband', 'poweranklet']) {
+			assert.deepEqual([RPGItems.require(id).price.buy, RPGItems.require(id).price.sell], [10000, 2500], id);
+		}
+		assert.deepEqual(
+			[RPGItems.require('protein').price.buy, RPGItems.require('protein').price.sell], [150000, 37500]
+		);
 	});
 	it('maps all 47 classic Mega Stones to valid native Mega formes', () => {
 		const dex = Dex.mod('gen9');

@@ -279,7 +279,8 @@ Zap Plate
 Zoom Lens
 `.trim().split('\n');
 
-const breedingPowerItemNames = `
+const breedingItemNames = `
+Destiny Knot
 Power Weight
 Power Bracer
 Power Belt
@@ -417,7 +418,7 @@ const heldItems: RPGItemDefinition[] = [
 		usableInBattle: false, consumedOnUse: false, source: 'showdown' as const,
 		effect: { type: 'equip-held-item' }, tags: ['held'],
 	})),
-	...breedingPowerItemNames.map(name => ({
+	...breedingItemNames.map(name => ({
 		id: heldItemId(name), name, category: 'held' as const, stackLimit: 99,
 		usableInBattle: false, consumedOnUse: false, source: 'showdown' as const,
 		effect: { type: 'equip-held-item' }, tags: ['held', 'breeding'],
@@ -638,7 +639,7 @@ export const RPG_GEN9_ITEM_PRICES: Readonly<Record<string, RPGItemPrice>> = Obje
 	paralyzeheal: gen9Price(200, 50),
 	fullheal: gen9Price(400, 100),
 	hpup: gen9Price(1500, 375),
-	protein: gen9Price(1500, 375),
+	protein: gen9Price(150000, 37500),
 	iron: gen9Price(1500, 375),
 	calcium: gen9Price(1500, 375),
 	zinc: gen9Price(1500, 375),
@@ -723,7 +724,8 @@ const questOnlyHeldItemIds = new Set([
 
 export const RPG_HELD_ITEM_BALANCED_PRICES: Readonly<Record<string, RPGItemPrice>> = Object.freeze({
 	...Object.fromEntries(generalHeldItemNames.map(name => [heldItemId(name), balancedPrice(10000, 2500)])),
-	...Object.fromEntries(breedingPowerItemNames.map(name => [heldItemId(name), balancedPrice(10000, 2500)])),
+	...Object.fromEntries(breedingItemNames.map(name => [heldItemId(name), balancedPrice(10000, 2500)])),
+	destinyknot: balancedPrice(20000, 5000),
 	...Object.fromEntries(legacyHeldItemNames.map(name => [heldItemId(name), balancedPrice(10000, 2500)])),
 	...Object.fromEntries(currentBerryNames.map(name => {
 		const id = heldItemId(name);

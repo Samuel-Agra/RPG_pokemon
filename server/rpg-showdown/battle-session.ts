@@ -15,7 +15,7 @@ export const RPG_BATTLE_SESSION_VERSION = 1;
 
 /** Itens de treinamento de IV/EV deliberadamente excluídos do RPG. */
 export const RPG_EXCLUDED_IV_EV_ITEM_IDS: ReadonlySet<string> = new Set([
-	'bottlecap', 'goldbottlecap', 'destinyknot', 'machobrace',
+	'bottlecap', 'goldbottlecap', 'machobrace',
 	'pomegberry', 'kelpsyberry', 'qualotberry', 'hondewberry', 'grepaberry', 'tamatoberry',
 	'hpup', 'protein', 'iron', 'calcium', 'zinc', 'carbos',
 	'healthfeather', 'musclefeather', 'resistfeather', 'geniusfeather', 'cleverfeather', 'swiftfeather',
@@ -24,6 +24,7 @@ export const RPG_EXCLUDED_IV_EV_ITEM_IDS: ReadonlySet<string> = new Set([
 ]);
 
 const RPG_BREEDING_ONLY_HELD_ITEM_IDS: ReadonlySet<string> = new Set([
+	'destinyknot',
 	'poweranklet', 'powerband', 'powerbelt', 'powerbracer', 'powerlens', 'powerweight',
 ]);
 
