@@ -77,6 +77,7 @@ describe('RPG Egg presentation outside incubation', () => {
 		assert.match(nursery, /nursery-egg plain-egg-visual/);
 		assert.match(rpgCss, /plain-egg-visual\{transform:scale\(1\.75\)/);
 		assert.match(rpgCss, /portable-incubator-egg\{[^}]*scale\(1\.5\)/);
+		assert.match(nurseryCss, /nursery-egg\.portable-incubator-visual\{[^}]*background:transparent[^}]*box-shadow:none/);
 		assert.doesNotMatch(rpg, /portableincubator-active\.png/);
 		assert.match(box, /deps\.eggVisual\(egg/);
 		assert.doesNotMatch(nursery, /const icon = el\('span', 'nursery-egg'\)/);

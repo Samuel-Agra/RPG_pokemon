@@ -95,3 +95,4 @@ img.nursery-egg{object-fit:contain;image-rendering:pixelated;border:0;border-rad
 .nursery-released-copy{display:grid;gap:3px;min-width:0}.nursery-released-copy strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:700 19px Georgia,serif}.nursery-released-copy span,.nursery-released-copy small{color:#60708a}
 .nursery-released-actions{grid-column:2;display:flex;gap:8px}.nursery-released-actions .button{flex:1}.nursery-released-actions .danger{color:#8d2924}
 @media(max-width:800px){.nursery-released-grid{grid-template-columns:1fr}}
+.nursery-egg.portable-incubator-visual{border:0;border-radius:0;background:transparent;box-shadow:none}
