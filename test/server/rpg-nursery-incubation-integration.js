@@ -548,4 +548,60 @@ describe('RPG connected Nursery and Incubation flow', () => {
 		const shared = service.getNursery(carlos.token).projects[0];
 		assert.equal(shared.slot2.ownerName, 'Marina');
 		assert.equal(service.getNursery(master.token).projects[0].slot2.ownerName, 'Marina');
-	});});
+	});
+
+	it('silently releases uncollected parents after 30 campaign days and lets the Master restore or delete them', () => {
+		let byte = 100;
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({
+			masterCode: '14081998', repository,
+			random: () => 0.5, randomBytes: size => Buffer.alloc(size, ++byte),
+		});
+		create(service, 'Samuel');
+		create(service, 'Marina');
+		const master = service.loginMaster('14081998');
+		service.replaceCharacterTeam(master.token, 'samuel', [set('Gardevoir', 'F', 'Synchronize')]);
+		service.replaceCharacterTeam(master.token, 'marina', [set('Gardevoir', 'F', 'Synchronize')]);
+		const samuel = service.loginPlayer('samuel', '1234');
+		const marina = service.loginPlayer('marina', '1234');
+		const originalIds = {};
+
+		for (const [name, session] of [['samuel', samuel], ['marina', marina]]) {
+			const pokemonId = service.getCharacter(session.token).box.party[0].pokemonId;
+			originalIds[name] = pokemonId;
+			const created = service.createNurseryProject(session.token, undefined, pokemonId);
+			const projectId = created.projects.find(project => project.status === 'inviting').id;
+			service.setMasterNurserySlot2(master.token, {
+				projectId, species: 'Gallade', level: 50, ivs: stats(31), item: '',
+			});
+			service.confirmNurseryProject(session.token, projectId);
+		}
+		for (let i = 0; i < 10; i++) service.advanceCampaignTime(master.token, 8);
+		const playerView = service.getNursery(samuel.token);
+		assert.equal(Object.hasOwn(playerView, 'releasedPokemon'), false);
+		assert.equal(Object.hasOwn(playerView.projects[0], 'parentRescueRemainingMs'), false);
+
+		for (let i = 0; i < 90; i++) service.advanceCampaignTime(master.token, 8);
+		assert.equal(service.getCharacter(samuel.token).box.party.length, 0);
+		assert.equal(service.getCharacter(marina.token).box.party.length, 0);
+		let masterView = service.getNursery(master.token);
+		assert.equal(masterView.releasedPokemon.length, 2);
+		const samuelReleased = masterView.releasedPokemon.find(entry => entry.ownerId === 'samuel');
+		const marinaReleased = masterView.releasedPokemon.find(entry => entry.ownerId === 'marina');
+
+		service.replaceCharacterTeam(master.token, 'samuel', Array.from({length: 6}, () =>
+			set('Squirtle', 'M', 'Torrent')));
+		const restored = service.restoreReleasedNurseryPokemon(master.token, samuelReleased.id);
+		assert.equal(restored.destination, 'box');
+		const samuelState = service.getCharacter(samuel.token);
+		assert.equal(samuelState.box.party.length, 6);
+		assert.equal(samuelState.box.boxes.some(box =>
+			box.slots.some(entry => entry?.pokemonId === originalIds.samuel)), true);
+
+		const deleted = service.deleteReleasedNurseryPokemon(master.token, marinaReleased.id);
+		assert.equal(deleted.deletedPokemonId, originalIds.marina);
+		masterView = service.getNursery(master.token);
+		assert.equal(masterView.releasedPokemon.length, 0);
+		assert.equal(service.getCharacter(marina.token).box.party.length, 0);
+	});
+});

@@ -101,4 +101,13 @@ describe('RPG Egg presentation outside incubation', () => {
 		assert.match(teamBuilder, /Colocar Egg/);
 		assert.match(bag, /linkedEggId/);
 	});
+
+	it('shows released Pokémon only in the Master incubation area with restore and permanent release controls', () => {
+		assert.match(nursery, /Pokémon libertados/);
+		assert.match(nursery, /restore-released/);
+		assert.match(nursery, /delete-released/);
+		assert.match(nursery, /Liberar ' \+ pokemon\.name \+ ' definitivamente/);
+		assert.match(nurseryCss, /nursery-released-grid/);
+		assert.doesNotMatch(nursery, /30 dias|prazo de resgate|tempo para resgatar/i);
+	});
 });

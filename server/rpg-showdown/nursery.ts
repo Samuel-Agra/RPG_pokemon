@@ -1,6 +1,7 @@
 import { Dex } from '../../sim/dex';
 import { toID } from '../../sim/dex-data';
 import type { RPGCapturedPokemon } from '../../sim/rpg-showdown';
+import type { RPGManagedStoredPokemon } from './box-management';
 import {
 	canRPGPokemonBreedAtCurrentStage,
 	checkRPGBreedingCompatibility,
@@ -99,13 +100,24 @@ export interface RPGNurseryProject {
 	requiredBreedingTimeMs?: number;
 	remainingBreedingTimeMs?: number;
 	parentCollected?: Record<string, boolean>;
+	parentRescueRemainingMs?: Record<string, number>;
 	egg?: RPGNurseryEgg;
+}
+
+export interface RPGNurseryReleasedPokemon {
+	id: string;
+	projectId: string;
+	ownerId: string;
+	ownerName: string;
+	releasedAt: number;
+	entry: RPGManagedStoredPokemon;
 }
 
 export interface RPGNurseryCharacterState {
 	version: 1;
 	projects: RPGNurseryProject[];
 	incubators: { id: string, ownerId: string, eggId?: string, kind?: 'local', group?: number, slot?: number }[];
+	releasedPokemon?: RPGNurseryReleasedPokemon[];
 }
 
 export interface RPGNurseryMasterPartnerOption {
@@ -142,6 +154,7 @@ export const RPG_NURSERY_BREEDING_ITEMS = Object.freeze([
 
 const STATS: readonly RPGGeneticStat[] = ['hp', 'atk', 'def', 'spa', 'spd', 'spe'];
 const BASE_BREEDING_TIME_MS = 24 * 60 * 60 * 1000;
+export const RPG_NURSERY_PARENT_RESCUE_TIME_MS = 30 * 24 * 60 * 60 * 1000;
 const LEVEL_PENALTY_STEP_MS = 2 * 60 * 60 * 1000;
 const STAGE_PENALTY_MS = 6 * 60 * 60 * 1000;
 

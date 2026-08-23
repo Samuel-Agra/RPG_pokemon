@@ -69,7 +69,7 @@ import {
 	RPGFossilLab, type RPGFossilLabState, type RPGFossilMethod, type RPGFossilQuality,
 } from './fossil-lab';
 import {
-	RPGNurseryGenetics, RPG_NURSERY_BREEDING_ITEMS,
+	RPGNurseryGenetics, RPG_NURSERY_BREEDING_ITEMS, RPG_NURSERY_PARENT_RESCUE_TIME_MS,
 	type RPGNurseryCharacterState, type RPGNurseryMasterPokemonInput,
 	type RPGNurseryMasterSlot1Input, type RPGNurseryMasterSlot2Input,
 	type RPGNurseryParent, type RPGNurseryProject,
@@ -634,6 +634,9 @@ export class RPGLoginService {
 		if (hours !== 1 && hours !== 8) throw new Error('O relógio da campanha só pode avançar 1 ou 8 horas');
 		const milliseconds = hours * 60 * 60 * 1000;
 		const now = this.now();
+		const records = this.repository.list();
+		const recordsById = new Map(records.map(record => [record.state.id, record]));
+		const changedIds = new Set<string>();
 		const result: RPGCampaignTimeAdvanceResult = {
 			hours, milliseconds, charactersAffected: 0,
 			fossils: { advanced: 0, completed: 0 },
@@ -641,13 +644,15 @@ export class RPGLoginService {
 			breedings: { advanced: 0, completed: 0 },
 			incubations: { advanced: 0, completed: 0 },
 		};
-		for (const record of this.repository.list()) {
+		for (const record of records) {
 			const fossils = record.state.fossilLab ?
 				RPGFossilLab.advanceTime(record.state, milliseconds, now, this.random) : { advanced: 0, completed: 0 };
 			const trainings = RPGBoxManagement.advanceTime(record.state, milliseconds, now);
 			const breedings = {advanced: 0, completed: 0};
 			const incubations = {advanced: 0, completed: 0};
+			let nurseryChanged = false;
 			for (const project of record.state.nursery?.projects || []) {
+				let completedNow = false;
 				if (project.status === 'breeding' && project.slot2) {
 					const before = Math.max(0, project.remainingBreedingTimeMs ?? project.requiredBreedingTimeMs ?? 0);
 					const after = Math.max(0, before - milliseconds);
@@ -664,8 +669,68 @@ export class RPGLoginService {
 								.filter(parent => parent.participantType === 'npc')
 								.map(parent => [parent.ownerId, true])
 						);
+						project.parentRescueRemainingMs = Object.fromEntries(
+							[...new Set([project.slot1, project.slot2]
+								.filter(parent => parent.participantType === 'player')
+								.map(parent => parent.ownerId))]
+								.map(ownerId => [ownerId, RPG_NURSERY_PARENT_RESCUE_TIME_MS])
+						);
 						if (project.slot1.participantType === 'npc') delete project.egg;
 						breedings.completed++;
+						completedNow = true;
+						nurseryChanged = true;
+					}
+				}
+				if (!completedNow && ['egg_ready', 'collected'].includes(project.status)) {
+					project.parentCollected ||= {};
+					project.parentRescueRemainingMs ||= {};
+					const owners = [...new Set([project.slot1, project.slot2]
+						.filter(parent => parent?.participantType === 'player')
+						.map(parent => parent!.ownerId))];
+					for (const ownerId of owners) {
+						if (project.parentCollected[ownerId]) {
+							delete project.parentRescueRemainingMs[ownerId];
+							continue;
+						}
+						const before = project.parentRescueRemainingMs[ownerId];
+						if (before === undefined) {
+							project.parentRescueRemainingMs[ownerId] = RPG_NURSERY_PARENT_RESCUE_TIME_MS;
+							nurseryChanged = true;
+							continue;
+						}
+						const after = Math.max(0, before - milliseconds);
+						project.parentRescueRemainingMs[ownerId] = after;
+						if (after !== before) nurseryChanged = true;
+						if (after > 0) continue;
+						const owner = recordsById.get(ownerId);
+						if (!owner) continue;
+						const ownerNursery = this.ensureNursery(owner);
+						const parents = [project.slot1, project.slot2].filter(parent =>
+							parent?.participantType === 'player' && parent.ownerId === ownerId
+						);
+						let releasedAll = true;
+						for (const parent of parents) {
+							const releasedId = project.id + ':' + ownerId + ':' + parent!.pokemonId;
+							if (ownerNursery.releasedPokemon!.some(value => value.id === releasedId)) continue;
+							const entry = owner.state.box.party.find(value => value.pokemonId === parent!.pokemonId);
+							if (!entry) {
+								releasedAll = false;
+								continue;
+							}
+							const extracted = RPGBoxManagement.extract(
+								owner.state, parent!.pokemonId, owner.state.box.revision
+							);
+							ownerNursery.releasedPokemon!.push({
+								id: releasedId, projectId: project.id, ownerId,
+								ownerName: parent!.ownerName, releasedAt: now, entry: extracted,
+							});
+							changedIds.add(ownerId);
+						}
+						if (releasedAll) {
+							project.parentCollected[ownerId] = true;
+							delete project.parentRescueRemainingMs[ownerId];
+							nurseryChanged = true;
+						}
 					}
 				}
 				if (project.egg) {
@@ -674,8 +739,6 @@ export class RPGLoginService {
 					if (advanced.completed) incubations.completed++;
 				}
 			}
-			if (!fossils.advanced && !trainings.advanced && !breedings.advanced && !incubations.advanced) continue;
-			result.charactersAffected++;
 			result.fossils.advanced += fossils.advanced;
 			result.fossils.completed += fossils.completed;
 			result.trainings.advanced += trainings.advanced;
@@ -684,11 +747,20 @@ export class RPGLoginService {
 			result.breedings.completed += breedings.completed;
 			result.incubations.advanced += incubations.advanced;
 			result.incubations.completed += incubations.completed;
+			if (fossils.advanced || trainings.advanced || breedings.advanced || incubations.advanced || nurseryChanged) {
+				changedIds.add(record.state.id);
+			}
+		}
+		for (const id of changedIds) {
+			const record = recordsById.get(id);
+			if (!record) continue;
 			record.state.updatedAt = now;
 			this.repository.set(record);
 		}
+		result.charactersAffected = changedIds.size;
 		return result;
 	}
+
 	setCharacterPageAccess(
 		token: string, characterId: string, page: 'bag' | 'box' | 'training' | 'center' | 'fossils' | 'nursery', allowed: boolean
 	): RPGCharacterState {
@@ -1031,13 +1103,48 @@ export class RPGLoginService {
 			throw new Error('Seu Pokémon já foi resgatado desta procriação');
 		}
 		project.parentCollected[actor.state.id] = true;
-		const ownerIds = [...new Set([project.slot1.ownerId, project.slot2?.ownerId].filter(Boolean))];
+		if (project.parentRescueRemainingMs) delete project.parentRescueRemainingMs[actor.state.id];
+		const ownerIds = [...new Set([project.slot1.ownerId, project.slot2?.ownerId]
+			.filter((ownerId): ownerId is string => !!ownerId))];
 		if (project.slot1.participantType === 'npc' &&
 			ownerIds.every(ownerId => project.parentCollected?.[ownerId] === true)) {
 			project.status = 'collected';
 		}
 		this.persistNurseryRecord(found.record);
 		return this.nurseryView(actor);
+	}
+
+	restoreReleasedNurseryPokemon(token: string, releasedId: string) {
+		this.requireMasterRole(token);
+		for (const owner of this.repository.list()) {
+			const nursery = this.ensureNursery(owner);
+			const index = nursery.releasedPokemon!.findIndex(value => value.id === releasedId);
+			if (index < 0) continue;
+			const released = nursery.releasedPokemon![index];
+			const destination = owner.state.box.party.length < 6 ? 'party' : 'box';
+			if (destination === 'party') {
+				RPGBoxManagement.insertParty(owner.state, released.entry);
+			} else {
+				RPGBoxManagement.insert(owner.state, released.entry);
+			}
+			nursery.releasedPokemon!.splice(index, 1);
+			this.persistNurseryRecord(owner);
+			return {nursery: this.nurseryView(), destination, ownerId: owner.state.id};
+		}
+		throw new Error('Pokémon libertado não encontrado');
+	}
+
+	deleteReleasedNurseryPokemon(token: string, releasedId: string) {
+		this.requireMasterRole(token);
+		for (const owner of this.repository.list()) {
+			const nursery = this.ensureNursery(owner);
+			const index = nursery.releasedPokemon!.findIndex(value => value.id === releasedId);
+			if (index < 0) continue;
+			const [released] = nursery.releasedPokemon!.splice(index, 1);
+			this.persistNurseryRecord(owner);
+			return {nursery: this.nurseryView(), deletedPokemonId: released.entry.pokemonId};
+		}
+		throw new Error('Pokémon libertado não encontrado');
 	}
 
 	collectNurseryEgg(token: string, projectId: string) {
@@ -2433,9 +2540,10 @@ export class RPGLoginService {
 			}))
 		).flat();
 		if (!record.state.nursery || record.state.nursery.version !== 1) {
-			record.state.nursery = {version: 1, projects: [], incubators: createLocalIncubators()};
+			record.state.nursery = {version: 1, projects: [], incubators: createLocalIncubators(), releasedPokemon: []};
 		}
 		if (!Array.isArray(record.state.nursery.projects)) record.state.nursery.projects = [];
+		if (!Array.isArray(record.state.nursery.releasedPokemon)) record.state.nursery.releasedPokemon = [];
 		for (const project of record.state.nursery.projects) {
 			if (!['egg_ready', 'collected'].includes(project.status) || project.parentCollected !== undefined) continue;
 			project.parentCollected = Object.fromEntries(
@@ -2615,6 +2723,20 @@ export class RPGLoginService {
 		const activeEggs = record ? this.activeEggs(record) : [];
 		const portableTotal = inventory ? RPGInventorySystem.getAvailableQuantity(inventory, 'portableincubator') : 0;
 		const portableInUse = eggs.filter(egg => egg.portableIncubator).length;
+		const releasedPokemon = record ? undefined : this.repository.list().flatMap(owner => {
+			const released = this.ensureNursery(owner).releasedPokemon || [];
+			return released.map(value => ({
+				id: value.id,
+				ownerId: value.ownerId,
+				ownerName: value.ownerName,
+				pokemonId: value.entry.pokemonId,
+				name: value.entry.pokemon.name || value.entry.pokemon.species,
+				species: value.entry.pokemon.species,
+				level: value.entry.pokemon.level,
+				gender: value.entry.pokemon.gender,
+				shiny: !!value.entry.pokemon.shiny,
+			}));
+		});
 		return {
 			version: 2,
 			shared: true,
@@ -2631,6 +2753,7 @@ export class RPGLoginService {
 				busy: !!entry.metadata?.evTraining || this.isPokemonBreeding(record.state.id, entry.pokemonId),
 			})) : [],
 			projects,
+			...(releasedPokemon ? {releasedPokemon} : {}),
 			eggs,
 			teamEggs: activeEggs.map(egg => ({
 				...RPGIncubation.view(egg), name: 'Egg', species: 'Egg', virtual: true as const,

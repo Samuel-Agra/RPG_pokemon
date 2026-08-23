@@ -85,3 +85,13 @@ img.nursery-egg{object-fit:contain;image-rendering:pixelated;border:0;border-rad
 .nursery-master-pokemon-empty{display:block;padding:11px;color:#6a7687;text-align:center}
 .nursery-master-slot1-fields{grid-template-columns:minmax(145px,1fr) minmax(160px,1fr) 110px 82px}
 @media(max-width:650px){.nursery-master-tools{align-items:stretch;flex-direction:column}.nursery-master-tools .button{width:100%;min-width:0}.nursery-master-slot1-fields{grid-template-columns:1fr}}
+
+
+/* Arquivo exclusivo do Mestre para progenitores não resgatados. */
+.nursery-released-head>div{background:linear-gradient(#b68a68,#805639)}
+.nursery-released-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;padding:14px}
+.nursery-released-card{display:grid;grid-template-columns:86px minmax(0,1fr);align-items:center;gap:12px;padding:13px;border:1px solid #bdc6d1;border-radius:8px;background:linear-gradient(135deg,#fff,#edf1f5);box-shadow:0 2px 6px #263b5d18}
+.nursery-released-sprite{grid-row:1/3;width:82px;height:82px;object-fit:contain;image-rendering:pixelated}
+.nursery-released-copy{display:grid;gap:3px;min-width:0}.nursery-released-copy strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:700 19px Georgia,serif}.nursery-released-copy span,.nursery-released-copy small{color:#60708a}
+.nursery-released-actions{grid-column:2;display:flex;gap:8px}.nursery-released-actions .button{flex:1}.nursery-released-actions .danger{color:#8d2924}
+@media(max-width:800px){.nursery-released-grid{grid-template-columns:1fr}}

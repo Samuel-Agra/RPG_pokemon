@@ -735,8 +735,43 @@
 		function incubationPage() {
 			const page = el('div', 'nursery-content nursery-incubation-page');
 			if (!view.ownerId) {
-				page.append(el('div', 'nursery-master-note',
-					'A incubação pertence a cada treinador. Abra um Player para administrar seus ovos e sua Incubadora.'));
+				const board = el('section', 'nursery-shared-board nursery-released-board');
+				const head = el('header', 'nursery-shared-board-head nursery-released-head');
+				head.append(el('div'), el('h2', '', 'Pokémon libertados'),
+					el('span', 'nursery-board-count', (view.releasedPokemon || []).length + ' armazenados'));
+				board.append(head);
+				const released = view.releasedPokemon || [];
+				if (!released.length) {
+					board.append(el('div', 'nursery-empty nursery-board-empty',
+						'Nenhum Pokémon libertado está sob os cuidados do Mestre.'));
+				} else {
+					const grid = el('div', 'nursery-released-grid');
+					for (const pokemon of released) {
+						const card = el('article', 'nursery-released-card');
+						const sprite = el('img', 'nursery-released-sprite');
+						sprite.src = options.spriteUrl({species: pokemon.species, shiny: pokemon.shiny});
+						sprite.alt = pokemon.species;
+						const copy = el('div', 'nursery-released-copy');
+						copy.append(el('strong', '', pokemon.name));
+						copy.append(el('span', '', pokemon.species + ' · Nv. ' + pokemon.level + ' · ' +
+							(pokemon.gender === 'M' ? '♂' : pokemon.gender === 'F' ? '♀' : 'Sem sexo')));
+						copy.append(el('small', '', 'Treinador original: ' + pokemon.ownerName));
+						const commands = el('div', 'nursery-released-actions');
+						const restore = el('button', 'button primary', 'Devolver');
+						restore.addEventListener('click', () =>
+							action('restore-released', {releasedId: pokemon.id}));
+						const release = el('button', 'button danger', 'Liberar');
+						release.addEventListener('click', () => {
+							if (!window.confirm('Liberar ' + pokemon.name + ' definitivamente? Esta ação não pode ser desfeita.')) return;
+							action('delete-released', {releasedId: pokemon.id});
+						});
+						commands.append(restore, release);
+						card.append(sprite, copy, commands);
+						grid.append(card);
+					}
+					board.append(grid);
+				}
+				page.append(board);
 				return page;
 			}
 			const emptyLocal = view.incubators.find(incubator => !incubator.egg);

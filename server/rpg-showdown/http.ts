@@ -524,7 +524,7 @@ export class RPGHttpServer {
 			return;
 		}
 		const nurseryAction = new RegExp(
-			'^/api/rpg/nursery/(create|master-slot1|accept|master-slot2|master-cancel|withdraw-slot2|confirm|cancel|collect-parent|collect|collect-local|insert|remove|portable-start|portable-stop|hatch)$'
+			'^/api/rpg/nursery/(create|master-slot1|accept|master-slot2|master-cancel|withdraw-slot2|confirm|cancel|collect-parent|collect|collect-local|insert|remove|portable-start|portable-stop|restore-released|delete-released|hatch)$'
 		).exec(url.pathname);
 		if (method === 'POST' && nurseryAction) {
 			const body = await this.body(req);
@@ -604,6 +604,16 @@ export class RPGHttpServer {
 				break;
 			case 'remove':
 				result = {nursery: this.login.removeNurseryEgg(this.token(req), this.string(body.eggId))};
+				break;
+			case 'restore-released':
+				result = this.login.restoreReleasedNurseryPokemon(
+					this.token(req), this.string(body.releasedId)
+				);
+				break;
+			case 'delete-released':
+				result = this.login.deleteReleasedNurseryPokemon(
+					this.token(req), this.string(body.releasedId)
+				);
 				break;
 			default:
 				result = this.login.hatchNurseryEgg(this.token(req), this.string(body.eggId));
