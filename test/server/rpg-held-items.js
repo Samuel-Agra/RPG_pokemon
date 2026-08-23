@@ -8,23 +8,25 @@ const { RPG_EXCLUDED_IV_EV_ITEM_IDS } = require('../../dist/server/rpg-showdown/
 
 const FORBIDDEN_REQUEST_ITEMS = [
 	'Destiny Knot',
-	'Power Anklet', 'Power Band', 'Power Belt', 'Power Bracer', 'Power Lens', 'Power Weight',
 	'Macho Brace',
 	'Grepa Berry', 'Hondew Berry', 'Kelpsy Berry', 'Pomeg Berry', 'Qualot Berry', 'Tamato Berry',
 ];
 
 describe('RPG held item registry', () => {
-	it('registers only the 168 allowed current held items from the requested lists', () => {
+	it('registers the 174 allowed current held items from the requested lists', () => {
 		const dex = Dex.mod('gen9');
 		const held = RPGItems.list('held');
 		const currentHeld = held.filter(item =>
 			!item.tags?.includes('megastone') && !item.tags?.includes('legacy')
 		);
-		assert.equal(currentHeld.length, 168);
-		assert.equal(held.length, 237);
+		assert.equal(currentHeld.length, 174);
+		assert.equal(held.length, 243);
 		assert.equal(held.filter(item => item.tags?.includes('megastone')).length, 47);
 		assert.equal(held.filter(item => item.tags?.includes('berry')).length, 47);
 		assert.deepEqual(held.filter(item => item.tags?.includes('gem')).map(item => item.id), ['normalgem']);
+		assert.deepEqual(held.filter(item => item.tags?.includes('breeding')).map(item => item.id).sort(), [
+			'poweranklet', 'powerband', 'powerbelt', 'powerbracer', 'powerlens', 'powerweight',
+		].sort());
 		for (const item of held) {
 			assert(dex.items.get(item.id).exists, item.name);
 			assert.equal(item.usableInBattle, false);
@@ -114,7 +116,7 @@ describe('RPG held item registry', () => {
 		assert.match(RPGBagManagement.description(RPGItems.require('oranberry')), /recupera 10 HP/);
 		assert.match(RPGBagManagement.description(RPGItems.require('charizarditey')), /Mega Charizard Y/);
 	});
-	it('keeps every requested IV or EV item outside the RPG registry', () => {
+	it('keeps every remaining IV or EV training item outside the RPG registry', () => {
 		for (const name of FORBIDDEN_REQUEST_ITEMS) {
 			assert.equal(RPGItems.has(Dex.toID(name)), false, name);
 		}

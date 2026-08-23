@@ -15,13 +15,16 @@ export const RPG_BATTLE_SESSION_VERSION = 1;
 
 /** Itens de treinamento de IV/EV deliberadamente excluídos do RPG. */
 export const RPG_EXCLUDED_IV_EV_ITEM_IDS: ReadonlySet<string> = new Set([
-	'bottlecap', 'goldbottlecap', 'destinyknot',
-	'machobrace', 'poweranklet', 'powerband', 'powerbelt', 'powerbracer', 'powerlens', 'powerweight',
+	'bottlecap', 'goldbottlecap', 'destinyknot', 'machobrace',
 	'pomegberry', 'kelpsyberry', 'qualotberry', 'hondewberry', 'grepaberry', 'tamatoberry',
 	'hpup', 'protein', 'iron', 'calcium', 'zinc', 'carbos',
 	'healthfeather', 'musclefeather', 'resistfeather', 'geniusfeather', 'cleverfeather', 'swiftfeather',
 	'healthmochi', 'musclemochi', 'resistmochi', 'geniusmochi', 'clevermochi', 'swiftmochi',
 	'freshstartmochi',
+]);
+
+const RPG_BREEDING_ONLY_HELD_ITEM_IDS: ReadonlySet<string> = new Set([
+	'poweranklet', 'powerband', 'powerbelt', 'powerbracer', 'powerlens', 'powerweight',
 ]);
 
 export type RPGBattleSessionStatus =
@@ -677,6 +680,7 @@ export class RPGBattleSessionService {
 		const eligible = dex.items.all().filter(item => (
 			item.exists && !item.isNonstandard && !item.isPokeball &&
 			!RPG_EXCLUDED_IV_EV_ITEM_IDS.has(item.id) &&
+			!RPG_BREEDING_ONLY_HELD_ITEM_IDS.has(item.id) &&
 			!item.megaStone && !item.zMove && !item.isPrimalOrb &&
 			!item.forcedForme && !item.onPlate && !item.onMemory && !item.onDrive &&
 			!evolutionItems.has(item.id)

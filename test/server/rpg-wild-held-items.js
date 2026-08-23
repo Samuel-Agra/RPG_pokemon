@@ -46,10 +46,9 @@ describe('RPG wild held items', () => {
 		assert.equal(configuredSet(() => 0, 'wild', 'Leftovers').item, 'Leftovers');
 		assert.equal(configuredSet(() => 0, 'npc').item, '');
 	});
-	it('registers every IV and EV modification item as excluded from the RPG', () => {
+	it('keeps training modifiers excluded while allowing breeding-only Power items', () => {
 		for (const item of [
 			'Bottle Cap', 'Gold Bottle Cap', 'Destiny Knot', 'Macho Brace',
-			'Power Anklet', 'Power Band', 'Power Belt', 'Power Bracer', 'Power Lens', 'Power Weight',
 			'Pomeg Berry', 'Kelpsy Berry', 'Qualot Berry', 'Hondew Berry', 'Grepa Berry', 'Tamato Berry',
 			'HP Up', 'Protein', 'Iron', 'Calcium', 'Zinc', 'Carbos',
 			'Health Feather', 'Muscle Feather', 'Resist Feather', 'Genius Feather', 'Clever Feather', 'Swift Feather',
@@ -58,5 +57,8 @@ describe('RPG wild held items', () => {
 		]) assert(RPG_EXCLUDED_IV_EV_ITEM_IDS.has(Dex.toID(item)), item);
 		assert(!RPG_EXCLUDED_IV_EV_ITEM_IDS.has(Dex.toID('Pretty Feather')));
 		assert(!RPG_EXCLUDED_IV_EV_ITEM_IDS.has(Dex.toID('Fairy Feather')));
+		for (const item of ['Power Weight', 'Power Bracer', 'Power Belt', 'Power Lens', 'Power Band', 'Power Anklet']) {
+			assert(!RPG_EXCLUDED_IV_EV_ITEM_IDS.has(Dex.toID(item)), item);
+		}
 	});
 });

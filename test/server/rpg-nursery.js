@@ -57,7 +57,34 @@ describe('RPG Pokemon Nursery genetics backend', () => {
 		assert.deepEqual(egg.genetics.parentOwnerIds, ['samuel', 'marina']);
 		assert.equal(Object.keys(egg.genetics.ivs).length, 6);
 		assert.equal(Object.keys(egg.genetics.ivOrigins).length, 6);
+		assert.equal(Object.values(egg.genetics.ivOrigins).filter(origin => origin !== 'random').length, 5);
 	});
+
+	it('forces the matching parent IV for every held Power item', () => {
+		const cases = [
+			['powerweight', 'Power Weight', 'hp'], ['powerbracer', 'Power Bracer', 'atk'],
+			['powerbelt', 'Power Belt', 'def'], ['powerlens', 'Power Lens', 'spa'],
+			['powerband', 'Power Band', 'spd'], ['poweranklet', 'Power Anklet', 'spe'],
+		];
+		for (const [item, name, stat] of cases) {
+			const slot1 = RPGNurseryGenetics.parent(
+				'samuel', 'Samuel', 'player', 'gardevoir-' + item,
+				pokemon('Gardevoir', 'F', 50, 'Modest', 'Synchronize', item)
+			);
+			const slot2 = RPGNurseryGenetics.parent(
+				'marina', 'Marina', 'player', 'gallade-' + item,
+				pokemon('Gallade', 'M', 50, 'Jolly', 'Sharpness')
+			);
+			slot1.ivs[stat] = 31;
+			slot2.ivs[stat] = 4;
+			assert(RPGNurseryGenetics.preview(slot1, slot2).itemEffects.some(effect => effect.includes(name)));
+			const egg = RPGNurseryGenetics.createEgg('breeding-' + item, slot1, slot2, 1234, () => 0);
+			assert.equal(egg.genetics.ivOrigins[stat], 'slot1', name);
+			assert.equal(egg.genetics.ivs[stat], 31, name);
+			assert.equal(Object.values(egg.genetics.ivOrigins).filter(origin => origin !== 'random').length, 3);
+		}
+	});
+
 
 	it('rejects first-stage pairs and supports two neutral compatible Pokemon', () => {
 		const raltsF = RPGNurseryGenetics.parent(

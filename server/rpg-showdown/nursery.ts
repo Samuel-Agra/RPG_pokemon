@@ -134,7 +134,8 @@ export interface RPGNurseryMasterPokemonInput {
 	species: string;
 	level: number;
 	ivs: Record<RPGGeneticStat, number>;
-	item: '' | 'everstone' | 'destinyknot';
+	item: '' | 'everstone' | 'destinyknot' | 'powerweight' | 'powerbracer' |
+		'powerbelt' | 'powerlens' | 'powerband' | 'poweranklet';
 }
 
 export interface RPGNurseryMasterSlot1Input extends RPGNurseryMasterPokemonInput {
@@ -150,9 +151,22 @@ export const RPG_NURSERY_BREEDING_ITEMS = Object.freeze([
 	{id: '', name: 'Nenhum', description: 'Sem efeito adicional na procria\u00e7\u00e3o.'},
 	{id: 'everstone', name: 'Everstone', description: 'Permite que a Nature deste progenitor seja herdada.'},
 	{id: 'destinyknot', name: 'Destiny Knot', description: 'Faz cinco IVs serem herdados dos progenitores.'},
+	{id: 'powerweight', name: 'Power Weight', description: 'Garante que o IV de HP deste progenitor seja herdado.'},
+	{id: 'powerbracer', name: 'Power Bracer', description: 'Garante que o IV de Attack deste progenitor seja herdado.'},
+	{id: 'powerbelt', name: 'Power Belt', description: 'Garante que o IV de Defense deste progenitor seja herdado.'},
+	{id: 'powerlens', name: 'Power Lens', description: 'Garante que o IV de Sp. Attack deste progenitor seja herdado.'},
+	{id: 'powerband', name: 'Power Band', description: 'Garante que o IV de Sp. Defense deste progenitor seja herdado.'},
+	{id: 'poweranklet', name: 'Power Anklet', description: 'Garante que o IV de Speed deste progenitor seja herdado.'},
 ] as const);
 
 const STATS: readonly RPGGeneticStat[] = ['hp', 'atk', 'def', 'spa', 'spd', 'spe'];
+const POWER_ITEM_STATS: Readonly<Record<string, RPGGeneticStat>> = Object.freeze({
+	powerweight: 'hp', powerbracer: 'atk', powerbelt: 'def',
+	powerlens: 'spa', powerband: 'spd', poweranklet: 'spe',
+});
+const STAT_LABELS: Readonly<Record<RPGGeneticStat, string>> = Object.freeze({
+	hp: 'HP', atk: 'Attack', def: 'Defense', spa: 'Sp. Attack', spd: 'Sp. Defense', spe: 'Speed',
+});
 const BASE_BREEDING_TIME_MS = 24 * 60 * 60 * 1000;
 export const RPG_NURSERY_PARENT_RESCUE_TIME_MS = 30 * 24 * 60 * 60 * 1000;
 const LEVEL_PENALTY_STEP_MS = 2 * 60 * 60 * 1000;
@@ -295,20 +309,24 @@ export class RPGNurseryGenetics {
 	private static inheritIVs(a: RPGNurseryParent, b: RPGNurseryParent, random: () => number) {
 		const ivs = {} as Record<RPGGeneticStat, number>;
 		const origins = {} as Record<RPGGeneticStat, RPGGeneticOrigin>;
-		const destinyKnot = a.item === 'destinyknot' || b.item === 'destinyknot';
-		const forced = new Set<RPGGeneticStat>();
-		if (destinyKnot) {
-			const pool = [...STATS];
-			while (forced.size < 5) forced.add(pool.splice(this.randomIndex(pool.length, random), 1)[0]);
+		const inheritedCount = a.item === 'destinyknot' || b.item === 'destinyknot' ? 5 : 3;
+		const inherited = new Map<RPGGeneticStat, Exclude<RPGGeneticOrigin, 'random'>>();
+		const powerHolders = ([['slot1', a], ['slot2', b]] as const).flatMap(([origin, parent]) => {
+			const stat = POWER_ITEM_STATS[parent.item];
+			return stat ? [{origin, stat}] : [];
+		});
+		if (powerHolders.length) {
+			// Quando ambos seguram Power items, a geração 9 sorteia qual efeito dirigido prevalece.
+			const selected = powerHolders[this.randomIndex(powerHolders.length, random)];
+			inherited.set(selected.stat, selected.origin);
+		}
+		const pool = STATS.filter(stat => !inherited.has(stat));
+		while (inherited.size < inheritedCount) {
+			const stat = pool.splice(this.randomIndex(pool.length, random), 1)[0];
+			inherited.set(stat, random() < .5 ? 'slot1' : 'slot2');
 		}
 		for (const stat of STATS) {
-			let origin: RPGGeneticOrigin;
-			if (destinyKnot && !forced.has(stat)) {
-				origin = 'random';
-			} else {
-				origin = (['slot1', 'slot2', 'random'] as const)[this.randomIndex(3, random)];
-				if (destinyKnot && forced.has(stat) && origin === 'random') origin = random() < .5 ? 'slot1' : 'slot2';
-			}
+			const origin: RPGGeneticOrigin = inherited.get(stat) || 'random';
 			origins[stat] = origin;
 			ivs[stat] = origin === 'slot1' ? a.ivs[stat] : origin === 'slot2' ? b.ivs[stat] :
 				Math.floor(random() * 32);
@@ -354,6 +372,14 @@ export class RPGNurseryGenetics {
 		}
 		if (a.item === 'everstone') effects.push('Everstone no Slot 1: Nature de ' + a.name + ' pode ser herdada.');
 		if (b.item === 'everstone') effects.push('Everstone no Slot 2: Nature de ' + b.name + ' pode ser herdada.');
+		for (const [parent, slot] of [[a, 1], [b, 2]] as const) {
+			const stat = POWER_ITEM_STATS[parent.item];
+			if (stat) {
+				const itemName = RPG_NURSERY_BREEDING_ITEMS.find(item => item.id === parent.item)?.name || parent.item;
+				effects.push(itemName + ' no Slot ' + slot + ': o IV de ' + STAT_LABELS[stat] +
+					' de ' + parent.name + ' será herdado.');
+			}
+		}
 		return effects;
 	}
 

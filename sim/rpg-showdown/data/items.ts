@@ -279,6 +279,15 @@ Zap Plate
 Zoom Lens
 `.trim().split('\n');
 
+const breedingPowerItemNames = `
+Power Weight
+Power Bracer
+Power Belt
+Power Lens
+Power Band
+Power Anklet
+`.trim().split('\n');
+
 const currentBerryNames = `
 Aguav Berry
 Aspear Berry
@@ -407,6 +416,11 @@ const heldItems: RPGItemDefinition[] = [
 		id: heldItemId(name), name, category: 'held' as const, stackLimit: 99,
 		usableInBattle: false, consumedOnUse: false, source: 'showdown' as const,
 		effect: { type: 'equip-held-item' }, tags: ['held'],
+	})),
+	...breedingPowerItemNames.map(name => ({
+		id: heldItemId(name), name, category: 'held' as const, stackLimit: 99,
+		usableInBattle: false, consumedOnUse: false, source: 'showdown' as const,
+		effect: { type: 'equip-held-item' }, tags: ['held', 'breeding'],
 	})),
 	...currentBerryNames.map(name => ({
 		id: heldItemId(name), name, category: 'held' as const, stackLimit: 99,
@@ -709,6 +723,7 @@ const questOnlyHeldItemIds = new Set([
 
 export const RPG_HELD_ITEM_BALANCED_PRICES: Readonly<Record<string, RPGItemPrice>> = Object.freeze({
 	...Object.fromEntries(generalHeldItemNames.map(name => [heldItemId(name), balancedPrice(10000, 2500)])),
+	...Object.fromEntries(breedingPowerItemNames.map(name => [heldItemId(name), balancedPrice(10000, 2500)])),
 	...Object.fromEntries(legacyHeldItemNames.map(name => [heldItemId(name), balancedPrice(10000, 2500)])),
 	...Object.fromEntries(currentBerryNames.map(name => {
 		const id = heldItemId(name);

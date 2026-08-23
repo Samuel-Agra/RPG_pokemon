@@ -180,7 +180,10 @@ describe('RPG connected Nursery and Incubation flow', () => {
 		assert.equal(options.some(option => option.species === 'Ralts'), false,
 			'primeiros estágios evoluíveis não devem aparecer');
 		assert.equal(options.some(option => option.species === 'Pikachu'), false);
-		assert.deepEqual(masterView.breedingItems.map(item => item.id), ['', 'everstone', 'destinyknot']);
+		assert.deepEqual(masterView.breedingItems.map(item => item.id), [
+			'', 'everstone', 'destinyknot', 'powerweight', 'powerbracer',
+			'powerbelt', 'powerlens', 'powerband', 'poweranklet',
+		]);
 
 		const ivs = {hp: 31, atk: 30, def: 29, spa: 28, spd: 27, spe: 26};
 		const configured = service.setMasterNurserySlot2(master.token, {
