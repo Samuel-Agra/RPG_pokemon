@@ -70,7 +70,8 @@ import {
 } from './fossil-lab';
 import {
 	RPGNurseryGenetics, RPG_NURSERY_BREEDING_ITEMS,
-	type RPGNurseryCharacterState, type RPGNurseryMasterSlot2Input,
+	type RPGNurseryCharacterState, type RPGNurseryMasterPokemonInput,
+	type RPGNurseryMasterSlot1Input, type RPGNurseryMasterSlot2Input,
 	type RPGNurseryParent, type RPGNurseryProject,
 } from './nursery';
 import { RPGIncubation } from './incubation';
@@ -658,8 +659,12 @@ export class RPGLoginService {
 						);
 						RPGIncubation.ensureEgg(project.egg);
 						project.status = 'egg_ready';
-						project.parentCollected = project.slot2ParticipantType === 'npc' ?
-							{[project.slot2.ownerId]: true} : {};
+						project.parentCollected = Object.fromEntries(
+							[project.slot1, project.slot2]
+								.filter(parent => parent.participantType === 'npc')
+								.map(parent => [parent.ownerId, true])
+						);
+						if (project.slot1.participantType === 'npc') delete project.egg;
 						breedings.completed++;
 					}
 				}
@@ -790,6 +795,44 @@ export class RPGLoginService {
 		return this.nurseryView(record);
 	}
 
+	createMasterNurseryProject(token: string, input: RPGNurseryMasterSlot1Input) {
+		const session = this.getSession(token);
+		if (session.role !== 'master' || session.mode !== 'master') {
+			throw new Error('Somente o Mestre pode criar uma requisi\u00e7\u00e3o de NPC');
+		}
+		const npcName = String(input.npcName || '').trim();
+		if (!npcName || npcName.length > 40) {
+			throw new Error('Informe um nome de NPC com at\u00e9 40 caracteres');
+		}
+		const availableSpecies = RPGNurseryGenetics.masterParentOptions();
+		const selectedSpecies = availableSpecies.find(species => toID(species) === toID(input.species));
+		if (!selectedSpecies) {
+			throw new Error('Este Pok\u00e9mon n\u00e3o pode iniciar uma requisi\u00e7\u00e3o de procria\u00e7\u00e3o');
+		}
+		const records = this.repository.list();
+		if (!records.length) throw new Error('Crie ao menos um Player antes de abrir a requisi\u00e7\u00e3o do NPC');
+		const projectId = this.bytes(18).toString('base64url');
+		const ownerId = toID('nursery-npc-' + projectId);
+		const sex = RPGNurseryGenetics.masterParentSex(selectedSpecies, this.random);
+		const pokemon = this.masterNurseryPokemon(input, sex);
+		const slot1 = RPGNurseryGenetics.parent(
+			ownerId, npcName, 'npc', ownerId + '-pokemon', pokemon
+		);
+		const project: RPGNurseryProject = {
+			id: projectId,
+			slot1,
+			slot2ParticipantType: 'player',
+			eggOwnerId: ownerId,
+			status: 'inviting',
+			confirmed: {[ownerId]: true},
+			createdAt: this.now(),
+		};
+		const host = records[0];
+		this.ensureNursery(host).projects.push(project);
+		this.persistNurseryRecord(host);
+		return this.nurseryView();
+	}
+
 	createNurseryProject(token: string, characterId: string | undefined, pokemonId: string) {
 		const owner = this.requireBoxRecord(token, characterId, 'box:edit', true);
 		this.requireNurseryAccess(token, owner);
@@ -840,9 +883,10 @@ export class RPGLoginService {
 		found.project.slot2OwnerId = actor.state.id;
 		found.project.slot2OwnerName = actor.state.characterName;
 		found.project.slot2ParticipantType = 'player';
-		found.project.status = 'configuring';
+		const npcRequest = found.project.slot1.participantType === 'npc';
+		found.project.status = npcRequest ? 'awaiting_confirmation' : 'configuring';
 		found.project.confirmed = {
-			[found.project.slot1.ownerId]: false,
+			[found.project.slot1.ownerId]: npcRequest,
 			[found.project.slot2.ownerId]: false,
 		};
 		this.persistNurseryRecord(found.record);
@@ -856,40 +900,17 @@ export class RPGLoginService {
 		}
 		const found = this.requireNurseryProject(input.projectId);
 		const project = found.project;
+		if (project.slot1.participantType === 'npc') {
+			throw new Error('A requisi\u00e7\u00e3o do NPC deve receber um Pok\u00e9mon de Player no Slot 2');
+		}
 		if (project.status !== 'inviting' || project.slot2) {
 			throw new Error('O Slot 2 desta requisi\u00e7\u00e3o n\u00e3o est\u00e1 dispon\u00edvel');
 		}
 		const compatible = RPGNurseryGenetics.compatiblePartners(project.slot1);
 		const selected = compatible.find(option => toID(option.species) === toID(input.species));
 		if (!selected) throw new Error('O Pok\u00e9mon escolhido n\u00e3o pode reproduzir com o Slot 1');
-		const level = Number(input.level);
-		if (!Number.isInteger(level) || level < 1 || level > 100) {
-			throw new Error('O n\u00edvel do parceiro deve estar entre 1 e 100');
-		}
-		const item = toID(input.item || '');
-		if (!RPG_NURSERY_BREEDING_ITEMS.some(option => option.id === item)) {
-			throw new Error('Este held item n\u00e3o afeta a procria\u00e7\u00e3o');
-		}
-		const stats = ['hp', 'atk', 'def', 'spa', 'spd', 'spe'] as const;
-		const ivs = Object.fromEntries(stats.map(stat => {
-			const value = Number(input.ivs?.[stat]);
-			if (!Number.isInteger(value) || value < 0 || value > 31) {
-				throw new Error('Cada IV deve estar entre 0 e 31');
-			}
-			return [stat, value];
-		})) as RPGCapturedPokemon['ivs'];
-		const species = Dex.mod('gen9').species.get(selected.species);
-		const abilities = [...new Set(Object.values(species.abilities).filter(Boolean))];
-		const natures = Dex.mod('gen9').natures.all();
-		const ability = abilities[Math.floor(this.random() * abilities.length)] || species.abilities[0];
-		const nature = natures[Math.floor(this.random() * natures.length)]?.name || 'Hardy';
 		const ownerId = toID('nursery-npc-' + project.id);
-		const pokemon: RPGCapturedPokemon = {
-			name: species.name, species: species.name, level, gender: selected.sex, shiny: false,
-			item, ability, nature, moves: ['tackle'],
-			evs: {hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0}, ivs,
-			rpg: {version: RPG_STATE_VERSION, level, friendship: 50, item, captureBall: 'pokeball'},
-		};
+		const pokemon = this.masterNurseryPokemon(input, selected.sex);
 		project.slot2 = RPGNurseryGenetics.parent(
 			ownerId, 'Mestre', 'npc', ownerId + '-pokemon', pokemon
 		);
@@ -901,6 +922,24 @@ export class RPGLoginService {
 			[project.slot1.ownerId]: false,
 			[project.slot2.ownerId]: true,
 		};
+		this.persistNurseryRecord(found.record);
+		return this.nurseryView();
+	}
+
+	cancelMasterNurseryProject(token: string, projectId: string) {
+		const session = this.getSession(token);
+		if (session.role !== 'master' || session.mode !== 'master') {
+			throw new Error('Somente o Mestre pode cancelar a requisi\u00e7\u00e3o do NPC');
+		}
+		const found = this.requireNurseryProject(projectId);
+		const project = found.project;
+		if (project.slot1.participantType !== 'npc') {
+			throw new Error('Esta requisi\u00e7\u00e3o n\u00e3o pertence a um NPC');
+		}
+		if (project.egg || ['egg_ready', 'collected', 'cancelled'].includes(project.status)) {
+			throw new Error('Esta requisi\u00e7\u00e3o de NPC n\u00e3o pode mais ser cancelada');
+		}
+		project.status = 'cancelled';
 		this.persistNurseryRecord(found.record);
 		return this.nurseryView();
 	}
@@ -922,7 +961,7 @@ export class RPGLoginService {
 		delete project.requiredBreedingTimeMs;
 		delete project.remainingBreedingTimeMs;
 		project.status = 'inviting';
-		project.confirmed = {[project.slot1.ownerId]: false};
+		project.confirmed = {[project.slot1.ownerId]: project.slot1.participantType === 'npc'};
 		this.persistNurseryRecord(found.record);
 		return this.nurseryView(actor);
 	}
@@ -980,14 +1019,19 @@ export class RPGLoginService {
 			parent?.ownerId === actor.state.id
 		);
 		if (!ownedParents.length) throw new Error('Você não possui um Pokémon nesta procriação');
-		if (!project.egg || !['egg_ready', 'collected'].includes(project.status)) {
-			throw new Error('A procriação ainda não terminou');
+		if (!['egg_ready', 'collected'].includes(project.status)) {
+			throw new Error('A procria\u00e7\u00e3o ainda n\u00e3o terminou');
 		}
 		project.parentCollected ||= {};
 		if (project.parentCollected[actor.state.id]) {
 			throw new Error('Seu Pokémon já foi resgatado desta procriação');
 		}
 		project.parentCollected[actor.state.id] = true;
+		const ownerIds = [...new Set([project.slot1.ownerId, project.slot2?.ownerId].filter(Boolean))];
+		if (project.slot1.participantType === 'npc' &&
+			ownerIds.every(ownerId => project.parentCollected?.[ownerId] === true)) {
+			project.status = 'collected';
+		}
 		this.persistNurseryRecord(found.record);
 		return this.nurseryView(actor);
 	}
@@ -2551,7 +2595,8 @@ export class RPGLoginService {
 								.map(ownerId => [ownerId, true])
 						)),
 					preview,
-					masterSlot2Options: !record && !project.slot2 && project.status === 'inviting' ?
+					masterSlot2Options: !record && project.slot1.participantType !== 'npc' &&
+						!project.slot2 && project.status === 'inviting' ?
 						RPGNurseryGenetics.compatiblePartners(project.slot1) : [],
 					egg,
 				};
@@ -2591,6 +2636,7 @@ export class RPGLoginService {
 				egg: incubator.eggId ? eggs.find(egg => egg.eggId === incubator.eggId) : undefined,
 			})) : [],
 			breedingItems: RPG_NURSERY_BREEDING_ITEMS.map(item => ({...item})),
+			masterSlot1Options: record ? [] : RPGNurseryGenetics.masterParentOptions(),
 			portableIncubators: {
 				total: portableTotal, inUse: portableInUse, available: Math.max(0, portableTotal - portableInUse),
 			},
@@ -2602,6 +2648,42 @@ export class RPGLoginService {
 				bagUsedSlots: bag ? RPGBagSystem.getUsedSlots(bag) + activeEggs.length * 5 : 0,
 				bagMaxSlots: bag?.maxSlots,
 			},
+		};
+	}
+
+	private masterNurseryPokemon(
+		input: RPGNurseryMasterPokemonInput,
+		sex: import('../../sim/rpg-showdown').RPGPokemonSex
+	): RPGCapturedPokemon {
+		const level = Number(input.level);
+		if (!Number.isInteger(level) || level < 1 || level > 100) {
+			throw new Error('O n\u00edvel do parceiro deve estar entre 1 e 100');
+		}
+		const item = toID(input.item || '');
+		if (!RPG_NURSERY_BREEDING_ITEMS.some(option => option.id === item)) {
+			throw new Error('Este held item n\u00e3o afeta a procria\u00e7\u00e3o');
+		}
+		const stats = ['hp', 'atk', 'def', 'spa', 'spd', 'spe'] as const;
+		const ivs = Object.fromEntries(stats.map(stat => {
+			const value = Number(input.ivs?.[stat]);
+			if (!Number.isInteger(value) || value < 0 || value > 31) {
+				throw new Error('Cada IV deve estar entre 0 e 31');
+			}
+			return [stat, value];
+		})) as RPGCapturedPokemon['ivs'];
+		const species = Dex.mod('gen9').species.get(input.species);
+		if (!species.exists || !getRPGAllowedSexes(species.name).includes(sex)) {
+			throw new Error('O g\u00eanero autom\u00e1tico n\u00e3o \u00e9 v\u00e1lido para esta esp\u00e9cie');
+		}
+		const abilities = [...new Set(Object.values(species.abilities).filter(Boolean))];
+		const natures = Dex.mod('gen9').natures.all();
+		const ability = abilities[Math.floor(this.random() * abilities.length)] || species.abilities[0];
+		const nature = natures[Math.floor(this.random() * natures.length)]?.name || 'Hardy';
+		return {
+			name: species.name, species: species.name, level, gender: sex, shiny: false,
+			item, ability, nature, moves: ['tackle'],
+			evs: {hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0}, ivs,
+			rpg: {version: RPG_STATE_VERSION, level, friendship: 50, item, captureBall: 'pokeball'},
 		};
 	}
 

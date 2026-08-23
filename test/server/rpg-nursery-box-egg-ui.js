@@ -46,6 +46,11 @@ describe('RPG Egg presentation outside incubation', () => {
 	});
 
 	it('lets only the Master configure a compatible system partner in Slot 2', () => {
+		assert.match(nursery, /masterSlot1Options/);
+		assert.match(nursery, /openMasterSlot1Menu/);
+		assert.match(nursery, /master-slot1/);
+		assert.match(nursery, /Nova requisi\u00e7\u00e3o de NPC/);
+		assert.match(nursery, /master-cancel/);
 		assert.match(nursery, /masterSlot2Options/);
 		assert.match(nursery, /openMasterSlot2Menu/);
 		assert.match(nursery, /master-slot2/);

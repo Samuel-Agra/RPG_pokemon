@@ -73,6 +73,85 @@ describe('RPG connected Nursery and Incubation flow', () => {
 		assert.throws(() => service.withdrawNurserySlot2(samuel.token, projectId), /Slot 2/);
 	});
 
+	it('lets the Master open an NPC Slot 1 request for a Player partner', () => {
+		let byte = 70;
+		const service = new RPGLoginService({
+			masterCode: '14081998', repository: new RPGMemoryCharacterRepository(),
+			random: () => 0.5, randomBytes: size => Buffer.alloc(size, ++byte),
+		});
+		create(service, 'Samuel');
+		create(service, 'Marina');
+		const master = service.loginMaster('14081998');
+		service.replaceCharacterTeam(master.token, 'marina', [set('Charizard', 'F', 'Blaze')]);
+		const marina = service.loginPlayer('marina', '1234');
+		const playerPokemonId = service.getCharacter(marina.token).box.party[0].pokemonId;
+		const ivs = {hp: 31, atk: 30, def: 29, spa: 28, spd: 27, spe: 26};
+
+		let view = service.createMasterNurseryProject(master.token, {
+			npcName: 'L\u00edder Blaine', species: 'Charizard', level: 65, ivs, item: 'everstone',
+		});
+		const project = view.projects.find(entry => entry.slot1.ownerName === 'L\u00edder Blaine');
+		assert.ok(project);
+		assert.equal(project.slot1.participantType, 'npc');
+		assert.equal(project.slot1.level, 65);
+		assert.deepEqual(project.slot1.ivs, ivs);
+		assert.equal(project.slot1.item, 'everstone');
+		assert.equal(project.status, 'inviting');
+		assert.equal(project.confirmed[project.slot1.ownerId], true);
+		assert.deepEqual(project.masterSlot2Options, [],
+			'o Mestre n\u00e3o deve preencher o Slot 2 da pr\u00f3pria requisi\u00e7\u00e3o de NPC');
+		assert.equal(view.masterSlot1Options.includes('Charmander'), false);
+		assert.equal(view.masterSlot1Options.includes('Charizard'), true);
+
+		view = service.acceptNurseryInvitation(marina.token, project.id, playerPokemonId);
+		const joined = view.projects.find(entry => entry.id === project.id);
+		assert.equal(joined.status, 'awaiting_confirmation');
+		assert.equal(joined.confirmed[joined.slot1.ownerId], true);
+		assert.equal(joined.confirmed[joined.slot2.ownerId], false);
+		assert.equal(service.getBox(marina.token).team[0].metadata.breeding, true);
+		assert.throws(() => service.setMasterNurserySlot2(master.token, {
+			projectId: project.id, species: 'Charizard', level: 50, ivs, item: '',
+		}), /deve receber um Pok\u00e9mon de Player/);
+
+		view = service.confirmNurseryProject(marina.token, project.id);
+		assert.equal(view.projects.find(entry => entry.id === project.id).status, 'breeding');
+		let completed;
+		for (let i = 0; i < 10; i++) {
+			service.advanceCampaignTime(master.token, 8);
+			completed = service.getNursery(master.token).projects.find(entry => entry.id === project.id);
+			if (completed.status === 'egg_ready') break;
+		}
+		assert.equal(completed.status, 'egg_ready');
+		assert.equal(completed.egg, undefined, 'o ovo pertencente ao NPC deve desaparecer');
+		assert.equal(completed.parentCollected[completed.slot1.ownerId], true);
+		assert.notEqual(completed.parentCollected[completed.slot2.ownerId], true);
+		assert.throws(() => service.collectNurseryEgg(marina.token, project.id), /propriet\u00e1rio/);
+
+		service.collectNurseryParent(marina.token, project.id);
+		assert.equal(service.getBox(marina.token).team[0].metadata.breeding, undefined);
+		assert.equal(service.getNursery(master.token).projects.find(entry => entry.id === project.id).status, 'collected');
+	});
+
+	it('lets the Master cancel an open NPC Slot 1 request', () => {
+		let byte = 80;
+		const service = new RPGLoginService({
+			masterCode: '14081998', repository: new RPGMemoryCharacterRepository(),
+			random: () => 0.5, randomBytes: size => Buffer.alloc(size, ++byte),
+		});
+		create(service, 'Samuel');
+		const master = service.loginMaster('14081998');
+		const ivs = stats(31);
+		const view = service.createMasterNurseryProject(master.token, {
+			npcName: 'Criador', species: 'Charizard', level: 50, ivs, item: '',
+		});
+		const project = view.projects.find(entry => entry.slot1.ownerName === 'Criador');
+		const cancelled = service.cancelMasterNurseryProject(master.token, project.id);
+		assert.equal(cancelled.projects.find(entry => entry.id === project.id).status, 'cancelled');
+		assert.throws(() => service.createMasterNurseryProject(master.token, {
+			npcName: 'Criador', species: 'Charmander', level: 50, ivs, item: '',
+		}), /n\u00e3o pode iniciar/);
+	});
+
 	it('lets the Master configure a compatible system partner for Slot 2', () => {
 		let byte = 40;
 		const service = new RPGLoginService({

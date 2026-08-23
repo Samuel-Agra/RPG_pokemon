@@ -113,12 +113,19 @@ export interface RPGNurseryMasterPartnerOption {
 	sex: RPGPokemonSex;
 }
 
-export interface RPGNurseryMasterSlot2Input {
-	projectId: string;
+export interface RPGNurseryMasterPokemonInput {
 	species: string;
 	level: number;
 	ivs: Record<RPGGeneticStat, number>;
 	item: '' | 'everstone' | 'destinyknot';
+}
+
+export interface RPGNurseryMasterSlot1Input extends RPGNurseryMasterPokemonInput {
+	npcName: string;
+}
+
+export interface RPGNurseryMasterSlot2Input extends RPGNurseryMasterPokemonInput {
+	projectId: string;
 }
 
 export const RPG_NURSERY_BREEDING_ITEMS = Object.freeze([
@@ -144,6 +151,26 @@ export class RPGNurseryGenetics {
 			ability: pokemon.ability, item: toID(pokemon.item || pokemon.rpg?.item || ''),
 			ivs: this.ivs(pokemon.ivs), moves: [...pokemon.moves],
 		};
+	}
+
+	static masterParentOptions(): string[] {
+		const dex = Dex.mod('gen9');
+		return dex.species.all()
+			.filter(species => species.exists && !species.isNonstandard && !species.battleOnly)
+			.filter(species => toID(species.name) === toID(species.baseSpecies || species.name))
+			.filter(species => getRPGAllowedSexes(species.name)
+				.some(sex => canRPGPokemonBreedAtCurrentStage(species.name, sex)))
+			.map(species => species.name)
+			.sort((a, b) => a.localeCompare(b));
+	}
+
+	static masterParentSex(speciesName: string, random: () => number = Math.random): RPGPokemonSex {
+		const allowed = getRPGAllowedSexes(speciesName)
+			.filter(sex => canRPGPokemonBreedAtCurrentStage(speciesName, sex));
+		if (!allowed.length) throw new Error('Este Pok\u00e9mon n\u00e3o pode procriar no est\u00e1gio atual');
+		if (allowed.length === 1) return allowed[0];
+		const rolled = rollRPGPokemonSex(speciesName, random);
+		return allowed.includes(rolled) ? rolled : allowed[0];
 	}
 
 	static compatiblePartners(slot1: RPGNurseryParent): RPGNurseryMasterPartnerOption[] {

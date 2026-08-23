@@ -71,3 +71,9 @@ img.nursery-egg{object-fit:contain;image-rendering:pixelated;border:0;border-rad
 .nursery-master-ivs{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;margin:0 0 12px;padding:10px;border:1px solid #c3ccd8;border-radius:7px}.nursery-master-ivs legend{padding:0 6px;font-weight:700}.nursery-master-ivs .nursery-master-field{margin:0}.nursery-master-ivs .textbox{text-align:center}
 .nursery-master-item-description{min-height:18px;color:#66758a}.nursery-master-slot-actions{display:flex;justify-content:flex-end;gap:9px;margin-top:4px}.nursery-master-slot-actions .button{min-width:150px}
 @media(max-width:560px){.nursery-master-main-fields{grid-template-columns:1fr}.nursery-master-ivs{grid-template-columns:repeat(3,minmax(0,1fr))}.nursery-master-slot-actions{flex-direction:column-reverse}.nursery-master-slot-actions .button{width:100%}}
+
+
+.nursery-master-tools{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:12px 0;padding:12px 14px;border:1px solid #aeb9c8;border-radius:7px;background:linear-gradient(120deg,#eef2f7,#dde6f1)}
+.nursery-master-tools .nursery-master-note{margin:0;padding:0;border:0;background:transparent}.nursery-master-tools .button{flex:0 0 auto;min-width:230px}
+.nursery-master-slot1-fields{grid-template-columns:minmax(150px,1fr) minmax(170px,1fr) 90px}
+@media(max-width:650px){.nursery-master-tools{align-items:stretch;flex-direction:column}.nursery-master-tools .button{width:100%;min-width:0}.nursery-master-slot1-fields{grid-template-columns:1fr}}

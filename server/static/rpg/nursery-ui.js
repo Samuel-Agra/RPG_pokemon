@@ -211,6 +211,131 @@
 			for (const effect of preview.itemEffects || []) box.append(el('small', '', effect));
 			return box;
 		}
+		function openMasterSlot1Menu() {
+			const choices = Array.isArray(view.masterSlot1Options) ? view.masterSlot1Options : [];
+			if (!choices.length) {
+				options.toast('Nenhum Pok\u00e9mon eleg\u00edvel foi encontrado para iniciar a requisi\u00e7\u00e3o.', true);
+				return;
+			}
+			const layer = el('div', 'nursery-master-slot-layer');
+			const menu = el('form', 'nursery-master-slot-menu');
+			const close = () => layer.remove();
+			layer.addEventListener('mousedown', event => {
+				if (event.target === layer) close();
+			});
+			const heading = el('header', 'nursery-master-slot-head');
+			const title = el('div');
+			title.append(el('small', 'nursery-eyebrow', 'REQUISI\u00c7\u00c3O DO MESTRE'));
+			title.append(el('h3', '', 'Criar Slot 1 de NPC'));
+			const closeButton = el('button', 'nursery-master-slot-close', '\u00d7');
+			closeButton.type = 'button';
+			closeButton.setAttribute('aria-label', 'Fechar');
+			closeButton.addEventListener('click', close);
+			heading.append(title, closeButton);
+
+			const preview = el('div', 'nursery-master-slot-preview');
+			const sprite = el('img', 'nursery-master-slot-sprite');
+			const previewCopy = el('div');
+			const previewName = el('strong', '', choices[0]);
+			const previewSex = el('span', '', 'G\u00eanero definido automaticamente');
+			previewCopy.append(previewName, previewSex);
+			preview.append(sprite, previewCopy);
+
+			const field = (label, control) => {
+				const wrapper = el('label', 'nursery-master-field');
+				wrapper.append(el('span', '', label), control);
+				return wrapper;
+			};
+			const npcName = el('input', 'textbox');
+			npcName.type = 'text';
+			npcName.maxLength = 40;
+			npcName.required = true;
+			npcName.placeholder = 'Nome do NPC';
+
+			const species = el('select', 'textbox');
+			for (const speciesName of choices) {
+				const option = el('option', '', speciesName);
+				option.value = speciesName;
+				species.append(option);
+			}
+			const updatePreview = () => {
+				sprite.src = options.spriteUrl({species: species.value});
+				sprite.alt = species.value;
+				previewName.textContent = species.value;
+			};
+			species.addEventListener('change', updatePreview);
+			updatePreview();
+
+			const level = el('input', 'textbox');
+			level.type = 'number';
+			level.min = '1';
+			level.max = '100';
+			level.step = '1';
+			level.value = '50';
+
+			const mainFields = el('div', 'nursery-master-main-fields nursery-master-slot1-fields');
+			mainFields.append(
+				field('Nome do NPC', npcName),
+				field('Pok\u00e9mon', species),
+				field('N\u00edvel', level)
+			);
+
+			const ivs = el('fieldset', 'nursery-master-ivs');
+			ivs.append(el('legend', '', 'IVs'));
+			const statLabels = {hp: 'HP', atk: 'Atk', def: 'Def', spa: 'SpA', spd: 'SpD', spe: 'Spe'};
+			const ivInputs = {};
+			for (const stat of Object.keys(statLabels)) {
+				const input = el('input', 'textbox');
+				input.type = 'number';
+				input.min = '0';
+				input.max = '31';
+				input.step = '1';
+				input.value = '31';
+				ivInputs[stat] = input;
+				ivs.append(field(statLabels[stat], input));
+			}
+
+			const heldItem = el('select', 'textbox');
+			for (const item of view.breedingItems || []) {
+				const option = el('option', '', item.name);
+				option.value = item.id;
+				heldItem.append(option);
+			}
+			const itemDescription = el('small', 'nursery-master-item-description');
+			const updateItem = () => {
+				const selected = (view.breedingItems || []).find(item => item.id === heldItem.value);
+				itemDescription.textContent = selected?.description || '';
+			};
+			heldItem.addEventListener('change', updateItem);
+			updateItem();
+			const itemField = field('Held item reprodutivo', heldItem);
+			itemField.append(itemDescription);
+
+			const actions = el('div', 'nursery-master-slot-actions');
+			const cancel = el('button', 'button', 'Cancelar');
+			cancel.type = 'button';
+			cancel.addEventListener('click', close);
+			const submit = el('button', 'button primary', 'Abrir requisi\u00e7\u00e3o');
+			submit.type = 'submit';
+			actions.append(cancel, submit);
+			menu.append(heading, preview, mainFields, ivs, itemField, actions);
+			menu.addEventListener('submit', async event => {
+				event.preventDefault();
+				submit.disabled = true;
+				close();
+				await action('master-slot1', {
+					npcName: npcName.value.trim(),
+					species: species.value,
+					level: Number(level.value),
+					ivs: Object.fromEntries(Object.entries(ivInputs).map(([stat, input]) =>
+						[stat, Number(input.value)])),
+					item: heldItem.value,
+				});
+			});
+			layer.append(menu);
+			document.body.append(layer);
+			npcName.focus();
+		}
 		function openMasterSlot2Menu(project) {
 			const choices = Array.isArray(project.masterSlot2Options) ? project.masterSlot2Options : [];
 			if (!choices.length) {
@@ -352,7 +477,9 @@
 				parentCard(project.slot2, options, fillSlot2, masterCanFillSlot2)
 			);
 			card.append(parents);
-			card.append(el('p', 'nursery-owner', 'O ovo pertencerá a ' + project.slot1.ownerName + ' (Slot 1).'));
+			card.append(el('p', 'nursery-owner', project.slot1.participantType === 'npc' ?
+				'O ovo pertence ao NPC e desaparecerá ao término da procriação.' :
+				'O ovo pertencerá a ' + project.slot1.ownerName + ' (Slot 1).'));
 
 			const preview = geneticPreview(project.preview);
 			if (preview) card.append(preview);
@@ -399,14 +526,29 @@
 				withdraw.addEventListener('click', () => action('withdraw-slot2', {projectId: project.id}));
 				card.append(withdraw);
 			}
+			if (view.viewerRole === 'master' && project.slot1.participantType === 'npc' &&
+				['inviting', 'configuring', 'awaiting_confirmation', 'breeding'].includes(project.status)) {
+				const cancelNpc = el('button', 'button nursery-cancel', 'Cancelar requisição do NPC');
+				cancelNpc.addEventListener('click', () => action('master-cancel', {projectId: project.id}));
+				card.append(cancelNpc);
+			}
 			return card;
 		}
 		function breedingPage() {
 			const page = el('div', 'nursery-content');
 			const picker = teamPicker();
-			if (picker) page.append(picker);
-			else page.append(el('div', 'nursery-master-note',
-				'Todos os depósitos da campanha aparecem aqui. O Mestre acompanha os slots sem ocupar uma vaga.'));
+			if (picker) {
+				page.append(picker);
+			} else {
+				const masterTools = el('div', 'nursery-master-tools');
+				const note = el('div', 'nursery-master-note',
+					'Abra uma requisição de NPC para que um Player ofereça o próprio Pokémon no Slot 2.');
+				const createNpc = el('button', 'button primary', 'Nova requisição de NPC');
+				createNpc.type = 'button';
+				createNpc.addEventListener('click', openMasterSlot1Menu);
+				masterTools.append(note, createNpc);
+				page.append(masterTools);
+			}
 			const activeStatuses = ['inviting', 'configuring', 'awaiting_confirmation', 'breeding'];
 			const visible = view.projects.filter(project => activeStatuses.includes(project.status));
 			const board = el('section', 'nursery-shared-board');
