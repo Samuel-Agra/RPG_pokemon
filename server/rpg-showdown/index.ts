@@ -909,6 +909,7 @@ export class RPGLoginService {
 			eggOwnerId: ownerId,
 			status: 'inviting',
 			confirmed: {[ownerId]: true},
+			slotConfirmations: {slot1: true, slot2: false},
 			createdAt: this.now(),
 		};
 		const host = records[0];
@@ -936,6 +937,7 @@ export class RPGLoginService {
 			eggOwnerId: owner.state.id,
 			status: 'inviting',
 			confirmed: {[owner.state.id]: false},
+			slotConfirmations: {slot1: false, slot2: false},
 			createdAt: now,
 		};
 		this.ensureNursery(owner).projects.push(project);
@@ -967,12 +969,15 @@ export class RPGLoginService {
 		found.project.slot2OwnerId = actor.state.id;
 		found.project.slot2OwnerName = actor.state.characterName;
 		found.project.slot2ParticipantType = 'player';
+		found.project.requestedPokecoins = 0;
+		delete found.project.paymentTransferredAt;
 		const npcRequest = found.project.slot1.participantType === 'npc';
 		found.project.status = npcRequest ? 'awaiting_confirmation' : 'configuring';
 		found.project.confirmed = {
 			[found.project.slot1.ownerId]: npcRequest,
 			[found.project.slot2.ownerId]: false,
 		};
+		found.project.slotConfirmations = {slot1: npcRequest, slot2: false};
 		this.persistNurseryRecord(found.record);
 		return this.nurseryView(actor);
 	}
@@ -1001,11 +1006,14 @@ export class RPGLoginService {
 		project.slot2OwnerId = project.slot2.ownerId;
 		project.slot2OwnerName = project.slot2.ownerName;
 		project.slot2ParticipantType = 'npc';
+		project.requestedPokecoins = 0;
+		delete project.paymentTransferredAt;
 		project.status = 'awaiting_confirmation';
 		project.confirmed = {
 			[project.slot1.ownerId]: false,
 			[project.slot2.ownerId]: true,
 		};
+		project.slotConfirmations = {slot1: false, slot2: true};
 		this.persistNurseryRecord(found.record);
 		return this.nurseryView();
 	}
@@ -1044,13 +1052,16 @@ export class RPGLoginService {
 		delete project.breedingStartedAt;
 		delete project.requiredBreedingTimeMs;
 		delete project.remainingBreedingTimeMs;
+		delete project.requestedPokecoins;
+		delete project.paymentTransferredAt;
 		project.status = 'inviting';
 		project.confirmed = {[project.slot1.ownerId]: project.slot1.participantType === 'npc'};
+		project.slotConfirmations = {slot1: project.slot1.participantType === 'npc', slot2: false};
 		this.persistNurseryRecord(found.record);
 		return this.nurseryView(actor);
 	}
 
-	confirmNurseryProject(token: string, projectId: string) {
+	confirmNurseryProject(token: string, projectId: string, requestedPokecoins?: number) {
 		const actor = this.requireNurseryActor(token);
 		const found = this.requireNurseryProject(projectId);
 		const project = found.project;
@@ -1065,18 +1076,82 @@ export class RPGLoginService {
 		if (!preview.compatibility.compatible) {
 			throw new Error('Os Pokémon selecionados não são compatíveis: ' + preview.compatibility.reason);
 		}
-		project.confirmed[actor.state.id] = true;
-		const participants = [...new Set([project.slot1.ownerId, project.slot2.ownerId])];
-		if (participants.every(ownerId => project.confirmed[ownerId])) {
-			const now = this.now();
-			project.status = 'breeding';
-			project.breedingStartedAt = now;
-			project.requiredBreedingTimeMs = preview.requiredBreedingTimeMs;
-			project.remainingBreedingTimeMs = preview.requiredBreedingTimeMs;
-		} else {
-			project.status = 'awaiting_confirmation';
+		const current = project.slotConfirmations ?? {
+			slot1: !!project.confirmed[project.slot1.ownerId],
+			slot2: !!project.confirmed[project.slot2.ownerId],
+		};
+		const confirmsSlot2 = project.slot2.ownerId === actor.state.id && !current.slot2;
+		const confirmsSlot1 = project.slot1.ownerId === actor.state.id && !current.slot1 &&
+			(project.slot1.ownerId !== project.slot2.ownerId || current.slot2);
+		if (!confirmsSlot1 && !confirmsSlot2) {
+			throw new Error('Este participante já confirmou a procriação');
 		}
-		this.persistNurseryRecord(found.record);
+		if (confirmsSlot2) {
+			const requested = requestedPokecoins ?? project.requestedPokecoins ?? 0;
+			if (!Number.isSafeInteger(requested) || requested < 0) {
+				throw new Error('A cobrança deve ser um valor inteiro e não negativo de Pokécoins');
+			}
+			project.requestedPokecoins = requested;
+		} else if (!current.slot2) {
+			throw new Error('O dono do Slot 2 precisa confirmar a cobrança primeiro');
+		}
+
+		const recordBeforeConfirmation = structuredClone(found.record);
+		const next = {
+			slot1: current.slot1 || confirmsSlot1,
+			slot2: current.slot2 || confirmsSlot2,
+		};
+		project.slotConfirmations = next;
+		project.confirmed = project.slot1.ownerId === project.slot2.ownerId ? {
+			[project.slot1.ownerId]: next.slot1 && next.slot2,
+		} : {
+			[project.slot1.ownerId]: next.slot1,
+			[project.slot2.ownerId]: next.slot2,
+		};
+		const startsBreeding = next.slot1 && next.slot2;
+		if (!startsBreeding) {
+			project.status = 'awaiting_confirmation';
+			this.persistNurseryRecord(found.record);
+			return this.nurseryView(actor);
+		}
+
+		const fee = project.requestedPokecoins ?? 0;
+		const records = new Map<string, RPGStoredCharacter>([[found.record.state.id, found.record]]);
+		const recordFor = (ownerId: string) => {
+			let record = records.get(ownerId);
+			if (!record) {
+				record = this.requireCharacter(ownerId);
+				records.set(ownerId, record);
+			}
+			return record;
+		};
+		const payer = project.slot1.participantType === 'player' ? recordFor(project.slot1.ownerId) : undefined;
+		const receiver = project.slot2.participantType === 'player' ? recordFor(project.slot2.ownerId) : undefined;
+		if (payer && payer.state.id !== receiver?.state.id && payer.state.money < fee) {
+			throw new Error(`${payer.state.characterName} não possui ${fee.toLocaleString('pt-BR')} Pokécoins para a cobrança`);
+		}
+		if (receiver && payer?.state.id !== receiver.state.id && !Number.isSafeInteger(receiver.state.money + fee)) {
+			throw new Error('A cobrança tornaria o saldo do Slot 2 inválido');
+		}
+
+		const originals = new Map([...records].map(([id, record]) => [
+			id, id === found.record.state.id ? recordBeforeConfirmation : structuredClone(record),
+		]));
+		if (payer && payer.state.id !== receiver?.state.id) payer.state.money -= fee;
+		if (receiver && payer?.state.id !== receiver.state.id) receiver.state.money += fee;
+		const now = this.now();
+		project.status = 'breeding';
+		project.breedingStartedAt = now;
+		project.requiredBreedingTimeMs = preview.requiredBreedingTimeMs;
+		project.remainingBreedingTimeMs = preview.requiredBreedingTimeMs;
+		project.paymentTransferredAt = now;
+		for (const record of records.values()) record.state.updatedAt = now;
+		try {
+			for (const record of records.values()) this.repository.set(record);
+		} catch (error) {
+			for (const original of originals.values()) this.repository.set(original);
+			throw error;
+		}
 		return this.nurseryView(actor);
 	}
 
@@ -2731,6 +2806,9 @@ export class RPGLoginService {
 					slot2OwnerName: project.slot2OwnerName,
 					eggOwnerId: project.eggOwnerId,
 					confirmed: structuredClone(project.confirmed),
+					slotConfirmations: structuredClone(project.slotConfirmations),
+					requestedPokecoins: project.requestedPokecoins ?? 0,
+					paymentTransferredAt: project.paymentTransferredAt,
 					createdAt: project.createdAt,
 					requiredBreedingTimeMs: project.requiredBreedingTimeMs,
 					remainingBreedingTimeMs: project.remainingBreedingTimeMs,

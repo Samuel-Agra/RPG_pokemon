@@ -73,6 +73,79 @@ describe('RPG connected Nursery and Incubation flow', () => {
 		assert.throws(() => service.withdrawNurserySlot2(samuel.token, projectId), /Slot 2/);
 	});
 
+	it('requires Slot 2 terms first and transfers the requested Pokecoins exactly once', () => {
+		let byte = 50;
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({
+			masterCode: '14081998', repository,
+			random: () => 0.5, randomBytes: size => Buffer.alloc(size, ++byte),
+		});
+		create(service, 'Samuel');
+		create(service, 'Marina');
+		const master = service.loginMaster('14081998');
+		service.replaceCharacterTeam(master.token, 'samuel', [set('Gardevoir', 'F', 'Synchronize')]);
+		service.replaceCharacterTeam(master.token, 'marina', [set('Gallade', 'M', 'Sharpness')]);
+		const samuel = service.loginPlayer('samuel', '1234');
+		const marina = service.loginPlayer('marina', '1234');
+		const samuelPokemon = service.getCharacter(samuel.token).box.party[0].pokemonId;
+		const marinaPokemon = service.getCharacter(marina.token).box.party[0].pokemonId;
+
+		let view = service.createNurseryProject(samuel.token, undefined, samuelPokemon);
+		const projectId = view.projects.find(project => project.status === 'inviting').id;
+		view = service.acceptNurseryInvitation(marina.token, projectId, marinaPokemon);
+		assert.equal(view.projects.find(project => project.id === projectId).requestedPokecoins, 0);
+		assert.throws(
+			() => service.confirmNurseryProject(samuel.token, projectId),
+			/Slot 2 precisa confirmar/
+		);
+		assert.throws(
+			() => service.confirmNurseryProject(marina.token, projectId, -1),
+			/inteiro e não negativo/
+		);
+
+		view = service.confirmNurseryProject(marina.token, projectId, 1250);
+		let project = view.projects.find(entry => entry.id === projectId);
+		assert.equal(project.status, 'awaiting_confirmation');
+		assert.equal(project.requestedPokecoins, 1250);
+		assert.equal(repository.get('samuel').state.money, 3000);
+		assert.equal(repository.get('marina').state.money, 3000);
+
+		view = service.confirmNurseryProject(samuel.token, projectId);
+		project = view.projects.find(entry => entry.id === projectId);
+		assert.equal(project.status, 'breeding');
+		assert.equal(repository.get('samuel').state.money, 1750);
+		assert.equal(repository.get('marina').state.money, 4250);
+		assert.throws(() => service.confirmNurseryProject(samuel.token, projectId), /aguardando confirmação/);
+	});
+
+	it('requires separate Slot confirmations when both Pokemon have the same owner', () => {
+		let byte = 60;
+		const service = new RPGLoginService({
+			masterCode: '14081998', repository: new RPGMemoryCharacterRepository(),
+			random: () => 0.5, randomBytes: size => Buffer.alloc(size, ++byte),
+		});
+		create(service, 'Samuel');
+		const master = service.loginMaster('14081998');
+		service.replaceCharacterTeam(master.token, 'samuel', [
+			set('Gardevoir', 'F', 'Synchronize'),
+			set('Gallade', 'M', 'Sharpness'),
+		]);
+		const samuel = service.loginPlayer('samuel', '1234');
+		const party = service.getCharacter(samuel.token).box.party;
+		let view = service.createNurseryProject(samuel.token, undefined, party[0].pokemonId);
+		const projectId = view.projects.find(project => project.status === 'inviting').id;
+		view = service.acceptNurseryInvitation(samuel.token, projectId, party[1].pokemonId);
+
+		view = service.confirmNurseryProject(samuel.token, projectId, 0);
+		let project = view.projects.find(entry => entry.id === projectId);
+		assert.equal(project.status, 'awaiting_confirmation');
+		assert.deepEqual(project.slotConfirmations, {slot1: false, slot2: true});
+		view = service.confirmNurseryProject(samuel.token, projectId);
+		project = view.projects.find(entry => entry.id === projectId);
+		assert.equal(project.status, 'breeding');
+		assert.deepEqual(project.slotConfirmations, {slot1: true, slot2: true});
+	});
+
 	it('lets the Master open an NPC Slot 1 request for a Player partner', () => {
 		let byte = 70;
 		const service = new RPGLoginService({
@@ -116,8 +189,9 @@ describe('RPG connected Nursery and Incubation flow', () => {
 			projectId: project.id, species: 'Charizard', level: 50, ivs, item: '',
 		}), /deve receber um Pok\u00e9mon de Player/);
 
-		view = service.confirmNurseryProject(marina.token, project.id);
+		view = service.confirmNurseryProject(marina.token, project.id, 400);
 		assert.equal(view.projects.find(entry => entry.id === project.id).status, 'breeding');
+		assert.equal(service.getCharacter(marina.token).money, 3400);
 		let completed;
 		for (let i = 0; i < 10; i++) {
 			service.advanceCampaignTime(master.token, 8);
@@ -291,8 +365,8 @@ describe('RPG connected Nursery and Incubation flow', () => {
 		const projectId = view.projects[0].id;
 		view = service.acceptNurseryInvitation(marina.token, projectId, marinaPokemon);
 		assert.equal(view.projects[0].preview.compatibility.compatible, true);
-		service.confirmNurseryProject(samuel.token, projectId);
-		view = service.confirmNurseryProject(marina.token, projectId);
+		service.confirmNurseryProject(marina.token, projectId);
+		view = service.confirmNurseryProject(samuel.token, projectId);
 		assert.equal(view.projects[0].status, 'breeding');
 
 		const breedingBox = service.getBox(samuel.token);
@@ -393,8 +467,8 @@ describe('RPG connected Nursery and Incubation flow', () => {
 		view = service.createNurseryProject(samuel.token, undefined, samuelPokemon, 'marina');
 		const secondProject = view.projects.find(project => project.status === 'inviting');
 		service.acceptNurseryInvitation(marina.token, secondProject.id, marinaPokemon);
-		service.confirmNurseryProject(samuel.token, secondProject.id);
 		service.confirmNurseryProject(marina.token, secondProject.id);
+		service.confirmNurseryProject(samuel.token, secondProject.id);
 		for (let i = 0; i < 3; i++) service.advanceCampaignTime(master.token, 8);
 		view = service.getNursery(samuel.token);
 		assert.equal(view.projects.find(project => project.id === secondProject.id).status, 'egg_ready');
@@ -456,8 +530,8 @@ describe('RPG connected Nursery and Incubation flow', () => {
 		let view = service.createNurseryProject(samuel.token, undefined, samuelPokemon, 'marina');
 		const firstProjectId = view.projects.find(project => project.status === 'inviting').id;
 		service.acceptNurseryInvitation(marina.token, firstProjectId, marinaPokemon);
-		service.confirmNurseryProject(samuel.token, firstProjectId);
 		service.confirmNurseryProject(marina.token, firstProjectId);
+		service.confirmNurseryProject(samuel.token, firstProjectId);
 		for (let i = 0; i < 3; i++) service.advanceCampaignTime(master.token, 8);
 		view = service.getNursery(samuel.token);
 		view = service.collectNurseryEggToLocal(samuel.token, firstProjectId, view.incubators[0].id);
@@ -468,8 +542,8 @@ describe('RPG connected Nursery and Incubation flow', () => {
 		view = service.createNurseryProject(samuel.token, undefined, samuelPokemon, 'marina');
 		const secondProjectId = view.projects.find(project => project.status === 'inviting').id;
 		service.acceptNurseryInvitation(marina.token, secondProjectId, marinaPokemon);
-		service.confirmNurseryProject(samuel.token, secondProjectId);
 		service.confirmNurseryProject(marina.token, secondProjectId);
+		service.confirmNurseryProject(samuel.token, secondProjectId);
 		for (let i = 0; i < 3; i++) service.advanceCampaignTime(master.token, 8);
 		service.collectNurseryEgg(samuel.token, secondProjectId);
 		for (let i = 0; i < 6; i++) service.advanceCampaignTime(master.token, 8);
@@ -509,8 +583,8 @@ describe('RPG connected Nursery and Incubation flow', () => {
 			let view = service.createNurseryProject(samuel.token, undefined, firstParent, 'marina');
 			const project = view.projects.find(candidate => candidate.status === 'inviting');
 			service.acceptNurseryInvitation(marina.token, project.id, secondParent);
-			service.confirmNurseryProject(samuel.token, project.id);
 			service.confirmNurseryProject(marina.token, project.id);
+			service.confirmNurseryProject(samuel.token, project.id);
 			for (let i = 0; i < 3; i++) service.advanceCampaignTime(master.token, 8);
 			view = service.collectNurseryEgg(samuel.token, project.id);
 			return view.eggs.find(egg => egg.status === 'carried').eggId;

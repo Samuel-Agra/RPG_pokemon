@@ -95,6 +95,10 @@ export interface RPGNurseryProject {
 	eggOwnerId: string;
 	status: RPGNurseryStatus;
 	confirmed: Record<string, boolean>;
+	/** Pokecoins requested by Slot 2 and settled once breeding starts. */
+	requestedPokecoins?: number;
+	slotConfirmations?: {slot1: boolean, slot2: boolean};
+	paymentTransferredAt?: number;
 	createdAt: number;
 	breedingStartedAt?: number;
 	requiredBreedingTimeMs?: number;

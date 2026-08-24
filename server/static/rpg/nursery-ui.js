@@ -585,17 +585,57 @@
 			const preview = geneticPreview(project.preview);
 			if (preview) card.append(preview);
 			if (['configuring', 'awaiting_confirmation'].includes(project.status) && project.slot2) {
+				const slot1Owner = project.slot1.ownerId === view.ownerId;
+				const slot2Owner = project.slot2.ownerId === view.ownerId;
+				const slot1Confirmed = project.slotConfirmations?.slot1 ??
+					!!project.confirmed[project.slot1.ownerId];
+				const slot2Confirmed = project.slotConfirmations?.slot2 ??
+					!!project.confirmed[project.slot2.ownerId];
+				const confirmsSlot2 = slot2Owner && !slot2Confirmed;
+				const confirmsSlot1 = slot1Owner && !slot1Confirmed &&
+					(project.slot1.ownerId !== project.slot2.ownerId || slot2Confirmed);
 				const confirms = el('div', 'nursery-confirmations');
-				for (const owner of [...new Set([project.slot1.ownerId, project.slot2.ownerId])]) {
-					confirms.append(el('span', project.confirmed[owner] ? 'confirmed' : '', 
-						(owner === project.slot1.ownerId ? project.slot1.ownerName : project.slot2.ownerName) +
-						(project.confirmed[owner] ? ' ✓' : ' · aguardando')));
+				for (const [confirmed, slot] of [
+					[slot1Confirmed, 'Slot 1'],
+					[slot2Confirmed, 'Slot 2'],
+				]) {
+					confirms.append(el('span', confirmed ? 'confirmed' : '',
+						(slot === 'Slot 1' ? project.slot1.ownerName : project.slot2.ownerName) + ' (' + slot + ')' +
+						(confirmed ? ' ✓' : ' · aguardando')));
 				}
 				card.append(confirms);
-				if ([project.slot1.ownerId, project.slot2.ownerId].includes(view.ownerId) && !project.confirmed[view.ownerId]) {
-					const confirm = el('button', 'button primary', 'Confirmar procriação');
-					confirm.addEventListener('click', () => action('confirm', {projectId: project.id}));
-					card.append(confirm);
+				if (confirmsSlot1 || confirmsSlot2) {
+					const terms = el('div', 'nursery-terms');
+					if (confirmsSlot2) {
+						const charge = el('label', 'nursery-charge');
+						charge.append(el('span', '', 'Cobrança'));
+						const inputWrap = el('span', 'nursery-charge-input');
+						const input = el('input');
+						input.type = 'number';
+						input.min = '0';
+						input.step = '1';
+						input.value = String(project.requestedPokecoins || 0);
+						input.setAttribute('aria-label', 'Cobrança em Pokécoins');
+						inputWrap.append(input, el('b', '', '₽'));
+						charge.append(inputWrap);
+						terms.append(charge);
+						const confirm = el('button', 'button primary', 'Confirmar');
+						confirm.addEventListener('click', () => action('confirm', {
+							projectId: project.id, requestedPokecoins: Number(input.value),
+						}));
+						terms.append(confirm);
+					} else {
+						const charge = el('span', 'nursery-charge-summary',
+							'Cobrança: ' + new Intl.NumberFormat('pt-BR').format(project.requestedPokecoins || 0) + ' ₽');
+						const confirm = el('button', 'button primary', 'Confirmar');
+						confirm.disabled = !slot2Confirmed;
+						confirm.title = slot2Confirmed ? '' : 'O Slot 2 precisa confirmar a cobrança primeiro';
+						confirm.addEventListener('click', () => action('confirm', {
+							projectId: project.id, requestedPokecoins: project.requestedPokecoins || 0,
+						}));
+						terms.append(charge, confirm);
+					}
+					card.append(terms);
 				}
 			}
 			if (project.status === 'breeding') {
@@ -625,7 +665,9 @@
 				project.slot2?.ownerId === view.ownerId) {
 				const withdraw = el('button', 'button nursery-cancel', 'Retirar Pokémon');
 				withdraw.addEventListener('click', () => action('withdraw-slot2', {projectId: project.id}));
-				card.append(withdraw);
+				const terms = card.querySelector('.nursery-terms');
+				if (terms) terms.prepend(withdraw);
+				else card.append(withdraw);
 			}
 			if (view.viewerRole === 'master' && project.slot1.participantType === 'npc' &&
 				['inviting', 'configuring', 'awaiting_confirmation', 'breeding'].includes(project.status)) {

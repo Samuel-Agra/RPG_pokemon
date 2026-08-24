@@ -571,7 +571,10 @@ export class RPGHttpServer {
 				)};
 				break;
 			case 'confirm':
-				result = {nursery: this.login.confirmNurseryProject(this.token(req), this.string(body.projectId))};
+				result = {nursery: this.login.confirmNurseryProject(
+					this.token(req), this.string(body.projectId),
+					body.requestedPokecoins === undefined ? undefined : Number(body.requestedPokecoins)
+				)};
 				break;
 			case 'cancel':
 				result = {nursery: this.login.cancelNurseryProject(this.token(req), this.string(body.projectId))};
