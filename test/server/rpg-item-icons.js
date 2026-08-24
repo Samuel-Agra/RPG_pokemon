@@ -32,6 +32,11 @@ describe('RPG item sprites', () => {
 		}
 	});
 
+	it('uses an original local sprite for Everstone because Showdown has none', () => {
+		assert.equal(Dex.items.get('everstone').spritenum, undefined);
+		assert.equal(getRPGItemIconPath('everstone').split('?')[0], './assets/item-icons/everstone.png');
+	});
+
 	it('uses Showdown sprites when available and original local sprites for the remaining treasures', () => {
 		const showdownTreasures = ['bignugget', 'rarebone', 'prettyfeather', 'bottlecap', 'goldbottlecap'];
 		for (const itemId of showdownTreasures) {
