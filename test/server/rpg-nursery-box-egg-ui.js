@@ -45,12 +45,13 @@ describe('RPG Egg presentation outside incubation', () => {
 		assert.match(nursery, /project\.slot2\?\.ownerId === view\.ownerId/);
 	});
 
-	it('keeps Slot 2 withdrawal, fee and confirmation in one action row', () => {
+	it('keeps cancellation, Slot 2 withdrawal, fee and confirmation in one action row', () => {
 		assert.match(nursery, /nursery-terms/);
 		assert.match(nursery, /Cobrança em Pokécoins/);
 		assert.match(nursery, /requestedPokecoins/);
 		assert.match(nursery, /confirm\.disabled = !slot2Confirmed/);
 		assert.match(nurseryCss, /nursery-charge-input/);
+		assert.match(nursery, /if \(terms\) terms\.prepend\(cancel\)/);
 		assert.match(nurseryCss, /nursery-terms \.nursery-cancel/);
 	});
 

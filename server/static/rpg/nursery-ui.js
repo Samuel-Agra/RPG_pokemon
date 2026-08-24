@@ -672,7 +672,9 @@
 				project.slot1.ownerId === view.ownerId) {
 				const cancel = el('button', 'button nursery-cancel', 'Cancelar');
 				cancel.addEventListener('click', () => action('cancel', {projectId: project.id}));
-				card.append(cancel);
+				const terms = card.querySelector('.nursery-terms');
+				if (terms) terms.prepend(cancel);
+				else card.append(cancel);
 			} else if (['configuring', 'awaiting_confirmation', 'breeding'].includes(project.status) &&
 				project.slot2?.ownerId === view.ownerId) {
 				const withdraw = el('button', 'button nursery-cancel', 'Retirar Pokémon');
