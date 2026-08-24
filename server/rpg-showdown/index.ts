@@ -678,6 +678,7 @@ export class RPGLoginService {
 							project.id, project.slot1, project.slot2, now, this.random
 						);
 						RPGIncubation.ensureEgg(project.egg);
+						this.consumeCompletedNurseryItems(project, recordsById, changedIds);
 						project.status = 'egg_ready';
 						project.parentCollected = Object.fromEntries(
 							[project.slot1, project.slot2]
@@ -2992,6 +2993,24 @@ export class RPGLoginService {
 			evs: {hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0}, ivs,
 			rpg: {version: RPG_STATE_VERSION, level, friendship: 50, item, captureBall: 'pokeball'},
 		};
+	}
+
+	private consumeCompletedNurseryItems(
+		project: RPGNurseryProject, recordsById: Map<string, RPGStoredCharacter>, changedIds: Set<string>
+	): void {
+		for (const parent of [project.slot1, project.slot2]) {
+			if (parent.item !== 'destinyknot') continue;
+			parent.item = '';
+			if (parent.participantType !== 'player') continue;
+			const owner = recordsById.get(parent.ownerId);
+			const entry = owner?.state.box.party.find(candidate => candidate.pokemonId === parent.pokemonId);
+			if (!owner || !entry || toID(entry.pokemon.item || entry.pokemon.rpg?.item || '') !== 'destinyknot') {
+				continue;
+			}
+			entry.pokemon.rpg.item = '';
+			RPGBoxManagement.setHeldItem(owner.state, parent.pokemonId, undefined, owner.state.box.revision);
+			changedIds.add(owner.state.id);
+		}
 	}
 
 	private nurseryParent(record: RPGStoredCharacter, pokemonId: string): RPGNurseryParent {

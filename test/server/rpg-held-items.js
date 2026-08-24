@@ -60,7 +60,7 @@ describe('RPG held item registry', () => {
 		assert.equal(RPGItems.require('normalgem').price.buy, 15000);
 		assert.deepEqual(
 			[RPGItems.require('destinyknot').price.buy, RPGItems.require('destinyknot').price.sell],
-			[20000, 5000]
+			[50000, 12500]
 		);
 		for (const id of ['powerweight', 'powerbracer', 'powerbelt', 'powerlens', 'powerband', 'poweranklet']) {
 			assert.deepEqual([RPGItems.require(id).price.buy, RPGItems.require(id).price.sell], [10000, 2500], id);

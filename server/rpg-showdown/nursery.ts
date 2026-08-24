@@ -154,7 +154,7 @@ export interface RPGNurseryMasterSlot2Input extends RPGNurseryMasterPokemonInput
 export const RPG_NURSERY_BREEDING_ITEMS = Object.freeze([
 	{id: '', name: 'Nenhum', description: 'Sem efeito adicional na procria\u00e7\u00e3o.'},
 	{id: 'everstone', name: 'Everstone', description: 'Permite que a Nature deste progenitor seja herdada.'},
-	{id: 'destinyknot', name: 'Destiny Knot', description: 'Faz os seis IVs deste progenitor serem herdados pelo filhote.'},
+	{id: 'destinyknot', name: 'Destiny Knot', description: 'Faz os seis IVs deste progenitor serem herdados e é consumido ao concluir a procriação.'},
 	{id: 'powerweight', name: 'Power Weight', description: 'Garante que o IV de HP deste progenitor seja herdado.'},
 	{id: 'powerbracer', name: 'Power Bracer', description: 'Garante que o IV de Attack deste progenitor seja herdado.'},
 	{id: 'powerbelt', name: 'Power Belt', description: 'Garante que o IV de Defense deste progenitor seja herdado.'},

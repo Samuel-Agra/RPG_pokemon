@@ -4,11 +4,11 @@ const assert = require('assert').strict;
 const {RPGLoginService, RPGMemoryCharacterRepository} = require('../../dist/server/rpg-showdown');
 
 const stats = value => ({hp: value, atk: value, def: value, spa: value, spd: value, spe: value});
-function set(species, gender, ability) {
+function set(species, gender, ability, item = '') {
 	return {
-		name: species, species, level: 50, gender, shiny: false, item: '',
+		name: species, species, level: 50, gender, shiny: false, item,
 		ability, nature: 'Hardy', moves: ['tackle'], evs: stats(0), ivs: stats(16),
-		rpg: {version: 1, level: 50, friendship: 50, item: '', captureBall: 'pokeball'},
+		rpg: {version: 1, level: 50, friendship: 50, item, captureBall: 'pokeball'},
 	};
 }
 function create(service, name) {
@@ -31,6 +31,7 @@ describe('RPG connected Nursery and Incubation flow', () => {
 			'powerweight', 'powerbracer', 'powerbelt', 'powerlens', 'powerband', 'poweranklet',
 		]);
 		assert.equal(view.shop.items.find(item => item.id === 'portableincubator').price, 50000);
+		assert.equal(view.shop.items.find(item => item.id === 'destinyknot').price, 50000);
 		view = service.purchaseNurseryItem(
 			player.token, undefined, 'portableincubator', 1, view.shop.bagRevision
 		);
@@ -45,6 +46,48 @@ describe('RPG connected Nursery and Incubation flow', () => {
 		assert.throws(() => service.purchaseNurseryItem(
 			player.token, undefined, 'everstone', 1, view.shop.bagRevision - 1
 		), /revision conflict/);
+	});
+
+	it('consumes each Player Destiny Knot only after breeding completes', () => {
+		let byte = 70;
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({
+			masterCode: '14081998', repository,
+			random: () => 0.5, randomBytes: size => Buffer.alloc(size, ++byte),
+		});
+		create(service, 'Samuel');
+		create(service, 'Marina');
+		const master = service.loginMaster('14081998');
+		service.replaceCharacterTeam(master.token, 'samuel', [
+			set('Gardevoir', 'F', 'Synchronize', 'Destiny Knot'),
+		]);
+		service.replaceCharacterTeam(master.token, 'marina', [
+			set('Gallade', 'M', 'Sharpness', 'Destiny Knot'),
+		]);
+		const samuel = service.loginPlayer('samuel', '1234');
+		const marina = service.loginPlayer('marina', '1234');
+		const samuelPokemon = service.getCharacter(samuel.token).box.party[0].pokemonId;
+		const marinaPokemon = service.getCharacter(marina.token).box.party[0].pokemonId;
+		let view = service.createNurseryProject(samuel.token, undefined, samuelPokemon);
+		const projectId = view.projects[0].id;
+		service.acceptNurseryInvitation(marina.token, projectId, marinaPokemon);
+		service.confirmNurseryProject(marina.token, projectId);
+		view = service.confirmNurseryProject(samuel.token, projectId);
+		assert.equal(view.projects[0].status, 'breeding');
+		assert.equal(service.getCharacter(samuel.token).box.party[0].pokemon.item, 'Destiny Knot');
+		assert.equal(service.getCharacter(marina.token).box.party[0].pokemon.item, 'Destiny Knot');
+
+		for (let i = 0; i < 3; i++) service.advanceCampaignTime(master.token, 8);
+		assert.equal(service.getNursery(samuel.token).projects[0].status, 'egg_ready');
+		for (const session of [samuel, marina]) {
+			const pokemon = service.getCharacter(session.token).box.party[0].pokemon;
+			assert.equal(pokemon.item, '');
+			assert.equal(pokemon.rpg.item, '');
+		}
+		const revisions = [samuel, marina].map(session => service.getBox(session.token).revision);
+		service.advanceCampaignTime(master.token, 1);
+		assert.deepEqual([samuel, marina].map(session => service.getBox(session.token).revision), revisions,
+			'o Destiny Knot não pode ser consumido novamente');
 	});
 
 	it('migrates the old local slot and removes a persisted ghost Egg reference', () => {

@@ -726,7 +726,7 @@ const questOnlyHeldItemIds = new Set([
 export const RPG_HELD_ITEM_BALANCED_PRICES: Readonly<Record<string, RPGItemPrice>> = Object.freeze({
 	...Object.fromEntries(generalHeldItemNames.map(name => [heldItemId(name), balancedPrice(10000, 2500)])),
 	...Object.fromEntries(breedingItemNames.map(name => [heldItemId(name), balancedPrice(10000, 2500)])),
-	destinyknot: balancedPrice(20000, 5000),
+	destinyknot: balancedPrice(50000, 12500),
 	...Object.fromEntries(legacyHeldItemNames.map(name => [heldItemId(name), balancedPrice(10000, 2500)])),
 	...Object.fromEntries(currentBerryNames.map(name => {
 		const id = heldItemId(name);
