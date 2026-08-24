@@ -63,6 +63,8 @@ describe('RPG Egg presentation outside incubation', () => {
 		assert.match(nursery, /expectedBagRevision: view\.shop\.bagRevision/);
 		assert.match(nurseryCss, /nursery-rescue-board\.empty/);
 		assert.match(nurseryCss, /nursery-shop-grid/);
+		assert.match(nurseryCss, /nursery-shop-grid\{grid-template-columns:1fr/);
+		assert.match(nurseryCss, /nursery-shop-buy\{grid-column:3/);
 	});
 
 	it('lets only the Master configure a compatible system partner in Slot 2', () => {
