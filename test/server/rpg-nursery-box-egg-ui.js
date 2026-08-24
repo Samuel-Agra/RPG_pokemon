@@ -55,6 +55,16 @@ describe('RPG Egg presentation outside incubation', () => {
 		assert.match(nurseryCss, /nursery-terms \.nursery-cancel/);
 	});
 
+	it('keeps the empty rescue area compact and renders the Nursery shop below it', () => {
+		assert.doesNotMatch(nursery, /Nenhum Pokémon aguardando resgate/);
+		assert.match(nursery, /nursery-rescue-board' \+\s*\(!rescueEntries\.length \? ' empty'/);
+		assert.match(nursery, /Loja do Berçário/);
+		assert.match(nursery, /shop-buy/);
+		assert.match(nursery, /expectedBagRevision: view\.shop\.bagRevision/);
+		assert.match(nurseryCss, /nursery-rescue-board\.empty/);
+		assert.match(nurseryCss, /nursery-shop-grid/);
+	});
+
 	it('lets only the Master configure a compatible system partner in Slot 2', () => {
 		assert.match(nursery, /masterSlot1Options/);
 		assert.match(nursery, /openMasterSlot1Menu/);

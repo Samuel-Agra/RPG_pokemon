@@ -12,23 +12,23 @@ const FORBIDDEN_REQUEST_ITEMS = [
 ];
 
 describe('RPG held item registry', () => {
-	it('registers the 175 allowed current held items from the requested lists', () => {
+	it('registers the 176 allowed current held items from the requested lists', () => {
 		const dex = Dex.mod('gen9');
 		const held = RPGItems.list('held');
 		const currentHeld = held.filter(item =>
 			!item.tags?.includes('megastone') && !item.tags?.includes('legacy')
 		);
-		assert.equal(currentHeld.length, 175);
-		assert.equal(held.length, 244);
+		assert.equal(currentHeld.length, 176);
+		assert.equal(held.length, 245);
 		assert.equal(held.filter(item => item.tags?.includes('megastone')).length, 47);
 		assert.equal(held.filter(item => item.tags?.includes('berry')).length, 47);
 		assert.deepEqual(held.filter(item => item.tags?.includes('gem')).map(item => item.id), ['normalgem']);
 		assert.deepEqual(held.filter(item => item.tags?.includes('breeding')).map(item => item.id).sort(), [
-			'destinyknot',
+			'destinyknot', 'everstone',
 			'poweranklet', 'powerband', 'powerbelt', 'powerbracer', 'powerlens', 'powerweight',
 		].sort());
 		for (const item of held) {
-			assert(dex.items.get(item.id).exists, item.name);
+			if (item.source === 'showdown') assert(dex.items.get(item.id).exists, item.name);
 			assert.equal(item.usableInBattle, false);
 			assert.equal(item.effect.type, 'equip-held-item');
 			assert(!RPG_EXCLUDED_IV_EV_ITEM_IDS.has(item.id), item.name);

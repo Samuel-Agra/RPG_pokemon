@@ -280,6 +280,7 @@ Zoom Lens
 `.trim().split('\n');
 
 const breedingItemNames = `
+Everstone
 Destiny Knot
 Power Weight
 Power Bracer
@@ -420,7 +421,7 @@ const heldItems: RPGItemDefinition[] = [
 	})),
 	...breedingItemNames.map(name => ({
 		id: heldItemId(name), name, category: 'held' as const, stackLimit: 99,
-		usableInBattle: false, consumedOnUse: false, source: 'showdown' as const,
+		usableInBattle: false, consumedOnUse: false, source: (name === 'Everstone' ? 'rpg' : 'showdown') as 'rpg' | 'showdown',
 		effect: { type: 'equip-held-item' }, tags: ['held', 'breeding'],
 	})),
 	...currentBerryNames.map(name => ({

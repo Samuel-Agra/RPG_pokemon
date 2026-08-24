@@ -1,5 +1,7 @@
 (function () {
 	'use strict';
+	/* global rpgRuntimeItemIcon */
+
 	let currentTab = 'breeding';
 
 	const el = (tag, className, text) => {
@@ -736,7 +738,8 @@
 					if (parents.length) rescueEntries.push({project, ownerId, parents});
 				}
 			}
-			const rescueBoard = el('section', 'nursery-shared-board nursery-rescue-board');
+			const rescueBoard = el('section', 'nursery-shared-board nursery-rescue-board' +
+				(!rescueEntries.length ? ' empty' : ''));
 			const rescueHead = el('header', 'nursery-shared-board-head nursery-rescue-head');
 			rescueHead.append(
 				el('div', '', ''),
@@ -745,10 +748,7 @@
 					(rescueEntries.length === 1 ? ' resgate pendente' : ' resgates pendentes'))
 			);
 			rescueBoard.append(rescueHead);
-			if (!rescueEntries.length) {
-				rescueBoard.append(el('div', 'nursery-empty nursery-board-empty',
-					'Nenhum Pokémon aguardando resgate.'));
-			} else {
+			if (rescueEntries.length) {
 				const rescueStack = el('div', 'nursery-rescue-stack');
 				for (const entry of rescueEntries) {
 					const rescueCard = el('article', 'nursery-rescue-card');
@@ -771,6 +771,42 @@
 				rescueBoard.append(rescueStack);
 			}
 			page.append(rescueBoard);
+			if (view.shop) {
+				const shop = el('section', 'nursery-shop');
+				const shopHead = el('header', 'nursery-shop-head');
+				const shopTitle = el('div');
+				shopTitle.append(el('span', 'nursery-eyebrow', 'ITENS PARA PROCRIAÇÃO'));
+				shopTitle.append(el('h2', '', 'Loja do Berçário'));
+				shopHead.append(shopTitle, el('strong', 'nursery-shop-money',
+					new Intl.NumberFormat('pt-BR').format(view.shop.money) + ' ₽'));
+				const grid = el('div', 'nursery-shop-grid');
+				for (const item of view.shop.items) {
+					const card = el('article', 'nursery-shop-item');
+					const icon = el('span', 'nursery-shop-icon');
+					const glyph = typeof rpgRuntimeItemIcon === 'function' ? rpgRuntimeItemIcon(item) : null;
+					if (glyph) {
+						glyph.classList.add('nursery-shop-glyph');
+						icon.append(glyph);
+					} else {
+						icon.classList.add('fallback');
+						icon.textContent = '◆';
+					}
+					const copy = el('div', 'nursery-shop-copy');
+					const name = el('div', 'nursery-shop-name');
+					name.append(el('strong', '', item.name), el('span', '', 'Na Bag: ×' + item.quantity));
+					copy.append(name, el('p', '', item.description));
+					const buy = el('button', 'button primary nursery-shop-buy', 'Comprar · ' +
+						new Intl.NumberFormat('pt-BR').format(item.price) + ' ₽');
+					buy.disabled = view.shop.money < item.price;
+					buy.addEventListener('click', () => action('shop-buy', {
+						itemId: item.id, quantity: 1, expectedBagRevision: view.shop.bagRevision,
+					}));
+					card.append(icon, copy, buy);
+					grid.append(card);
+				}
+				shop.append(shopHead, grid);
+				page.append(shop);
+			}
 			return page;
 		}
 		function localChamber(incubator) {

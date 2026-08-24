@@ -524,7 +524,7 @@ export class RPGHttpServer {
 			return;
 		}
 		const nurseryAction = new RegExp(
-			'^/api/rpg/nursery/(create|master-slot1|accept|master-slot2|master-cancel|withdraw-slot2|confirm|cancel|collect-parent|collect|collect-local|insert|remove|portable-start|portable-stop|restore-released|delete-released|hatch)$'
+			'^/api/rpg/nursery/(create|master-slot1|accept|master-slot2|master-cancel|withdraw-slot2|confirm|cancel|collect-parent|collect|collect-local|insert|remove|portable-start|portable-stop|restore-released|delete-released|shop-buy|hatch)$'
 		).exec(url.pathname);
 		if (method === 'POST' && nurseryAction) {
 			const body = await this.body(req);
@@ -617,6 +617,12 @@ export class RPGHttpServer {
 				result = this.login.deleteReleasedNurseryPokemon(
 					this.token(req), this.string(body.releasedId)
 				);
+				break;
+			case 'shop-buy':
+				result = {nursery: this.login.purchaseNurseryItem(
+					this.token(req), characterId, this.string(body.itemId),
+					Number(body.quantity), Number(body.expectedBagRevision)
+				)};
 				break;
 			default:
 				result = this.login.hatchNurseryEgg(this.token(req), this.string(body.eggId));

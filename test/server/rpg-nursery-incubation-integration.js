@@ -18,6 +18,35 @@ function create(service, name) {
 	});
 }
 describe('RPG connected Nursery and Incubation flow', () => {
+	it('sells only Nursery items using Pokécoins, Bag revision and capacity rules', () => {
+		const service = new RPGLoginService({
+			masterCode: '14081998', repository: new RPGMemoryCharacterRepository(),
+			random: () => 0.5, randomBytes: size => Buffer.alloc(size, 2),
+		});
+		create(service, 'Samuel');
+		const player = service.loginPlayer('samuel', '1234');
+		let view = service.getNursery(player.token);
+		assert.deepEqual(view.shop.items.map(item => item.id), [
+			'portableincubator', 'everstone', 'destinyknot',
+			'powerweight', 'powerbracer', 'powerbelt', 'powerlens', 'powerband', 'poweranklet',
+		]);
+		assert.equal(view.shop.items.find(item => item.id === 'portableincubator').price, 50000);
+		view = service.purchaseNurseryItem(
+			player.token, undefined, 'portableincubator', 1, view.shop.bagRevision
+		);
+		assert.equal(view.shop.money, 50000);
+		assert.equal(view.shop.items.find(item => item.id === 'portableincubator').quantity, 1);
+		view = service.purchaseNurseryItem(player.token, undefined, 'powerlens', 1, view.shop.bagRevision);
+		assert.equal(view.shop.money, 40000);
+		assert.equal(view.shop.items.find(item => item.id === 'powerlens').quantity, 1);
+		assert.throws(() => service.purchaseNurseryItem(
+			player.token, undefined, 'pokeball', 1, view.shop.bagRevision
+		), /não é vendido/);
+		assert.throws(() => service.purchaseNurseryItem(
+			player.token, undefined, 'everstone', 1, view.shop.bagRevision - 1
+		), /revision conflict/);
+	});
+
 	it('migrates the old local slot and removes a persisted ghost Egg reference', () => {
 		const repository = new RPGMemoryCharacterRepository();
 		const service = new RPGLoginService({

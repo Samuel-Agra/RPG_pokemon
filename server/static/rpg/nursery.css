@@ -67,6 +67,7 @@ img.nursery-egg{object-fit:contain;image-rendering:pixelated;border:0;border-rad
 .nursery-master-slot-preview{display:flex;align-items:center;gap:14px;min-height:82px;margin-bottom:12px;padding:8px 14px;border:1px solid #c3ccd8;border-radius:7px;background:#e8edf4}
 .nursery-master-slot-sprite{width:72px;height:72px;object-fit:contain;image-rendering:pixelated}.nursery-master-slot-preview strong,.nursery-master-slot-preview span{display:block}.nursery-master-slot-preview strong{font-size:19px}.nursery-master-slot-preview span{margin-top:3px;color:#66758a}
 .nursery-master-main-fields{display:grid;grid-template-columns:minmax(0,1fr) 105px;gap:10px}.nursery-master-field{display:grid;gap:5px;margin:0 0 12px}.nursery-master-field>span{font-weight:700}
+.nursery-rescue-board.empty{overflow:visible;border:0;background:transparent;box-shadow:none}.nursery-rescue-board.empty .nursery-shared-board-head{border:1px solid #aeb9c8;border-radius:8px;box-shadow:0 2px 7px #1c2d4820}
 .nursery-master-field .textbox{box-sizing:border-box;width:100%;height:38px;padding:6px 9px}
 .nursery-master-ivs{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;margin:0 0 12px;padding:10px;border:1px solid #c3ccd8;border-radius:7px}.nursery-master-ivs legend{padding:0 6px;font-weight:700}.nursery-master-ivs .nursery-master-field{margin:0}.nursery-master-ivs .textbox{text-align:center}
 .nursery-master-item-description{min-height:18px;color:#66758a}.nursery-master-slot-actions{display:flex;justify-content:flex-end;gap:9px;margin-top:4px}.nursery-master-slot-actions .button{min-width:150px}
@@ -74,6 +75,8 @@ img.nursery-egg{object-fit:contain;image-rendering:pixelated;border:0;border-rad
 
 
 .nursery-master-tools{display:flex;align-items:center;justify-content:space-between;gap:14px;margin:12px 0;padding:12px 14px;border:1px solid #aeb9c8;border-radius:7px;background:linear-gradient(120deg,#eef2f7,#dde6f1)}
+
+.nursery-shop{overflow:hidden;border:1px solid #aeb9c8;border-radius:8px;background:#f7f8fa;box-shadow:0 2px 7px #1c2d4820}.nursery-shop-head{display:flex;align-items:center;justify-content:space-between;gap:18px;padding:15px 18px;background:linear-gradient(120deg,#405a84,#293f64);color:#fff}.nursery-shop-head h2{margin:3px 0 0;font:700 23px Georgia,serif}.nursery-shop-money{padding:6px 11px;border:1px solid #ffffff55;border-radius:999px;background:#ffffff16}.nursery-shop-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px;padding:14px}.nursery-shop-item{display:grid;grid-template-columns:58px minmax(0,1fr);gap:10px;padding:11px;border:1px solid #bbc5d2;border-radius:7px;background:linear-gradient(135deg,#fff,#edf1f6)}.nursery-shop-icon{grid-row:1/3;align-self:center;width:54px;height:54px;object-fit:contain;image-rendering:pixelated}.nursery-shop-copy{min-width:0}.nursery-shop-name{display:flex;align-items:center;justify-content:space-between;gap:8px}.nursery-shop-name strong{font-size:16px}.nursery-shop-name span{color:#61718a;font-size:11px;font-weight:800;white-space:nowrap}.nursery-shop-copy p{margin:5px 0 0;color:#5b6b82;font-size:12px;line-height:1.3}.nursery-shop-buy{grid-column:2;width:100%;margin-top:2px}.nursery-shop-buy:disabled{cursor:not-allowed;opacity:.55}@media(max-width:780px){.nursery-shop-grid{grid-template-columns:1fr}}@media(max-width:480px){.nursery-shop-head{align-items:flex-start;flex-direction:column}.nursery-shop-item{grid-template-columns:48px minmax(0,1fr)}.nursery-shop-icon{width:44px;height:44px}}
 .nursery-master-tools .nursery-master-note{margin:0;padding:0;border:0;background:transparent}.nursery-master-tools .button{flex:0 0 auto;min-width:230px}
 
 .nursery-master-pokemon-autocomplete{position:relative}
@@ -91,6 +94,8 @@ img.nursery-egg{object-fit:contain;image-rendering:pixelated;border:0;border-rad
 .nursery-released-head>div{background:linear-gradient(#b68a68,#805639)}
 .nursery-released-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px;padding:14px}
 .nursery-released-card{display:grid;grid-template-columns:86px minmax(0,1fr);align-items:center;gap:12px;padding:13px;border:1px solid #bdc6d1;border-radius:8px;background:linear-gradient(135deg,#fff,#edf1f5);box-shadow:0 2px 6px #263b5d18}
+
+.nursery-shop-icon{display:grid;place-items:center;color:#71829a;font-size:24px}.nursery-shop-glyph{transform:scale(1.5);image-rendering:pixelated}
 .nursery-released-sprite{grid-row:1/3;width:82px;height:82px;object-fit:contain;image-rendering:pixelated}
 .nursery-released-copy{display:grid;gap:3px;min-width:0}.nursery-released-copy strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font:700 19px Georgia,serif}.nursery-released-copy span,.nursery-released-copy small{color:#60708a}
 .nursery-released-actions{grid-column:2;display:flex;gap:8px}.nursery-released-actions .button{flex:1}.nursery-released-actions .danger{color:#8d2924}

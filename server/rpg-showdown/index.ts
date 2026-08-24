@@ -18,6 +18,7 @@ import {
 	getSpeciesExperience,
 	RPGBagSystem,
 	RPGBoxSystem,
+	RPGShopSystem,
 	RPGInventorySystem,
 	RPGItemUseSystem,
 	RPGItems,
@@ -96,6 +97,10 @@ export const RPG_SESSION_VERSION = 1;
 export const RPG_DEFAULT_SESSION_TTL = 24 * 60 * 60 * 1000;
 export const RPG_NURSERY_BREEDING_BASE_FEE = 5_000;
 export const RPG_NURSERY_LOCAL_INCUBATION_FEE = 5_000;
+const RPG_NURSERY_SHOP_ITEM_IDS = Object.freeze([
+	'portableincubator', 'everstone', 'destinyknot',
+	'powerweight', 'powerbracer', 'powerbelt', 'powerlens', 'powerband', 'poweranklet',
+] as const);
 
 export const RPG_DELETE_CHALLENGE_TTL = 2 * 60 * 1000;
 const RPG_DELETE_WORDS = [
@@ -874,6 +879,45 @@ export class RPGLoginService {
 		const before = JSON.stringify(record.state.nursery || null);
 		this.ensureNursery(record);
 		if (JSON.stringify(record.state.nursery || null) !== before) this.persistNurseryRecord(record);
+		return this.nurseryView(record);
+	}
+
+	purchaseNurseryItem(
+		token: string, characterId: string | undefined, itemId: string,
+		quantity: number, expectedBagRevision: number
+	) {
+		const record = this.requireBagRecord(token, characterId, 'bag:edit', true);
+		this.requireNurseryAccess(token, record);
+		const id = toID(itemId);
+		if (!(RPG_NURSERY_SHOP_ITEM_IDS as readonly string[]).includes(id)) {
+			throw new Error('Este item não é vendido no Berçário');
+		}
+		if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > 99) {
+			throw new Error('Quantidade de compra inválida');
+		}
+		const inventory = RPGInventorySystem.migrate(record.state.inventory);
+		if (inventory.bag.revision !== expectedBagRevision) throw new Error('RPG Bag revision conflict');
+		const offers = RPG_NURSERY_SHOP_ITEM_IDS.map(offerId => {
+			const item = RPGItems.require(offerId);
+			if (item.price?.buy === undefined) throw new Error('Item do Berçário sem preço de compra: ' + item.name);
+			return {itemId: item.id, buyPrice: item.price.buy};
+		});
+		const catalog = RPGShopSystem.createCatalog('nursery-shop', offers, {bagUpgrades: []});
+		const account = RPGShopSystem.createAccount(record.state.id, record.state.money, inventory.bag);
+		const purchase = RPGShopSystem.buy(account, catalog, {
+			actionId: 'nursery-shop:' + this.bytes(18).toString('base64url'), itemId: id, quantity,
+		}, {account: account.revision, bag: expectedBagRevision, catalog: catalog.revision});
+		const capacity = RPGBagSystem.getCapacity(purchase.account.bag);
+		const reservedEggSlots = this.activeEggs(record).length * 5;
+		if (capacity.maxSlots !== undefined && capacity.usedSlots + reservedEggSlots > capacity.maxSlots) {
+			throw new Error('A Bag não possui espaço para este item');
+		}
+		const working = structuredClone(record.state);
+		working.inventory = RPGInventorySystem.migrate(working.inventory);
+		working.inventory.bag = purchase.account.bag;
+		working.money = purchase.account.balance;
+		record.state = working;
+		this.persistBoxRecord(record);
 		return this.nurseryView(record);
 	}
 
@@ -2851,6 +2895,23 @@ export class RPGLoginService {
 				shiny: !!value.entry.pokemon.shiny,
 			}));
 		});
+		const nurseryShop = record ? {
+			money: record.state.money,
+			bagRevision: inventory!.bag.revision,
+			items: RPG_NURSERY_SHOP_ITEM_IDS.map(itemId => {
+				const item = RPGItems.require(itemId);
+				const breeding = RPG_NURSERY_BREEDING_ITEMS.find(entry => entry.id === item.id);
+				return {
+					id: item.id, name: item.name,
+					description: breeding?.description || item.effect?.description || '',
+					price: item.price!.buy!,
+					quantity: RPGBagSystem.getRegularQuantity(inventory!.bag, item.id),
+					icon: getRPGItemIconPath(item.id),
+					sprite: Number.isInteger(Dex.items.get(item.id).spritenum) ?
+						Dex.items.get(item.id).spritenum! : null,
+				};
+			}),
+		} : undefined;
 		return {
 			version: 2,
 			shared: true,
@@ -2881,6 +2942,7 @@ export class RPGLoginService {
 				egg: incubator.eggId ? eggs.find(egg => egg.eggId === incubator.eggId) : undefined,
 			})) : [],
 			breedingItems: RPG_NURSERY_BREEDING_ITEMS.map(item => ({...item})),
+			...(nurseryShop ? {shop: nurseryShop} : {}),
 			masterSlot1Options: record ? [] : RPGNurseryGenetics.masterParentOptions(),
 			portableIncubators: {
 				total: portableTotal, inUse: portableInUse, available: Math.max(0, portableTotal - portableInUse),
