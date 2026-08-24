@@ -606,9 +606,11 @@
 				card.append(confirms);
 				if (confirmsSlot1 || confirmsSlot2) {
 					const terms = el('div', 'nursery-terms');
+					const baseFee = Number(view.fees?.breedingBase || 5000);
+					const formatter = new Intl.NumberFormat('pt-BR');
 					if (confirmsSlot2) {
 						const charge = el('label', 'nursery-charge');
-						charge.append(el('span', '', 'Cobrança'));
+						charge.append(el('span', '', 'Cobrança adicional'));
 						const inputWrap = el('span', 'nursery-charge-input');
 						const input = el('input');
 						input.type = 'number';
@@ -619,14 +621,24 @@
 						inputWrap.append(input, el('b', '', '₽'));
 						charge.append(inputWrap);
 						terms.append(charge);
+						const total = el('span', 'nursery-charge-summary');
+						const updateTotal = () => {
+							total.textContent = 'Total do Slot 1: ' +
+								formatter.format(baseFee + Math.max(0, Number(input.value) || 0)) + ' ₽';
+						};
+						input.addEventListener('input', updateTotal);
+						updateTotal();
+						terms.append(total);
 						const confirm = el('button', 'button primary', 'Confirmar');
 						confirm.addEventListener('click', () => action('confirm', {
 							projectId: project.id, requestedPokecoins: Number(input.value),
 						}));
 						terms.append(confirm);
 					} else {
+						const requested = Number(project.requestedPokecoins || 0);
 						const charge = el('span', 'nursery-charge-summary',
-							'Cobrança: ' + new Intl.NumberFormat('pt-BR').format(project.requestedPokecoins || 0) + ' ₽');
+							'Total: ' + formatter.format(baseFee + requested) + ' ₽ · ' +
+							'Berçário ' + formatter.format(baseFee) + ' ₽ + Slot 2 ' + formatter.format(requested) + ' ₽');
 						const confirm = el('button', 'button primary', 'Confirmar');
 						confirm.disabled = !slot2Confirmed;
 						confirm.title = slot2Confirmed ? '' : 'O Slot 2 precisa confirmar a cobrança primeiro';
@@ -829,7 +841,9 @@
 				const actions = el('div', 'nursery-produced-actions');
 				const collect = el('button', 'button primary', 'Pegar o ovo');
 				collect.addEventListener('click', () => action('collect', {projectId: project.id}));
-				const deposit = el('button', 'button', 'Colocar na incubadora local');
+				const localFee = Number(view.fees?.localIncubation || 5000);
+				const deposit = el('button', 'button', 'Incubadora local · ' +
+					new Intl.NumberFormat('pt-BR').format(localFee) + ' ₽');
 				deposit.disabled = !emptyLocal;
 				deposit.title = emptyLocal ? '' : 'A incubadora local está ocupada';
 				deposit.addEventListener('click', () => action('collect-local', {
@@ -869,11 +883,7 @@
 								'É necessária uma vaga realmente livre na equipe para resgatar este Pokémon' : '';
 							hatch.addEventListener('click', () => action('hatch', {eggId: egg.eggId}));
 							control.append(hatch);
-						} else {
-							const remove = el('button', 'button', 'Pegar Egg e pausar');
-							remove.addEventListener('click', () => action('remove', {eggId: egg.eggId}));
-							control.append(remove);
-						}
+							}
 					}
 					controls.append(control);
 				}
@@ -906,7 +916,9 @@
 						stop.addEventListener('click', () => action('portable-stop', {eggId: egg.eggId}));
 						commands.append(stop);
 					} else {
-						const deposit = el('button', 'button primary', 'Depositar Egg');
+						const localFee = Number(view.fees?.localIncubation || 5000);
+						const deposit = el('button', 'button primary', 'Depositar Egg · ' +
+							new Intl.NumberFormat('pt-BR').format(localFee) + ' ₽');
 						deposit.disabled = !emptyLocal;
 						deposit.title = emptyLocal ? 'Depositar na primeira vaga local disponível' :
 							'As nove vagas das incubadoras locais estão ocupadas';

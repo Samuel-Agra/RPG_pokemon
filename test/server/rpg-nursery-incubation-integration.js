@@ -14,7 +14,7 @@ function set(species, gender, ability) {
 function create(service, name) {
 	service.createCharacter({
 		characterName: name, playerName: name, avatar: 'lucas', password: '1234',
-		initialMoney: 3000, starter: {species: 'Squirtle', gender: 'M'},
+		initialMoney: 100000, starter: {species: 'Squirtle', gender: 'M'},
 	});
 }
 describe('RPG connected Nursery and Incubation flow', () => {
@@ -107,14 +107,22 @@ describe('RPG connected Nursery and Incubation flow', () => {
 		let project = view.projects.find(entry => entry.id === projectId);
 		assert.equal(project.status, 'awaiting_confirmation');
 		assert.equal(project.requestedPokecoins, 1250);
-		assert.equal(repository.get('samuel').state.money, 3000);
-		assert.equal(repository.get('marina').state.money, 3000);
+		assert.equal(repository.get('samuel').state.money, 100000);
+		assert.equal(repository.get('marina').state.money, 100000);
 
+		const poorPayer = repository.get('samuel');
+		poorPayer.state.money = 6000;
+		repository.set(poorPayer);
+		assert.throws(() => service.confirmNurseryProject(samuel.token, projectId), /não possui 6.250 Pokécoins/);
+		assert.equal(repository.get('samuel').state.money, 6000);
+		const fundedPayer = repository.get('samuel');
+		fundedPayer.state.money = 100000;
+		repository.set(fundedPayer);
 		view = service.confirmNurseryProject(samuel.token, projectId);
 		project = view.projects.find(entry => entry.id === projectId);
 		assert.equal(project.status, 'breeding');
-		assert.equal(repository.get('samuel').state.money, 1750);
-		assert.equal(repository.get('marina').state.money, 4250);
+		assert.equal(repository.get('samuel').state.money, 93750, 'paga 5.000 ao Berçário e 1.250 ao Slot 2');
+		assert.equal(repository.get('marina').state.money, 101250, 'recebe somente a cobrança adicional');
 		assert.throws(() => service.confirmNurseryProject(samuel.token, projectId), /aguardando confirmação/);
 	});
 
@@ -144,6 +152,7 @@ describe('RPG connected Nursery and Incubation flow', () => {
 		project = view.projects.find(entry => entry.id === projectId);
 		assert.equal(project.status, 'breeding');
 		assert.deepEqual(project.slotConfirmations, {slot1: true, slot2: true});
+		assert.equal(service.getCharacter(samuel.token).money, 95000, 'a cobrança própria se anula, mas a taxa permanece');
 	});
 
 	it('lets the Master open an NPC Slot 1 request for a Player partner', () => {
@@ -191,7 +200,7 @@ describe('RPG connected Nursery and Incubation flow', () => {
 
 		view = service.confirmNurseryProject(marina.token, project.id, 400);
 		assert.equal(view.projects.find(entry => entry.id === project.id).status, 'breeding');
-		assert.equal(service.getCharacter(marina.token).money, 3400);
+		assert.equal(service.getCharacter(marina.token).money, 100400);
 		let completed;
 		for (let i = 0; i < 10; i++) {
 			service.advanceCampaignTime(master.token, 8);
@@ -347,8 +356,9 @@ describe('RPG connected Nursery and Incubation flow', () => {
 
 	it('moves one persistent Egg from breeding through hatching', () => {
 		let byte = 0;
+		const repository = new RPGMemoryCharacterRepository();
 		const service = new RPGLoginService({
-			masterCode: '14081998', repository: new RPGMemoryCharacterRepository(),
+			masterCode: '14081998', repository,
 			random: () => 0.5, randomBytes: size => Buffer.alloc(size, ++byte),
 		});
 		create(service, 'Samuel');
@@ -433,13 +443,20 @@ describe('RPG connected Nursery and Incubation flow', () => {
 			[3, 3, 3], 'as vagas são organizadas em três incubadoras com três espaços');
 		assert.deepEqual(view.incubators.slice(0, 3).map(incubator => incubator.slot), [1, 2, 3]);
 		const incubatorId = view.incubators[0].id;
+		const moneyBeforeLocalIncubation = service.getCharacter(samuel.token).money;
+		const poorIncubatorOwner = repository.get('samuel');
+		poorIncubatorOwner.state.money = 4999;
+		repository.set(poorIncubatorOwner);
+		assert.throws(() => service.insertNurseryEgg(samuel.token, eggId, incubatorId), /5.000 Pokécoins/);
+		assert.equal(service.getNursery(samuel.token).eggs.find(egg => egg.eggId === eggId).status, 'carried');
+		const fundedIncubatorOwner = repository.get('samuel');
+		fundedIncubatorOwner.state.money = moneyBeforeLocalIncubation;
+		repository.set(fundedIncubatorOwner);
 		view = service.insertNurseryEgg(samuel.token, eggId, incubatorId);
 		assert.equal(view.incubators[0].egg.status, 'incubating');
-		view = service.removeNurseryEgg(samuel.token, eggId);
-		assert.equal(view.incubators[0].egg, undefined, 'retirar o Egg limpa imediatamente a vaga local');
-		assert.equal(view.eggs.find(egg => egg.eggId === eggId).status, 'carried');
-		view = service.insertNurseryEgg(samuel.token, eggId, incubatorId);
-		assert.equal(view.incubators[0].egg.status, 'incubating');
+		assert.equal(service.getCharacter(samuel.token).money, moneyBeforeLocalIncubation - 5000);
+		assert.throws(() => service.removeNurseryEgg(samuel.token, eggId), /só pode sair.*quando estiver pronto/);
+		assert.equal(service.getNursery(samuel.token).incubators[0].egg.status, 'incubating');
 		assert.equal(view.capacity.teamUsed, 1, 'a incubadora local libera a vaga reservada na equipe');
 		assert.equal(view.capacity.bagUsedSlots, bagSlotsBeforeEgg, 'a incubadora local libera os cinco espaços da Bag');
 		assert.deepEqual(service.getCharacter(samuel.token).teamEggs, []);
@@ -472,9 +489,12 @@ describe('RPG connected Nursery and Incubation flow', () => {
 		for (let i = 0; i < 3; i++) service.advanceCampaignTime(master.token, 8);
 		view = service.getNursery(samuel.token);
 		assert.equal(view.projects.find(project => project.id === secondProject.id).status, 'egg_ready');
+		const moneyBeforeDirectIncubation = service.getCharacter(samuel.token).money;
+
 		view = service.collectNurseryEggToLocal(samuel.token, secondProject.id, view.incubators[0].id);
 		assert.equal(view.incubators[0].egg.status, 'incubating');
 		assert.equal(view.capacity.teamUsed, 2);
+		assert.equal(service.getCharacter(samuel.token).money, moneyBeforeDirectIncubation - 5000);
 		assert.equal(view.capacity.bagUsedSlots, bagSlotsBeforeEgg);
 		for (let i = 0; i < 9; i++) service.advanceCampaignTime(master.token, 8);
 		view = service.getNursery(samuel.token);

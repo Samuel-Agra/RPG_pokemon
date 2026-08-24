@@ -94,6 +94,8 @@ export * from './fossil-lab';
 export const RPG_ACCOUNT_VERSION = 3;
 export const RPG_SESSION_VERSION = 1;
 export const RPG_DEFAULT_SESSION_TTL = 24 * 60 * 60 * 1000;
+export const RPG_NURSERY_BREEDING_BASE_FEE = 5_000;
+export const RPG_NURSERY_LOCAL_INCUBATION_FEE = 5_000;
 
 export const RPG_DELETE_CHALLENGE_TTL = 2 * 60 * 1000;
 const RPG_DELETE_WORDS = [
@@ -1088,7 +1090,8 @@ export class RPGLoginService {
 		}
 		if (confirmsSlot2) {
 			const requested = requestedPokecoins ?? project.requestedPokecoins ?? 0;
-			if (!Number.isSafeInteger(requested) || requested < 0) {
+			if (!Number.isSafeInteger(requested) || requested < 0 ||
+				!Number.isSafeInteger(RPG_NURSERY_BREEDING_BASE_FEE + requested)) {
 				throw new Error('A cobrança deve ser um valor inteiro e não negativo de Pokécoins');
 			}
 			project.requestedPokecoins = requested;
@@ -1115,7 +1118,8 @@ export class RPGLoginService {
 			return this.nurseryView(actor);
 		}
 
-		const fee = project.requestedPokecoins ?? 0;
+		const requestedFee = project.requestedPokecoins ?? 0;
+		const totalFee = RPG_NURSERY_BREEDING_BASE_FEE + requestedFee;
 		const records = new Map<string, RPGStoredCharacter>([[found.record.state.id, found.record]]);
 		const recordFor = (ownerId: string) => {
 			let record = records.get(ownerId);
@@ -1127,18 +1131,18 @@ export class RPGLoginService {
 		};
 		const payer = project.slot1.participantType === 'player' ? recordFor(project.slot1.ownerId) : undefined;
 		const receiver = project.slot2.participantType === 'player' ? recordFor(project.slot2.ownerId) : undefined;
-		if (payer && payer.state.id !== receiver?.state.id && payer.state.money < fee) {
-			throw new Error(`${payer.state.characterName} não possui ${fee.toLocaleString('pt-BR')} Pokécoins para a cobrança`);
+		if (payer && payer.state.money < totalFee) {
+			throw new Error(`${payer.state.characterName} não possui ${totalFee.toLocaleString('pt-BR')} Pokécoins para a procriação`);
 		}
-		if (receiver && payer?.state.id !== receiver.state.id && !Number.isSafeInteger(receiver.state.money + fee)) {
+		if (receiver && !Number.isSafeInteger(receiver.state.money + requestedFee)) {
 			throw new Error('A cobrança tornaria o saldo do Slot 2 inválido');
 		}
 
 		const originals = new Map([...records].map(([id, record]) => [
 			id, id === found.record.state.id ? recordBeforeConfirmation : structuredClone(record),
 		]));
-		if (payer && payer.state.id !== receiver?.state.id) payer.state.money -= fee;
-		if (receiver && payer?.state.id !== receiver.state.id) receiver.state.money += fee;
+		if (payer) payer.state.money -= totalFee;
+		if (receiver) receiver.state.money += requestedFee;
 		const now = this.now();
 		project.status = 'breeding';
 		project.breedingStartedAt = now;
@@ -1260,7 +1264,11 @@ export class RPGLoginService {
 		if (project.status !== 'egg_ready' || !project.egg) throw new Error('Este ovo ainda não está disponível');
 		const incubator = nursery.incubators.find(value => value.id === incubatorId);
 		if (!incubator) throw new Error('Incubadora local desconhecida');
+		if (actor.state.money < RPG_NURSERY_LOCAL_INCUBATION_FEE) {
+			throw new Error('Você precisa de 5.000 Pokécoins para usar a incubadora local');
+		}
 		RPGIncubation.insertCreated(project.egg, incubator, this.now());
+		actor.state.money -= RPG_NURSERY_LOCAL_INCUBATION_FEE;
 		project.status = 'collected';
 		this.persistNurseryRecord(actor);
 		return this.nurseryView(actor);
@@ -1271,7 +1279,11 @@ export class RPGLoginService {
 		const egg = this.requireOwnedEgg(actor, eggId);
 		const incubator = this.ensureNursery(actor).incubators.find(value => value.id === incubatorId);
 		if (!incubator) throw new Error('Incubadora desconhecida');
+		if (actor.state.money < RPG_NURSERY_LOCAL_INCUBATION_FEE) {
+			throw new Error('Você precisa de 5.000 Pokécoins para usar a incubadora local');
+		}
 		RPGIncubation.insert(egg, incubator, this.now());
+		actor.state.money -= RPG_NURSERY_LOCAL_INCUBATION_FEE;
 		this.persistNurseryRecord(actor);
 		return this.nurseryView(actor);
 	}
@@ -1279,19 +1291,10 @@ export class RPGLoginService {
 	removeNurseryEgg(token: string, eggId: string) {
 		const actor = this.requireNurseryActor(token);
 		const egg = this.requireOwnedEgg(actor, eggId);
-		const incubator = this.ensureNursery(actor).incubators.find(value => value.id === egg.incubatorId);
-		if (!incubator) throw new Error('Ovo sem incubadora válida');
-		const inventory = RPGInventorySystem.migrate(actor.state.inventory);
-		const capacity = RPGIncubation.canCarry({
-			teamPokemon: actor.state.box.party.length,
-			carriedEggs: this.activeEggs(actor).length,
-			bagUsedSlots: RPGBagSystem.getUsedSlots(inventory.bag),
-			bagMaxSlots: inventory.bag.maxSlots,
-		}, 1);
-		if (!capacity.allowed) throw new Error('A retirada exige 1 espaço na equipe e 5 espaços na Bag');
-		RPGIncubation.remove(egg, incubator);
-		this.persistNurseryRecord(actor);
-		return this.nurseryView(actor);
+		if (egg.status !== 'ready_to_hatch') {
+			throw new Error('O Egg só pode sair da incubadora local quando estiver pronto para chocar');
+		}
+		throw new Error('O Egg pronto deve ser chocado para sair da incubadora local');
 	}
 
 	startPortableNurseryIncubator(token: string, eggId: string) {
@@ -2854,6 +2857,10 @@ export class RPGLoginService {
 			viewerRole: record ? 'player' : 'master',
 			ownerId: record?.state.id || '',
 			accessAllowed: record ? record.state.pageAccess?.nursery !== false : true,
+			fees: {
+				breedingBase: RPG_NURSERY_BREEDING_BASE_FEE,
+				localIncubation: RPG_NURSERY_LOCAL_INCUBATION_FEE,
+			},
 			pokemon: record ? record.state.box.party.map(entry => ({
 				pokemonId: entry.pokemonId,
 				name: entry.pokemon.name || entry.pokemon.species,

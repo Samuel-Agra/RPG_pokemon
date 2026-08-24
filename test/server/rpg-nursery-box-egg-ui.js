@@ -94,7 +94,7 @@ describe('RPG Egg presentation outside incubation', () => {
 
 	it('offers carrying or direct local incubation and exposes portable controls', () => {
 		assert.match(nursery, /Pegar o ovo/);
-		assert.match(nursery, /Colocar na incubadora local/);
+		assert.match(nursery, /Incubadora local ·/);
 		assert.match(nursery, /collect-local/);
 		assert.match(nursery, /Usar Incubadora Portátil/);
 		assert.match(nursery, /portable-start/);
@@ -105,6 +105,9 @@ describe('RPG Egg presentation outside incubation', () => {
 		assert.match(nurseryCss, /nursery-local-glass \.nursery-egg\{[^}]*transform:scale\(3\)/);
 		assert.match(nursery, /Depositar na primeira vaga local disponível/);
 		assert.match(nursery, /incubatorId: emptyLocal\?\.id/);
+		assert.match(nursery, /Depositar Egg ·/);
+		assert.match(nursery, /localIncubation/);
+		assert.doesNotMatch(nursery, /Pegar Egg e pausar/);
 		assert.doesNotMatch(nursery, /Vaga livre|VAGA ' \+ incubator\.slot|Incubadora local ' \+ groupNumber|Sem Egg disponível/);
 		assert.match(teamBuilder, /Incubadoras Portáteis/);
 		assert.match(teamBuilder, /Retirar Egg/);
