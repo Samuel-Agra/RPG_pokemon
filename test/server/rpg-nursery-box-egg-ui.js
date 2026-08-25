@@ -7,6 +7,7 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '../..');
 const box = fs.readFileSync(path.join(root, 'server/static/rpg/box-ui.js'), 'utf8');
 const nursery = fs.readFileSync(path.join(root, 'server/static/rpg/nursery-ui.js'), 'utf8');
+const nurseryBackend = fs.readFileSync(path.join(root, 'server/rpg-showdown/index.ts'), 'utf8');
 const hatchUi = fs.readFileSync(path.join(root, 'server/static/rpg/nursery-hatch-ui.js'), 'utf8');
 const nurseryCss = fs.readFileSync(path.join(root, 'server/static/rpg/nursery.css'), 'utf8');
 const rpgCss = fs.readFileSync(path.join(root, 'server/static/rpg/rpg.css'), 'utf8');
@@ -146,11 +147,18 @@ describe('RPG Egg presentation outside incubation', () => {
 		assert.match(nurseryCss, /rpg-hatch-card/);
 		assert.match(nurseryCss, /rpg-hatch-egg-shake/);
 		assert.match(nurseryCss, /rpg-hatch-crack-draw/);
-		assert.match(nurseryCss, /width:180px;height:225px/);
-		assert.match(nurseryCss, /max-width:250px;max-height:250px/);
+		assert.match(nurseryCss, /width:230px;height:288px/);
+		assert.match(nurseryCss, /max-width:290px;max-height:290px/);
 		assert.match(nurseryCss, /rpg-hatch-incubator-lid/);
 		assert.match(nurseryCss, /pointer-events:none/);
 	});
+	it('seeds nine persistent ready-to-hatch Eggs only once for Teste', () => {
+		assert.match(nurseryBackend, /TEST_READY_EGG_FIXTURE_COUNT = 9/);
+		assert.match(nurseryBackend, /status: 'ready_to_hatch'/);
+		assert.match(nurseryBackend, /if \(existing\)/);
+		assert.match(nurseryBackend, /incubator\.eggId = eggId/);
+	});
+
 	it('shows released Pokémon only in the Master incubation area with restore and permanent release controls', () => {
 		assert.match(nursery, /Pokémon libertados/);
 		assert.match(nursery, /view\.ownerId \? 'Incubação' : 'Abandono'/);

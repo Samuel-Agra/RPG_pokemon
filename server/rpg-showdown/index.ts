@@ -3617,6 +3617,68 @@ const TEST_BOX_POKEDEX_FIXTURES = [
 	{ species: 'Hoppip', move: 'absorb', ability: 'Chlorophyll' },
 	{ species: 'Skiploom', move: 'fairywind', ability: 'Chlorophyll' },
 ] as const;
+const TEST_READY_EGG_FIXTURE_COUNT = 9;
+const TEST_READY_EGG_INCUBATION_TIME_MS = 72 * 60 * 60 * 1000;
+
+/** Adds each visual Egg fixture once. Hatched fixtures remain consumed after a restart. */
+function ensureReadyTestEggs(record: RPGStoredCharacter): boolean {
+	const nursery = record.state.nursery ||= {
+		version: 1, projects: [], releasedPokemon: [],
+		incubators: Array.from({length: TEST_READY_EGG_FIXTURE_COUNT}, (_, index) => ({
+			id: record.state.id + ':incubator:' + (Math.floor(index / 3) + 1) + ':' + (index % 3 + 1),
+			ownerId: record.state.id, kind: 'local' as const,
+			group: Math.floor(index / 3) + 1, slot: index % 3 + 1,
+		})),
+	};
+	let changed = false;
+	for (let index = 0; index < TEST_READY_EGG_FIXTURE_COUNT; index++) {
+		const projectId = record.state.id + ':fixture:hatch:' + (index + 1);
+		const eggId = projectId + ':egg';
+		const incubatorId = record.state.id + ':incubator:' + (Math.floor(index / 3) + 1) + ':' + (index % 3 + 1);
+		const incubator = nursery.incubators.find(entry => entry.id === incubatorId);
+		const existing = nursery.projects.find(project => project.id === projectId);
+		if (existing) {
+			if (incubator && !incubator.eggId && existing.egg?.status === 'ready_to_hatch') {
+				incubator.eggId = existing.egg.id;
+				existing.egg.incubatorId = incubator.id;
+				changed = true;
+			}
+			continue;
+		}
+		if (!incubator || incubator.eggId) continue;
+		const createdAt = Date.now() + index;
+		const fixtureOwnerId = 'nurserytestfixture';
+		nursery.projects.push({
+			id: projectId,
+			slot1: {
+				ownerId: fixtureOwnerId, ownerName: 'Fixture de Eclosão', participantType: 'npc',
+				pokemonId: fixtureOwnerId + ':parent:' + (index + 1), species: 'Charizard', name: 'Charizard',
+				sex: 'M', level: 50, evolutionStage: 3, nature: 'Hardy', ability: 'Blaze', item: '',
+				ivs: {hp: 31, atk: 31, def: 31, spa: 31, spd: 31, spe: 31}, moves: ['flamethrower'],
+			},
+			slot2ParticipantType: 'npc', eggOwnerId: record.state.id, status: 'collected',
+			confirmed: {}, createdAt, parentCollected: {[fixtureOwnerId]: true},
+			egg: {
+				id: eggId, ownerId: record.state.id, status: 'ready_to_hatch', createdAt,
+				genetics: {
+					species: 'Charmander', sex: index % 2 ? 'F' : 'M', nature: 'Hardy', ability: 'Blaze',
+					ivs: {hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0},
+					ivOrigins: {hp: 'random', atk: 'random', def: 'random', spa: 'random', spd: 'random', spe: 'random'},
+					moves: ['scratch', 'growl'], eggMoves: [], shiny: false,
+					family: 'EVOLUTION_CHARMANDER', lineage: 'CHARMANDER',
+					parentIds: [fixtureOwnerId + ':parent:1', fixtureOwnerId + ':parent:2'],
+					parentOwnerIds: [fixtureOwnerId, fixtureOwnerId],
+				},
+				requiredIncubationTimeMs: TEST_READY_EGG_INCUBATION_TIME_MS,
+				accumulatedIncubationTimeMs: TEST_READY_EGG_INCUBATION_TIME_MS,
+				incubatorId,
+			},
+		});
+		incubator.eggId = eggId;
+		changed = true;
+	}
+	return changed;
+}
 function ensurePermanentTestCharacters(service: RPGLoginService, masterCode: string): void {
 	for (const characterId of REMOVED_TEST_STORAGE_FIXTURES) service.repository.delete(characterId);
 	const missing: { id: string, password: string, starter: RPGCreateCharacterRequest['starter'], team: PokemonSet[] }[] = [];
@@ -3700,7 +3762,7 @@ function ensurePermanentTestCharacters(service: RPGLoginService, masterCode: str
 	}
 	const testRecord = service.repository.get('teste');
 	if (testRecord) {
-		let showcaseChanged = false;
+		let showcaseChanged = ensureReadyTestEggs(testRecord);
 		const missingItems = TEST_BAG_CATEGORY_FIXTURES.filter(item =>
 			RPGBagSystem.getQuantity(testRecord.state.inventory.bag, item.itemId) < item.quantity
 		).map(item => ({ type: 'set' as const, ...item }));
