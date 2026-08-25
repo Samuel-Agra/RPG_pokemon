@@ -133,7 +133,7 @@ describe('RPG Egg presentation outside incubation', () => {
 	});
 
 	it('animates a normal Egg and opens the Portable Incubator before hatching', () => {
-		assert.match(hatchUi, /Clique no Egg para iniciar a eclosão/);
+		assert.doesNotMatch(hatchUi, /Clique no Egg para iniciar a eclosão/);
 		assert.match(hatchUi, /opening-incubator/);
 		assert.match(hatchUi, /rpg-hatch-incubator-part/);
 		assert.match(hatchUi, /rpg-hatch-shell-half/);
@@ -144,6 +144,7 @@ describe('RPG Egg presentation outside incubation', () => {
 		assert.match(nurseryCss, /rpg-hatch-card/);
 		assert.match(nurseryCss, /rpg-hatch-egg-shake/);
 		assert.match(nurseryCss, /rpg-hatch-incubator-lid/);
+		assert.match(nurseryCss, /pointer-events:none/);
 	});
 	it('shows released Pokémon only in the Master incubation area with restore and permanent release controls', () => {
 		assert.match(nursery, /Pokémon libertados/);

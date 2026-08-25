@@ -9,7 +9,7 @@
 		const layer=el('div','rpg-hatch-dialog');
 		const card=el('section','rpg-hatch-card '+(portable?'portable':'standard'));
 		const heading=el('h2','',portable?'A incubadora está reagindo...':'O Egg está se mexendo...');
-		const message=el('p','rpg-hatch-message',portable?'Clique na incubadora para abri-la.':'Clique no Egg para iniciar a eclosão.');
+		const message=el('p','rpg-hatch-message',portable?'A incubadora parece pronta para abrir.':'O Egg está prestes a chocar.');
 		const stage=el('div','rpg-hatch-stage');
 		const trigger=el('button','rpg-hatch-trigger');trigger.type='button';trigger.setAttribute('aria-label',portable?'Abrir incubadora e chocar Egg':'Chocar Egg');
 		const eggHost=el('span','rpg-hatch-egg-host');
