@@ -146,6 +146,8 @@ describe('RPG Egg presentation outside incubation', () => {
 		assert.match(nurseryCss, /rpg-hatch-card/);
 		assert.match(nurseryCss, /rpg-hatch-egg-shake/);
 		assert.match(nurseryCss, /rpg-hatch-crack-draw/);
+		assert.match(nurseryCss, /width:180px;height:225px/);
+		assert.match(nurseryCss, /max-width:250px;max-height:250px/);
 		assert.match(nurseryCss, /rpg-hatch-incubator-lid/);
 		assert.match(nurseryCss, /pointer-events:none/);
 	});
