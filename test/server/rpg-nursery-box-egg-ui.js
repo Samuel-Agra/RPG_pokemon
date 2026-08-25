@@ -137,12 +137,15 @@ describe('RPG Egg presentation outside incubation', () => {
 		assert.match(hatchUi, /opening-incubator/);
 		assert.match(hatchUi, /rpg-hatch-incubator-part/);
 		assert.match(hatchUi, /rpg-hatch-shell-half/);
+		assert.match(hatchUi, /createElementNS/);
+		assert.match(hatchUi, /crackPaths/);
 		assert.match(hatchUi, /rpg-hatch-pokemon/);
 		assert.match(hatchUi, /RPGNurseryHatch=Object.freeze/);
 		assert.match(nursery, /RPGNurseryHatch.play/);
 		assert.match(teamBuilder, /RPGNurseryHatch.play/);
 		assert.match(nurseryCss, /rpg-hatch-card/);
 		assert.match(nurseryCss, /rpg-hatch-egg-shake/);
+		assert.match(nurseryCss, /rpg-hatch-crack-draw/);
 		assert.match(nurseryCss, /rpg-hatch-incubator-lid/);
 		assert.match(nurseryCss, /pointer-events:none/);
 	});
