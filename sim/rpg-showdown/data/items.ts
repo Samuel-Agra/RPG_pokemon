@@ -414,15 +414,15 @@ Pink Bow
 Polkadot Bow
 `.trim().split('\n');
 const heldItems: RPGItemDefinition[] = [
-	...generalHeldItemNames.map(name => ({
+	...generalHeldItemNames.filter(name => !breedingItemNames.includes(name)).map(name => ({
 		id: heldItemId(name), name, category: 'held' as const, stackLimit: 99,
 		usableInBattle: false, consumedOnUse: false, source: 'showdown' as const,
 		effect: { type: 'equip-held-item' }, tags: ['held'],
 	})),
 	...breedingItemNames.map(name => ({
-		id: heldItemId(name), name, category: 'held' as const, stackLimit: 99,
+		id: heldItemId(name), name, category: 'key' as const, stackLimit: 99,
 		usableInBattle: false, consumedOnUse: false, source: (name === 'Everstone' ? 'rpg' : 'showdown') as 'rpg' | 'showdown',
-		effect: { type: 'equip-held-item' }, tags: ['held', 'breeding'],
+		effect: { type: 'equip-held-item' }, tags: ['key-item', 'held', 'breeding'],
 	})),
 	...currentBerryNames.map(name => ({
 		id: heldItemId(name), name, category: 'held' as const, stackLimit: 99,

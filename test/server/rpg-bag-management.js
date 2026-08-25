@@ -72,8 +72,8 @@ describe('RPG Bag management backend', () => {
 		createCharacter(service);
 		const master = service.loginMaster('14081998');
 		for (const id of [
-			'potion', 'revive', 'pokeball', 'leftovers', 'charizarditey', 'firestone', 'tm001',
-			'armorfossil', 'nugget', 'bottlecap',
+			'potion', 'pokeball', 'leftovers', 'charizarditey', 'firestone', 'tm001',
+			'armorfossil', 'nugget', 'bottlecap', 'destinyknot',
 		]) {
 			update(service, master.token, id, 1);
 		}
@@ -86,6 +86,8 @@ describe('RPG Bag management backend', () => {
 		assert.equal(world.items.find(item => item.id === 'charizarditey').category, 'mega-stones');
 		assert.equal(world.items.find(item => item.id === 'armorfossil').category, 'fossils');
 		assert.equal(world.items.find(item => item.id === 'nugget').category, 'treasures');
+		assert.equal(world.items.find(item => item.id === 'destinyknot').category, 'key-items');
+		assert.equal(world.items.find(item => item.id === 'destinyknot').actions.includes('equip'), true);
 		assert.equal(world.items.find(item => item.id === 'bottlecap').actions.includes('use'), false);
 		assert.deepEqual(world.items.find(item => item.id === 'leftovers').actions, ['equip', 'favorite', 'discard', 'give', 'move-to-mission']);
 		assert.equal(world.items.find(item => item.id === 'leftovers').description.includes('1/16 do HP máximo'), true);

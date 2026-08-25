@@ -126,6 +126,10 @@ const BATTLE_CATEGORIES: readonly { id: RPGManagedBagCategory, name: string }[] 
 	{ id: 'battle-items', name: 'Battle Items' },
 ];
 
+function isEquippableHeldItem(item: RPGItemDefinition): boolean {
+	return item.category === 'held' || item.tags?.includes('held') === true;
+}
+
 export class RPGBagManagement {
 	static view(character: RPGManagedBagCharacterData, query: RPGManagedBagQuery = {}): RPGManagedBagView {
 		const inventory = RPGInventorySystem.migrate(character.inventory);
@@ -145,7 +149,7 @@ export class RPGBagManagement {
 				(taggedMission ? available : Math.min(available, RPGBagSystem.getMissionQuantity(inventory.bag, definition.id))) :
 				0;
 			const regularQuantity = taggedMission ? 0 : available - missionQuantity;
-			const equippedIn = definition.category === 'held' ? box.results.flatMap(pokemon =>
+			const equippedIn = isEquippableHeldItem(definition) ? box.results.flatMap(pokemon =>
 				toID(pokemon.item) === definition.id ? [{
 					pokemonId: pokemon.pokemonId, name: pokemon.name, species: pokemon.species,
 					location: structuredClone(pokemon.location),
@@ -220,7 +224,7 @@ export class RPGBagManagement {
 				move.pp < move.maxPP ? [{ index, id: move.id, name: move.name, pp: move.pp, maxPP: move.maxPP }] : []
 			);
 			let eligible = false;
-			if (item.category === 'held') eligible = true;
+			if (isEquippableHeldItem(item)) eligible = true;
 			else if (item.category === 'tm' && typeof effect?.move === 'string') {
 				eligible = !!RPGBoxManagement.technicalMachineTarget(character, pokemon.pokemonId, effect.move);
 			} else if (item.category === 'evolution') {
@@ -293,7 +297,7 @@ export class RPGBagManagement {
 	): { pokemonId: string, pokemonName: string, itemId: string, previousItemId: string } {
 		character.inventory = RPGInventorySystem.migrate(character.inventory);
 		const item = RPGItems.require(itemId);
-		if (item.category !== 'held') throw new Error('Only a held item can be equipped');
+		if (!isEquippableHeldItem(item)) throw new Error('Only a held item can be equipped');
 		const target = RPGBoxManagement.heldItem(character, pokemonId);
 		if (target.itemId === item.id) throw new Error('This Pokémon is already holding this item');
 		const operations: ({ type: 'remove' | 'add', itemId: string, quantity: number })[] = [
@@ -301,7 +305,7 @@ export class RPGBagManagement {
 		];
 		if (target.itemId) {
 			const previous = RPGItems.require(target.itemId);
-			if (previous.category !== 'held') throw new Error('The previous Pokémon item is not a registered held item');
+			if (!isEquippableHeldItem(previous)) throw new Error('The previous Pokémon item is not a registered held item');
 			operations.push({ type: 'add', itemId: previous.id, quantity: 1 });
 		}
 		character.inventory.bag = RPGBagSystem.apply(
@@ -318,7 +322,7 @@ export class RPGBagManagement {
 		const target = RPGBoxManagement.heldItem(character, pokemonId);
 		if (!target.itemId) throw new Error('This Pokémon is not holding an item');
 		const item = RPGItems.require(target.itemId);
-		if (item.category !== 'held') throw new Error('The Pokémon item is not a registered held item');
+		if (!isEquippableHeldItem(item)) throw new Error('The Pokémon item is not a registered held item');
 		character.inventory.bag = RPGBagSystem.add(
 			character.inventory.bag, item.id, 1, expectedBagRevision
 		).bag;
@@ -349,7 +353,7 @@ export class RPGBagManagement {
 		if (!itemUseLocked) {
 			const effectType = typeof item.effect?.type === 'string' ? item.effect.type : '';
 			if (['heal-hp', 'revive', 'cure-status', 'restore-pp'].includes(effectType)) actions.push('use');
-			else if (item.category === 'held') {
+			else if (isEquippableHeldItem(item)) {
 				actions.push('equip');
 				if (equipped) actions.push('remove');
 			} else if (item.category === 'tm' && effectType === 'teach-move') actions.push('teach');
@@ -367,7 +371,7 @@ export class RPGBagManagement {
 	}
 
 	static description(item: RPGItemDefinition): string {
-		if (item.category === 'held') {
+		if (isEquippableHeldItem(item)) {
 			const heldDescription = getRPGHeldItemDescriptionPTBR(item.id);
 			if (heldDescription) return heldDescription;
 		}

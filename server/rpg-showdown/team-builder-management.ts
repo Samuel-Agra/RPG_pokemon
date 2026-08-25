@@ -171,7 +171,9 @@ export class RPGTeamBuilderManagement {
 			RPGBagSystem.getRegularQuantity(character.inventory.bag, itemId) -
 			RPGInventorySystem.getReservedQuantity(character.inventory, itemId)
 		);
-		const heldDefinitions = RPGItems.list('held').filter(item => available(item.id) > 0);
+		const heldDefinitions = RPGItems.list().filter(item =>
+			(item.category === 'held' || item.tags?.includes('held') === true) && available(item.id) > 0
+		);
 		const itemView = (item: ReturnType<typeof RPGItems.require>, quantity: number): RPGTeamBuilderItemChoice => ({
 			id: item.id, name: item.name, quantity, icon: getRPGItemIconPath(item.id),
 			sprite: Number.isInteger(dex.items.get(item.id).spritenum) ? dex.items.get(item.id).spritenum! : null,
@@ -183,7 +185,9 @@ export class RPGTeamBuilderManagement {
 		const itemChoices = heldDefinitions.map(item => itemView(item, available(item.id)))
 			.sort((left, right) => left.name.localeCompare(right.name));
 		const currentItemDefinition = RPGItems.get(toID(pokemon.item || ''));
-		const currentItem = currentItemDefinition?.category === 'held' ? itemView(currentItemDefinition, 0) : null;
+		const currentItem = currentItemDefinition &&
+			(currentItemDefinition.category === 'held' || currentItemDefinition.tags?.includes('held') === true) ?
+			itemView(currentItemDefinition, 0) : null;
 		const moveChoices = this.moves(character, pokemon, master);
 		const vitamins = Object.entries(RPG_IV_VITAMINS).map(([itemId, stat]) => {
 			const item = RPGItems.require(itemId);

@@ -14,7 +14,7 @@ const FORBIDDEN_REQUEST_ITEMS = [
 describe('RPG held item registry', () => {
 	it('registers the 176 allowed current held items from the requested lists', () => {
 		const dex = Dex.mod('gen9');
-		const held = RPGItems.list('held');
+		const held = RPGItems.list().filter(item => item.tags?.includes('held'));
 		const currentHeld = held.filter(item =>
 			!item.tags?.includes('megastone') && !item.tags?.includes('legacy')
 		);
@@ -23,10 +23,13 @@ describe('RPG held item registry', () => {
 		assert.equal(held.filter(item => item.tags?.includes('megastone')).length, 47);
 		assert.equal(held.filter(item => item.tags?.includes('berry')).length, 47);
 		assert.deepEqual(held.filter(item => item.tags?.includes('gem')).map(item => item.id), ['normalgem']);
-		assert.deepEqual(held.filter(item => item.tags?.includes('breeding')).map(item => item.id).sort(), [
+		const breeding = held.filter(item => item.tags?.includes('breeding'));
+		assert.deepEqual(breeding.map(item => item.id).sort(), [
 			'destinyknot', 'everstone',
 			'poweranklet', 'powerband', 'powerbelt', 'powerbracer', 'powerlens', 'powerweight',
 		].sort());
+		assert.equal(breeding.every(item => item.category === 'key' && item.tags.includes('keyitem')), true);
+		assert.equal(RPGItems.require('portableincubator').category, 'key');
 		for (const item of held) {
 			if (item.source === 'showdown') assert(dex.items.get(item.id).exists, item.name);
 			assert.equal(item.usableInBattle, false);
@@ -36,7 +39,7 @@ describe('RPG held item registry', () => {
 	});
 
 	it('prices every allowed item and exposes it through the default shop catalog', () => {
-		const held = RPGItems.list('held');
+		const held = RPGItems.list().filter(item => item.tags?.includes('held'));
 		const catalog = RPGShopSystem.createCatalog('held-price-test');
 		for (const item of held) {
 			assert(item.price, item.name);
@@ -71,7 +74,7 @@ describe('RPG held item registry', () => {
 	});
 	it('maps all 47 classic Mega Stones to valid native Mega formes', () => {
 		const dex = Dex.mod('gen9');
-		const stones = RPGItems.list('held').filter(item => item.tags?.includes('megastone'));
+		const stones = RPGItems.list().filter(item => item.tags?.includes('held')).filter(item => item.tags?.includes('megastone'));
 		assert.equal(stones.length, 47);
 		for (const stone of stones) {
 			const item = dex.items.get(stone.id);
@@ -87,7 +90,7 @@ describe('RPG held item registry', () => {
 	});
 	it('registers the 22 authorized legacy held items with their native mechanics', () => {
 		const dex = Dex.mod('gen9');
-		const legacy = RPGItems.list('held').filter(item => item.tags?.includes('legacy'));
+		const legacy = RPGItems.list().filter(item => item.tags?.includes('held')).filter(item => item.tags?.includes('legacy'));
 		assert.equal(legacy.length, 22);
 		for (const registered of legacy) {
 			const item = dex.items.get(registered.id);
@@ -111,7 +114,7 @@ describe('RPG held item registry', () => {
 	});
 	it('provides Portuguese descriptions for every allowed held item', () => {
 		const dex = Dex.mod('gen9');
-		for (const item of RPGItems.list('held')) {
+		for (const item of RPGItems.list().filter(item => item.tags?.includes('held'))) {
 			const description = RPGBagManagement.description(item);
 			const native = dex.items.get(item.id);
 			const english = native.desc || native.shortDesc || '';
