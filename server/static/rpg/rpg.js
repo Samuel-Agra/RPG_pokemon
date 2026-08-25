@@ -526,7 +526,7 @@ function dashboardNav(isMaster) {
 	const fossilsBlocked = !masterViewingPlayer && state.currentCharacter?.pageAccess?.fossils === false;
 	const nurseryBlocked = !masterViewingPlayer && state.currentCharacter?.pageAccess?.nursery === false;
 	const entries = isMaster ? [
-		['overview', 'Vis\u00e3o geral'], ['players', 'Jogadores'], ['battles', 'Batalhas'],
+		['overview', 'Vis\u00e3o geral'], ['players', 'Jogadores'], ['shops', 'Lojas'], ['battles', 'Batalhas'],
 		['npcs', 'NPCs e selvagens'], ['tournaments', 'Torneios'], ['nursery', 'Berçário'],
 	] : [
 		['overview', 'Vis\u00e3o geral'], ['team', 'Equipe'],
@@ -534,6 +534,7 @@ function dashboardNav(isMaster) {
 		['center', 'Centro Pokémon', centerBlocked],
 		['fossils', 'Paleontologia', fossilsBlocked],
 		['nursery', 'Berçário', nurseryBlocked],
+		['shops', 'Lojas'],
 		['bag', 'Bag', bagBlocked],
 		['box', 'Box', boxBlocked],
 		['battles', 'Batalhas'],
@@ -718,6 +719,12 @@ async function renderNursery(character = null) {
 	return window.RPGNurseryUI.render({
 		api, characterId: character?.id, toast: showToast,
 		spriteUrl: pokemon => spriteUrl(pokemon), eggVisual, portableIncubatorVisual,
+	});
+}
+async function renderShops(character = null) {
+	return window.RPGShopUI.render({
+		api, characterId: character?.id, toast: showToast, refresh: renderDashboard,
+		isMaster: state.session.role === 'master' && state.session.mode === 'master',
 	});
 }
 async function renderPlayerTeamBuilder(character) {
@@ -1580,7 +1587,7 @@ async function renderDashboard() {
 
 	try {
 		if (isMasterMode) {
-			$('.dashboard-heading').classList.toggle('hidden', state.dashboardView === 'nursery');
+			$('.dashboard-heading').classList.toggle('hidden', ['nursery', 'shops'].includes(state.dashboardView));
 			const data = await api('/characters/all');
 			const characters = data.characters;
 			state.campaignCharacters = characters;
@@ -1597,10 +1604,11 @@ async function renderDashboard() {
 			body.replaceChildren(
 				state.dashboardView === 'battles' ? await renderMasterBattles(characters) :
 				state.dashboardView === 'nursery' ? await renderNursery() :
+				state.dashboardView === 'shops' ? await renderShops() :
 				renderMasterBody(characters)
 			);
 		} else {
-			$('.dashboard-heading').classList.toggle('hidden', ['overview', 'team', 'box', 'bag', 'team-builder', 'center', 'fossils', 'nursery'].includes(state.dashboardView));
+			$('.dashboard-heading').classList.toggle('hidden', ['overview', 'team', 'box', 'bag', 'team-builder', 'center', 'fossils', 'nursery', 'shops'].includes(state.dashboardView));
 			const data = await api('/character');
 			const character = data.character;
 			state.currentCharacter = character;
@@ -1623,6 +1631,7 @@ async function renderDashboard() {
 				state.dashboardView === 'center' ? await renderPokemonCenter(character) :
 				state.dashboardView === 'fossils' ? await renderFossilLab(character) :
 				state.dashboardView === 'nursery' ? await renderNursery(character) :
+				state.dashboardView === 'shops' ? await renderShops(character) :
 				renderPlayerBody(character);
 			body.replaceChildren(playerView);
 		}

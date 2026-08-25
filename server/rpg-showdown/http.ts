@@ -8,6 +8,8 @@ import {
 	createRPGLoginServiceFromConfig,
 	type RPGCharacterGender,
 	type RPGCreateCharacterRequest,
+	type RPGCommerceOfferInput,
+	type RPGCommerceTradeRequest,
 	type RPGLoginService,
 	type RPGUpdateBattleSessionRequest,
 } from './index';
@@ -92,6 +94,53 @@ export class RPGHttpServer {
 				return;
 			}
 		}
+		if (method === 'GET' && url.pathname === '/api/rpg/shops') {
+			this.json(res, 200, this.login.listCommerceShops(this.token(req)));
+			return;
+		}
+		const shopMatch = /^\/api\/rpg\/shops\/([^/]+)(?:\/(trade|master-offer))?$/.exec(url.pathname);
+		if (shopMatch) {
+			const token = this.token(req);
+			const shopId = decodeURIComponent(shopMatch[1]);
+			const action = shopMatch[2];
+			const characterId = url.searchParams.get('characterId') || undefined;
+			if (method === 'GET' && !action) {
+				this.json(res, 200, this.login.getCommerceShop(token, shopId, characterId));
+				return;
+			}
+			if (method === 'POST' && action === 'trade') {
+				const body = await this.body(req);
+				const request: RPGCommerceTradeRequest = {
+					actionId: this.string(body.actionId),
+					type: this.string(body.type) as RPGCommerceTradeRequest['type'],
+					lines: Array.isArray(body.lines) ? body.lines.map(line => ({
+						itemId: this.string((line as Record<string, unknown>).itemId),
+						quantity: Number((line as Record<string, unknown>).quantity),
+					})) : [],
+					expectedAccountRevision: Number(body.expectedAccountRevision),
+					expectedBagRevision: Number(body.expectedBagRevision),
+					expectedCatalogRevision: Number(body.expectedCatalogRevision),
+				};
+				this.json(res, 200, this.login.tradeCommerceShop(token, shopId, request, characterId));
+				return;
+			}
+			if (method === 'POST' && action === 'master-offer') {
+				const body = await this.body(req);
+				const input: RPGCommerceOfferInput = {
+					itemId: this.string(body.itemId), expectedRevision: Number(body.expectedRevision),
+					...(body.stock === undefined ? {} : {stock: Number(body.stock)}),
+					...(body.buyMode === undefined ? {} : {buyMode: this.string(body.buyMode) as RPGCommerceOfferInput['buyMode']}),
+					...(body.buyPrice === undefined ? {} : {buyPrice: Number(body.buyPrice)}),
+					...(body.sellPrice === undefined ? {} : {sellPrice: Number(body.sellPrice)}),
+					...(body.buyEnabled === undefined ? {} : {buyEnabled: !!body.buyEnabled}),
+					...(body.sellEnabled === undefined ? {} : {sellEnabled: !!body.sellEnabled}),
+					...(body.remove === undefined ? {} : {remove: !!body.remove}),
+				};
+				this.json(res, 200, this.login.configureCommerceOffer(token, shopId, input));
+				return;
+			}
+		}
+
 		if (method === 'GET' && url.pathname === '/api/rpg/character') {
 			const characterId = url.searchParams.get('id') || undefined;
 			this.json(res, 200, { character: this.login.getCharacter(this.token(req), characterId) });

@@ -123,6 +123,41 @@ describe('RPG HTTP frontend API', () => {
 		assert.equal(result.data.items.find(item => item.id === 'pokeball').icon, null);
 	});
 
+	it('configures shared stock through Master routes and lets a Player buy it', async () => {
+		let result = await request('/session/master', {
+			method: 'POST', body: { code: '14081998' },
+		});
+		const masterHeaders = { Authorization: 'Bearer ' + result.data.session.token };
+		result = await request('/shops/poke-mart-central', { headers: masterHeaders });
+		assert.equal(result.response.status, 200);
+		result = await request('/shops/poke-mart-central/master-offer', {
+			method: 'POST', headers: masterHeaders,
+			body: {
+				itemId: 'pokeball', stock: 2, buyMode: 'available', buyEnabled: true, buyPrice: 200,
+				sellEnabled: true, sellPrice: 50, expectedRevision: result.data.shop.revision,
+			},
+		});
+		assert.equal(result.response.status, 200);
+		result = await request('/session/player', {
+			method: 'POST', body: { characterId: 'samuel', password: 'senha-rpg' },
+		});
+		const playerHeaders = { Authorization: 'Bearer ' + result.data.session.token };
+		result = await request('/shops/poke-mart-central', { headers: playerHeaders });
+		const view = result.data;
+		assert.equal(view.offers.find(item => item.itemId === 'pokeball').stock, 2);
+		result = await request('/shops/poke-mart-central/trade', {
+			method: 'POST', headers: playerHeaders,
+			body: {
+				actionId: 'http-shop-buy', type: 'buy', lines: [{itemId: 'pokeball', quantity: 1}],
+				expectedAccountRevision: view.accountRevision, expectedBagRevision: view.bagRevision,
+				expectedCatalogRevision: view.shop.revision,
+			},
+		});
+		assert.equal(result.response.status, 200);
+		assert.equal(result.data.view.money, 2800);
+		assert.equal(result.data.view.offers.find(item => item.itemId === 'pokeball').stock, 1);
+	});
+
 	it('deletes only after the master confirms the server challenge', async () => {
 		let result = await request('/session/master', {
 			method: 'POST',

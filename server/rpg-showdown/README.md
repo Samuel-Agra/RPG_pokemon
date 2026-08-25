@@ -10,6 +10,7 @@ O codigo local do Mestre fica no arquivo privado `config/config.js`:
 exports.rpgmastercode = '14081998';
 exports.rpgcharacterfile = 'config/rpg-characters.json';
 exports.rpgbattlefile = 'config/rpg-battle-sessions.json';
+exports.rpgshopfile = 'config/rpg-shops.json';
 ```
 
 Troque o valor antes de expor o servidor. `config/config-example.js` documenta a mesma chave.
@@ -159,6 +160,28 @@ Rotas HTTP:
 | `POST /api/rpg/battle-sessions/:id/response` | Player aceita ou recusa |
 | POST /api/rpg/battle-sessions/:id/selection | Player salva a selecao permitida antes de responder |
 | `POST /api/rpg/battle-sessions/:id/start` | Mestre gera o pedido de inicio |
+
+## Lojas
+
+A página central de comércio possui sete especialidades: Poké Mart, Equipamentos, Evolução, TMs,
+Mega Pedras, Fazenda e Brechó. Os itens de procriação continuam exclusivos do Berçário.
+
+Cada estabelecimento possui catálogo próprio persistido em `config/rpg-shops.json`. O estoque é
+global e compartilhado por todos os Players. Compra e venda são configuradas separadamente, com
+preços independentes, e um produto pode ficar disponível, visível bloqueado ou oculto.
+
+O Mestre configura item, estoque, preços, aceitação e visibilidade. O Player usa abas independentes
+de compra e venda, pesquisa, filtros, detalhes, quantidades e carrinho. Dinheiro, Bag e estoque são
+validados juntos antes da gravação; revisões impedem que duas sessões gastem o mesmo estoque.
+
+Rotas HTTP:
+
+| Método e rota | Operação |
+| --- | --- |
+| `GET /api/rpg/shops` | lista os sete estabelecimentos |
+| `GET /api/rpg/shops/:id` | abre catálogo, estoque e inventário permitido |
+| `POST /api/rpg/shops/:id/trade` | executa um carrinho de compra ou venda |
+| `POST /api/rpg/shops/:id/master-offer` | Mestre configura uma oferta |
 
 ## Persistencia
 

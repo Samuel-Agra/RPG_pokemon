@@ -1,0 +1,161 @@
+'use strict';
+
+const assert = require('assert').strict;
+const fs = require('node:fs');
+const os = require('node:os');
+const path = require('node:path');
+const {
+	RPGLoginService,
+	RPGMemoryCharacterRepository,
+	RPGMemoryCommerceRepository,
+	RPGFileCommerceRepository,
+} = require('../../dist/server/rpg-showdown');
+
+function createCharacter(service, name) {
+	service.createCharacter({
+		characterName: name,
+		playerName: name + ' Player',
+		avatar: 'lucas',
+		password: '1234',
+		initialMoney: 10000,
+		starter: {species: 'Squirtle', gender: 'M', level: 10},
+	});
+	return service.loginPlayer(name, '1234');
+}
+
+function tradeRequest(view, type, lines, actionId) {
+	return {
+		actionId, type, lines,
+		expectedAccountRevision: view.accountRevision,
+		expectedBagRevision: view.bagRevision,
+		expectedCatalogRevision: view.shop.revision,
+	};
+}
+
+describe('RPG shared commerce management', () => {
+	it('starts with the seven requested establishments and specialized Master catalogs', () => {
+		const service = new RPGLoginService({
+			masterCode: '14081998',
+			repository: new RPGMemoryCharacterRepository(),
+			commerceRepository: new RPGMemoryCommerceRepository(),
+		});
+		const master = service.loginMaster('14081998');
+		const directory = service.listCommerceShops(master.token);
+		assert.deepEqual(directory.shops.map(shop => shop.type), [
+			'poke-mart', 'equipment', 'evolution', 'tm', 'mega-stone', 'farm', 'thrift',
+		]);
+		const mart = service.getCommerceShop(master.token, 'poke-mart-central');
+		assert(mart.candidates.some(item => item.id === 'pokeball' && item.category === 'pokeballs'));
+		assert(mart.candidates.some(item => item.id === 'potion' && item.category === 'medicines'));
+		assert.equal(mart.candidates.some(item => item.id === 'leftovers'), false);
+		const farm = service.getCommerceShop(master.token, 'farm-central');
+		assert(farm.candidates.some(item => item.id === 'oranberry' && item.category === 'berries'));
+		const equipment = service.getCommerceShop(master.token, 'equipment-central');
+		assert.equal(equipment.candidates.some(item => item.id === 'oranberry'), false);
+		assert.equal(equipment.candidates.some(item => item.id === 'destinyknot'), false);
+		const evolution = service.getCommerceShop(master.token, 'evolution-central');
+		assert(evolution.filters.includes('terastalization') || !evolution.offers.length);
+	});
+
+	it('shares finite stock between Players and keeps buying and selling independent', () => {
+		let tokenByte = 0;
+		const service = new RPGLoginService({
+			masterCode: '14081998',
+			repository: new RPGMemoryCharacterRepository(),
+			commerceRepository: new RPGMemoryCommerceRepository(),
+			randomBytes: size => Buffer.alloc(size, ++tokenByte),
+		});
+		const master = service.loginMaster('14081998');
+		const player1 = createCharacter(service, 'Samuel');
+		const player2 = createCharacter(service, 'Marina');
+		let masterView = service.getCommerceShop(master.token, 'poke-mart-central');
+		masterView = service.configureCommerceOffer(master.token, 'poke-mart-central', {
+			itemId: 'pokeball', stock: 6, buyMode: 'available', buyPrice: 200,
+			sellEnabled: false, expectedRevision: masterView.shop.revision,
+		});
+		assert.equal(masterView.offers[0].sellPrice, undefined);
+
+		let view1 = service.getCommerceShop(player1.token, 'poke-mart-central');
+		const result = service.tradeCommerceShop(
+			player1.token, 'poke-mart-central',
+			tradeRequest(view1, 'buy', [{itemId: 'pokeball', quantity: 6}], 'samuel-buy')
+		);
+		assert.equal(result.view.money, 8800);
+		assert.equal(result.view.offers.find(item => item.itemId === 'pokeball').stock, 0);
+		const replay = service.tradeCommerceShop(
+			player1.token, 'poke-mart-central',
+			tradeRequest(view1, 'buy', [{itemId: 'pokeball', quantity: 6}], 'samuel-buy')
+		);
+		assert.equal(replay.view.money, 8800);
+		assert.equal(replay.view.offers.find(item => item.itemId === 'pokeball').stock, 0);
+		const view2 = service.getCommerceShop(player2.token, 'poke-mart-central');
+		assert.equal(view2.offers.find(item => item.itemId === 'pokeball').stock, 0);
+		assert.throws(() => service.tradeCommerceShop(
+			player2.token, 'poke-mart-central',
+			tradeRequest(view2, 'buy', [{itemId: 'pokeball', quantity: 1}], 'marina-buy')
+		), /enough stock/);
+		assert.throws(() => service.tradeCommerceShop(
+			player1.token, 'poke-mart-central',
+			tradeRequest(result.view, 'sell', [{itemId: 'pokeball', quantity: 1}], 'samuel-sell-disabled')
+		), /cannot be sold/);
+
+		masterView = service.getCommerceShop(master.token, 'poke-mart-central');
+		service.configureCommerceOffer(master.token, 'poke-mart-central', {
+			itemId: 'pokeball', stock: 0, buyMode: 'locked', buyPrice: 200,
+			sellEnabled: true, sellPrice: 50, expectedRevision: masterView.shop.revision,
+		});
+		view1 = service.getCommerceShop(player1.token, 'poke-mart-central');
+		assert.equal(view1.offers[0].buyLocked, true);
+		const sold = service.tradeCommerceShop(
+			player1.token, 'poke-mart-central',
+			tradeRequest(view1, 'sell', [{itemId: 'pokeball', quantity: 2}], 'samuel-sell')
+		);
+		assert.equal(sold.view.money, 8900);
+		assert.equal(sold.view.offers[0].stock, 2);
+		assert.equal(sold.view.offers[0].owned, 4);
+	});
+
+	it('rejects stale shared catalog revisions', () => {
+		const service = new RPGLoginService({masterCode: '14081998'});
+		const master = service.loginMaster('14081998');
+		const player = createCharacter(service, 'Carlos');
+		let masterView = service.getCommerceShop(master.token, 'poke-mart-central');
+		service.configureCommerceOffer(master.token, 'poke-mart-central', {
+			itemId: 'potion', stock: 5, buyMode: 'available', buyPrice: 200,
+			sellEnabled: false, expectedRevision: masterView.shop.revision,
+		});
+		const stale = service.getCommerceShop(player.token, 'poke-mart-central');
+		masterView = service.getCommerceShop(master.token, 'poke-mart-central');
+		service.configureCommerceOffer(master.token, 'poke-mart-central', {
+			itemId: 'potion', stock: 4, expectedRevision: masterView.shop.revision,
+		});
+		assert.throws(() => service.tradeCommerceShop(
+			player.token, 'poke-mart-central',
+			tradeRequest(stale, 'buy', [{itemId: 'potion', quantity: 1}], 'stale')
+		), /revision conflict/);
+	});
+
+	it('persists establishment stock independently from character files', () => {
+		const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'rpg-commerce-'));
+		const file = path.join(directory, 'shops.json');
+		try {
+			let service = new RPGLoginService({
+				masterCode: '14081998', commerceRepository: new RPGFileCommerceRepository(file),
+			});
+			const master = service.loginMaster('14081998');
+			const view = service.getCommerceShop(master.token, 'farm-central');
+			service.configureCommerceOffer(master.token, 'farm-central', {
+				itemId: 'oranberry', stock: 37, buyMode: 'available', buyPrice: 500,
+				sellEnabled: true, sellPrice: 125, expectedRevision: view.shop.revision,
+			});
+			service = new RPGLoginService({
+				masterCode: '14081998', commerceRepository: new RPGFileCommerceRepository(file),
+			});
+			const restoredMaster = service.loginMaster('14081998');
+			const restored = service.getCommerceShop(restoredMaster.token, 'farm-central');
+			assert.equal(restored.offers.find(item => item.itemId === 'oranberry').stock, 37);
+		} finally {
+			fs.rmSync(directory, {recursive: true, force: true});
+		}
+	});
+});

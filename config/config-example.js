@@ -26,6 +26,7 @@ exports.rpgmastercode = '14081998';
 /** Persistent RPG characters and battle preparation/results. */
 exports.rpgcharacterfile = 'config/rpg-characters.json';
 exports.rpgbattlefile = 'config/rpg-battle-sessions.json';
+exports.rpgshopfile = 'config/rpg-shops.json';
 
 /**
  * wsdeflate - compresses WebSocket messages

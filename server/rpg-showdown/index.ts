@@ -28,6 +28,7 @@ import {
 	type RPGCapturedPokemon,
 	type RPGInventoryState,
 	type RPGItemDefinition,
+	type RPGShopTransaction,
 } from "../../sim/rpg-showdown";
 import {
 	RPGBattleSessionService,
@@ -81,6 +82,14 @@ import {
 	RPGMemoryCustomItemRepository,
 	type RPGCustomItemRepository,
 } from './custom-item-repository';
+import {
+	RPGCommerceManagement,
+	RPGFileCommerceRepository,
+	RPGMemoryCommerceRepository,
+	type RPGCommerceOfferInput,
+	type RPGCommerceRepository,
+	type RPGCommerceTradeRequest,
+} from './shop-management';
 
 export * from './battle-session';
 export * from './box-management';
@@ -91,6 +100,7 @@ export * from './nursery';
 export * from './incubation';
 export * from './pokemon-catalog';
 export * from './fossil-lab';
+export * from './shop-management';
 
 export const RPG_ACCOUNT_VERSION = 3;
 export const RPG_SESSION_VERSION = 1;
@@ -171,6 +181,8 @@ export interface RPGCharacterState extends RPGCharacterSelection {
 	inventory: RPGInventoryState;
 	fossilLab?: RPGFossilLabState;
 	nursery?: RPGNurseryCharacterState;
+	shopRevision?: number;
+	shopTransactions?: RPGShopTransaction[];
 	createdAt: number;
 	updatedAt: number;
 }
@@ -423,6 +435,7 @@ export interface RPGLoginServiceOptions {
 	repository?: RPGCharacterRepository;
 	battleSessionRepository?: RPGBattleSessionRepository;
 	customItemRepository?: RPGCustomItemRepository;
+	commerceRepository?: RPGCommerceRepository;
 	sessionTtlMs?: number;
 	now?: () => number;
 	random?: () => number;
@@ -433,6 +446,7 @@ export class RPGLoginService {
 	readonly repository: RPGCharacterRepository;
 	readonly battleSessions: RPGBattleSessionService;
 	readonly customItems: RPGCustomItemRepository;
+	readonly commerce: RPGCommerceManagement;
 	private readonly sessions = new Map<string, RPGInternalSession>();
 	private readonly masterCodeHash: Buffer;
 	private readonly deletionChallenges = new Map<string, RPGInternalDeletionChallenge>();
@@ -449,6 +463,7 @@ export class RPGLoginService {
 		}
 		this.repository = options.repository || new RPGMemoryCharacterRepository();
 		this.customItems = options.customItemRepository || new RPGMemoryCustomItemRepository();
+		this.commerce = new RPGCommerceManagement(options.commerceRepository || new RPGMemoryCommerceRepository());
 		for (const item of this.customItems.list()) {
 			const existing = RPGItems.get(item.id);
 			if (!existing) RPGItems.register(item);
@@ -871,6 +886,51 @@ export class RPGLoginService {
 		this.repository.set(record);
 		return { pokemon, fossilLab: RPGFossilLab.view(record.state, this.now(), this.random) };
 	}
+	listCommerceShops(token: string) {
+		this.getSession(token);
+		return this.commerce.directory();
+	}
+
+	getCommerceShop(token: string, shopId: string, characterId?: string) {
+		const session = this.getSession(token);
+		const requestedCharacterId = characterId || session.viewAsCharacterId || session.characterId;
+		if (session.role === 'master' && session.mode === 'master' && !requestedCharacterId) {
+			return this.commerce.view(shopId, undefined, true);
+		}
+		const record = this.requireBagRecord(token, requestedCharacterId, 'bag:read', true);
+		return this.commerce.view(shopId, record.state, session.role === 'master');
+	}
+
+	configureCommerceOffer(token: string, shopId: string, input: RPGCommerceOfferInput) {
+		this.requireMasterRole(token);
+		this.commerce.configure(shopId, input);
+		return this.commerce.view(shopId, undefined, true);
+	}
+
+	tradeCommerceShop(
+		token: string, shopId: string, request: RPGCommerceTradeRequest, characterId?: string
+	) {
+		const record = this.requireBagRecord(token, characterId, 'bag:edit', true);
+		const previousRecord = structuredClone(record);
+		const prepared = this.commerce.prepareTrade(shopId, record.state, request);
+		record.state.money = prepared.character.money;
+		record.state.inventory = prepared.character.inventory;
+		record.state.shopRevision = prepared.character.shopRevision;
+		record.state.shopTransactions = prepared.character.shopTransactions;
+		record.state.updatedAt = this.now();
+		this.repository.set(record);
+		try {
+			this.commerce.commit(prepared.shop);
+		} catch (error) {
+			this.repository.set(previousRecord);
+			throw error;
+		}
+		return {
+			view: this.commerce.view(shopId, record.state, this.getSession(token).role === 'master'),
+			transactions: prepared.transactions,
+		};
+	}
+
 	getNursery(token: string, characterId?: string) {
 		const session = this.getSession(token);
 		const requestedCharacterId = characterId || session.viewAsCharacterId || session.characterId;
@@ -3977,6 +4037,7 @@ export function createRPGLoginServiceFromConfig(
 		rpgcharacterfile?: string,
 		rpgbattlefile?: string,
 		rpgcustomitemfile?: string,
+		rpgshopfile?: string,
 		rpgseedtestaccount?: boolean,
 	} = Config
 ): RPGLoginService {
@@ -3990,8 +4051,11 @@ export function createRPGLoginServiceFromConfig(
 	const customItemRepository = new RPGFileCustomItemRepository(
 		config.rpgcustomitemfile || resolve('config/rpg-custom-items.json')
 	);
+	const commerceRepository = new RPGFileCommerceRepository(
+		config.rpgshopfile || resolve('config/rpg-shops.json')
+	);
 	const service = new RPGLoginService({
-		masterCode, repository, battleSessionRepository, customItemRepository,
+		masterCode, repository, battleSessionRepository, customItemRepository, commerceRepository,
 	});
 	migrateCharacterPageAccess(service);
 	migrateCharacterBags(service);
