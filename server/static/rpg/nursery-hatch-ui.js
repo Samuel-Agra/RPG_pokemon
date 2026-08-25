@@ -31,7 +31,9 @@
 				if(started)return;started=true;trigger.disabled=true;card.classList.add('started');message.textContent=portable?'A incubadora está abrindo...':'O Egg começou a se mexer...';
 				const request=Promise.resolve().then(requestHatch).then(result=>({result}),error=>({error}));
 				if(portable){card.classList.add('opening-incubator');await delay(1050);card.classList.add('incubator-open');}
-				card.classList.add('cracking');message.textContent='O Egg está rachando!';await delay(2600);
+				card.classList.add('cracking');message.textContent='O Egg está rachando!';
+				for(const shakeDelay of [150,460,820,1170]) setTimeout(()=>window.RPGBattleAudio?.playEffect('eggShake'),shakeDelay);
+				await delay(2600);
 				try{const outcome=await request;if(outcome.error)throw outcome.error;result=outcome.result;}catch(error){layer.remove();reject(error);return;}
 				const pokemon=result?.hatch?.pokemon;const sprite=el('img','rpg-hatch-pokemon');sprite.src=options.spriteUrl(pokemon||{species:'Pokemon'});sprite.alt=pokemon?.species||'Pokémon recém-nascido';sprite.draggable=false;stage.append(sprite);
 				card.classList.add('revealing');window.RPGBattleAudio?.playEffect('evolution');await delay(1050);card.classList.add('hatched');window.RPGBattleAudio?.playCry(pokemon?.species||'',{baseId:pokemon?.species||''});

@@ -148,7 +148,9 @@ describe('RPG Egg presentation outside incubation', () => {
 		assert.match(nurseryCss, /rpg-hatch-egg-shake/);
 		assert.match(nurseryCss, /rpg-hatch-crack-draw/);
 		assert.match(nurseryCss, /width:230px;height:288px/);
-		assert.match(nurseryCss, /max-width:290px;max-height:290px/);
+		assert.match(nurseryCss, /rpg-hatch-pokemon\{[^}]*width:320px;height:320px[^}]*max-width:94%;max-height:94%/);
+		assert.match(hatchUi, /\[150,460,820,1170\]/);
+		assert.match(hatchUi, /playEffect\('eggShake'\)/);
 		assert.match(nurseryCss, /rpg-hatch-incubator-lid/);
 		assert.match(nurseryCss, /rpg-hatch-incubator\{[^}]*width:300px;height:300px/);
 		assert.match(nurseryCss, /rpg-hatch-incubator \.rpg-hatch-egg-host\{[^}]*z-index:4[^}]*top:44%[^}]*translate:-50% -50%[^}]*scale:\.84/);

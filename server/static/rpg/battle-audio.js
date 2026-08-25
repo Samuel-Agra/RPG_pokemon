@@ -14,6 +14,7 @@
 		captureThrow: {file: 'capture-throw.wav', gain: .8},
 		captureClose: {file: 'capture-close.wav', gain: .85},
 		captureShake: {file: 'capture-shake.wav', gain: .75},
+		eggShake: {file: 'capture-shake.wav', gain: .48},
 		captureFailure: {file: 'capture-failure.wav', gain: .9},
 		faint: {file: 'faint.wav', gain: .9},
 		fleeSuccess: {file: 'flee-success.wav', gain: .85},

@@ -105,7 +105,7 @@ describe('RPG battle audio', function () {
 	});
 	it('exposes the complete capture, faint, flee and block cue set', function () {
 		const {api} = load();
-		for (const name of ['captureThrow', 'captureClose', 'captureShake', 'captureFailure',
+		for (const name of ['captureThrow', 'captureClose', 'captureShake', 'eggShake', 'captureFailure',
 			'faint', 'fleeSuccess', 'fleeBlocked', 'moveBlocked']) assert(api.effects[name], name);
 	});
 	it('exposes status, held-item, level-up and quiet progression audio', function () {
