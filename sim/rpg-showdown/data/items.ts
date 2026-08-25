@@ -618,7 +618,7 @@ const RPG_GEN9_HELD_ITEM_PRICES: Readonly<Record<string, RPGItemPrice>> = Object
 export const RPG_GEN9_ITEM_PRICES: Readonly<Record<string, RPGItemPrice>> = Object.freeze({
 	pokeball: gen9Price(200, 50),
 	greatball: gen9Price(600, 150),
-	ultraball: gen9Price(800, 200),
+	ultraball: gen9Price(1000, 200),
 	healball: gen9Price(300, 75),
 	netball: gen9Price(1000, 250),
 	repeatball: gen9Price(1000, 250),
