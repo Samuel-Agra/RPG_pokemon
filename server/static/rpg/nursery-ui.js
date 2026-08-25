@@ -72,12 +72,13 @@
 		let view = (await options.api('/nursery' + query)).nursery;
 		let selectedPokemonId = view.pokemon.find(pokemon => !pokemon.busy)?.pokemonId || '';
 		let refreshing = false;
+		let hatching = false;
 		const refreshTimer = window.setInterval(async () => {
 			if (!root.isConnected) {
 				window.clearInterval(refreshTimer);
 				return;
 			}
-			if (refreshing) return;
+			if (refreshing || hatching) return;
 			refreshing = true;
 			try {
 				const nextView = (await options.api('/nursery' + query)).nursery;
@@ -102,6 +103,24 @@
 			} catch (error) {
 				options.toast(error.message, true);
 				paint();
+			}
+		}
+
+		async function hatchEgg(egg) {
+			if (hatching) return;
+			hatching = true;
+			try {
+				const result = await window.RPGNurseryHatch.play(options, egg, () => options.api('/nursery/hatch', {
+					method: 'POST', body: {characterId: options.characterId, eggId: egg.eggId},
+				}));
+				if (result.nursery) view = result.nursery;
+				ensureSelectedPokemon();
+				paint();
+			} catch (error) {
+				options.toast(error.message, true);
+				paint();
+			} finally {
+				hatching = false;
 			}
 		}
 
@@ -919,7 +938,7 @@
 							hatch.disabled = teamFull;
 							hatch.title = teamFull ?
 								'É necessária uma vaga realmente livre na equipe para resgatar este Pokémon' : '';
-							hatch.addEventListener('click', () => action('hatch', {eggId: egg.eggId}));
+							hatch.addEventListener('click', () => hatchEgg(egg));
 							control.append(hatch);
 							}
 					}
@@ -947,7 +966,7 @@
 					const commands = el('span', 'nursery-egg-actions');
 					if (egg.portableIncubator && egg.status === 'ready_to_hatch') {
 						const hatch = el('button', 'button primary', 'Chocar ovo');
-						hatch.addEventListener('click', () => action('hatch', {eggId: egg.eggId}));
+						hatch.addEventListener('click', () => hatchEgg(egg));
 						commands.append(hatch);
 					} else if (egg.portableIncubator) {
 						const stop = el('button', 'button', 'Guardar incubadora');

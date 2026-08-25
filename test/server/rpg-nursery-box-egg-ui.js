@@ -7,6 +7,7 @@ const path = require('node:path');
 const root = path.resolve(__dirname, '../..');
 const box = fs.readFileSync(path.join(root, 'server/static/rpg/box-ui.js'), 'utf8');
 const nursery = fs.readFileSync(path.join(root, 'server/static/rpg/nursery-ui.js'), 'utf8');
+const hatchUi = fs.readFileSync(path.join(root, 'server/static/rpg/nursery-hatch-ui.js'), 'utf8');
 const nurseryCss = fs.readFileSync(path.join(root, 'server/static/rpg/nursery.css'), 'utf8');
 const rpgCss = fs.readFileSync(path.join(root, 'server/static/rpg/rpg.css'), 'utf8');
 const rpg = fs.readFileSync(path.join(root, 'server/static/rpg/rpg.js'), 'utf8');
@@ -131,6 +132,19 @@ describe('RPG Egg presentation outside incubation', () => {
 		assert.match(bag, /linkedEggId/);
 	});
 
+	it('animates a normal Egg and opens the Portable Incubator before hatching', () => {
+		assert.match(hatchUi, /Clique no Egg para iniciar a eclosão/);
+		assert.match(hatchUi, /opening-incubator/);
+		assert.match(hatchUi, /rpg-hatch-incubator-part/);
+		assert.match(hatchUi, /rpg-hatch-shell-half/);
+		assert.match(hatchUi, /rpg-hatch-pokemon/);
+		assert.match(hatchUi, /RPGNurseryHatch=Object.freeze/);
+		assert.match(nursery, /RPGNurseryHatch.play/);
+		assert.match(teamBuilder, /RPGNurseryHatch.play/);
+		assert.match(nurseryCss, /rpg-hatch-card/);
+		assert.match(nurseryCss, /rpg-hatch-egg-shake/);
+		assert.match(nurseryCss, /rpg-hatch-incubator-lid/);
+	});
 	it('shows released Pokémon only in the Master incubation area with restore and permanent release controls', () => {
 		assert.match(nursery, /Pokémon libertados/);
 		assert.match(nursery, /view\.ownerId \? 'Incubação' : 'Abandono'/);

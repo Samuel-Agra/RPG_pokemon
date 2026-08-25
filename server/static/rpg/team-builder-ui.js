@@ -207,10 +207,11 @@
 						hatch.addEventListener('click', async () => {
 							hatch.disabled = true;
 							try {
-								const result = await deps.api('/nursery/hatch', {method: 'POST', body: {
-									characterId: deps.characterId, eggId: deps.selectedEgg.eggId,
-								}});
-								deps.toast((result.hatch?.pokemon?.species || 'O Pok\u00e9mon') + ' nasceu!');
+								await window.RPGNurseryHatch.play(deps, deps.selectedEgg, () =>
+									deps.api('/nursery/hatch', {method: 'POST', body: {
+										characterId: deps.characterId, eggId: deps.selectedEgg.eggId,
+									}})
+								);
 								await deps.refresh();
 							} catch (error) { hatch.disabled = false; deps.toast(error.message, true); }
 						});
