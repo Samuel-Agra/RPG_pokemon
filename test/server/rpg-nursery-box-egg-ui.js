@@ -150,6 +150,8 @@ describe('RPG Egg presentation outside incubation', () => {
 		assert.match(nurseryCss, /width:230px;height:288px/);
 		assert.match(nurseryCss, /max-width:290px;max-height:290px/);
 		assert.match(nurseryCss, /rpg-hatch-incubator-lid/);
+		assert.match(nurseryCss, /rpg-hatch-incubator \.rpg-hatch-egg-host\{[^}]*z-index:4[^}]*translate:-50% -50%[^}]*scale:\.63/);
+		assert.match(nurseryCss, /incubator-open[^}]*rpg-hatch-egg-host\{scale:1\}/);
 		assert.match(nurseryCss, /pointer-events:none/);
 	});
 	it('seeds nine persistent ready-to-hatch Eggs only once for Teste', () => {
