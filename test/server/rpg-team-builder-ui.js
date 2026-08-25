@@ -108,6 +108,20 @@ describe('RPG Team Builder frontend', () => {
 		assert.match(navigation, /\['team-builder', 'Team Builder'\]/);
 	});
 
+	it('offers safe Pokemon release from the party context menu', () => {
+		assert.match(teamBuilder, /addEventListener\('contextmenu'/);
+		assert.match(teamBuilder, /Liberar Pokémon/);
+		assert.match(teamBuilder, /release-challenge/);
+		assert.match(teamBuilder, /method: 'DELETE'/);
+		assert.match(teamBuilder, /expectedRevision: deps\.boxRevision/);
+		assert.match(teamBuilder, /pokemon\?\.virtualEgg/);
+		assert.match(teamBuilder, /metadata\?\.breeding/);
+		assert.match(teamBuilder, /metadata\?\.evTraining/);
+		assert.match(rpg, /metadata: stored\?\.metadata \|\| \{\}/);
+		assert.match(rpg, /boxRevision: character\.box\?\.revision/);
+		assert.match(css, /\.team-builder-context-menu/);
+		assert.match(css, /\.team-builder-release-dialog/);
+	});
 	it('shows the new selected-Pokemon layout with integrated RPG information', () => {
 		assert.doesNotMatch(teamBuilder, /Equipe atual/);
 		assert.match(teamBuilder, /function selectedPokemonCard\(\)/);

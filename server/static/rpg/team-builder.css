@@ -1850,3 +1850,39 @@ button.team-builder-main-property:hover { border-color: #5a7ead; box-shadow: 0 0
 	height: 44px;
 	transform: none;
 }
+/* Menu de contexto e confirmação de liberação da equipe. */
+.team-builder-context-menu {
+	position: fixed;
+	z-index: 1800;
+	display: grid;
+	gap: 6px;
+	min-width: 190px;
+	padding: 6px;
+	border: 1px solid #8f9caf;
+	border-radius: 5px;
+	background: linear-gradient(#fff, #e8edf3);
+	box-shadow: 0 8px 24px #1c2a3f55;
+}
+.team-builder-context-release {
+	width: 100%;
+	padding: 9px 12px;
+	border: 1px solid transparent;
+	border-radius: 4px;
+	color: #8a2925;
+	background: transparent;
+	font: 700 14px Georgia, serif;
+	text-align: left;
+	cursor: pointer;
+}
+.team-builder-context-release:hover:not(:disabled),
+.team-builder-context-release:focus-visible {
+	border-color: #c28b87;
+	background: #fff0ee;
+}
+.team-builder-context-release:disabled { color: #8a929f; cursor: not-allowed; }
+.team-builder-context-menu small { max-width: 210px; padding: 0 7px 5px; color: #6e7785; line-height: 1.3; }
+.team-builder-release-backdrop { z-index: 1810; }
+.team-builder-release-dialog { width: min(440px, 100%); padding: 23px; }
+.team-builder-release-dialog h2 { margin: 0 0 10px; color: #782a26; font: 700 25px Georgia, serif; }
+.team-builder-release-dialog p { margin: 0; color: #5e6c80; line-height: 1.5; }
+.team-builder-release-actions { display: flex; justify-content: flex-end; gap: 9px; margin-top: 20px; padding-top: 14px; border-top: 1px solid #c8d0da; }

@@ -721,10 +721,10 @@ async function renderNursery(character = null) {
 	});
 }
 async function renderPlayerTeamBuilder(character) {
-	const pokemonTeam = (character.team || []).slice(0, 6).map((pokemon, index) => ({
-		...pokemon,
-		pokemonId: character.box?.party?.[index]?.pokemonId,
-	}));
+	const pokemonTeam = (character.team || []).slice(0, 6).map((pokemon, index) => {
+		const stored = character.box?.party?.[index];
+		return {...pokemon, pokemonId: stored?.pokemonId, metadata: stored?.metadata || {}};
+	});
 	const eggTeam = teamEggs(character).map(egg => ({
 		...egg, pokemonId: 'egg:' + egg.eggId, name: 'Egg', species: 'Egg', virtualEgg: true,
 	}));
@@ -741,6 +741,7 @@ async function renderPlayerTeamBuilder(character) {
 	const boxPokemonReadOnly = !selectedEgg && !pokemonTeam.some(pokemon => pokemon.pokemonId === state.teamBuilderPokemonId);
 	return window.RPGTeamBuilderUI.render({
 		api, characterId: character.id, pokemonId: state.teamBuilderPokemonId, team, selectedEgg,
+		boxRevision: character.box?.revision,
 		portableIncubators: character.portableIncubators || [], refresh: renderDashboard,
 		readOnly: !!selectedEgg || boxPokemonReadOnly, isMaster: state.session.role === 'master', toast: showToast,
 		spriteUrl: pokemon => spriteUrl(pokemon), eggVisual, portableIncubatorVisual,

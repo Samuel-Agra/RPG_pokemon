@@ -92,6 +92,81 @@
 		return 'healthy';
 	}
 
+	function releaseBlockedReason(pokemon) {
+		if (pokemon?.metadata?.breeding) return 'Pokémon em procriação não pode ser liberado.';
+		if (pokemon?.metadata?.evTraining) return 'Pokémon em treinamento não pode ser liberado.';
+		return '';
+	}
+	function openTeamReleaseConfirmation(deps, pokemon) {
+		document.querySelector('.team-builder-context-menu')?.remove();
+		const backdrop = el('div', 'modal-backdrop team-builder-release-backdrop');
+		const dialog = el('section', 'panel team-builder-release-dialog');
+		dialog.setAttribute('role', 'dialog');
+		dialog.setAttribute('aria-modal', 'true');
+		dialog.append(
+			el('h2', '', 'Liberar ' + (pokemon.name || pokemon.species) + '?'),
+			el('p', '', 'Esta ação retira o Pokémon permanentemente e não pode ser desfeita.')
+		);
+		const actions = el('div', 'team-builder-release-actions');
+		const cancel = button('Cancelar');
+		const confirm = button('Sim, liberar', 'button destructive');
+		const close = () => backdrop.remove();
+		cancel.addEventListener('click', close);
+		backdrop.addEventListener('click', event => { if (event.target === backdrop) close(); });
+		confirm.addEventListener('click', async () => {
+			cancel.disabled = true;
+			confirm.disabled = true;
+			try {
+				const result = await deps.api('/box/pokemon/' + encodeURIComponent(pokemon.pokemonId) + '/release-challenge', {
+					method: 'POST', body: {
+						characterId: deps.characterId, expectedRevision: deps.boxRevision,
+					},
+				});
+				await deps.api('/box/pokemon', {
+					method: 'DELETE', body: {challengeId: result.challenge.challengeId, confirmed: true},
+				});
+				close();
+				deps.toast((pokemon.name || pokemon.species) + ' foi liberado.');
+				await deps.refresh();
+			} catch (error) {
+				cancel.disabled = false;
+				confirm.disabled = false;
+				deps.toast(error.message, true);
+			}
+		});
+		actions.append(cancel, confirm);
+		dialog.append(actions);
+		backdrop.append(dialog);
+		document.body.append(backdrop);
+		cancel.focus();
+	}
+	function bindTeamReleaseMenu(slot, deps, pokemon) {
+		if (pokemon?.virtualEgg) return;
+		slot.addEventListener('contextmenu', event => {
+			event.preventDefault();
+			event.stopPropagation();
+			document.querySelector('.team-builder-context-menu')?.remove();
+			const menu = el('div', 'team-builder-context-menu');
+			menu.setAttribute('role', 'menu');
+			const release = button('Liberar Pokémon', 'team-builder-context-release');
+			release.setAttribute('role', 'menuitem');
+			const reason = releaseBlockedReason(pokemon);
+			release.disabled = !!reason;
+			if (reason) menu.append(release, el('small', '', reason));
+			else menu.append(release);
+			release.addEventListener('click', () => openTeamReleaseConfirmation(deps, pokemon));
+			document.body.append(menu);
+			const bounds = menu.getBoundingClientRect();
+			menu.style.left = Math.max(8, Math.min(event.clientX, window.innerWidth - bounds.width - 8)) + 'px';
+			menu.style.top = Math.max(8, Math.min(event.clientY, window.innerHeight - bounds.height - 8)) + 'px';
+			const dismiss = outside => {
+				if (menu.contains(outside.target)) return;
+				menu.remove();
+				document.removeEventListener('pointerdown', dismiss, true);
+			};
+			window.setTimeout(() => document.addEventListener('pointerdown', dismiss, true), 0);
+		});
+	}
 	function moveCard(choice, pp, click, showPP = true) {
 		const type = String(choice?.type || 'normal').toLowerCase();
 		const card = button('', 'team-builder-move-card rpg-move-button type-' + type);
@@ -157,6 +232,7 @@
 				slot.addEventListener('click', () => {
 					if (member.pokemonId !== deps.pokemonId) deps.switchPokemon(member.pokemonId);
 				});
+				bindTeamReleaseMenu(slot, deps, member);
 				slots.append(slot);
 			}
 			strip.append(slots);
@@ -410,6 +486,7 @@
 				slot.addEventListener('click', () => {
 					if (pokemon.pokemonId !== deps.pokemonId) deps.switchPokemon(pokemon.pokemonId);
 				});
+				bindTeamReleaseMenu(slot, deps, pokemon);
 				slots.append(slot);
 			}
 			strip.append(slots);
