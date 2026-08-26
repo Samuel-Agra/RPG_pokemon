@@ -101,6 +101,7 @@ import {
 
 export * from './battle-session';
 export * from './contest-session';
+export * from './contest-move-catalog';
 export * from './box-management';
 export * from './bag-management';
 export * from './team-builder-management';

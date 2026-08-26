@@ -18,6 +18,7 @@ import {
 import { getRPGBattlePokemonCatalog } from './pokemon-catalog';
 import { RPGBattleRuntimeManager, type RPGBattleRuntimeAction } from './battle-runtime';
 import { getRPGBattleSceneCatalog } from './battle-scene';
+import { getRPGContestMoveCatalog } from './contest-move-catalog';
 import { getRPGItemIconPath } from './item-icons';
 
 const MAX_BODY_SIZE = 64 * 1024;
@@ -776,6 +777,11 @@ export class RPGHttpServer {
 		if (method === 'GET' && url.pathname === '/api/rpg/battle-scenes') {
 			this.login.getSession(this.token(req));
 			this.json(res, 200, { scenes: getRPGBattleSceneCatalog() });
+			return;
+		}
+		if (method === 'GET' && url.pathname === '/api/rpg/contest-moves') {
+			this.login.getSession(this.token(req));
+			this.json(res, 200, {moves: getRPGContestMoveCatalog()});
 			return;
 		}
 		if (url.pathname === '/api/rpg/contest-sessions') {
