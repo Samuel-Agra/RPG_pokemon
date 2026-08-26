@@ -89,8 +89,56 @@
 			sync();
 			onChange();
 		};
-		minus.addEventListener('click', event => { event.stopPropagation(); update(-1); });
-		plus.addEventListener('click', event => { event.stopPropagation(); update(1); });
+		const bindRepeater = (control, delta) => {
+			let delayTimer = null;
+			let repeatTimer = null;
+			let releaseTimer = null;
+			let handledPointer = false;
+			const stop = () => {
+				if (delayTimer !== null) window.clearTimeout(delayTimer);
+				if (repeatTimer !== null) window.clearInterval(repeatTimer);
+				delayTimer = null;
+				repeatTimer = null;
+			};
+			const release = () => {
+				stop();
+				if (releaseTimer !== null) window.clearTimeout(releaseTimer);
+				releaseTimer = window.setTimeout(() => { handledPointer = false; }, 0);
+			};
+			control.addEventListener('pointerdown', event => {
+				if (event.button !== 0) return;
+				event.preventDefault();
+				event.stopPropagation();
+				handledPointer = true;
+				if (releaseTimer !== null) window.clearTimeout(releaseTimer);
+				update(delta);
+				if (control.disabled) return;
+				if (typeof control.setPointerCapture === 'function') control.setPointerCapture(event.pointerId);
+				delayTimer = window.setTimeout(() => {
+					repeatTimer = window.setInterval(() => {
+						if (control.disabled) {
+							stop();
+							return;
+						}
+						update(delta);
+					}, 60);
+				}, 280);
+			});
+			for (const eventName of ['pointerup', 'pointercancel', 'pointerleave', 'lostpointercapture']) {
+				control.addEventListener(eventName, release);
+			}
+			control.addEventListener('click', event => {
+				event.stopPropagation();
+				if (handledPointer) {
+					event.preventDefault();
+					handledPointer = false;
+					return;
+				}
+				update(delta);
+			});
+		};
+		bindRepeater(minus, -1);
+		bindRepeater(plus, 1);
 		sync();
 		row.append(minus, value, plus);
 		return row;

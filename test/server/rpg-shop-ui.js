@@ -17,6 +17,10 @@ describe('RPG commerce frontend', () => {
 		assert.match(ui, /VENDER/);
 		assert.match(ui, /Buscar item/);
 		assert.match(ui, /shop-quantity-button/);
+		assert.match(ui, /pointerdown/);
+		assert.match(ui, /setInterval/);
+		assert.match(ui, /bindRepeater\(minus, -1\)/);
+		assert.match(ui, /bindRepeater\(plus, 1\)/);
 		assert.match(ui, /Confirmar compra/);
 		assert.match(ui, /Confirmar venda/);
 		assert.match(ui, /expectedCatalogRevision/);
