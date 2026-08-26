@@ -37,6 +37,9 @@ describe('RPG commerce frontend', () => {
 		assert.match(ui, /watchShop/);
 		assert.match(css, /shop-master-bulk/);
 		assert.match(css, /shop-stock-row/);
+		assert.match(css, /shop-toggle-name\.enabled/);
+		assert.match(css, /shop-toggle-name\.disabled/);
+		assert.doesNotMatch(css, /shop-master-stock\{[^}]*overflow-y:auto/);
 	});
 	it('loads the module and exposes Lojas in both navigation modes', () => {
 		assert.match(html, /shop-ui\.css/);

@@ -354,8 +354,8 @@ export class RPGCommerceManagement {
 			const multiplier = input.action === 'increase-prices' ? 1.1 : 0.9;
 			return {
 				...offer,
-				buyPrice: Math.max(0, Math.round(Number(offer.buyPrice || 0) * multiplier)),
-				sellPrice: Math.max(0, Math.round(Number(offer.sellPrice || 0) * multiplier)),
+				buyPrice: Math.max(0, Math.round(base.buy * multiplier)),
+				sellPrice: Math.max(0, Math.round(base.sell * multiplier)),
 			};
 		});
 		shop.revision++;

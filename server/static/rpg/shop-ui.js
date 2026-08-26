@@ -295,39 +295,49 @@
 		const title = el('div');
 		title.append(el('p', 'eyebrow', 'FERRAMENTAS DO MESTRE'), el('h2', '', 'Estoque compartilhado'));
 		const bulk = el('div', 'shop-master-bulk');
-		const bulkButtons = [
-			['Vender', 'enable-buy', 'success', 'Habilitar a venda de todos os itens'],
-			['Vender', 'disable-buy', 'danger', 'Desabilitar a venda de todos os itens'],
-			['Comprar', 'enable-sell', 'success', 'Habilitar a compra de todos os itens'],
-			['Comprar', 'disable-sell', 'danger', 'Desabilitar a compra de todos os itens'],
-			['Preço', 'increase-prices', 'success', 'Aumentar todos os preços em 10%'],
-			['Preço', 'decrease-prices', 'danger', 'Diminuir todos os preços em 10%'],
-			['Reset', 'reset-prices', 'neutral', 'Restaurar todos os preços-base'],
+		const bulkGroups = [
+			[
+				['Vender', 'enable-buy', 'success', 'Habilitar a venda de todos os itens'],
+				['Vender', 'disable-buy', 'danger', 'Desabilitar a venda de todos os itens'],
+			],
+			[
+				['Comprar', 'enable-sell', 'success', 'Habilitar a compra de todos os itens'],
+				['Comprar', 'disable-sell', 'danger', 'Desabilitar a compra de todos os itens'],
+			],
+			[
+				['Preço', 'increase-prices', 'success', 'Definir os preços em 110% do valor-base'],
+				['Preço', 'decrease-prices', 'danger', 'Definir os preços em 90% do valor-base'],
+			],
+			[
+				['Reset', 'reset-prices', 'neutral', 'Restaurar todos os preços-base'],
+			],
 		];
-		for (const [label, action, tone, tooltip] of bulkButtons) {
-			const control = button(label, 'shop-bulk-button ' + tone);
-			control.title = tooltip;
-			control.setAttribute('aria-label', tooltip);
-			control.addEventListener('click', async () => {
-				control.disabled = true;
-				try {
-					await options.api('/shops/' + encodeURIComponent(view.shop.id) + '/master-bulk', {
-						method: 'POST', body: {action, expectedRevision: view.shop.revision},
-					});
-					options.toast('Todos os itens desta loja foram atualizados.');
-					await options.refresh();
-				} catch (error) {
-					options.toast(error.message, true);
-					await options.refresh();
-				}
-			});
-			bulk.append(control);
+		for (const group of bulkGroups) {
+			const pair = el('div', 'shop-bulk-group' + (group.length === 1 ? ' single' : ''));
+			for (const [label, action, tone, tooltip] of group) {
+				const control = button(label, 'shop-bulk-button ' + tone);
+				control.title = tooltip;
+				control.setAttribute('aria-label', tooltip);
+				control.addEventListener('click', async () => {
+					control.disabled = true;
+					try {
+						await options.api('/shops/' + encodeURIComponent(view.shop.id) + '/master-bulk', {
+							method: 'POST', body: {action, expectedRevision: view.shop.revision},
+						});
+						options.toast('Todos os itens desta loja foram atualizados.');
+						await options.refresh();
+					} catch (error) {
+						options.toast(error.message, true);
+						await options.refresh();
+					}
+				});
+				pair.append(control);
+			}
+			bulk.append(pair);
 		}
 		heading.append(title, bulk);
 		panel.append(heading);
 		const list = el('div', 'shop-master-stock');
-		const scrollKey = view.shop.id + ':master';
-		list.addEventListener('scroll', () => scrollPositions.set(scrollKey, list.scrollTop));
 		panel.append(list);
 		async function saveOffer(offer, controls, reset = false) {
 			const body = {
@@ -373,21 +383,37 @@
 			const buyPrice = el('input', 'shop-price-input'); buyPrice.type = 'number'; buyPrice.min = '0';
 			buyPrice.value = String(offer.sellPrice || 0);
 			const sellControl = el('label', 'shop-stock-toggle');
-			sellControl.append(sellToPlayer, el('span', '', 'Vender'), sellPrice);
+			const sellState = el('span', 'shop-toggle-name');
+			sellControl.append(sellToPlayer, sellState, sellPrice);
 			const buyControl = el('label', 'shop-stock-toggle');
-			buyControl.append(buyFromPlayer, el('span', '', 'Comprar'), buyPrice);
+			const buyState = el('span', 'shop-toggle-name');
+			buyControl.append(buyFromPlayer, buyState, buyPrice);
+			const syncToggle = (input, state, label) => {
+				state.textContent = label + ': ' + (input.checked ? 'Sim' : 'Não');
+				state.classList.toggle('enabled', input.checked);
+				state.classList.toggle('disabled', !input.checked);
+			};
+			syncToggle(sellToPlayer, sellState, 'Vender');
+			syncToggle(buyFromPlayer, buyState, 'Comprar');
 			const reset = button('Resetar preços', 'button shop-row-reset');
 			const controls = {stock, sellToPlayer, buyFromPlayer, sellPrice, buyPrice, reset};
-			for (const control of [stock, sellToPlayer, buyFromPlayer, sellPrice, buyPrice]) {
+			sellToPlayer.addEventListener('change', () => {
+				syncToggle(sellToPlayer, sellState, 'Vender');
+				void saveOffer(offer, controls);
+			});
+			buyFromPlayer.addEventListener('change', () => {
+				syncToggle(buyFromPlayer, buyState, 'Comprar');
+				void saveOffer(offer, controls);
+			});
+			for (const control of [stock, sellPrice, buyPrice]) {
 				control.addEventListener('change', () => void saveOffer(offer, controls));
 			}
 			reset.addEventListener('click', () => void saveOffer(offer, controls, true));
 			const stockWrap = el('label', 'shop-stock-quantity');
-			stockWrap.append(el('span', '', 'Quantidade disponível'), stock);
+			stockWrap.append(el('span', '', 'Qtd.'), stock);
 			row.append(itemIcon(offer), description, stockWrap, sellControl, buyControl, reset);
 			list.append(row);
 		}
-		window.requestAnimationFrame(() => { list.scrollTop = scrollPositions.get(scrollKey) || 0; });
 		return panel;
 	}
 	async function render(options) {

@@ -134,6 +134,14 @@ describe('RPG shared commerce management', () => {
 		});
 		assert.equal(view.offers.find(item => item.itemId === 'potion').buyPrice, Math.round(potionBase * 1.1));
 		view = service.configureCommerceBulk(master.token, 'poke-mart-central', {
+			action: 'increase-prices', expectedRevision: view.shop.revision,
+		});
+		assert.equal(view.offers.find(item => item.itemId === 'potion').buyPrice, Math.round(potionBase * 1.1));
+		view = service.configureCommerceBulk(master.token, 'poke-mart-central', {
+			action: 'decrease-prices', expectedRevision: view.shop.revision,
+		});
+		assert.equal(view.offers.find(item => item.itemId === 'potion').buyPrice, Math.round(potionBase * 0.9));
+		view = service.configureCommerceBulk(master.token, 'poke-mart-central', {
 			action: 'reset-prices', expectedRevision: view.shop.revision,
 		});
 		assert.equal(view.offers.find(item => item.itemId === 'potion').buyPrice, potionBase);
