@@ -44,6 +44,18 @@ describe('RPG shared commerce management', () => {
 		assert.deepEqual(directory.shops.map(shop => shop.type), [
 			'poke-mart', 'equipment', 'evolution', 'tm', 'mega-stone', 'farm', 'thrift',
 		]);
+		for (const shop of directory.shops) {
+			const catalog = service.getCommerceShop(master.token, shop.id);
+			for (const item of catalog.candidates) {
+				assert(item.icon || Number.isInteger(item.sprite), item.name + ' should have a local or Showdown sprite');
+				if (item.icon) {
+					const cleanIcon = item.icon.split('?')[0];
+					const relative = cleanIcon.startsWith('./') ? cleanIcon.slice(2) : cleanIcon;
+					assert(fs.existsSync(path.join(__dirname, '../../server/static/rpg', relative)),
+						item.name + ' local sprite should exist');
+				}
+			}
+		}
 		const mart = service.getCommerceShop(master.token, 'poke-mart-central');
 		assert(mart.candidates.some(item => item.id === 'pokeball' && item.category === 'pokeballs'));
 		assert(mart.candidates.some(item => item.id === 'potion' && item.category === 'medicines'));

@@ -27,7 +27,7 @@
 	function itemIcon(item) {
 		const frame = el('span', 'shop-item-icon');
 		const runtime = typeof rpgRuntimeItemIcon === 'function' ? rpgRuntimeItemIcon({
-			id: item.itemId || item.id, icon: item.icon, name: item.name,
+			id: item.itemId || item.id, icon: item.icon, sprite: item.sprite, name: item.name,
 		}) : null;
 		if (runtime) {
 			runtime.classList.add('shop-item-glyph');
@@ -105,9 +105,7 @@
 			const card = button('', 'panel shop-directory-card shop-type-' + shop.type);
 			const copy = el('span', 'shop-directory-copy');
 			copy.append(el('strong', '', shop.name), el('small', '', shop.description));
-			const stock = el('span', 'shop-directory-stock',
-				shop.availableItemTypes + (shop.availableItemTypes === 1 ? ' produto disponível' : ' produtos disponíveis'));
-			card.append(copy, stock);
+			card.append(copy);
 			card.addEventListener('click', () => {
 				selectedShopId = shop.id;
 				activeTab = options.isMaster ? 'admin' : 'buy';

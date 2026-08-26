@@ -21,6 +21,9 @@ describe('RPG commerce frontend', () => {
 		assert.match(ui, /Confirmar venda/);
 		assert.match(ui, /expectedCatalogRevision/);
 		assert.match(css, /shop-directory-grid/);
+		assert.doesNotMatch(ui, /produtos? disponíveis/);
+		assert.doesNotMatch(css, /shop-directory-stock/);
+		assert.match(ui, /sprite: item\.sprite/);
 		assert.match(css, /shop-cart-grid/);
 		assert.match(ui, /effectGroup/);
 		assert.match(ui, /effectType/);

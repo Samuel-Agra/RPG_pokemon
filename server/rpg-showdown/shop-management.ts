@@ -525,6 +525,7 @@ export class RPGCommerceManagement {
 		return {
 			itemId: item.id, name: item.name, category: group.category,
 			description: RPGBagManagement.description(item), icon: getRPGItemIconPath(item.id),
+			sprite: Number.isInteger(Dex.items.get(item.id).spritenum) ? Dex.items.get(item.id).spritenum! : null,
 			stock: offer.stock, owned: inventory ? RPGInventorySystem.getAvailableQuantity(inventory, item.id) : 0,
 			buyMode: offer.buyMode,
 			buyEnabled: offer.buyEnabled ?? (offer.buyMode === 'available' && offer.buyPrice !== undefined),
@@ -549,6 +550,7 @@ export class RPGCommerceManagement {
 			return [{
 				id: item.id, name: item.name, category: group.category,
 				description: RPGBagManagement.description(item), icon: getRPGItemIconPath(item.id),
+				sprite: Number.isInteger(Dex.items.get(item.id).spritenum) ? Dex.items.get(item.id).spritenum! : null,
 				recommendedBuyPrice: base.buy, recommendedSellPrice: base.sell,
 				...effectFilters(item, shop.type, group.category),
 			}];
