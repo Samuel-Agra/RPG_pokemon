@@ -2,6 +2,7 @@
 
 const assert = require('assert').strict;
 const {
+	applyRPGContestSecondRoundCreativity,
 	RPGContestComboService,
 	RPG_DEFAULT_CONTEST_COMBOS,
 	scoreRPGContestRound,
@@ -31,5 +32,22 @@ describe('RPG contest mechanical scoring and combos', () => {
 		assert.ok(service.list().some(entry => entry.id === 'aquaticprism'));
 		assert.equal(service.delete(combo.id), true);
 		assert.throws(() => service.delete('solar-bloom'), /cannot be deleted/);
+	});
+
+	it('rewards variety and applies the specified second-round repetition bands', () => {
+		const first = ['surf', 'icebeam', 'recover'];
+		const varied = applyRPGContestSecondRoundCreativity(
+			scoreRPGContestRound(['surf', 'raindance', 'dazzlinggleam']), first
+		);
+		assert.equal(varied.novelMoveBonus, 4);
+		assert.equal(varied.repetitionPenaltyRate, 0);
+		assert.ok(varied.creativityScore > 0);
+		const reordered = applyRPGContestSecondRoundCreativity(
+			scoreRPGContestRound(['recover', 'surf', 'icebeam']), first
+		);
+		assert.equal(reordered.repetitionPenaltyRate, 0.5);
+		const repeated = applyRPGContestSecondRoundCreativity(scoreRPGContestRound(first), first);
+		assert.equal(repeated.repetitionPenaltyRate, 1);
+		assert.equal(repeated.total, 0);
 	});
 });

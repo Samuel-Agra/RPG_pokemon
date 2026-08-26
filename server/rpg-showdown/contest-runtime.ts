@@ -2,7 +2,7 @@ import {toID} from '../../sim/dex-data';
 import type {PokemonSet} from '../../sim/teams';
 import {getRPGContestMove} from './contest-move-catalog';
 import {
-	RPG_DEFAULT_CONTEST_COMBOS, scoreRPGContestRound,
+	applyRPGContestSecondRoundCreativity, RPG_DEFAULT_CONTEST_COMBOS, scoreRPGContestRound,
 	type RPGContestComboDefinition, type RPGContestRoundMechanicalScore,
 } from './contest-scoring';
 import type {RPGContestParticipant, RPGContestSession} from './contest-session';
@@ -62,6 +62,8 @@ export interface RPGContestRoundJudging {
 	rawScore: number;
 	interpretationScore: number;
 	mechanicalCorrection: number;
+	copyPenalty: 0 | -3 | -6 | -10 | -15 | -20;
+	copyJustification: string;
 	correctionJustification: string;
 	comment: string;
 	totalAfterJudging: number;
@@ -114,7 +116,8 @@ export type RPGContestRuntimeAction =
 	{type: 'abandon'} |
 	{
 		type: 'submit-judging', criteria: RPGContestJudgingScores, mechanicalCorrection?: number,
-		correctionJustification?: string, comment?: string,
+		correctionJustification?: string, copyPenalty?: 0 | -3 | -6 | -10 | -15 | -20,
+		copyJustification?: string, comment?: string,
 	};
 
 export const RPG_CONTEST_JUDGING_CRITERIA: Readonly<Record<RPGContestJudgingCriterion, string>> = Object.freeze({
@@ -249,6 +252,7 @@ export class RPGContestRuntimeManager {
 			score.fieldInteractionScore = stage.fieldInteractionScore;
 			score.scenarioMoveScore = stage.scenarioMoveScore;
 			score.total += stage.fieldInteractionScore + stage.scenarioMoveScore;
+			if (state.round === 2) Object.assign(score, applyRPGContestSecondRoundCreativity(score, participant.rounds[0]));
 			participant.roundScores[state.round - 1] = score;
 			if (state.round === 2 && participant.roundStages[0]?.scenarioMoveScore && stage.scenarioMoveScore) {
 				participant.scenarioCoherenceBonus = 2;
@@ -332,11 +336,20 @@ export class RPGContestRuntimeManager {
 		if (correctionJustification.length > 500) throw new Error('RPG contest correction justification is too long');
 		const comment = String(action.comment || '').trim();
 		if (comment.length > 500) throw new Error('RPG contest judge comment is too long');
+		const allowedCopyPenalties = [0, -3, -6, -10, -15, -20] as const;
+		const copyPenalty = action.copyPenalty === undefined ? 0 : Number(action.copyPenalty);
+		if (!allowedCopyPenalties.includes(copyPenalty as typeof allowedCopyPenalties[number])) {
+			throw new Error('Invalid RPG contest copy penalty');
+		}
+		const copyJustification = String(action.copyJustification || '').trim();
+		if (copyPenalty && !copyJustification) throw new Error('RPG contest copy penalty requires a justification');
+		if (copyJustification.length > 500) throw new Error('RPG contest copy justification is too long');
 		const mechanical = participant.roundScores[state.round - 1];
 		if (!mechanical) throw new Error('RPG contest mechanical round score is unavailable');
-		const totalAfterJudging = mechanical.total + interpretationScore + mechanicalCorrection;
+		const totalAfterJudging = mechanical.total + interpretationScore + mechanicalCorrection + copyPenalty;
 		participant.judging[state.round - 1] = {
-			criteria, rawScore, interpretationScore, mechanicalCorrection, correctionJustification, comment,
+			criteria, rawScore, interpretationScore, mechanicalCorrection, correctionJustification,
+			copyPenalty: copyPenalty as RPGContestRoundJudging['copyPenalty'], copyJustification, comment,
 			totalAfterJudging,
 		};
 		const reaction = this.audienceReaction(totalAfterJudging, mechanical, comment);

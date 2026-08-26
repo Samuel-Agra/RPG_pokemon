@@ -20,9 +20,40 @@ export interface RPGContestRoundMechanicalScore {
 	comboScore: number;
 	fieldInteractionScore: number;
 	scenarioMoveScore: number;
+	novelMoveBonus: number;
+	originalityScore: number;
+	inventiveInteractionScore: number;
+	creativityScore: number;
+	repetitionPenaltyRate: number;
+	repetitionPenalty: number;
 	matchedCombos: {id: string, name: string}[];
 	discoveredInteractions: string[];
 	total: number;
+}
+
+export function applyRPGContestSecondRoundCreativity(
+	score: RPGContestRoundMechanicalScore, firstRound: readonly string[]
+): RPGContestRoundMechanicalScore {
+	if (firstRound.length !== 3) throw new Error('RPG contest first round requires exactly three moves');
+	const first: string[] = firstRound.map(move => toID(move));
+	const second = score.moves;
+	const repeated = second.filter(move => first.includes(move)).length;
+	const samePositions = second.filter((move, index) => move === first[index]).length;
+	const exactSequence = samePositions === 3;
+	const sameMoveSet = !exactSequence && [...second].sort().join(',') === [...first].sort().join(',');
+	let repetitionPenaltyRate = 0;
+	if (exactSequence) repetitionPenaltyRate = 1;
+	else if (sameMoveSet) repetitionPenaltyRate = 0.5;
+	else if (repeated >= 2 && samePositions >= 2) repetitionPenaltyRate = 0.25;
+	else if (repeated >= 2) repetitionPenaltyRate = 0.15;
+	const novelMoveBonus = repeated < 3 ? 4 : 0;
+	const originalityScore = repeated === 0 ? 4 : repeated === 1 ? 3 : repeated === 2 ? 2 : exactSequence ? 0 : 1;
+	const inventiveInteractionScore = Math.min(4, score.discoveredInteractions.length * 2);
+	const creativityScore = novelMoveBonus + originalityScore + inventiveInteractionScore;
+	const beforeRepetition = score.total + creativityScore;
+	const repetitionPenalty = Number((beforeRepetition * repetitionPenaltyRate).toFixed(1));
+	return {...score, novelMoveBonus, originalityScore, inventiveInteractionScore, creativityScore,
+		repetitionPenaltyRate, repetitionPenalty, total: beforeRepetition - repetitionPenalty};
 }
 
 export interface RPGContestComboRepository {
@@ -176,6 +207,8 @@ export function scoreRPGContestRound(
 	return {
 		moves: sequence, moveBaseScore, continuityScore, tagSynergyScore, finaleScore, specialComboBonus,
 		comboScore, fieldInteractionScore: 0, scenarioMoveScore: 0,
+		novelMoveBonus: 0, originalityScore: 0, inventiveInteractionScore: 0, creativityScore: 0,
+		repetitionPenaltyRate: 0, repetitionPenalty: 0,
 		matchedCombos: matched.map(combo => ({id: combo.id, name: combo.name})),
 		discoveredInteractions: allRelations, total: moveBaseScore + comboScore,
 	};

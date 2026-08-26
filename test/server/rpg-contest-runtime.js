@@ -101,10 +101,14 @@ describe('RPG contest runtime', () => {
 		}), {master: true}), /between -1 and 5/);
 		assert.throws(() => runtime.action('contest-runtime', judging({mechanicalCorrection: 3}), {master: true}),
 			/requires a justification/);
+		assert.throws(() => runtime.action('contest-runtime', judging({copyPenalty: -15}), {master: true}),
+			/copy penalty requires a justification/);
 		const view = runtime.action('contest-runtime', judging({
 			mechanicalCorrection: -3, correctionJustification: 'A interação automática não ocorreu na narração.',
+			copyPenalty: -6, copyJustification: 'Repetiu a estrutura visual apresentada anteriormente.',
 		}), {master: true});
 		assert.equal(view.participants[0].judging[0].mechanicalCorrection, -3);
+		assert.equal(view.participants[0].judging[0].copyPenalty, -6);
 	});
 
 	it('accepts TM changes until the first move and freezes the entire moveset afterwards', () => {
