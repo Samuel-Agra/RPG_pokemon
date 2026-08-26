@@ -1,6 +1,10 @@
 import {toID} from '../../sim/dex-data';
 import type {PokemonSet} from '../../sim/teams';
 import {getRPGContestMove} from './contest-move-catalog';
+import {
+	RPG_DEFAULT_CONTEST_COMBOS, scoreRPGContestRound,
+	type RPGContestComboDefinition, type RPGContestRoundMechanicalScore,
+} from './contest-scoring';
 import type {RPGContestParticipant, RPGContestSession} from './contest-session';
 
 export type RPGContestRuntimePhase = 'awaiting_move' | 'awaiting_judging' | 'finished';
@@ -35,6 +39,7 @@ export interface RPGContestRuntimeParticipant {
 	disqualified: boolean;
 	disqualifiedAt?: number;
 	rounds: [string[], string[]];
+	roundScores: [RPGContestRoundMechanicalScore | null, RPGContestRoundMechanicalScore | null];
 }
 
 export type RPGContestRuntimeEventType =
@@ -88,16 +93,19 @@ interface RPGContestRuntimeState {
 export interface RPGContestRuntimeManagerOptions {
 	now?: () => number;
 	getCharacterTeam?: (characterId: string) => PokemonSet[] | undefined;
+	getCombos?: () => readonly RPGContestComboDefinition[];
 }
 
 export class RPGContestRuntimeManager {
 	private readonly runtimes = new Map<string, RPGContestRuntimeState>();
 	private readonly now: () => number;
 	private readonly getCharacterTeam: (characterId: string) => PokemonSet[] | undefined;
+	private readonly getCombos: () => readonly RPGContestComboDefinition[];
 
 	constructor(options: RPGContestRuntimeManagerOptions = {}) {
 		this.now = options.now || Date.now;
 		this.getCharacterTeam = options.getCharacterTeam || (() => undefined);
+		this.getCombos = options.getCombos || (() => RPG_DEFAULT_CONTEST_COMBOS);
 	}
 
 	start(session: RPGContestSession): RPGContestRuntimeSnapshot {
@@ -173,6 +181,7 @@ export class RPGContestRuntimeManager {
 			moveIndex: roundMoves.length - 1, moveId, moveName: selected.name,
 		});
 		if (roundMoves.length === 3) {
+			participant.roundScores[state.round - 1] = scoreRPGContestRound(roundMoves, this.getCombos());
 			state.phase = 'awaiting_judging';
 			this.emit(state, 'awaiting-judging', participant.id);
 		}
@@ -218,7 +227,7 @@ export class RPGContestRuntimeManager {
 		return {
 			id: participant.id, kind: participant.kind, displayName: participant.displayName,
 			characterId: participant.characterId, avatar: participant.avatar,
-			pokemon: this.pokemon(set, false), disqualified: false, rounds: [[], []],
+			pokemon: this.pokemon(set, false), disqualified: false, rounds: [[], []], roundScores: [null, null],
 		};
 	}
 

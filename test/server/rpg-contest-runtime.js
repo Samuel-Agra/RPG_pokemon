@@ -42,6 +42,8 @@ describe('RPG contest runtime', () => {
 		}
 		assert.equal(view.phase, 'awaiting_judging');
 		assert.deepEqual(view.participants[0].rounds[0], ['surf', 'surf', 'icebeam']);
+		assert.ok(view.participants[0].roundScores[0].moveBaseScore > 0);
+		assert.ok(view.participants[0].roundScores[0].comboScore <= 15);
 		assert.equal(runtime.snapshot('contest-runtime', {master: true}).canJudge, true);
 		view = runtime.action('contest-runtime', {type: 'judging-complete'}, {master: true});
 		assert.equal(view.currentParticipantId, 'npc');

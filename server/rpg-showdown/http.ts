@@ -48,6 +48,7 @@ export class RPGHttpServer {
 	private get contestRuntimeManager(): RPGContestRuntimeManager {
 		this.contestRuntimes ||= new RPGContestRuntimeManager({
 			getCharacterTeam: characterId => this.login.repository.get(characterId)?.state.team,
+			getCombos: () => this.login.contestCombos.list(),
 		});
 		return this.contestRuntimes;
 	}
@@ -791,6 +792,25 @@ export class RPGHttpServer {
 		if (method === 'GET' && url.pathname === '/api/rpg/contest-moves') {
 			this.login.getSession(this.token(req));
 			this.json(res, 200, {moves: getRPGContestMoveCatalog()});
+			return;
+		}
+		if (url.pathname === '/api/rpg/contest-combos') {
+			const token = this.token(req);
+			if (method === 'GET') {
+				this.json(res, 200, {combos: this.login.listContestCombos(token)});
+				return;
+			}
+			if (method === 'POST') {
+				const body = await this.body(req);
+				this.json(res, 201, {combo: this.login.createContestCombo(token, body as never)});
+				return;
+			}
+		}
+		const contestComboMatch = /^\/api\/rpg\/contest-combos\/([^/]+)$/.exec(url.pathname);
+		if (contestComboMatch && method === 'DELETE') {
+			this.json(res, 200, {deleted: this.login.deleteContestCombo(
+				this.token(req), decodeURIComponent(contestComboMatch[1])
+			)});
 			return;
 		}
 		if (url.pathname === '/api/rpg/contest-sessions') {

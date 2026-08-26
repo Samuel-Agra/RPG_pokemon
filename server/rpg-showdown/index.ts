@@ -46,6 +46,11 @@ import {
 	type RPGUpdateContestSessionRequest,
 } from './contest-session';
 import {
+	RPGContestComboService,
+	type RPGContestComboDefinition,
+	type RPGContestComboRepository,
+} from './contest-scoring';
+import {
 	RPGBoxManagement,
 	type RPGBoxManagementView,
 	type RPGBoxMasterEdit,
@@ -103,6 +108,7 @@ export * from './battle-session';
 export * from './contest-session';
 export * from './contest-move-catalog';
 export * from './contest-runtime';
+export * from './contest-scoring';
 export * from './box-management';
 export * from './bag-management';
 export * from './team-builder-management';
@@ -388,6 +394,60 @@ interface RPGContestSessionFileData {
 	sessions: RPGContestSession[];
 }
 
+interface RPGContestComboFileData {
+	version: 1;
+	combos: RPGContestComboDefinition[];
+}
+
+export class RPGFileContestComboRepository implements RPGContestComboRepository {
+	private readonly combos = new Map<string, RPGContestComboDefinition>();
+	readonly filePath: string;
+	constructor(filePath = resolve('config/rpg-contest-combos.json')) {
+		this.filePath = resolve(filePath);
+		if (!existsSync(this.filePath)) return;
+		const raw = JSON.parse(readFileSync(this.filePath, 'utf8')) as Partial<RPGContestComboFileData>;
+		if (raw.version !== 1 || !Array.isArray(raw.combos)) throw new Error('Invalid RPG contest combo persistence file');
+		for (const combo of raw.combos) {
+			if (!combo?.id || combo.source !== 'master') throw new Error('Invalid RPG contest combo persistence record');
+			this.combos.set(toID(combo.id), structuredClone(combo));
+		}
+	}
+	list(): RPGContestComboDefinition[] {
+		return [...this.combos.values()].map(combo => structuredClone(combo));
+	}
+	set(combo: RPGContestComboDefinition): void {
+		const id = toID(combo.id);
+		const previous = this.combos.get(id);
+		this.combos.set(id, structuredClone(combo));
+		try {
+			this.persist();
+		} catch (error) {
+			if (previous) this.combos.set(id, previous);
+			else this.combos.delete(id);
+			throw error;
+		}
+	}
+	delete(id: string): boolean {
+		const normalized = toID(id);
+		const previous = this.combos.get(normalized);
+		if (!previous) return false;
+		this.combos.delete(normalized);
+		try {
+			this.persist();
+			return true;
+		} catch (error) {
+			this.combos.set(normalized, previous);
+			throw error;
+		}
+	}
+	private persist(): void {
+		mkdirSync(dirname(this.filePath), {recursive: true});
+		const temporary = this.filePath + '.tmp';
+		writeFileSync(temporary, JSON.stringify({version: 1, combos: [...this.combos.values()]}, null, '\t') + '\n', 'utf8');
+		renameSync(temporary, this.filePath);
+	}
+}
+
 /** Atomic JSON persistence for contest preparation and invitations. */
 export class RPGFileContestSessionRepository implements RPGContestSessionRepository {
 	private readonly sessions = new Map<string, RPGContestSession>();
@@ -510,6 +570,7 @@ export interface RPGLoginServiceOptions {
 	repository?: RPGCharacterRepository;
 	battleSessionRepository?: RPGBattleSessionRepository;
 	contestSessionRepository?: RPGContestSessionRepository;
+	contestComboRepository?: RPGContestComboRepository;
 	customItemRepository?: RPGCustomItemRepository;
 	commerceRepository?: RPGCommerceRepository;
 	sessionTtlMs?: number;
@@ -522,6 +583,7 @@ export class RPGLoginService {
 	readonly repository: RPGCharacterRepository;
 	readonly battleSessions: RPGBattleSessionService;
 	readonly contestSessions: RPGContestSessionService;
+	readonly contestCombos: RPGContestComboService;
 	readonly customItems: RPGCustomItemRepository;
 	readonly commerce: RPGCommerceManagement;
 	private readonly sessions = new Map<string, RPGInternalSession>();
@@ -541,6 +603,7 @@ export class RPGLoginService {
 		this.repository = options.repository || new RPGMemoryCharacterRepository();
 		this.customItems = options.customItemRepository || new RPGMemoryCustomItemRepository();
 		this.commerce = new RPGCommerceManagement(options.commerceRepository || new RPGMemoryCommerceRepository());
+		this.contestCombos = new RPGContestComboService(options.contestComboRepository);
 		for (const item of this.customItems.list()) {
 			const existing = RPGItems.get(item.id);
 			if (!existing) RPGItems.register(item);
@@ -2923,6 +2986,24 @@ export class RPGLoginService {
 		return this.contestSessions.complete(contestSessionId);
 	}
 
+	listContestCombos(token: string): RPGContestComboDefinition[] {
+		this.getSession(token);
+		return this.contestCombos.list();
+	}
+
+	createContestCombo(
+		token: string,
+		input: Omit<RPGContestComboDefinition, 'id' | 'source'> & {id?: string}
+	): RPGContestComboDefinition {
+		this.requireMasterMode(token);
+		return this.contestCombos.create(input);
+	}
+
+	deleteContestCombo(token: string, comboId: string): boolean {
+		this.requireMasterMode(token);
+		return this.contestCombos.delete(comboId);
+	}
+
 	cancelContestSession(token: string, contestSessionId: string): RPGContestSession {
 		this.requireMasterMode(token);
 		return this.contestSessions.cancel(contestSessionId);
@@ -4266,6 +4347,7 @@ export function createRPGLoginServiceFromConfig(
 		rpgcharacterfile?: string,
 		rpgbattlefile?: string,
 		rpgcontestfile?: string,
+		rpgcontestcombofile?: string,
 		rpgcustomitemfile?: string,
 		rpgshopfile?: string,
 		rpgseedtestaccount?: boolean,
@@ -4281,6 +4363,9 @@ export function createRPGLoginServiceFromConfig(
 	const contestSessionRepository = new RPGFileContestSessionRepository(
 		config.rpgcontestfile || resolve('config/rpg-contest-sessions.json')
 	);
+	const contestComboRepository = new RPGFileContestComboRepository(
+		config.rpgcontestcombofile || resolve('config/rpg-contest-combos.json')
+	);
 	const customItemRepository = new RPGFileCustomItemRepository(
 		config.rpgcustomitemfile || resolve('config/rpg-custom-items.json')
 	);
@@ -4288,7 +4373,7 @@ export function createRPGLoginServiceFromConfig(
 		config.rpgshopfile || resolve('config/rpg-shops.json')
 	);
 	const service = new RPGLoginService({
-		masterCode, repository, battleSessionRepository, contestSessionRepository,
+		masterCode, repository, battleSessionRepository, contestSessionRepository, contestComboRepository,
 		customItemRepository, commerceRepository,
 	});
 	migrateCharacterPageAccess(service);
