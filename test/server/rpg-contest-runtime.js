@@ -24,6 +24,17 @@ function startedSession() {
 	};
 }
 
+function judging(overrides = {}) {
+	return {
+		type: 'submit-judging',
+		criteria: {
+			visualComposition: 4, sequenceContinuity: 4, stageUse: 4,
+			trainerPokemonSync: 4, interpretationFinale: 4,
+		},
+		...overrides,
+	};
+}
+
 describe('RPG contest runtime', () => {
 	it('runs visible three-move presentations across two rounds and emits ordered events', () => {
 		const teams = new Map([['may', [pokemon('Milotic', ['surf', 'icebeam', 'recover', 'raindance'])]]]);
@@ -42,17 +53,27 @@ describe('RPG contest runtime', () => {
 		}
 		assert.equal(view.phase, 'awaiting_judging');
 		assert.deepEqual(view.participants[0].rounds[0], ['surf', 'surf', 'icebeam']);
-		assert.ok(view.participants[0].roundScores[0].moveBaseScore > 0);
-		assert.ok(view.participants[0].roundScores[0].comboScore <= 15);
-		assert.ok(view.participants[0].roundScores[0].fieldInteractionScore > 0);
-		assert.ok(view.participants[0].roundStages[0].moves[0].transformations.includes('field:wetstage'));
+		assert.deepEqual(view.participants[0].roundScores, [null, null]);
+		const masterRoundView = runtime.snapshot('contest-runtime', {master: true});
+		assert.ok(masterRoundView.participants[0].roundScores[0].moveBaseScore > 0);
+		assert.ok(masterRoundView.participants[0].roundScores[0].comboScore <= 15);
+		assert.ok(masterRoundView.participants[0].roundScores[0].fieldInteractionScore > 0);
+		assert.ok(masterRoundView.participants[0].roundStages[0].moves[0].transformations.includes('field:wetstage'));
 		assert.equal(runtime.snapshot('contest-runtime', {master: true}).canJudge, true);
-		view = runtime.action('contest-runtime', {type: 'judging-complete'}, {master: true});
+		assert.throws(() => runtime.action('contest-runtime', judging(), {characterId: 'may'}), /Only the Master/);
+		view = runtime.action('contest-runtime', judging({comment: 'Uma apresentação muito harmoniosa.'}), {master: true});
 		assert.equal(view.currentParticipantId, 'npc');
+		assert.equal(view.participants[0].judging[0].rawScore, 20);
+		assert.equal(view.participants[0].judging[0].interpretationScore, 8);
+		assert.ok(view.participants[0].audienceReactions[0].comments.includes('Uma apresentação muito harmoniosa.'));
+		const playerView = runtime.snapshot('contest-runtime', {characterId: 'may'});
+		assert.deepEqual(playerView.participants[0].roundScores, [null, null]);
+		assert.deepEqual(playerView.participants[0].judging, [null, null]);
+		assert.ok(playerView.participants[0].audienceReactions[0]);
 		for (const moveId of ['tackle', 'swift', 'tackle']) {
 			view = runtime.action('contest-runtime', {type: 'select-move', moveId}, {master: true});
 		}
-		view = runtime.action('contest-runtime', {type: 'judging-complete'}, {master: true});
+		view = runtime.action('contest-runtime', judging(), {master: true});
 		assert.equal(view.round, 2);
 		assert.equal(view.currentParticipantId, 'may');
 		view = runtime.action('contest-runtime', {type: 'abandon'}, {characterId: 'may'});
@@ -62,10 +83,28 @@ describe('RPG contest runtime', () => {
 		for (const moveId of ['swift', 'swift', 'tackle']) {
 			view = runtime.action('contest-runtime', {type: 'select-move', moveId}, {master: true});
 		}
-		view = runtime.action('contest-runtime', {type: 'judging-complete'}, {master: true});
+		view = runtime.action('contest-runtime', judging(), {master: true});
 		assert.equal(view.status, 'ended');
 		assert.equal(view.phase, 'finished');
 		assert.deepEqual(view.events.map(event => event.sequence), view.events.map((event, index) => index));
+	});
+
+	it('validates all five criteria and requires a justification for mechanical correction', () => {
+		const teams = new Map([['may', [pokemon('Milotic', ['surf'])]]]);
+		const runtime = new RPGContestRuntimeManager({getCharacterTeam: id => teams.get(id)});
+		runtime.start(startedSession());
+		for (let index = 0; index < 3; index++) {
+			runtime.action('contest-runtime', {type: 'select-move', moveId: 'surf'}, {characterId: 'may'});
+		}
+		assert.throws(() => runtime.action('contest-runtime', judging({
+			criteria: {...judging().criteria, stageUse: 6},
+		}), {master: true}), /between -1 and 5/);
+		assert.throws(() => runtime.action('contest-runtime', judging({mechanicalCorrection: 3}), {master: true}),
+			/requires a justification/);
+		const view = runtime.action('contest-runtime', judging({
+			mechanicalCorrection: -3, correctionJustification: 'A interação automática não ocorreu na narração.',
+		}), {master: true});
+		assert.equal(view.participants[0].judging[0].mechanicalCorrection, -3);
 	});
 
 	it('accepts TM changes until the first move and freezes the entire moveset afterwards', () => {

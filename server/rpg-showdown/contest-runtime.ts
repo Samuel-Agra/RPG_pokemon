@@ -48,11 +48,35 @@ export interface RPGContestRuntimeParticipant {
 	stageMoves: [RPGContestMoveStageResult[], RPGContestMoveStageResult[]];
 	roundStages: [RPGContestRoundStageResult | null, RPGContestRoundStageResult | null];
 	scenarioCoherenceBonus: number;
+	judging: [RPGContestRoundJudging | null, RPGContestRoundJudging | null];
+	audienceReactions: [RPGContestAudienceReaction | null, RPGContestAudienceReaction | null];
+}
+
+export type RPGContestJudgingCriterion =
+	'visualComposition' | 'sequenceContinuity' | 'stageUse' | 'trainerPokemonSync' | 'interpretationFinale';
+
+export type RPGContestJudgingScores = Record<RPGContestJudgingCriterion, number>;
+
+export interface RPGContestRoundJudging {
+	criteria: RPGContestJudgingScores;
+	rawScore: number;
+	interpretationScore: number;
+	mechanicalCorrection: number;
+	correctionJustification: string;
+	comment: string;
+	totalAfterJudging: number;
+}
+
+export interface RPGContestAudienceReaction {
+	level: 1 | 2 | 3 | 4 | 5 | 6;
+	label: string;
+	emoji: string;
+	comments: string[];
 }
 
 export type RPGContestRuntimeEventType =
 	'contest-started' | 'round-started' | 'participant-enter' | 'move-selected' |
-	'awaiting-judging' | 'participant-disqualified' | 'contest-finished';
+	'awaiting-judging' | 'judging-complete' | 'participant-disqualified' | 'contest-finished';
 
 export interface RPGContestRuntimeEvent {
 	sequence: number;
@@ -65,6 +89,7 @@ export interface RPGContestRuntimeEvent {
 	moveName?: string;
 	stageTransformations?: string[];
 	stageInteractions?: string[];
+	audienceReaction?: RPGContestAudienceReaction;
 }
 
 export interface RPGContestRuntimeSnapshot {
@@ -87,7 +112,18 @@ export interface RPGContestRuntimeSnapshot {
 export type RPGContestRuntimeAction =
 	{type: 'select-move', moveId: string} |
 	{type: 'abandon'} |
-	{type: 'judging-complete'};
+	{
+		type: 'submit-judging', criteria: RPGContestJudgingScores, mechanicalCorrection?: number,
+		correctionJustification?: string, comment?: string,
+	};
+
+export const RPG_CONTEST_JUDGING_CRITERIA: Readonly<Record<RPGContestJudgingCriterion, string>> = Object.freeze({
+	visualComposition: 'Composição visual',
+	sequenceContinuity: 'Continuidade da sequência',
+	stageUse: 'Uso do palco e do cenário',
+	trainerPokemonSync: 'Sincronia entre Treinador e Pokémon',
+	interpretationFinale: 'Interpretação e encerramento',
+});
 
 interface RPGContestRuntimeState {
 	session: RPGContestSession;
@@ -146,6 +182,14 @@ export class RPGContestRuntimeManager {
 		this.refreshUnfrozenPokemon(state);
 		const currentParticipantId = state.status === 'active' ? this.currentId(state) : undefined;
 		const current = state.participants.find(participant => participant.id === currentParticipantId);
+		const participants = structuredClone(state.participants);
+		if (!viewer.master) {
+			for (const participant of participants) {
+				participant.roundScores = [null, null];
+				participant.roundStages = [null, null];
+				participant.judging = [null, null];
+			}
+		}
 		return {
 			sessionId: state.session.id,
 			status: state.status,
@@ -157,7 +201,7 @@ export class RPGContestRuntimeManager {
 			rank: state.session.rank,
 			scenario: structuredClone(state.session.scenario),
 			presentationOrder: [...state.session.presentationOrder],
-			participants: structuredClone(state.participants),
+			participants,
 			events: structuredClone(state.events.slice(-100)),
 			canAct: state.phase === 'awaiting_move' && !!current && this.canControl(current, viewer),
 			canJudge: state.phase === 'awaiting_judging' && viewer.master === true,
@@ -167,9 +211,10 @@ export class RPGContestRuntimeManager {
 	action(sessionId: string, action: RPGContestRuntimeAction, viewer: RPGContestRuntimeViewer): RPGContestRuntimeSnapshot {
 		const state = this.require(sessionId);
 		if (state.status !== 'active') throw new Error('RPG contest has already ended');
-		if (action.type === 'judging-complete') {
+		if (action.type === 'submit-judging') {
 			if (!viewer.master) throw new Error('Only the Master can finish RPG contest judging');
 			if (state.phase !== 'awaiting_judging') throw new Error('RPG contest is not awaiting judging');
+			this.submitJudging(state, action);
 			this.advance(state);
 			return this.snapshot(sessionId, viewer);
 		}
@@ -257,8 +302,63 @@ export class RPGContestRuntimeManager {
 			characterId: participant.characterId, avatar: participant.avatar,
 			pokemon: this.pokemon(set, false), disqualified: false, rounds: [[], []], roundScores: [null, null],
 			stageStates: [firstStage, secondStage], stageMoves: [[], []], roundStages: [null, null],
-			scenarioCoherenceBonus: 0,
+			scenarioCoherenceBonus: 0, judging: [null, null], audienceReactions: [null, null],
 		};
+	}
+
+	private submitJudging(
+		state: RPGContestRuntimeState,
+		action: Extract<RPGContestRuntimeAction, {type: 'submit-judging'}>
+	): void {
+		const participant = this.current(state);
+		const criteria = {} as RPGContestJudgingScores;
+		for (const criterion of Object.keys(RPG_CONTEST_JUDGING_CRITERIA) as RPGContestJudgingCriterion[]) {
+			const value = Number(action.criteria?.[criterion]);
+			if (!Number.isSafeInteger(value) || value < -1 || value > 5) {
+				throw new Error(`RPG contest criterion ${criterion} must be between -1 and 5`);
+			}
+			criteria[criterion] = value;
+		}
+		const rawScore = Object.values(criteria).reduce((total, value) => total + value, 0);
+		const interpretationScore = rawScore < 0 ? rawScore : Number((rawScore * 10 / 25).toFixed(1));
+		const mechanicalCorrection = action.mechanicalCorrection === undefined ? 0 : Number(action.mechanicalCorrection);
+		if (!Number.isSafeInteger(mechanicalCorrection) || mechanicalCorrection < -10 || mechanicalCorrection > 10) {
+			throw new Error('RPG contest mechanical correction must be between -10 and 10');
+		}
+		const correctionJustification = String(action.correctionJustification || '').trim();
+		if (mechanicalCorrection && !correctionJustification) {
+			throw new Error('RPG contest mechanical correction requires a justification');
+		}
+		if (correctionJustification.length > 500) throw new Error('RPG contest correction justification is too long');
+		const comment = String(action.comment || '').trim();
+		if (comment.length > 500) throw new Error('RPG contest judge comment is too long');
+		const mechanical = participant.roundScores[state.round - 1];
+		if (!mechanical) throw new Error('RPG contest mechanical round score is unavailable');
+		const totalAfterJudging = mechanical.total + interpretationScore + mechanicalCorrection;
+		participant.judging[state.round - 1] = {
+			criteria, rawScore, interpretationScore, mechanicalCorrection, correctionJustification, comment,
+			totalAfterJudging,
+		};
+		const reaction = this.audienceReaction(totalAfterJudging, mechanical, comment);
+		participant.audienceReactions[state.round - 1] = reaction;
+		this.emit(state, 'judging-complete', participant.id, {audienceReaction: reaction});
+	}
+
+	private audienceReaction(
+		total: number, score: RPGContestRoundMechanicalScore, comment: string
+	): RPGContestAudienceReaction {
+		const level = (total < 12 ? 1 : total < 22 ? 2 : total < 33 ? 3 :
+			total < 43 ? 4 : total < 53 ? 5 : 6) as RPGContestAudienceReaction['level'];
+		const labels = ['', 'silêncio ou desconforto', 'aplausos discretos', 'público animado',
+			'grande entusiasmo', 'público em êxtase', 'reação histórica'];
+		const emojis = ['', '😐', '🙂', '👏', '👏👏', '👏👏👏', '👏👏👏👏'];
+		const comments: string[] = [];
+		if (score.matchedCombos.length) comments.push('O público adorou a combinação!');
+		if (score.fieldInteractionScore >= 3) comments.push('A transformação do palco surpreendeu os jurados!');
+		if (score.scenarioMoveScore >= 2) comments.push('O cenário valorizou a apresentação!');
+		if (comment) comments.push(comment);
+		if (!comments.length) comments.push(level >= 4 ? 'A apresentação empolgou o público!' : 'Os jurados observam atentamente.');
+		return {level, label: labels[level], emoji: emojis[level], comments};
 	}
 
 	private participantSet(participant: RPGContestParticipant): PokemonSet {
@@ -318,7 +418,7 @@ export class RPGContestRuntimeManager {
 	private emit(
 		state: RPGContestRuntimeState, type: RPGContestRuntimeEventType, participantId?: string,
 		extra: Partial<Pick<RPGContestRuntimeEvent,
-			'moveIndex' | 'moveId' | 'moveName' | 'stageTransformations' | 'stageInteractions'>> = {}
+			'moveIndex' | 'moveId' | 'moveName' | 'stageTransformations' | 'stageInteractions' | 'audienceReaction'>> = {}
 	): void {
 		state.events.push({
 			sequence: state.nextSequence++, type, createdAt: this.now(), round: state.round,
