@@ -208,6 +208,84 @@ function effectFilters(item: RPGItemDefinition, shopType: RPGShopType, category:
 	return {};
 }
 
+
+const POKEBALL_ORDER = [
+	'pokeball', 'greatball', 'ultraball',
+	'healball', 'premierball', 'netball', 'nestball', 'diveball', 'duskball',
+	'timerball', 'repeatball', 'quickball', 'luxuryball',
+	'safariball', 'sportball', 'fastball', 'levelball', 'lureball', 'heavyball',
+	'loveball', 'friendball', 'moonball', 'dreamball',
+	'beastball', 'strangeball', 'cherishball', 'parkball', 'masterball',
+] as const;
+const POKE_MART_ITEM_ORDER = [
+	...POKEBALL_ORDER,
+	'potion', 'superpotion', 'hyperpotion', 'maxpotion', 'fullrestore',
+	'revive', 'revivalherb', 'maxrevive', 'sacredash',
+	'antidote', 'burnheal', 'iceheal', 'awakening', 'paralyzeheal', 'fullheal',
+	'ether', 'maxether', 'elixir', 'maxelixir',
+	'hpup', 'protein', 'iron', 'calcium', 'zinc', 'carbos',
+] as const;
+const POKE_MART_SECTION_ORDER = ['pokeballs', 'healing', 'revive', 'status', 'pp', 'vitamins'] as const;
+const EVOLUTION_SECTION_ORDER = ['evolution-items', 'terastalization'] as const;
+const THRIFT_SECTION_ORDER = ['fossils', 'treasures', 'other'] as const;
+const RPG_ITEM_CATALOG_ORDER = new Map(RPGItems.list().map((item, index) => [item.id, index]));
+const POKE_MART_PROGRESSION = new Map(POKE_MART_ITEM_ORDER.map((id, index) => [id, index]));
+
+function rankIn(order: readonly string[], value: string): number {
+	const rank = order.indexOf(value);
+	return rank < 0 ? order.length : rank;
+}
+
+function pokeMartSection(item: RPGItemDefinition): string {
+	const tags = new Set(item.tags || []);
+	if (item.category === 'ball') return 'pokeballs';
+	if (tags.has('vitamin') || tags.has('iv')) return 'vitamins';
+	if (item.category === 'healing') return 'healing';
+	if (item.category === 'revive') return 'revive';
+	if (item.category === 'status') return 'status';
+	if (item.category === 'pp') return 'pp';
+	return 'other';
+}
+
+function commerceSection(item: RPGItemDefinition, shopType: RPGShopType): string {
+	const group = itemGroup(item);
+	if (shopType === 'poke-mart') return pokeMartSection(item);
+	if (shopType === 'equipment') return effectFilters(item, shopType, group.category).effectGroup || 'Utilidade';
+	if (shopType === 'evolution') return group.category;
+	if (shopType === 'tm') return effectFilters(item, shopType, group.category).effectGroup || 'Status';
+	if (shopType === 'farm') return effectFilters(item, shopType, group.category).effectGroup || 'Defensivo';
+	if (shopType === 'thrift') return group.category;
+	return group.category;
+}
+
+function sectionRank(item: RPGItemDefinition, shopType: RPGShopType): number {
+	const section = commerceSection(item, shopType);
+	if (shopType === 'poke-mart') return rankIn(POKE_MART_SECTION_ORDER, section);
+	if (shopType === 'evolution') return rankIn(EVOLUTION_SECTION_ORDER, section);
+	if (shopType === 'thrift') return rankIn(THRIFT_SECTION_ORDER, section);
+	return 0;
+}
+
+function compareCommerceItems(left: RPGItemDefinition, right: RPGItemDefinition, shopType: RPGShopType): number {
+	if (shopType === 'poke-mart') {
+		const bySection = sectionRank(left, shopType) - sectionRank(right, shopType);
+		if (bySection) return bySection;
+		const leftRank = POKE_MART_PROGRESSION.get(left.id) ?? POKE_MART_ITEM_ORDER.length;
+		const rightRank = POKE_MART_PROGRESSION.get(right.id) ?? POKE_MART_ITEM_ORDER.length;
+		if (leftRank !== rightRank) return leftRank - rightRank;
+	}
+	if (shopType === 'evolution' || shopType === 'thrift') {
+		const bySection = sectionRank(left, shopType) - sectionRank(right, shopType);
+		if (bySection) return bySection;
+		return left.name.localeCompare(right.name);
+	}
+	if (shopType === 'equipment' || shopType === 'mega-stone' || shopType === 'farm') {
+		return left.name.localeCompare(right.name);
+	}
+	return (RPG_ITEM_CATALOG_ORDER.get(left.id) ?? Number.MAX_SAFE_INTEGER) -
+		(RPG_ITEM_CATALOG_ORDER.get(right.id) ?? Number.MAX_SAFE_INTEGER);
+}
+
 export class RPGMemoryCommerceRepository implements RPGCommerceRepository {
 	private readonly shops = new Map(initialShops().map(shop => [shop.id, shop]));
 
@@ -282,11 +360,13 @@ export class RPGCommerceManagement {
 		const inventory = character ? RPGInventorySystem.migrate(character.inventory) : undefined;
 		const candidates = this.shopItems(shop);
 		const configured = new Map(shop.offers.map(offer => [offer.itemId, offer]));
-		const sourceOffers = master ? candidates.map(candidate => configured.get(candidate.id) || {
+		const sourceOffers = (master ? candidates.map(candidate => configured.get(candidate.id) || {
 			itemId: candidate.id, stock: 0, buyMode: 'hidden' as const,
 			buyEnabled: false, sellEnabled: false,
 			buyPrice: candidate.recommendedBuyPrice, sellPrice: candidate.recommendedSellPrice,
-		}) : shop.offers;
+		}) : shop.offers).sort((left, right) =>
+			compareCommerceItems(RPGItems.require(left.itemId), RPGItems.require(right.itemId), shop.type)
+		);
 		const offers = sourceOffers.map(offer => this.offerView(shop, offer, inventory)).filter(offer =>
 			master || offer.buyEnabled || (offer.sellEnabled && offer.owned > 0)
 		);
@@ -328,7 +408,9 @@ export class RPGCommerceManagement {
 			}, shop.type);
 			if (index >= 0) shop.offers[index] = offer;
 			else shop.offers.push(offer);
-			shop.offers.sort((left, right) => RPGItems.require(left.itemId).name.localeCompare(RPGItems.require(right.itemId).name));
+			shop.offers.sort((left, right) =>
+				compareCommerceItems(RPGItems.require(left.itemId), RPGItems.require(right.itemId), shop.type)
+			);
 		}
 		shop.revision++;
 		this.repository.set(shop);
@@ -470,7 +552,9 @@ export class RPGCommerceManagement {
 				recommendedBuyPrice: base.buy, recommendedSellPrice: base.sell,
 				...effectFilters(item, shop.type, group.category),
 			}];
-		}).sort((left, right) => left.name.localeCompare(right.name));
+		}).sort((left, right) =>
+			compareCommerceItems(RPGItems.require(left.id), RPGItems.require(right.id), shop.type)
+		);
 	}
 
 	private materializeOffers(shop: RPGCommerceShopState): RPGCommerceOffer[] {

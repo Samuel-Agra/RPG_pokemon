@@ -58,6 +58,36 @@ describe('RPG shared commerce management', () => {
 		assert(evolution.offers.length > 0, 'Master should see every compatible item, including disabled ones');
 	});
 
+
+	it('orders each establishment by its requested catalog rule', () => {
+		const service = new RPGLoginService({
+			masterCode: '14081998', commerceRepository: new RPGMemoryCommerceRepository(),
+		});
+		const master = service.loginMaster('14081998');
+		const mart = service.getCommerceShop(master.token, 'poke-mart-central').offers.map(item => item.itemId);
+		assert.deepEqual(mart.slice(0, 3), ['pokeball', 'greatball', 'ultraball']);
+		const progression = [
+			'potion', 'superpotion', 'hyperpotion', 'maxpotion', 'fullrestore',
+			'revive', 'revivalherb', 'maxrevive', 'antidote', 'fullheal', 'ether', 'hpup', 'carbos',
+		];
+		for (let index = 1; index < progression.length; index++) {
+			assert(mart.indexOf(progression[index - 1]) < mart.indexOf(progression[index]));
+		}
+
+		for (const shopId of ['equipment-central', 'mega-stone-central', 'farm-central']) {
+			const names = service.getCommerceShop(master.token, shopId).offers.map(item => item.name);
+			assert.deepEqual(names, [...names].sort((left, right) => left.localeCompare(right)));
+		}
+		const evolution = service.getCommerceShop(master.token, 'evolution-central').offers;
+		const firstTerastal = evolution.findIndex(item => item.category === 'terastalization');
+		const lastEvolution = evolution.findLastIndex(item => item.category === 'evolution-items');
+		if (firstTerastal >= 0) assert(lastEvolution < firstTerastal);
+		const tms = service.getCommerceShop(master.token, 'tm-central').offers.map(item => item.itemId);
+		assert.deepEqual(tms.slice(0, 4), ['tm001', 'tm002', 'tm003', 'tm004']);
+		const thriftCategories = service.getCommerceShop(master.token, 'thrift-central').offers.map(item => item.category);
+		assert.deepEqual([...new Set(thriftCategories)], ['fossils', 'treasures']);
+	});
+
 	it('shares finite stock between Players and keeps buying and selling independent', () => {
 		let tokenByte = 0;
 		const service = new RPGLoginService({
