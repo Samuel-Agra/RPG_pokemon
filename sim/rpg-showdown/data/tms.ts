@@ -6,6 +6,25 @@ export interface RPGTechnicalMachine {
 	moveName: string;
 }
 
+/** Custos oficiais de fabricação em LP no TM Machine de Scarlet/Violet. */
+const RPG_GEN9_TM_LP_COSTS: readonly number[] = Object.freeze([
+	400, 400, 400, 800, 200, 400, 400, 800, 800, 800, 1500, 400, 800, 3000, 400, 800,
+	400, 3000, 200, 800, 800, 3000, 800, 800, 5000, 800, 800, 1500, 3000, 800, 400, 200,
+	1500, 800, 800, 1500, 800, 800, 3000, 400, 800, 400, 3000, 1500, 3000, 1500, 200, 3000,
+	3000, 3000, 3000, 3000, 3000, 5000, 5000, 3000, 400, 5000, 5000, 3000, 3000, 3000, 10000, 3000,
+	5000, 5000, 5000, 5000, 5000, 400, 8000, 5000, 8000, 800, 800, 3000, 8000, 8000, 8000, 400,
+	3000, 400, 5000, 5000, 400, 5000, 3000, 5000, 8000, 3000, 3000, 3000, 8000, 8000, 8000, 400,
+	5000, 3000, 8000, 5000, 8000, 5000, 5000, 1500, 5000, 8000, 3000, 8000, 5000, 10000, 8000, 8000,
+	5000, 8000, 8000, 5000, 8000, 10000, 10000, 10000, 5000, 3000, 10000, 8000, 10000, 10000, 10000, 1500,
+	3000, 400, 10000, 3000, 10000, 3000, 10000, 3000, 3000, 3000, 3000, 5000, 12000, 12000, 12000, 8000,
+	8000, 8000, 10000, 10000, 12000, 12000, 10000, 14000, 14000, 14000, 14000, 12000, 12000, 12000, 12000, 12000,
+	5000, 10000, 14000, 12000, 12000, 12000, 12000, 12000, 14000, 14000, 8000, 200, 400, 400, 800, 400,
+	200, 400, 800, 10000, 14000, 3000, 5000, 3000, 5000, 5000, 10000, 8000, 8000, 12000, 5000, 8000,
+	1500, 10000, 8000, 5000, 5000, 14000, 5000, 10000, 14000, 3000, 400, 10000, 5000, 5000, 3000, 800,
+	10000, 5000, 800, 8000, 800, 10000, 10000, 400, 5000, 10000, 3000, 15000, 5000, 3000, 800, 400,
+	5000, 1500, 3000, 3000, 1500,
+]);
+
 /** TMs consumíveis de Pokémon Scarlet/Violet, incluindo The Hidden Treasure of Area Zero. */
 export const RPG_GEN9_TM_CATALOG: readonly RPGTechnicalMachine[] = Object.freeze([
 	{ number: 1, move: 'takedown', moveName: 'Take Down' },
@@ -241,6 +260,11 @@ export const RPG_GEN9_TM_CATALOG: readonly RPGTechnicalMachine[] = Object.freeze
 
 export const RPG_GEN9_TECHNICAL_MACHINES: readonly RPGItemDefinition[] = Object.freeze(
 	RPG_GEN9_TM_CATALOG.map(tm => ({
+		price: {
+			currency: 'pokedollar' as const, source: 'rpg' as const, reference: 'gen9-sv-tm-machine-lp',
+			buy: RPG_GEN9_TM_LP_COSTS[tm.number - 1],
+			sell: Math.round(RPG_GEN9_TM_LP_COSTS[tm.number - 1] / 4),
+		},
 		id: 'tm' + String(tm.number).padStart(3, '0'),
 		name: 'TM' + String(tm.number).padStart(3, '0') + ' - ' + tm.moveName,
 		category: 'tm' as const, stackLimit: 99, usableInBattle: false, consumedOnUse: true,

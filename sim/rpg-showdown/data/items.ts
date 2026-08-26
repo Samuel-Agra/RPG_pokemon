@@ -514,13 +514,18 @@ const keyItems: RPGItemDefinition[] = [
 		tags: ['key-item', 'incubator', 'nursery'],
 	},
 ];
-const gen9Price = (buy?: number, sell?: number): RPGItemPrice => ({
-	currency: 'pokedollar',
-	source: 'gen9-sv',
-	reference: 'gen9-sv',
-	...(buy === undefined ? {} : { buy }),
-	...(sell === undefined ? {} : { sell }),
-});
+const gen9Price = (buy?: number, sell?: number): RPGItemPrice => {
+	if (buy === undefined && sell !== undefined) {
+		return {
+			currency: 'pokedollar', source: 'rpg', reference: 'rpg-balance-from-gen9-sell-v1',
+			buy: sell * 4, sell,
+		};
+	}
+	return {
+		currency: 'pokedollar', source: 'gen9-sv', reference: 'gen9-sv',
+		...(buy === undefined ? {} : { buy }), ...(sell === undefined ? {} : { sell }),
+	};
+};
 
 const RPG_GEN9_HELD_ITEM_PRICES: Readonly<Record<string, RPGItemPrice>> = Object.freeze({
 	abilityshield: gen9Price(20000, 5000),
@@ -686,13 +691,24 @@ export const RPG_GEN9_ITEM_PRICES: Readonly<Record<string, RPGItemPrice>> = Obje
 
 const legacyPrice = (
 	reference: string, buy?: number, sell?: number
-): RPGItemPrice => ({
-	currency: 'pokedollar',
-	source: 'legacy-game',
-	reference,
-	...(buy === undefined ? {} : { buy }),
-	...(sell === undefined ? {} : { sell }),
-});
+): RPGItemPrice => {
+	if (buy === undefined && sell !== undefined) {
+		return {
+			currency: 'pokedollar', source: 'rpg', reference: 'rpg-balance-from-' + reference + '-sell-v1',
+			buy: sell * 4, sell,
+		};
+	}
+	if (buy !== undefined && sell === undefined) {
+		return {
+			currency: 'pokedollar', source: 'rpg', reference: 'rpg-balance-from-' + reference + '-buy-v1',
+			buy, sell: Math.round(buy / 4),
+		};
+	}
+	return {
+		currency: 'pokedollar', source: 'legacy-game', reference,
+		...(buy === undefined ? {} : { buy }), ...(sell === undefined ? {} : { sell }),
+	};
+};
 
 const balancedPrice = (buy: number, sell: number): RPGItemPrice => ({
 	currency: 'pokedollar',
@@ -703,7 +719,7 @@ const balancedPrice = (buy: number, sell: number): RPGItemPrice => ({
 });
 
 const questHeldPrice = (sell: number): RPGItemPrice => ({
-	currency: 'pokedollar', source: 'rpg', reference: 'rpg-quest-only-v1', sell,
+	currency: 'pokedollar', source: 'rpg', reference: 'rpg-quest-only-v1', buy: sell * 4, sell,
 });
 
 const damageReductionBerryIds = new Set([
@@ -776,6 +792,22 @@ export const RPG_LEGACY_ITEM_PRICES: Readonly<Record<string, RPGItemPrice>> = Ob
  * O pre?o de venda segue 25% da compra para manter a propor??o econ?mica moderna.
  */
 export const RPG_BALANCED_ITEM_PRICES: Readonly<Record<string, RPGItemPrice>> = Object.freeze({
+	cherishball: balancedPrice(50000, 12500),
+	parkball: balancedPrice(25000, 6250),
+	strangeball: balancedPrice(20000, 5000),
+	auspiciousarmor: balancedPrice(6000, 1500),
+	maliciousarmor: balancedPrice(6000, 1500),
+	galaricacuff: balancedPrice(3000, 750),
+	galaricawreath: balancedPrice(6000, 1500),
+	tartapple: balancedPrice(2200, 550),
+	sweetapple: balancedPrice(2200, 550),
+	syrupyapple: balancedPrice(2200, 550),
+	crackedpot: balancedPrice(3000, 750),
+	chippedpot: balancedPrice(12000, 3000),
+	unremarkableteacup: balancedPrice(3000, 750),
+	masterpieceteacup: balancedPrice(12000, 3000),
+	metalalloy: balancedPrice(8000, 2000),
+	blackaugurite: balancedPrice(8000, 2000),
 	masterball: balancedPrice(1000000, 250000),
 	dreamball: balancedPrice(20000, 5000),
 	safariball: balancedPrice(25000, 6250),
@@ -815,4 +847,4 @@ export const RPG_DEFAULT_ITEMS: readonly RPGItemDefinition[] = Object.freeze([
 	...irrelevantRareItems,
 	...keyItems,
 	...RPG_GEN9_TECHNICAL_MACHINES,
-].map(item => ({ ...item, price: RPG_DEFAULT_ITEM_PRICES[item.id] })));
+].map(item => ({ ...item, price: RPG_DEFAULT_ITEM_PRICES[item.id] || item.price })));

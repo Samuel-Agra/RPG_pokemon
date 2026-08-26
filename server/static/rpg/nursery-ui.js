@@ -729,17 +729,18 @@
 			}
 			const activeStatuses = ['inviting', 'configuring', 'awaiting_confirmation', 'breeding'];
 			const visible = view.projects.filter(project => activeStatuses.includes(project.status));
-			const board = el('section', 'nursery-shared-board');
+			const board = el('section', 'nursery-shared-board' + (!visible.length ? ' empty' : ''));
 			const boardHead = el('header', 'nursery-shared-board-head');
 			boardHead.append(
 				el('div', '', ''),
-				el('h2', '', 'Slots compartilhados'),
-				el('span', 'nursery-board-count', visible.length + (visible.length === 1 ? ' vaga ativa' : ' vagas ativas'))
+				el('h2', '', 'Slots compartilhados')
 			);
+			if (visible.length) {
+				boardHead.append(el('span', 'nursery-board-count', visible.length +
+					(visible.length === 1 ? ' vaga ativa' : ' vagas ativas')));
+			}
 			board.append(boardHead);
-			if (!visible.length) {
-				board.append(el('div', 'nursery-empty nursery-board-empty', 'Nenhuma procriação ativa.'));
-			} else {
+			if (visible.length) {
 				const stack = el('div', 'nursery-slot-stack');
 				for (const project of visible) stack.append(projectCard(project));
 				board.append(stack);

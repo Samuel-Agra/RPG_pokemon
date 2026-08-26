@@ -38,6 +38,7 @@ const state = {
 	teamBuilderPokemonId: null,
 	teamBuilderReturnView: 'box',
 	dismissedBattleSessionIds: new Set(),
+	expandedShopAccessIds: new Set(),
 };
 let battleSessionSyncBusy = false;
 let battleSessionSyncTimer = null;
@@ -525,6 +526,7 @@ function dashboardNav(isMaster) {
 	const centerBlocked = !masterViewingPlayer && state.currentCharacter?.pageAccess?.center === false;
 	const fossilsBlocked = !masterViewingPlayer && state.currentCharacter?.pageAccess?.fossils === false;
 	const nurseryBlocked = !masterViewingPlayer && state.currentCharacter?.pageAccess?.nursery === false;
+	const shopsBlocked = !masterViewingPlayer && state.currentCharacter?.pageAccess?.shops === false;
 	const entries = isMaster ? [
 		['overview', 'Vis\u00e3o geral'], ['players', 'Jogadores'], ['shops', 'Lojas'], ['battles', 'Batalhas'],
 		['npcs', 'NPCs e selvagens'], ['tournaments', 'Torneios'], ['nursery', 'Berçário'],
@@ -534,7 +536,7 @@ function dashboardNav(isMaster) {
 		['center', 'Centro Pokémon', centerBlocked],
 		['fossils', 'Paleontologia', fossilsBlocked],
 		['nursery', 'Berçário', nurseryBlocked],
-		['shops', 'Lojas'],
+		['shops', 'Lojas', shopsBlocked],
 		['bag', 'Bag', bagBlocked],
 		['box', 'Box', boxBlocked],
 		['battles', 'Batalhas'],
@@ -1395,8 +1397,9 @@ async function renderPokemonCenter(character) {
 	drawWelcome();
 	return root;
 }
-function renderMasterBody(characters) {
+async function renderMasterBody(characters) {
 	const root = createElement('div');
+	const shopDirectory = await api('/shops');
 	const grid = createElement('div', 'stat-grid');
 	const teamTotal = characters.reduce((total, character) => total + (character.team?.length || 0), 0);
 	const moneyTotal = characters.reduce((total, character) => total + (character.money || 0), 0);
@@ -1441,6 +1444,7 @@ function renderMasterBody(characters) {
 	clock.body.append(clockCopy, clockActions);
 	root.append(clock.panel);
 	const players = section('Personagens da campanha');
+	players.panel.classList.add('master-players-panel');
 	const list = createElement('div', 'master-list');
 	for (const character of characters) {
 		const row = createElement('div', 'master-row');
@@ -1454,7 +1458,7 @@ function renderMasterBody(characters) {
 		));
 		const actions = createElement('div', 'master-row-actions');
 		const permissions = createElement('div', 'master-page-access');
-		for (const [page, label] of [['box', 'Box'], ['bag', 'Bag'], ['training', 'Treinamento'], ['center', 'Centro Pokémon'], ['fossils', 'Paleontologia'], ['nursery', 'Berçário']]) {
+		const pageToggle = (page, label) => {
 			const allowed = character.pageAccess?.[page] !== false;
 			const toggle = button(
 				(allowed ? '✓ ' : '✕ ') + label,
@@ -1465,8 +1469,7 @@ function renderMasterBody(characters) {
 				toggle.disabled = true;
 				try {
 					await api('/characters/page-access', {
-						method: 'PUT',
-						body: { characterId: character.id, page, allowed: !allowed },
+						method: 'PUT', body: { characterId: character.id, page, allowed: !allowed },
 					});
 					await renderDashboard();
 				} catch (error) {
@@ -1474,8 +1477,57 @@ function renderMasterBody(characters) {
 					showToast(error.message, true);
 				}
 			});
-			permissions.append(toggle);
+			return toggle;
+		};
+		for (const [page, label] of [['box', 'Box'], ['bag', 'Bag'], ['training', 'Treinamento'], ['center', 'Centro Pokémon'], ['fossils', 'Paleontologia'], ['nursery', 'Berçário']]) {
+			permissions.append(pageToggle(page, label));
 		}
+		const shopAccess = createElement('div', 'master-shop-access');
+		const shopMain = createElement('div', 'master-shop-access-main');
+		shopMain.append(pageToggle('shops', 'Lojas'));
+		const shopExpanded = state.expandedShopAccessIds.has(character.id);
+		const expandShops = button(shopExpanded ? '▾' : '▸', 'master-shop-access-expand');
+		expandShops.title = shopExpanded ? 'Ocultar lojas' : 'Configurar lojas desta cidade';
+		expandShops.setAttribute('aria-label', expandShops.title);
+		expandShops.setAttribute('aria-expanded', String(shopExpanded));
+		expandShops.addEventListener('click', () => {
+			if (shopExpanded) state.expandedShopAccessIds.delete(character.id);
+			else state.expandedShopAccessIds.add(character.id);
+			void renderDashboard();
+		});
+		shopMain.append(expandShops);
+		shopAccess.append(shopMain);
+		if (shopExpanded) {
+			const shopPanel = createElement('div', 'master-shop-access-panel');
+			shopPanel.append(createElement('strong', '', 'Lojas disponíveis nesta cidade'));
+			for (const shop of shopDirectory.shops) {
+				const row = createElement('div', 'master-shop-access-row');
+				row.append(createElement('span', '', shop.name));
+				const allowed = character.shopAccess?.[shop.id] !== false;
+				const toggle = button(
+					allowed ? 'Disponível' : 'Bloqueada',
+					'master-access-toggle master-shop-toggle ' + (allowed ? 'allowed' : 'blocked')
+				);
+				toggle.setAttribute('aria-pressed', String(allowed));
+				toggle.addEventListener('click', async () => {
+					toggle.disabled = true;
+					try {
+						await api('/characters/shop-access', {
+							method: 'PUT',
+							body: { characterId: character.id, shopId: shop.id, allowed: !allowed },
+						});
+						await renderDashboard();
+					} catch (error) {
+						toggle.disabled = false;
+						showToast(error.message, true);
+					}
+				});
+				row.append(toggle);
+				shopPanel.append(row);
+			}
+			shopAccess.append(shopPanel);
+		}
+		permissions.append(shopAccess);
 		const view = button('Visualizar como Player', 'button');
 		view.addEventListener('click', () => viewAsPlayer(character, 'overview'));
 		const box = button('Abrir Box', 'button');
@@ -1605,7 +1657,7 @@ async function renderDashboard() {
 				state.dashboardView === 'battles' ? await renderMasterBattles(characters) :
 				state.dashboardView === 'nursery' ? await renderNursery() :
 				state.dashboardView === 'shops' ? await renderShops() :
-				renderMasterBody(characters)
+				await renderMasterBody(characters)
 			);
 		} else {
 			$('.dashboard-heading').classList.toggle('hidden', ['overview', 'team', 'box', 'bag', 'team-builder', 'center', 'fossils', 'nursery', 'shops'].includes(state.dashboardView));

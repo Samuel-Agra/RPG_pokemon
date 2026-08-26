@@ -48,15 +48,7 @@ describe('RPG held item registry', () => {
 			assert.equal(offer.buyPrice, item.price.buy);
 			assert.equal(offer.sellPrice, item.price.sell);
 		}
-		assert.deepEqual(
-			held.filter(item => item.price.buy === undefined && !item.tags?.includes('megastone'))
-				.map(item => item.id).sort(),
-			[
-				'adamantcrystal', 'adamantorb', 'cornerstonemask', 'griseouscore', 'griseousorb',
-				'hearthflamemask', 'lustrousglobe', 'lustrousorb', 'rustedshield', 'rustedsword',
-				'souldew', 'wellspringmask', 'blueorb', 'redorb',
-			].sort()
-		);
+		assert.equal(held.every(item => item.price.buy > 0 && item.price.sell > 0), true);
 		assert.equal(RPGItems.require('choiceband').price.buy, 100000);
 		assert.equal(RPGItems.require('leftovers').price.buy, 20000);
 		assert.equal(RPGItems.require('oranberry').price.buy, 500);
@@ -84,7 +76,7 @@ describe('RPG held item registry', () => {
 			const [baseSpecies, megaSpecies] = mappings[0];
 			assert(dex.species.get(baseSpecies).exists, stone.name);
 			assert(dex.species.get(megaSpecies).isMega, stone.name);
-			assert.equal(stone.price.buy, undefined);
+			assert.equal(stone.price.buy, 100000);
 			assert.equal(stone.price.sell, 25000);
 		}
 	});
@@ -108,7 +100,7 @@ describe('RPG held item registry', () => {
 			const registered = RPGItems.require(orb);
 			assert(dex.items.get(orb).isPrimalOrb);
 			assert(registered.tags.includes('primalorb'));
-			assert.equal(registered.price.buy, undefined);
+			assert.equal(registered.price.buy, 100000);
 			assert.equal(registered.price.sell, 25000);
 		}
 	});

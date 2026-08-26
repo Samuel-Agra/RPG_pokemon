@@ -96,7 +96,9 @@ export class RPGHttpServer {
 			}
 		}
 		if (method === 'GET' && url.pathname === '/api/rpg/shops') {
-			this.json(res, 200, this.login.listCommerceShops(this.token(req)));
+			this.json(res, 200, this.login.listCommerceShops(
+				this.token(req), url.searchParams.get('characterId') || undefined
+			));
 			return;
 		}
 		const shopMatch = /^\/api\/rpg\/shops\/([^/]+)(?:\/(trade|master-offer|master-bulk))?$/.exec(url.pathname);
@@ -190,7 +192,15 @@ export class RPGHttpServer {
 			const body = await this.body(req);
 			this.json(res, 200, { character: this.login.setCharacterPageAccess(
 				this.token(req), this.string(body.characterId),
-				this.string(body.page) as 'bag' | 'box' | 'training' | 'center' | 'fossils' | 'nursery', body.allowed === true
+				this.string(body.page) as 'bag' | 'box' | 'training' | 'center' | 'fossils' | 'nursery' | 'shops',
+				body.allowed === true
+			) });
+			return;
+		}
+		if (method === 'PUT' && url.pathname === '/api/rpg/characters/shop-access') {
+			const body = await this.body(req);
+			this.json(res, 200, { character: this.login.setCharacterShopAccess(
+				this.token(req), this.string(body.characterId), this.string(body.shopId), body.allowed === true
 			) });
 			return;
 		}

@@ -103,7 +103,7 @@ export * from './pokemon-catalog';
 export * from './fossil-lab';
 export * from './shop-management';
 
-export const RPG_ACCOUNT_VERSION = 3;
+export const RPG_ACCOUNT_VERSION = 4;
 export const RPG_SESSION_VERSION = 1;
 export const RPG_DEFAULT_SESSION_TTL = 24 * 60 * 60 * 1000;
 export const RPG_NURSERY_BREEDING_BASE_FEE = 5_000;
@@ -146,6 +146,7 @@ export interface RPGCharacterPageAccess {
 	center: boolean;
 	fossils: boolean;
 	nursery: boolean;
+	shops: boolean;
 }
 
 export interface RPGCampaignTimeAdvanceResult {
@@ -173,6 +174,7 @@ export interface RPGTeamEggView {
 export interface RPGCharacterState extends RPGCharacterSelection {
 	version: number;
 	pageAccess: RPGCharacterPageAccess;
+	shopAccess?: Record<string, boolean>;
 	money: number;
 	team: PokemonSet[];
 	/** Presentation-only Eggs that reserve party slots; never persisted as battle Pokémon. */
@@ -532,7 +534,10 @@ export class RPGLoginService {
 		const inventory = RPGInventorySystem.create(RPGBagSystem.createForTier(id, 'starter'));
 		const state: RPGCharacterState = {
 			version: RPG_ACCOUNT_VERSION, id, characterName, playerName, avatar,
-			pageAccess: { bag: true, box: true, training: true, center: true, fossils: true, nursery: true },
+			pageAccess: {
+				bag: true, box: true, training: true, center: true, fossils: true, nursery: true, shops: true,
+			},
+			shopAccess: Object.fromEntries(this.commerce.directory().shops.map(shop => [shop.id, true])),
 			money: request.initialMoney, team: [starter], box, inventory,
 			createdAt: now, updatedAt: now,
 		};
@@ -794,10 +799,13 @@ export class RPGLoginService {
 	}
 
 	setCharacterPageAccess(
-		token: string, characterId: string, page: 'bag' | 'box' | 'training' | 'center' | 'fossils' | 'nursery', allowed: boolean
+		token: string, characterId: string,
+		page: 'bag' | 'box' | 'training' | 'center' | 'fossils' | 'nursery' | 'shops', allowed: boolean
 	): RPGCharacterState {
 		this.requireMasterRole(token);
-		if (!['bag', 'box', 'training', 'center', 'fossils', 'nursery'].includes(page)) throw new Error('Invalid RPG character page access');
+		if (!['bag', 'box', 'training', 'center', 'fossils', 'nursery', 'shops'].includes(page)) {
+			throw new Error('Invalid RPG character page access');
+		}
 		const record = this.requireCharacter(characterId);
 		record.state.pageAccess = {
 			bag: record.state.pageAccess?.bag !== false,
@@ -806,12 +814,27 @@ export class RPGLoginService {
 			center: record.state.pageAccess?.center !== false,
 			fossils: record.state.pageAccess?.fossils !== false,
 			nursery: record.state.pageAccess?.nursery !== false,
+			shops: record.state.pageAccess?.shops !== false,
 			[page]: allowed,
 		};
 		record.state.version = RPG_ACCOUNT_VERSION;
 		record.state.updatedAt = this.now();
 		this.repository.set(record);
 		return structuredClone(record.state);
+	}
+
+	setCharacterShopAccess(token: string, characterId: string, shopId: string, allowed: boolean): RPGCharacterState {
+		this.requireMasterRole(token);
+		const id = String(shopId || '');
+		if (!this.commerce.directory().shops.some(shop => shop.id === id)) {
+			throw new Error('Loja RPG inválida');
+		}
+		const record = this.requireCharacter(characterId);
+		record.state.shopAccess = {...this.characterShopAccess(record.state), [id]: allowed};
+		record.state.version = RPG_ACCOUNT_VERSION;
+		record.state.updatedAt = this.now();
+		this.repository.set(record);
+		return this.characterView(record);
 	}
 
 	getCharacter(token: string, characterId?: string): RPGCharacterState {
@@ -887,9 +910,17 @@ export class RPGLoginService {
 		this.repository.set(record);
 		return { pokemon, fossilLab: RPGFossilLab.view(record.state, this.now(), this.random) };
 	}
-	listCommerceShops(token: string) {
-		this.getSession(token);
-		return this.commerce.directory();
+	listCommerceShops(token: string, characterId?: string) {
+		const session = this.getSession(token);
+		const directory = this.commerce.directory();
+		if (session.role === 'master') return directory;
+		const requestedCharacterId = characterId || session.viewAsCharacterId || session.characterId;
+		const record = this.requireBagRecord(token, requestedCharacterId, 'bag:read', true);
+		this.requireCommerceAccess(token, record);
+		const access = this.characterShopAccess(record.state);
+		return {...directory, shops: directory.shops.map(shop => ({
+			...shop, allowed: access[shop.id] !== false,
+		}))};
 	}
 
 	getCommerceShop(token: string, shopId: string, characterId?: string) {
@@ -899,6 +930,7 @@ export class RPGLoginService {
 			return this.commerce.view(shopId, undefined, true);
 		}
 		const record = this.requireBagRecord(token, requestedCharacterId, 'bag:read', true);
+		this.requireCommerceAccess(token, record, shopId);
 		return this.commerce.view(shopId, record.state, session.role === 'master');
 	}
 
@@ -918,6 +950,7 @@ export class RPGLoginService {
 		token: string, shopId: string, request: RPGCommerceTradeRequest, characterId?: string
 	) {
 		const record = this.requireBagRecord(token, characterId, 'bag:edit', true);
+		this.requireCommerceAccess(token, record, shopId);
 		const previousRecord = structuredClone(record);
 		const prepared = this.commerce.prepareTrade(shopId, record.state, request);
 		record.state.money = prepared.character.money;
@@ -2808,6 +2841,7 @@ export class RPGLoginService {
 
 	private characterView(record: RPGStoredCharacter): RPGCharacterState {
 		const view = structuredClone(record.state);
+		view.shopAccess = this.characterShopAccess(record.state);
 		for (const entry of view.box.party) {
 			if (!this.isPokemonBreeding(record.state.id, entry.pokemonId)) continue;
 			entry.metadata = {...entry.metadata, breeding: true};
@@ -2817,6 +2851,12 @@ export class RPGLoginService {
 		}));
 		view.portableIncubators = this.portableIncubatorSlots(record);
 		return view;
+	}
+
+	private characterShopAccess(character: RPGCharacterState): Record<string, boolean> {
+		return Object.fromEntries(this.commerce.directory().shops.map(shop => [
+			shop.id, character.shopAccess?.[shop.id] !== false,
+		]));
 	}
 
 	private managedBoxView(record: RPGStoredCharacter, query: RPGBoxQuery = {}): RPGBoxManagementView {
@@ -3130,6 +3170,16 @@ export class RPGLoginService {
 		const session = this.getSession(token);
 		if (session.role === 'player' && record.state.pageAccess?.nursery === false) {
 			throw new Error('O acesso ao Berçário está bloqueado');
+		}
+	}
+
+	private requireCommerceAccess(token: string, record: RPGStoredCharacter, shopId?: string): void {
+		if (this.getSession(token).role === 'master') return;
+		if (record.state.pageAccess?.shops === false) {
+			throw new Error('O Mestre bloqueou o acesso às Lojas.');
+		}
+		if (shopId && this.characterShopAccess(record.state)[shopId] === false) {
+			throw new Error('Esta loja não está disponível na cidade atual.');
 		}
 	}
 
@@ -3982,11 +4032,17 @@ function migrateCharacterPageAccess(service: RPGLoginService): void {
 			center: record.state.pageAccess?.center !== false,
 			fossils: record.state.pageAccess?.fossils !== false,
 			nursery: record.state.pageAccess?.nursery !== false,
+			shops: record.state.pageAccess?.shops !== false,
 		};
+		const shopAccess = Object.fromEntries(service.commerce.directory().shops.map(shop => [
+			shop.id, record.state.shopAccess?.[shop.id] !== false,
+		]));
 		if (record.state.version === RPG_ACCOUNT_VERSION &&
-			JSON.stringify(record.state.pageAccess) === JSON.stringify(pageAccess)) continue;
+			JSON.stringify(record.state.pageAccess) === JSON.stringify(pageAccess) &&
+			JSON.stringify(record.state.shopAccess) === JSON.stringify(shopAccess)) continue;
 		record.state.version = RPG_ACCOUNT_VERSION;
 		record.state.pageAccess = pageAccess;
+		record.state.shopAccess = shopAccess;
 		record.state.updatedAt = Date.now();
 		service.repository.set(record);
 	}

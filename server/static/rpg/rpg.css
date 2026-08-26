@@ -405,7 +405,7 @@ input, select {
 	color: #7a8490;
 	background: #e5e7ea;
 	border-color: #c8cdd3;
-	cursor: not-allowed;
+	cursor: default;
 	opacity: .78;
 }
 .dashboard-content { min-width: 0; }
@@ -1821,8 +1821,12 @@ footer { padding: 12px; color: #687382; font-size: 10px; text-align: center; }
 	justify-items: end;
 	gap: 7px;
 }
+.master-players-panel { overflow: visible; }
 .master-page-access {
 	display: flex;
+	align-items: flex-start;
+	flex-wrap: wrap;
+	justify-content: flex-end;
 	gap: 6px;
 }
 .master-access-toggle {
@@ -1845,10 +1849,59 @@ footer { padding: 12px; color: #687382; font-size: 10px; text-align: center; }
 	border-color: #7e1e1e;
 	text-shadow: 0 1px #641515;
 }
+.master-shop-access { position: relative; }
+.master-shop-access-main { display: flex; }
+.master-shop-access-main .master-access-toggle { border-radius: 4px 0 0 4px; }
+.master-shop-access-expand {
+	width: 32px;
+	min-height: 30px;
+	padding: 0;
+	border: 1px solid #7f8996;
+	border-left: 0;
+	border-radius: 0 4px 4px 0;
+	color: #34475f;
+	background: linear-gradient(#fff, #dfe5ec);
+	font-size: 17px;
+	font-weight: bold;
+	cursor: pointer;
+}
+.master-shop-access-expand:hover { background: #fff; }
+.master-shop-access-panel {
+	position: absolute;
+	z-index: 20;
+	top: calc(100% + 6px);
+	right: 0;
+	display: grid;
+	width: 330px;
+	gap: 7px;
+	padding: 11px;
+	border: 1px solid #9da9b8;
+	border-radius: 6px;
+	background: #f8fafc;
+	box-shadow: 0 6px 18px #24364c38;
+}
+.master-shop-access-panel > strong { color: #34475f; font-size: 12px; }
+.master-shop-access-row {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) auto;
+	align-items: center;
+	gap: 10px;
+	min-height: 34px;
+	padding: 5px 6px 5px 10px;
+	border: 1px solid #d2d9e2;
+	border-radius: 4px;
+	background: #fff;
+}
+.master-shop-access-row > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.master-shop-toggle { min-width: 90px; }
 @media (max-width: 700px) {
 	.master-player-controls { width: 100%; justify-items: stretch; }
 	.master-page-access { justify-content: stretch; }
 	.master-page-access .master-access-toggle { flex: 1; }
+	.master-shop-access { flex: 1 1 100%; }
+	.master-shop-access-main .master-access-toggle { width: 100%; }
+	.master-shop-access-panel { position: static; box-sizing: border-box; width: 100%; margin-top: 6px; }
+	.master-shop-access-row .master-shop-toggle { flex: none; }
 }
 
 

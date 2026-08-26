@@ -149,10 +149,14 @@
 		heading.append(el('h1', '', 'Lojas'));
 		const grid = el('div', 'shop-directory-grid');
 		for (const shop of directory.shops) {
-			const card = button('', 'panel shop-directory-card shop-type-' + shop.type);
+			const blocked = shop.allowed === false;
+			const card = button('', 'panel shop-directory-card shop-type-' + shop.type + (blocked ? ' blocked' : ''));
 			const copy = el('span', 'shop-directory-copy');
 			copy.append(el('strong', '', shop.name), el('small', '', shop.description));
+			if (blocked) copy.append(el('span', 'shop-directory-blocked-label', 'Indisponível'));
 			card.append(copy);
+			card.disabled = blocked;
+			card.setAttribute('aria-disabled', String(blocked));
 			card.addEventListener('click', () => {
 				selectedShopId = shop.id;
 				activeTab = options.isMaster ? 'admin' : 'buy';
@@ -242,7 +246,7 @@
 		const cartPanel = el('section', 'panel shop-cart');
 		root.append(cartPanel);
 		function eligible(offer) {
-			if (activeTab === 'buy') return !!offer.buyEnabled;
+			if (activeTab === 'buy') return !!offer.buyEnabled && offer.stock > 0;
 			return !!offer.sellEnabled && offer.owned > 0;
 		}
 		function renderCart() {
@@ -463,7 +467,7 @@
 	}
 	async function render(options) {
 		if (syncTimer) window.clearTimeout(syncTimer);
-		const directory = await options.api('/shops');
+		const directory = await options.api('/shops' + characterQuery(options));
 		if (!selectedShopId) return shopDirectory(directory, options);
 		const exists = directory.shops.some(shop => shop.id === selectedShopId);
 		if (!exists) selectedShopId = null;

@@ -10,6 +10,7 @@ const {
 	RPGMemoryCommerceRepository,
 	RPGFileCommerceRepository,
 } = require('../../dist/server/rpg-showdown');
+const {RPGItems} = require('../../dist/sim/rpg-showdown');
 
 function createCharacter(service, name) {
 	service.createCharacter({
@@ -33,6 +34,59 @@ function tradeRequest(view, type, lines, actionId) {
 }
 
 describe('RPG shared commerce management', () => {
+	it('assigns positive base buy and sell prices to every commerce item', () => {
+		const commerceItems = RPGItems.list().filter(item =>
+			['ball', 'healing', 'status', 'pp', 'revive', 'tm', 'evolution', 'held', 'custom'].includes(item.category) &&
+			!item.tags?.includes('key-item')
+		);
+		assert.equal(commerceItems.filter(item => !item.price?.buy || !item.price?.sell).length, 0);
+		assert.deepEqual(
+			[RPGItems.require('tm001').price.buy, RPGItems.require('tm001').price.sell], [400, 100]
+		);
+		assert.deepEqual(
+			[RPGItems.require('tm229').price.buy, RPGItems.require('tm229').price.sell], [1500, 375]
+		);
+	});
+	it('lets the Master block all shops or individual establishments for each Player', () => {
+		const service = new RPGLoginService({
+			masterCode: '14081998',
+			repository: new RPGMemoryCharacterRepository(),
+			commerceRepository: new RPGMemoryCommerceRepository(),
+		});
+		const master = service.loginMaster('14081998');
+		const player = createCharacter(service, 'Samuel');
+		let character = service.setCharacterPageAccess(master.token, 'samuel', 'shops', false);
+		assert.equal(character.pageAccess.shops, false);
+		assert.throws(() => service.listCommerceShops(player.token), /acesso às Lojas/);
+		assert.throws(() => service.getCommerceShop(player.token, 'poke-mart-central'), /acesso às Lojas/);
+		assert.throws(() => service.tradeCommerceShop(
+			player.token, 'poke-mart-central', {}, undefined
+		), /acesso às Lojas/);
+		assert.equal(service.listCommerceShops(master.token, 'samuel').shops.length, 7);
+		assert.equal(service.listCommerceShops(master.token).shops.length, 7);
+		assert.equal(service.getCommerceShop(master.token, 'poke-mart-central').shop.id, 'poke-mart-central');
+
+		character = service.setCharacterPageAccess(master.token, 'samuel', 'shops', true);
+		character = service.setCharacterShopAccess(master.token, 'samuel', 'tm-central', false);
+		assert.equal(character.shopAccess['tm-central'], false);
+		const directory = service.listCommerceShops(player.token);
+		assert.equal(directory.shops.length, 7);
+		assert.equal(directory.shops.find(shop => shop.id === 'tm-central').allowed, false);
+		assert.equal(directory.shops.some(shop => shop.id === 'poke-mart-central'), true);
+		assert.equal(service.listCommerceShops(master.token, 'samuel').shops.length, 7);
+		assert.equal(service.getCommerceShop(master.token, 'tm-central', 'samuel').shop.id, 'tm-central');
+		assert.throws(() => service.getCommerceShop(player.token, 'tm-central'), /não está disponível/);
+		assert.throws(() => service.tradeCommerceShop(
+			player.token, 'tm-central', {}, undefined
+		), /não está disponível/);
+		assert.equal(service.getCommerceShop(player.token, 'poke-mart-central').shop.id, 'poke-mart-central');
+
+		character = service.setCharacterShopAccess(master.token, 'samuel', 'tm-central', true);
+		assert.equal(character.shopAccess['tm-central'], true);
+		assert.equal(service.listCommerceShops(player.token).shops.every(shop => shop.allowed), true);
+		assert.throws(() => service.setCharacterShopAccess(master.token, 'samuel', 'invalid-shop', false), /inválida/);
+	});
+
 	it('starts with the seven requested establishments and specialized Master catalogs', () => {
 		const service = new RPGLoginService({
 			masterCode: '14081998',

@@ -69,6 +69,15 @@ describe('RPG Egg presentation outside incubation', () => {
 		assert.match(nurseryCss, /nursery-shop-buy\{grid-column:3/);
 	});
 
+	it('renders only the shared Slots heading when there is no active breeding', () => {
+		assert.doesNotMatch(nursery, /Nenhuma procriação ativa/);
+		assert.match(nursery, /nursery-shared-board' \+ \(!visible\.length \? ' empty'/);
+		assert.match(nursery, /if \(visible\.length\) \{\s*boardHead\.append/);
+		assert.match(nursery, /if \(visible\.length\) \{\s*const stack/);
+		assert.match(nurseryCss, /nursery-shared-board\.empty\{/);
+		assert.match(nurseryCss, /nursery-shared-board\.empty \.nursery-shared-board-head/);
+	});
+
 	it('lets only the Master configure a compatible system partner in Slot 2', () => {
 		assert.match(nursery, /masterSlot1Options/);
 		assert.match(nursery, /openMasterSlot1Menu/);

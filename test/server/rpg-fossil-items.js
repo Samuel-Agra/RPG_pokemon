@@ -51,12 +51,13 @@ describe('RPG fossil items', () => {
 			assert.equal(item.usableInBattle, false);
 			assert.equal(item.effect.type, 'revive-fossil');
 			assert(item.tags.includes('fossil'));
+			assert.equal(item.price.buy, sellPrice * 4);
 			assert.equal(item.price.sell, sellPrice);
 			assert.equal(catalog.offers.find(offer => offer.itemId === itemId).sellPrice, sellPrice);
 		}
 	});
 
-	it('registers valuables and irrelevant rare items as sell-only treasures', () => {
+	it('registers valuables and irrelevant rare items with inferred base prices', () => {
 		const catalog = RPGShopSystem.createCatalog('treasure-test');
 		for (const [itemId, sellPrice] of Object.entries(EXPECTED_TREASURES)) {
 			const item = RPGItems.require(itemId);
@@ -65,7 +66,7 @@ describe('RPG fossil items', () => {
 			assert.equal(item.effect.type, 'treasure');
 			assert(item.tags.includes('treasure'));
 			assert(item.tags.includes('sellonly'));
-			assert.equal(item.price.buy, undefined);
+			assert.equal(item.price.buy, sellPrice * 4);
 			assert.equal(item.price.sell, sellPrice);
 			assert.equal(catalog.offers.find(offer => offer.itemId === itemId).sellPrice, sellPrice);
 		}
