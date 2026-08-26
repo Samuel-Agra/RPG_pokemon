@@ -12,7 +12,8 @@ const html = fs.readFileSync(path.join(root, 'server/static/rpg/index.html'), 'u
 
 describe('RPG commerce frontend', () => {
 	it('provides the central establishment selector and Player buy/sell cart', () => {
-		assert.match(ui, /Onde deseja ir/);
+		assert.doesNotMatch(ui, /Onde deseja ir/);
+		assert.doesNotMatch(ui, /COMÉRCIO DA CAMPANHA/);
 		assert.match(ui, /COMPRAR/);
 		assert.match(ui, /VENDER/);
 		assert.match(ui, /Buscar item/);

@@ -146,8 +146,7 @@
 	function shopDirectory(directory, options) {
 		const root = el('div', 'shop-ui');
 		const heading = el('section', 'panel shop-directory-heading');
-		heading.append(el('p', 'eyebrow', 'COMÉRCIO DA CAMPANHA'), el('h1', '', 'Lojas'),
-			el('p', '', 'Onde deseja ir? Cada estabelecimento possui catálogo e estoque próprios.'));
+		heading.append(el('h1', '', 'Lojas'));
 		const grid = el('div', 'shop-directory-grid');
 		for (const shop of directory.shops) {
 			const card = button('', 'panel shop-directory-card shop-type-' + shop.type);
