@@ -39,6 +39,13 @@ import {
 	type RPGBattleLaunchRequest,
 } from './battle-session';
 import {
+	RPGContestSessionService,
+	type RPGContestSession,
+	type RPGContestSessionRepository,
+	type RPGCreateContestSessionRequest,
+	type RPGUpdateContestSessionRequest,
+} from './contest-session';
+import {
 	RPGBoxManagement,
 	type RPGBoxManagementView,
 	type RPGBoxMasterEdit,
@@ -93,6 +100,7 @@ import {
 } from './shop-management';
 
 export * from './battle-session';
+export * from './contest-session';
 export * from './box-management';
 export * from './bag-management';
 export * from './team-builder-management';
@@ -373,6 +381,68 @@ interface RPGBattleSessionFileData {
 	sessions: RPGBattleSession[];
 }
 
+interface RPGContestSessionFileData {
+	version: 1;
+	sessions: RPGContestSession[];
+}
+
+/** Atomic JSON persistence for contest preparation and invitations. */
+export class RPGFileContestSessionRepository implements RPGContestSessionRepository {
+	private readonly sessions = new Map<string, RPGContestSession>();
+	readonly filePath: string;
+
+	constructor(filePath = resolve('config/rpg-contest-sessions.json')) {
+		this.filePath = resolve(filePath);
+		if (!existsSync(this.filePath)) return;
+		const raw = JSON.parse(readFileSync(this.filePath, 'utf8')) as Partial<RPGContestSessionFileData>;
+		if (raw.version !== 1 || !Array.isArray(raw.sessions)) {
+			throw new Error('Invalid RPG contest session persistence file');
+		}
+		for (const session of raw.sessions) {
+			if (!session?.id) throw new Error('Invalid RPG contest session persistence record');
+			this.sessions.set(toID(session.id), structuredClone(session));
+		}
+	}
+
+	create(session: RPGContestSession): void {
+		const id = toID(session.id);
+		if (this.sessions.has(id)) throw new Error('RPG contest session already exists');
+		this.sessions.set(id, structuredClone(session));
+		try {
+			this.persist();
+		} catch (error) {
+			this.sessions.delete(id);
+			throw error;
+		}
+	}
+	get(id: string): RPGContestSession | undefined {
+		const session = this.sessions.get(toID(id));
+		return session && structuredClone(session);
+	}
+	set(session: RPGContestSession): void {
+		const id = toID(session.id);
+		const previous = this.sessions.get(id);
+		if (!previous) throw new Error('Unknown RPG contest session');
+		this.sessions.set(id, structuredClone(session));
+		try {
+			this.persist();
+		} catch (error) {
+			this.sessions.set(id, previous);
+			throw error;
+		}
+	}
+	list(): RPGContestSession[] {
+		return [...this.sessions.values()].map(session => structuredClone(session));
+	}
+	private persist(): void {
+		mkdirSync(dirname(this.filePath), {recursive: true});
+		const temporary = this.filePath + '.tmp';
+		const data: RPGContestSessionFileData = {version: 1, sessions: [...this.sessions.values()]};
+		writeFileSync(temporary, JSON.stringify(data, null, '\t') + '\n', 'utf8');
+		renameSync(temporary, this.filePath);
+	}
+}
+
 /** Atomic JSON persistence for battle preparation, invitations, results and recovery. */
 export class RPGFileBattleSessionRepository implements RPGBattleSessionRepository {
 	private readonly sessions = new Map<string, RPGBattleSession>();
@@ -437,6 +507,7 @@ export interface RPGLoginServiceOptions {
 	masterCode: string;
 	repository?: RPGCharacterRepository;
 	battleSessionRepository?: RPGBattleSessionRepository;
+	contestSessionRepository?: RPGContestSessionRepository;
 	customItemRepository?: RPGCustomItemRepository;
 	commerceRepository?: RPGCommerceRepository;
 	sessionTtlMs?: number;
@@ -448,6 +519,7 @@ export interface RPGLoginServiceOptions {
 export class RPGLoginService {
 	readonly repository: RPGCharacterRepository;
 	readonly battleSessions: RPGBattleSessionService;
+	readonly contestSessions: RPGContestSessionService;
 	readonly customItems: RPGCustomItemRepository;
 	readonly commerce: RPGCommerceManagement;
 	private readonly sessions = new Map<string, RPGInternalSession>();
@@ -501,6 +573,21 @@ export class RPGLoginService {
 					!this.isPokemonBreeding(record.state.id, pokemon.pokemonId);
 			},
 			random: this.random,
+		});
+		this.contestSessions = new RPGContestSessionService({
+			repository: options.contestSessionRepository,
+			now: this.now,
+			createId: () => this.bytes(18).toString('base64url'),
+			random: this.random,
+			getCharacterTeam: characterId => this.repository.get(characterId)?.state.team,
+			isCharacterPokemonAvailable: (characterId, teamIndex) => {
+				const record = this.repository.get(characterId);
+				if (!record) return false;
+				this.resolveCompletedEVTrainings(record);
+				const pokemon = record.state.box.party[teamIndex] as RPGManagedStoredPokemon | undefined;
+				return !!pokemon && !pokemon.metadata?.evTraining &&
+					!this.isPokemonBreeding(record.state.id, pokemon.pokemonId);
+			},
 		});
 	}
 
@@ -2762,6 +2849,70 @@ export class RPGLoginService {
 		return this.battleSessions.cancel(battleSessionId);
 	}
 
+	createContestSession(token: string, input: RPGCreateContestSessionRequest = {}): RPGContestSession {
+		this.requireMasterMode(token);
+		return this.contestSessions.create(input);
+	}
+
+	updateContestSession(
+		token: string, contestSessionId: string, input: RPGUpdateContestSessionRequest
+	): RPGContestSession {
+		this.requireMasterMode(token);
+		return this.contestSessions.update(contestSessionId, input);
+	}
+
+	inviteContestSession(token: string, contestSessionId: string): RPGContestSession {
+		this.requireMasterMode(token);
+		return this.contestSessions.invite(contestSessionId);
+	}
+
+	listContestSessions(token: string): RPGContestSession[] {
+		const session = this.getSession(token);
+		if (session.mode === 'master') return this.contestSessions.list();
+		const characterId = session.characterId || session.viewAsCharacterId;
+		if (!characterId) throw new Error('RPG player session requires a character');
+		return this.contestSessions.list(characterId);
+	}
+
+	getContestSession(token: string, contestSessionId: string): RPGContestSession {
+		const account = this.getSession(token);
+		const contest = this.contestSessions.get(contestSessionId);
+		if (account.mode === 'master') return contest;
+		const characterId = account.characterId || account.viewAsCharacterId;
+		if (contest.status === 'draft' || !contest.participants.some(entry => entry.characterId === characterId)) {
+			throw new Error('RPG player session cannot access another contest session');
+		}
+		return contest;
+	}
+
+	selectContestPokemon(token: string, contestSessionId: string, teamIndex: number): RPGContestSession {
+		const session = this.getSession(token);
+		if (session.role !== 'player' || session.mode !== 'player' || !session.characterId) {
+			throw new Error('RPG player session required to select a contest Pokemon');
+		}
+		return this.contestSessions.selectPokemon(contestSessionId, session.characterId, teamIndex);
+	}
+
+	respondToContestInvitation(
+		token: string, contestSessionId: string, response: 'accepted' | 'declined'
+	): RPGContestSession {
+		const session = this.getSession(token);
+		if (session.role !== 'player' || session.mode !== 'player' || !session.characterId) {
+			throw new Error('RPG player session required to answer a contest invitation');
+		}
+		return this.contestSessions.respond(contestSessionId, session.characterId, response);
+	}
+
+	startContestSession(token: string, contestSessionId: string): RPGContestSession {
+		this.requireMasterMode(token);
+		return this.contestSessions.start(contestSessionId);
+	}
+
+	cancelContestSession(token: string, contestSessionId: string): RPGContestSession {
+		this.requireMasterMode(token);
+		return this.contestSessions.cancel(contestSessionId);
+	}
+
 	requirePermission(token: string, permission: RPGPermission, ownerId?: string): void {
 		const session = this.getSession(token);
 		const effectiveCharacter = session.mode === 'player' ?
@@ -4099,6 +4250,7 @@ export function createRPGLoginServiceFromConfig(
 		rpgmastercode?: string,
 		rpgcharacterfile?: string,
 		rpgbattlefile?: string,
+		rpgcontestfile?: string,
 		rpgcustomitemfile?: string,
 		rpgshopfile?: string,
 		rpgseedtestaccount?: boolean,
@@ -4111,6 +4263,9 @@ export function createRPGLoginServiceFromConfig(
 	const battleSessionRepository = new RPGFileBattleSessionRepository(
 		config.rpgbattlefile || resolve('config/rpg-battle-sessions.json')
 	);
+	const contestSessionRepository = new RPGFileContestSessionRepository(
+		config.rpgcontestfile || resolve('config/rpg-contest-sessions.json')
+	);
 	const customItemRepository = new RPGFileCustomItemRepository(
 		config.rpgcustomitemfile || resolve('config/rpg-custom-items.json')
 	);
@@ -4118,7 +4273,8 @@ export function createRPGLoginServiceFromConfig(
 		config.rpgshopfile || resolve('config/rpg-shops.json')
 	);
 	const service = new RPGLoginService({
-		masterCode, repository, battleSessionRepository, customItemRepository, commerceRepository,
+		masterCode, repository, battleSessionRepository, contestSessionRepository,
+		customItemRepository, commerceRepository,
 	});
 	migrateCharacterPageAccess(service);
 	migrateCharacterBags(service);

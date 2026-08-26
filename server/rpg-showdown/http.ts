@@ -12,6 +12,7 @@ import {
 	type RPGCommerceOfferInput,
 	type RPGCommerceTradeRequest,
 	type RPGLoginService,
+	type RPGUpdateContestSessionRequest,
 	type RPGUpdateBattleSessionRequest,
 } from './index';
 import { getRPGBattlePokemonCatalog } from './pokemon-catalog';
@@ -776,6 +777,63 @@ export class RPGHttpServer {
 			this.login.getSession(this.token(req));
 			this.json(res, 200, { scenes: getRPGBattleSceneCatalog() });
 			return;
+		}
+		if (url.pathname === '/api/rpg/contest-sessions') {
+			const token = this.token(req);
+			if (method === 'GET') {
+				this.json(res, 200, {contestSessions: this.login.listContestSessions(token)});
+				return;
+			}
+			if (method === 'POST') {
+				const body = await this.body(req);
+				this.json(res, 201, {contestSession: this.login.createContestSession(token, {
+					name: typeof body.name === 'string' ? body.name : undefined,
+				})});
+				return;
+			}
+		}
+		const contestMatch = /^\/api\/rpg\/contest-sessions\/([^/]+)(?:\/(invite|response|selection|start))?$/.exec(url.pathname);
+		if (contestMatch) {
+			const token = this.token(req);
+			const contestSessionId = decodeURIComponent(contestMatch[1]);
+			const action = contestMatch[2];
+			if (method === 'GET' && !action) {
+				this.json(res, 200, {contestSession: this.login.getContestSession(token, contestSessionId)});
+				return;
+			}
+			if (method === 'PATCH' && !action) {
+				const body = await this.body(req);
+				this.json(res, 200, {contestSession: this.login.updateContestSession(
+					token, contestSessionId, body as unknown as RPGUpdateContestSessionRequest
+				)});
+				return;
+			}
+			if (method === 'DELETE' && !action) {
+				this.json(res, 200, {contestSession: this.login.cancelContestSession(token, contestSessionId)});
+				return;
+			}
+			if (method === 'POST' && action === 'invite') {
+				this.json(res, 200, {contestSession: this.login.inviteContestSession(token, contestSessionId)});
+				return;
+			}
+			if (method === 'POST' && action === 'selection') {
+				const body = await this.body(req);
+				this.json(res, 200, {contestSession: this.login.selectContestPokemon(
+					token, contestSessionId, Number(body.teamIndex)
+				)});
+				return;
+			}
+			if (method === 'POST' && action === 'response') {
+				const body = await this.body(req);
+				this.json(res, 200, {contestSession: this.login.respondToContestInvitation(
+					token, contestSessionId, this.string(body.response) as 'accepted' | 'declined'
+				)});
+				return;
+			}
+			if (method === 'POST' && action === 'start') {
+				this.json(res, 200, {contestSession: this.login.startContestSession(token, contestSessionId)});
+				return;
+			}
 		}
 		if (url.pathname === '/api/rpg/battle-sessions') {
 			const token = this.token(req);
