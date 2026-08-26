@@ -50,6 +50,7 @@ import {
 	type RPGContestComboDefinition,
 	type RPGContestComboRepository,
 } from './contest-scoring';
+import {applyRPGContestPerformance, type RPGContestPlacement} from './contest-progression';
 import {
 	RPGBoxManagement,
 	type RPGBoxManagementView,
@@ -110,6 +111,7 @@ export * from './contest-move-catalog';
 export * from './contest-runtime';
 export * from './contest-scoring';
 export * from './contest-stage';
+export * from './contest-progression';
 export * from './box-management';
 export * from './bag-management';
 export * from './team-builder-management';
@@ -203,6 +205,7 @@ export interface RPGCharacterState extends RPGCharacterSelection {
 	nursery?: RPGNurseryCharacterState;
 	shopRevision?: number;
 	shopTransactions?: RPGShopTransaction[];
+	completedContestRewards?: string[];
 	createdAt: number;
 	updatedAt: number;
 }
@@ -2985,6 +2988,25 @@ export class RPGLoginService {
 
 	completeContestSession(contestSessionId: string): RPGContestSession {
 		return this.contestSessions.complete(contestSessionId);
+	}
+
+	applyContestResults(session: RPGContestSession, results: readonly RPGContestPlacement[]): void {
+		const resultById = new Map(results.map(result => [result.participantId, result]));
+		for (const participant of session.participants) {
+			if (participant.kind !== 'player' || !participant.characterId || participant.pokemon?.teamIndex === undefined) continue;
+			const result = resultById.get(participant.id);
+			if (!result || result.disqualified) continue;
+			const record = this.repository.get(participant.characterId);
+			if (!record) continue;
+			const rewarded = record.state.completedContestRewards ||= [];
+			if (rewarded.includes(session.id)) continue;
+			const pokemon = record.state.team[participant.pokemon.teamIndex];
+			if (!pokemon) continue;
+			applyRPGContestPerformance(pokemon, record.state.id, result.performanceGain);
+			rewarded.push(session.id);
+			record.state.updatedAt = Date.now();
+			this.repository.set(record);
+		}
 	}
 
 	listContestCombos(token: string): RPGContestComboDefinition[] {

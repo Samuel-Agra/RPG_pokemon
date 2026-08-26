@@ -7,6 +7,10 @@ import {
 } from './contest-scoring';
 import type {RPGContestParticipant, RPGContestSession} from './contest-session';
 import {
+	getRPGContestPerformance, getRPGContestPerformanceBonus, rankRPGContestParticipants,
+	type RPGContestPlacement,
+} from './contest-progression';
+import {
 	applyRPGContestMoveToStage, createRPGContestStage, summarizeRPGContestRoundStage,
 	type RPGContestMoveStageResult, type RPGContestRoundStageResult, type RPGContestStageState,
 } from './contest-stage';
@@ -27,6 +31,8 @@ export interface RPGContestRuntimePokemon {
 	nature: string;
 	item: string;
 	friendship: number;
+	performance: number;
+	performanceBonus: number;
 	hp: number | null;
 	status: string;
 	moves: {id: string, name: string}[];
@@ -50,6 +56,7 @@ export interface RPGContestRuntimeParticipant {
 	scenarioCoherenceBonus: number;
 	judging: [RPGContestRoundJudging | null, RPGContestRoundJudging | null];
 	audienceReactions: [RPGContestAudienceReaction | null, RPGContestAudienceReaction | null];
+	teamIndex?: number;
 }
 
 export type RPGContestJudgingCriterion =
@@ -109,6 +116,7 @@ export interface RPGContestRuntimeSnapshot {
 	events: RPGContestRuntimeEvent[];
 	canAct: boolean;
 	canJudge: boolean;
+	results: RPGContestPlacement[] | null;
 }
 
 export type RPGContestRuntimeAction =
@@ -137,17 +145,20 @@ interface RPGContestRuntimeState {
 	participants: RPGContestRuntimeParticipant[];
 	events: RPGContestRuntimeEvent[];
 	nextSequence: number;
+	results: RPGContestPlacement[] | null;
 }
 
 export interface RPGContestRuntimeManagerOptions {
 	now?: () => number;
 	getCharacterTeam?: (characterId: string) => PokemonSet[] | undefined;
 	getCombos?: () => readonly RPGContestComboDefinition[];
+	onFinished?: (session: RPGContestSession, results: readonly RPGContestPlacement[]) => void;
 }
 
 export class RPGContestRuntimeManager {
 	private readonly runtimes = new Map<string, RPGContestRuntimeState>();
 	private readonly now: () => number;
+	private readonly onFinished?: RPGContestRuntimeManagerOptions['onFinished'];
 	private readonly getCharacterTeam: (characterId: string) => PokemonSet[] | undefined;
 	private readonly getCombos: () => readonly RPGContestComboDefinition[];
 
@@ -155,6 +166,7 @@ export class RPGContestRuntimeManager {
 		this.now = options.now || Date.now;
 		this.getCharacterTeam = options.getCharacterTeam || (() => undefined);
 		this.getCombos = options.getCombos || (() => RPG_DEFAULT_CONTEST_COMBOS);
+		this.onFinished = options.onFinished;
 	}
 
 	start(session: RPGContestSession): RPGContestRuntimeSnapshot {
@@ -167,7 +179,7 @@ export class RPGContestRuntimeManager {
 		const participants = session.participants.map(participant => this.runtimeParticipant(participant, session));
 		const state: RPGContestRuntimeState = {
 			session: structuredClone(session), status: 'active', phase: 'awaiting_move', round: 1,
-			currentOrderIndex: 0, participants, events: [], nextSequence: 0,
+			currentOrderIndex: 0, participants, events: [], nextSequence: 0, results: null,
 		};
 		this.runtimes.set(sessionId, state);
 		this.emit(state, 'contest-started');
@@ -208,6 +220,7 @@ export class RPGContestRuntimeManager {
 			events: structuredClone(state.events.slice(-100)),
 			canAct: state.phase === 'awaiting_move' && !!current && this.canControl(current, viewer),
 			canJudge: state.phase === 'awaiting_judging' && viewer.master === true,
+			results: state.results ? structuredClone(state.results) : null,
 		};
 	}
 
@@ -294,7 +307,14 @@ export class RPGContestRuntimeManager {
 		state.status = 'ended';
 		state.phase = 'finished';
 		state.currentOrderIndex = state.session.presentationOrder.length;
+		state.results = rankRPGContestParticipants(state.participants.map(participant => ({
+			id: participant.id, disqualified: participant.disqualified,
+			roundTotals: participant.judging.filter(Boolean).map(judging => judging!.totalAfterJudging),
+			scenarioCoherenceBonus: participant.scenarioCoherenceBonus,
+			performanceBonus: participant.pokemon.performanceBonus,
+		})));
 		this.emit(state, 'contest-finished');
+		this.onFinished?.(structuredClone(state.session), structuredClone(state.results));
 	}
 
 	private runtimeParticipant(participant: RPGContestParticipant, session: RPGContestSession): RPGContestRuntimeParticipant {
@@ -304,7 +324,8 @@ export class RPGContestRuntimeManager {
 		return {
 			id: participant.id, kind: participant.kind, displayName: participant.displayName,
 			characterId: participant.characterId, avatar: participant.avatar,
-			pokemon: this.pokemon(set, false), disqualified: false, rounds: [[], []], roundScores: [null, null],
+			pokemon: this.pokemon(set, false, participant.characterId || participant.id), teamIndex: participant.pokemon?.teamIndex,
+			disqualified: false, rounds: [[], []], roundScores: [null, null],
 			stageStates: [firstStage, secondStage], stageMoves: [[], []], roundStages: [null, null],
 			scenarioCoherenceBonus: 0, judging: [null, null], audienceReactions: [null, null],
 		};
@@ -390,14 +411,16 @@ export class RPGContestRuntimeManager {
 		if (participant.kind !== 'player' || participant.pokemon.movesFrozen) return;
 		const source = state.session.participants.find(entry => entry.id === participant.id);
 		if (!source) return;
-		participant.pokemon = this.pokemon(this.participantSet(source), false);
+		participant.pokemon = this.pokemon(this.participantSet(source), false, participant.characterId || participant.id);
 	}
 
-	private pokemon(set: PokemonSet, movesFrozen: boolean): RPGContestRuntimePokemon {
+	private pokemon(set: PokemonSet, movesFrozen: boolean, trainerId: string): RPGContestRuntimePokemon {
+		const performance = getRPGContestPerformance(set, trainerId);
 		return {
 			name: set.name || set.species, species: set.species, level: set.level || 1,
 			gender: set.gender || 'N', shiny: !!set.shiny, nature: set.nature || '', item: set.item || '',
 			friendship: Math.max(0, Math.min(255, set.rpg?.friendship ?? set.happiness ?? 0)),
+			performance, performanceBonus: getRPGContestPerformanceBonus(performance),
 			hp: Number.isFinite(set.rpg?.hp) ? Number(set.rpg!.hp) : null,
 			status: set.rpg?.status || '', movesFrozen,
 			moves: (set.moves || []).map(move => {

@@ -49,6 +49,7 @@ export class RPGHttpServer {
 		this.contestRuntimes ||= new RPGContestRuntimeManager({
 			getCharacterTeam: characterId => this.login.repository.get(characterId)?.state.team,
 			getCombos: () => this.login.contestCombos.list(),
+			onFinished: (session, results) => this.login.applyContestResults(session, results),
 		});
 		return this.contestRuntimes;
 	}

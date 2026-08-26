@@ -86,6 +86,9 @@ describe('RPG contest runtime', () => {
 		view = runtime.action('contest-runtime', judging(), {master: true});
 		assert.equal(view.status, 'ended');
 		assert.equal(view.phase, 'finished');
+		assert.equal(view.results.length, 2);
+		assert.equal(view.results.find(result => result.participantId === 'may').place, null);
+		assert.equal(view.results.find(result => result.participantId === 'npc').place, 1);
 		assert.deepEqual(view.events.map(event => event.sequence), view.events.map((event, index) => index));
 	});
 

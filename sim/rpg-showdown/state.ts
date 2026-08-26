@@ -33,6 +33,9 @@ export interface RPGPokemonState {
 	foreignLanguage?: boolean;
 	friendship?: number;
 	experienceMultiplier?: number;
+	/** Experiência de palco vinculada ao treinador atual, entre 0 e 100. */
+	contestPerformance?: number;
+	contestPerformanceTrainerId?: string;
 	/** Pokébola que capturou o Pokémon; usada também na animação de entrada. */
 	captureBall?: string;
 	/** Taxa da espécie usada pelo sistema de captura, entre 0 e 255. */
