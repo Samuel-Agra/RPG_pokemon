@@ -5,6 +5,7 @@ import {
 	RPGBagSystem, RPGInventorySystem, RPGItems, RPGShopSystem,
 	type RPGInventoryState, type RPGItemDefinition, type RPGShopTransaction,
 } from '../../sim/rpg-showdown';
+import {Dex} from '../../sim/dex';
 import {getRPGItemIconPath} from './item-icons';
 import {RPGBagManagement} from './bag-management';
 
@@ -16,6 +17,8 @@ export interface RPGCommerceOffer {
 	itemId: string;
 	stock: number;
 	buyMode: RPGShopBuyMode;
+	buyEnabled?: boolean;
+	sellEnabled?: boolean;
 	buyPrice?: number;
 	sellPrice?: number;
 }
@@ -66,6 +69,14 @@ export interface RPGCommerceOfferInput {
 	buyEnabled?: boolean;
 	sellEnabled?: boolean;
 	remove?: boolean;
+	expectedRevision: number;
+}
+
+export type RPGCommerceBulkAction = 'enable-buy' | 'disable-buy' | 'enable-sell' | 'disable-sell' |
+	'increase-prices' | 'decrease-prices' | 'reset-prices';
+
+export interface RPGCommerceBulkInput {
+	action: RPGCommerceBulkAction;
 	expectedRevision: number;
 }
 
@@ -146,12 +157,55 @@ function normalizeOffer(input: RPGCommerceOffer, shopType: RPGShopType): RPGComm
 	if (!['available', 'hidden', 'locked'].includes(input.buyMode)) throw new Error('Disponibilidade de compra inválida');
 	const buyPrice = normalizePrice(input.buyPrice, 'Buy price');
 	const sellPrice = normalizePrice(input.sellPrice, 'Sell price');
-	if (buyPrice === undefined && sellPrice === undefined) throw new Error('A oferta precisa comprar ou vender o item');
 	return {
 		itemId: item.id, stock: input.stock, buyMode: input.buyMode,
+		buyEnabled: input.buyEnabled ?? (input.buyMode === 'available' && buyPrice !== undefined),
+		sellEnabled: input.sellEnabled ?? sellPrice !== undefined,
 		...(buyPrice === undefined ? {} : {buyPrice}),
 		...(sellPrice === undefined ? {} : {sellPrice}),
 	};
+}
+
+function basePrices(item: RPGItemDefinition): {buy: number, sell: number} {
+	return {buy: item.price?.buy ?? 0, sell: item.price?.sell ?? 0};
+}
+
+function effectFilters(item: RPGItemDefinition, shopType: RPGShopType, category: string) {
+	if (shopType === 'poke-mart') {
+		const group = item.category === 'ball' ? 'Pokébolas' : item.category === 'revive' ? 'Revives' :
+			item.category === 'status' ? 'Status' : 'Curas';
+		return {effectGroup: group};
+	}
+	if (shopType === 'evolution') {
+		return {effectGroup: category === 'terastalization' ? 'Teracristalização' : 'Itens de evolução'};
+	}
+	if (shopType === 'tm') {
+		const moveId = typeof item.effect?.move === 'string' ? item.effect.move : '';
+		const move = Dex.moves.get(moveId);
+		const categories = {Physical: 'Físico', Special: 'Especial', Status: 'Status'};
+		return {
+			effectGroup: categories[move.category as keyof typeof categories] || 'Status',
+			effectType: move.type || 'Normal',
+		};
+	}
+	if (shopType === 'farm') {
+		const offensive = /apicot|custap|lansat|liechi|micle|petaya|salac|starf/i.test(item.id);
+		return {effectGroup: offensive ? 'Ofensivo' : 'Defensivo'};
+	}
+	if (shopType === 'equipment') {
+		const tags = new Set(item.tags || []);
+		if (tags.has('consumable') || /herb|policy|seed|orb|sash|button|pack|card|service/i.test(item.name)) {
+			return {effectGroup: 'Uso único por batalha'};
+		}
+		if (/vest|shield|eviolite|helmet|boots|cloak|goggles|umbre|pads|band|leftovers|sludge/i.test(item.name)) {
+			return {effectGroup: 'Defensivo'};
+		}
+		if (/choice|belt|glasses|lens|claw|fang|plate|charcoal|magnet|water|sand|spoon|scarf|feather|ice/i.test(item.name)) {
+			return {effectGroup: 'Ofensivo'};
+		}
+		return {effectGroup: 'Utilidade'};
+	}
+	return {};
 }
 
 export class RPGMemoryCommerceRepository implements RPGCommerceRepository {
@@ -218,7 +272,7 @@ export class RPGCommerceManagement {
 			id: shop.id, type: shop.type, name: shop.name, description: shop.description,
 			revision: shop.revision,
 			availableItemTypes: shop.offers.filter(offer =>
-				offer.buyMode === 'available' && offer.buyPrice !== undefined && offer.stock > 0
+				(offer.buyEnabled ?? offer.buyMode === 'available') && offer.buyPrice !== undefined && offer.stock > 0
 			).length,
 		};
 	}
@@ -226,26 +280,25 @@ export class RPGCommerceManagement {
 	view(shopId: string, character?: RPGCommerceCharacter, master = false) {
 		const shop = this.requireShop(shopId);
 		const inventory = character ? RPGInventorySystem.migrate(character.inventory) : undefined;
-		const offers = shop.offers.map(offer => this.offerView(shop, offer, inventory)).filter(offer =>
-			master || offer.buyMode !== 'hidden' || (offer.sellPrice !== undefined && offer.owned > 0)
+		const candidates = this.shopItems(shop);
+		const configured = new Map(shop.offers.map(offer => [offer.itemId, offer]));
+		const sourceOffers = master ? candidates.map(candidate => configured.get(candidate.id) || {
+			itemId: candidate.id, stock: 0, buyMode: 'hidden' as const,
+			buyEnabled: false, sellEnabled: false,
+			buyPrice: candidate.recommendedBuyPrice, sellPrice: candidate.recommendedSellPrice,
+		}) : shop.offers;
+		const offers = sourceOffers.map(offer => this.offerView(shop, offer, inventory)).filter(offer =>
+			master || offer.buyEnabled || (offer.sellEnabled && offer.owned > 0)
 		);
-		const candidates = master ? RPGItems.list().flatMap(item => {
-			const group = itemGroup(item);
-			if (group.shopType !== shop.type) return [];
-			return [{
-				id: item.id, name: item.name, category: group.category,
-				description: RPGBagManagement.description(item), icon: getRPGItemIconPath(item.id),
-				recommendedBuyPrice: item.price?.buy, recommendedSellPrice: item.price?.sell,
-			}];
-		}).sort((left, right) => left.name.localeCompare(right.name)) : undefined;
 		return {
 			version: RPG_COMMERCE_VERSION, shop: this.summary(shop),
 			accountRevision: character?.shopRevision || 0,
 			bagRevision: inventory?.bag.revision,
 			money: character?.money,
 			offers,
-			filters: [...new Set(offers.map(offer => offer.category))],
-			...(candidates ? {candidates} : {}),
+			filters: [...new Set(offers.map(offer => offer.effectGroup).filter(Boolean))],
+			typeFilters: [...new Set(offers.map(offer => offer.effectType).filter(Boolean))],
+			...(master ? {candidates} : {}),
 		};
 	}
 
@@ -260,21 +313,51 @@ export class RPGCommerceManagement {
 		} else {
 			const item = RPGItems.require(itemId);
 			const existing = index >= 0 ? shop.offers[index] : undefined;
-			const buyPrice = input.buyEnabled === false ? undefined :
-				input.buyPrice ?? existing?.buyPrice ?? item.price?.buy;
-			const sellPrice = input.sellEnabled === false ? undefined :
-				input.sellPrice ?? existing?.sellPrice ?? item.price?.sell;
+			const base = basePrices(item);
+			const buyEnabled = input.buyEnabled ?? (input.buyMode !== undefined ?
+				input.buyMode === 'available' : existing?.buyEnabled ??
+				(existing?.buyMode === 'available' && existing.buyPrice !== undefined));
+			const sellEnabled = input.sellEnabled ?? existing?.sellEnabled ?? existing?.sellPrice !== undefined;
+			const buyPrice = input.buyPrice ?? existing?.buyPrice ?? base.buy;
+			const sellPrice = input.sellPrice ?? existing?.sellPrice ?? base.sell;
 			const offer = normalizeOffer({
 				itemId,
 				stock: input.stock ?? existing?.stock ?? 0,
-				buyMode: input.buyMode ?? existing?.buyMode ?? 'available',
-				...(buyPrice === undefined ? {} : {buyPrice}),
-				...(sellPrice === undefined ? {} : {sellPrice}),
+				buyMode: buyEnabled ? 'available' : 'hidden',
+				buyEnabled, sellEnabled, buyPrice, sellPrice,
 			}, shop.type);
 			if (index >= 0) shop.offers[index] = offer;
 			else shop.offers.push(offer);
 			shop.offers.sort((left, right) => RPGItems.require(left.itemId).name.localeCompare(RPGItems.require(right.itemId).name));
 		}
+		shop.revision++;
+		this.repository.set(shop);
+		return shop;
+	}
+
+	configureBulk(shopId: string, input: RPGCommerceBulkInput): RPGCommerceShopState {
+		const shop = this.requireShop(shopId);
+		if (input.expectedRevision !== shop.revision) throw new Error('RPG commerce revision conflict');
+		const allowed: RPGCommerceBulkAction[] = [
+			'enable-buy', 'disable-buy', 'enable-sell', 'disable-sell',
+			'increase-prices', 'decrease-prices', 'reset-prices',
+		];
+		if (!allowed.includes(input.action)) throw new Error('Ação em massa inválida');
+		shop.offers = this.materializeOffers(shop).map(offer => {
+			const item = RPGItems.require(offer.itemId);
+			const base = basePrices(item);
+			if (input.action === 'enable-buy') return {...offer, buyEnabled: true, buyMode: 'available' as const};
+			if (input.action === 'disable-buy') return {...offer, buyEnabled: false, buyMode: 'hidden' as const};
+			if (input.action === 'enable-sell') return {...offer, sellEnabled: true};
+			if (input.action === 'disable-sell') return {...offer, sellEnabled: false};
+			if (input.action === 'reset-prices') return {...offer, buyPrice: base.buy, sellPrice: base.sell};
+			const multiplier = input.action === 'increase-prices' ? 1.1 : 0.9;
+			return {
+				...offer,
+				buyPrice: Math.max(0, Math.round(Number(offer.buyPrice || 0) * multiplier)),
+				sellPrice: Math.max(0, Math.round(Number(offer.sellPrice || 0) * multiplier)),
+			};
+		});
 		shop.revision++;
 		this.repository.set(shop);
 		return shop;
@@ -340,12 +423,13 @@ export class RPGCommerceManagement {
 
 	private catalog(shop: RPGCommerceShopState) {
 		const offers = shop.offers.flatMap(offer => {
-			const buyPrice = offer.buyMode === 'available' ? offer.buyPrice : undefined;
-			if (buyPrice === undefined && offer.sellPrice === undefined) return [];
+			const buyPrice = offer.buyEnabled && offer.buyMode === 'available' ? offer.buyPrice : undefined;
+			const sellPrice = offer.sellEnabled ? offer.sellPrice : undefined;
+			if (buyPrice === undefined && sellPrice === undefined) return [];
 			return [{
 				itemId: offer.itemId, stock: offer.stock,
 				...(buyPrice === undefined ? {} : {buyPrice}),
-				...(offer.sellPrice === undefined ? {} : {sellPrice: offer.sellPrice}),
+				...(sellPrice === undefined ? {} : {sellPrice}),
 			}];
 		});
 		return RPGShopSystem.createCatalog(shop.id, offers, {
@@ -360,13 +444,42 @@ export class RPGCommerceManagement {
 			itemId: item.id, name: item.name, category: group.category,
 			description: RPGBagManagement.description(item), icon: getRPGItemIconPath(item.id),
 			stock: offer.stock, owned: inventory ? RPGInventorySystem.getAvailableQuantity(inventory, item.id) : 0,
-			buyMode: offer.buyMode, buyVisible: offer.buyMode !== 'hidden',
+			buyMode: offer.buyMode,
+			buyEnabled: offer.buyEnabled ?? (offer.buyMode === 'available' && offer.buyPrice !== undefined),
+			sellEnabled: offer.sellEnabled ?? offer.sellPrice !== undefined,
+			buyVisible: offer.buyEnabled ?? offer.buyMode !== 'hidden',
 			buyLocked: offer.buyMode === 'locked',
-			buyPrice: offer.buyPrice, sellPrice: offer.sellPrice,
-			canBuy: offer.buyMode === 'available' && offer.buyPrice !== undefined && offer.stock > 0,
-			canSell: offer.sellPrice !== undefined,
+			buyPrice: offer.buyPrice ?? basePrices(item).buy,
+			sellPrice: offer.sellPrice ?? basePrices(item).sell,
+			baseBuyPrice: basePrices(item).buy, baseSellPrice: basePrices(item).sell,
+			canBuy: !!offer.buyEnabled && offer.buyMode === 'available' && offer.buyPrice !== undefined && offer.stock > 0,
+			canSell: !!offer.sellEnabled && offer.sellPrice !== undefined,
+			...effectFilters(item, shop.type, group.category),
 			shopType: shop.type,
 		};
+	}
+
+	private shopItems(shop: RPGCommerceShopState) {
+		return RPGItems.list().flatMap(item => {
+			const group = itemGroup(item);
+			if (group.shopType !== shop.type) return [];
+			const base = basePrices(item);
+			return [{
+				id: item.id, name: item.name, category: group.category,
+				description: RPGBagManagement.description(item), icon: getRPGItemIconPath(item.id),
+				recommendedBuyPrice: base.buy, recommendedSellPrice: base.sell,
+				...effectFilters(item, shop.type, group.category),
+			}];
+		}).sort((left, right) => left.name.localeCompare(right.name));
+	}
+
+	private materializeOffers(shop: RPGCommerceShopState): RPGCommerceOffer[] {
+		const configured = new Map(shop.offers.map(offer => [offer.itemId, offer]));
+		return this.shopItems(shop).map(candidate => configured.get(candidate.id) || {
+			itemId: candidate.id, stock: 0, buyMode: 'hidden',
+			buyEnabled: false, sellEnabled: false,
+			buyPrice: candidate.recommendedBuyPrice, sellPrice: candidate.recommendedSellPrice,
+		});
 	}
 
 	private requireShop(shopId: string): RPGCommerceShopState {

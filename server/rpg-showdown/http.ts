@@ -8,6 +8,7 @@ import {
 	createRPGLoginServiceFromConfig,
 	type RPGCharacterGender,
 	type RPGCreateCharacterRequest,
+	type RPGCommerceBulkInput,
 	type RPGCommerceOfferInput,
 	type RPGCommerceTradeRequest,
 	type RPGLoginService,
@@ -98,7 +99,7 @@ export class RPGHttpServer {
 			this.json(res, 200, this.login.listCommerceShops(this.token(req)));
 			return;
 		}
-		const shopMatch = /^\/api\/rpg\/shops\/([^/]+)(?:\/(trade|master-offer))?$/.exec(url.pathname);
+		const shopMatch = /^\/api\/rpg\/shops\/([^/]+)(?:\/(trade|master-offer|master-bulk))?$/.exec(url.pathname);
 		if (shopMatch) {
 			const token = this.token(req);
 			const shopId = decodeURIComponent(shopMatch[1]);
@@ -122,6 +123,15 @@ export class RPGHttpServer {
 					expectedCatalogRevision: Number(body.expectedCatalogRevision),
 				};
 				this.json(res, 200, this.login.tradeCommerceShop(token, shopId, request, characterId));
+				return;
+			}
+			if (method === 'POST' && action === 'master-bulk') {
+				const body = await this.body(req);
+				const input: RPGCommerceBulkInput = {
+					action: this.string(body.action) as RPGCommerceBulkInput['action'],
+					expectedRevision: Number(body.expectedRevision),
+				};
+				this.json(res, 200, this.login.configureCommerceBulk(token, shopId, input));
 				return;
 			}
 			if (method === 'POST' && action === 'master-offer') {

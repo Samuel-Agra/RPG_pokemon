@@ -21,15 +21,22 @@ describe('RPG commerce frontend', () => {
 		assert.match(ui, /Confirmar venda/);
 		assert.match(ui, /expectedCatalogRevision/);
 		assert.match(css, /shop-directory-grid/);
-		assert.match(css, /shop-catalog-layout/);
+		assert.match(css, /shop-cart-grid/);
+		assert.match(ui, /effectGroup/);
+		assert.match(ui, /effectType/);
+		assert.doesNotMatch(ui, /detailsPanel/);
 	});
-	it('offers independent Master controls for stock, purchase, sale and lock visibility', () => {
+	it('offers inline Master stock controls, bulk actions and automatic synchronization', () => {
 		assert.match(ui, /Estoque compartilhado/);
-		assert.match(ui, /Loja vende ao Player/);
-		assert.match(ui, /Loja compra do Player/);
-		assert.match(ui, /Visível, mas bloqueado/);
-		assert.match(ui, /Oculto quando bloqueado/);
-		assert.match(ui, /master-offer/);
+		assert.match(ui, /Quantidade disponível/);
+		assert.match(ui, /Resetar preços/);
+		assert.match(ui, /enable-buy/);
+		assert.match(ui, /disable-buy/);
+		assert.match(ui, /increase-prices/);
+		assert.match(ui, /master-bulk/);
+		assert.match(ui, /watchShop/);
+		assert.match(css, /shop-master-bulk/);
+		assert.match(css, /shop-stock-row/);
 	});
 	it('loads the module and exposes Lojas in both navigation modes', () => {
 		assert.match(html, /shop-ui\.css/);

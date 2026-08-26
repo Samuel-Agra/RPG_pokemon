@@ -54,7 +54,8 @@ describe('RPG shared commerce management', () => {
 		assert.equal(equipment.candidates.some(item => item.id === 'oranberry'), false);
 		assert.equal(equipment.candidates.some(item => item.id === 'destinyknot'), false);
 		const evolution = service.getCommerceShop(master.token, 'evolution-central');
-		assert(evolution.filters.includes('terastalization') || !evolution.offers.length);
+		assert(evolution.filters.includes('Itens de evolução'));
+		assert(evolution.offers.length > 0, 'Master should see every compatible item, including disabled ones');
 	});
 
 	it('shares finite stock between Players and keeps buying and selling independent', () => {
@@ -73,7 +74,7 @@ describe('RPG shared commerce management', () => {
 			itemId: 'pokeball', stock: 6, buyMode: 'available', buyPrice: 200,
 			sellEnabled: false, expectedRevision: masterView.shop.revision,
 		});
-		assert.equal(masterView.offers[0].sellPrice, undefined);
+		assert.equal(masterView.offers.find(item => item.itemId === 'pokeball').sellEnabled, false);
 
 		let view1 = service.getCommerceShop(player1.token, 'poke-mart-central');
 		const result = service.tradeCommerceShop(
@@ -101,11 +102,11 @@ describe('RPG shared commerce management', () => {
 
 		masterView = service.getCommerceShop(master.token, 'poke-mart-central');
 		service.configureCommerceOffer(master.token, 'poke-mart-central', {
-			itemId: 'pokeball', stock: 0, buyMode: 'locked', buyPrice: 200,
+			itemId: 'pokeball', stock: 0, buyEnabled: false, buyPrice: 200,
 			sellEnabled: true, sellPrice: 50, expectedRevision: masterView.shop.revision,
 		});
 		view1 = service.getCommerceShop(player1.token, 'poke-mart-central');
-		assert.equal(view1.offers[0].buyLocked, true);
+		assert.equal(view1.offers[0].buyEnabled, false);
 		const sold = service.tradeCommerceShop(
 			player1.token, 'poke-mart-central',
 			tradeRequest(view1, 'sell', [{itemId: 'pokeball', quantity: 2}], 'samuel-sell')
@@ -113,6 +114,29 @@ describe('RPG shared commerce management', () => {
 		assert.equal(sold.view.money, 8900);
 		assert.equal(sold.view.offers[0].stock, 2);
 		assert.equal(sold.view.offers[0].owned, 4);
+	});
+
+	it('applies stable bulk availability and price controls to every item in one shop', () => {
+		const service = new RPGLoginService({
+			masterCode: '14081998', commerceRepository: new RPGMemoryCommerceRepository(),
+		});
+		const master = service.loginMaster('14081998');
+		let view = service.getCommerceShop(master.token, 'poke-mart-central');
+		const order = view.offers.map(item => item.itemId);
+		view = service.configureCommerceBulk(master.token, 'poke-mart-central', {
+			action: 'enable-buy', expectedRevision: view.shop.revision,
+		});
+		assert(view.offers.every(item => item.buyEnabled));
+		assert.deepEqual(view.offers.map(item => item.itemId), order);
+		const potionBase = view.offers.find(item => item.itemId === 'potion').buyPrice;
+		view = service.configureCommerceBulk(master.token, 'poke-mart-central', {
+			action: 'increase-prices', expectedRevision: view.shop.revision,
+		});
+		assert.equal(view.offers.find(item => item.itemId === 'potion').buyPrice, Math.round(potionBase * 1.1));
+		view = service.configureCommerceBulk(master.token, 'poke-mart-central', {
+			action: 'reset-prices', expectedRevision: view.shop.revision,
+		});
+		assert.equal(view.offers.find(item => item.itemId === 'potion').buyPrice, potionBase);
 	});
 
 	it('rejects stale shared catalog revisions', () => {

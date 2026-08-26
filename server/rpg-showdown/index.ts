@@ -86,6 +86,7 @@ import {
 	RPGCommerceManagement,
 	RPGFileCommerceRepository,
 	RPGMemoryCommerceRepository,
+	type RPGCommerceBulkInput,
 	type RPGCommerceOfferInput,
 	type RPGCommerceRepository,
 	type RPGCommerceTradeRequest,
@@ -904,6 +905,12 @@ export class RPGLoginService {
 	configureCommerceOffer(token: string, shopId: string, input: RPGCommerceOfferInput) {
 		this.requireMasterRole(token);
 		this.commerce.configure(shopId, input);
+		return this.commerce.view(shopId, undefined, true);
+	}
+
+	configureCommerceBulk(token: string, shopId: string, input: RPGCommerceBulkInput) {
+		this.requireMasterRole(token);
+		this.commerce.configureBulk(shopId, input);
 		return this.commerce.view(shopId, undefined, true);
 	}
 
