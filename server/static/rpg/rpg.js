@@ -528,7 +528,7 @@ function dashboardNav(isMaster) {
 	const nurseryBlocked = !masterViewingPlayer && state.currentCharacter?.pageAccess?.nursery === false;
 	const shopsBlocked = !masterViewingPlayer && state.currentCharacter?.pageAccess?.shops === false;
 	const entries = isMaster ? [
-		['overview', 'Vis\u00e3o geral'], ['players', 'Jogadores'], ['shops', 'Lojas'], ['battles', 'Batalhas'],
+		['overview', 'Vis\u00e3o geral'], ['players', 'Jogadores'], ['shops', 'Lojas'], ['battles', 'Batalhas'], ['contests', 'Concursos'],
 		['npcs', 'NPCs e selvagens'], ['tournaments', 'Torneios'], ['nursery', 'Berçário'],
 	] : [
 		['overview', 'Vis\u00e3o geral'], ['team', 'Equipe'],
@@ -540,6 +540,7 @@ function dashboardNav(isMaster) {
 		['bag', 'Bag', bagBlocked],
 		['box', 'Box', boxBlocked],
 		['battles', 'Batalhas'],
+		['contests', 'Concursos'],
 	];
 	const currentEntry = entries.find(([view]) => view === state.dashboardView);
 	if ((!currentEntry && state.dashboardView !== 'team-builder') || currentEntry?.[2]) {
@@ -1648,13 +1649,14 @@ async function renderDashboard() {
 			$('#profile-role').textContent = 'Controle da campanha';
 			$('#dashboard-eyebrow').textContent = 'Painel do Mestre';
 			$('#dashboard-eyebrow').classList.remove('hidden');
-			$('#dashboard-title').textContent = state.dashboardView === 'battles' ? 'Prepara\u00e7\u00e3o de batalhas' : 'Vis\u00e3o geral da campanha';
+			$('#dashboard-title').textContent = state.dashboardView === 'battles' ? 'Prepara\u00e7\u00e3o de batalhas' : state.dashboardView === 'contests' ? 'Concursos Pok\u00e9mon' : 'Vis\u00e3o geral da campanha';
 			$('#dashboard-description').textContent = state.dashboardView === 'battles' ? 'Monte o confronto, envie convites e aguarde as confirma\u00e7\u00f5es.' : 'Acompanhe personagens, equipes, recursos e batalhas.';
 			$('#logout-button').textContent = 'Sair da sess\u00e3o';
 			$('#logout-button').classList.add('danger');
 			$('#delete-character').classList.add('hidden');
 			body.replaceChildren(
 				state.dashboardView === 'battles' ? await renderMasterBattles(characters) :
+				state.dashboardView === 'contests' ? await window.RPGContestUI.render({state, api, master: true, characters, rerender: renderDashboard}) :
 				state.dashboardView === 'nursery' ? await renderNursery() :
 				state.dashboardView === 'shops' ? await renderShops() :
 				await renderMasterBody(characters)
@@ -1670,13 +1672,14 @@ async function renderDashboard() {
 			$('#profile-role').textContent = state.session.role === 'master' ? 'Visualiza\u00e7\u00e3o do Mestre' : character.playerName;
 			$('#dashboard-eyebrow').textContent = '';
 			$('#dashboard-eyebrow').classList.add('hidden');
-			$('#dashboard-title').textContent = state.dashboardView === 'battles' ? 'Convites de batalha' : 'Ol\u00e1, ' + character.characterName;
+			$('#dashboard-title').textContent = state.dashboardView === 'battles' ? 'Convites de batalha' : state.dashboardView === 'contests' ? 'Concursos Pok\u00e9mon' : 'Ol\u00e1, ' + character.characterName;
 			$('#dashboard-description').textContent = state.dashboardView === 'battles' ? 'Aceite, recuse ou escolha seus Pok\u00e9mon quando o Mestre permitir.' : 'Sua equipe e seus recursos persistentes.';
 			const viewing = state.session.role === 'master';
 			$('#logout-button').textContent = viewing ? 'Voltar como Mestre' : 'Sair da sess\u00e3o';
 			$('#logout-button').classList.toggle('danger', !viewing);
 			$('#delete-character').classList.toggle('hidden', !viewing);
 			const playerView = state.dashboardView === 'battles' ? await renderPlayerBattles(character) :
+				state.dashboardView === 'contests' ? await window.RPGContestUI.render({state, api, master: false, character, rerender: renderDashboard}) :
 				state.dashboardView === 'box' ? await renderPlayerBox(character) :
 				state.dashboardView === 'bag' ? await renderPlayerBag(character) :
 				state.dashboardView === 'team-builder' ? await renderPlayerTeamBuilder(character) :

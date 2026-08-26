@@ -1,0 +1,26 @@
+.contest-page { display: grid; gap: 16px; }
+.contest-toolbar, .contest-card, .contest-stage, .contest-results { padding: 18px; }
+.contest-toolbar { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+.contest-list { display: grid; gap: 12px; }
+.contest-card-header { display: flex; justify-content: space-between; gap: 12px; align-items: start; }
+.contest-badges { display: flex; flex-wrap: wrap; gap: 6px; }
+.contest-badge { padding: 4px 9px; border-radius: 999px; background: #e9eef7; color: #314665; font-size: 12px; }
+.contest-stage { position: relative; overflow: hidden; min-height: 330px; color: white; border-radius: 20px; background: radial-gradient(circle at 50% 15%, #809cff 0, #3a477d 38%, #171c35 100%); }
+.contest-stage::before { content: ''; position: absolute; inset: auto -10% -45% -10%; height: 70%; border-radius: 50%; background: radial-gradient(ellipse, #f9d889, #be7b38 58%, #56341f); box-shadow: 0 -8px 30px #ffd57c66; }
+.contest-stage-content { position: relative; z-index: 1; display: grid; gap: 14px; }
+.contest-performer { text-align: center; padding: 28px 10px 8px; animation: contest-enter .45s ease-out; }
+.contest-performer strong { display: block; font-size: 24px; }
+.contest-moves { display: grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap: 9px; }
+.contest-move { border: 1px solid #ffffff55; background: #11182dcc; color: white; border-radius: 12px; padding: 11px; cursor: pointer; }
+.contest-move:disabled { opacity: .5; cursor: default; }
+.contest-sequence { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; min-height: 32px; }
+.contest-sequence span { background: #ffffff22; padding: 6px 10px; border-radius: 10px; }
+.contest-sequence span:last-child { animation: contest-move .5s ease-out; box-shadow: 0 0 20px #fff8; }
+.contest-reaction { text-align: center; font-size: 18px; min-height: 28px; }
+.contest-judge-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+.contest-judge-grid label { display: grid; gap: 5px; }
+.contest-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.contest-results ol { margin-bottom: 0; }
+@keyframes contest-enter { from { opacity: 0; transform: translateY(24px) scale(.96); } }
+@keyframes contest-move { from { opacity: 0; transform: translateY(16px) scale(.8); } 55% { transform: translateY(-4px) scale(1.08); } }
+@media (max-width: 620px) { .contest-toolbar, .contest-card-header { align-items: stretch; flex-direction: column; } }
