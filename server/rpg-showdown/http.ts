@@ -19,6 +19,7 @@ import { getRPGBattlePokemonCatalog } from './pokemon-catalog';
 import { RPGBattleRuntimeManager, type RPGBattleRuntimeAction } from './battle-runtime';
 import { getRPGBattleSceneCatalog } from './battle-scene';
 import { getRPGContestMoveCatalog } from './contest-move-catalog';
+import {RPGContestRuntimeManager, type RPGContestRuntimeAction} from './contest-runtime';
 import { getRPGItemIconPath } from './item-icons';
 
 const MAX_BODY_SIZE = 64 * 1024;
@@ -26,6 +27,7 @@ const MAX_BODY_SIZE = 64 * 1024;
 export class RPGHttpServer {
 	private service?: RPGLoginService;
 	private readonly battleRuntimes = new RPGBattleRuntimeManager();
+	private contestRuntimes?: RPGContestRuntimeManager;
 
 	constructor(service?: RPGLoginService) {
 		this.service = service;
@@ -41,6 +43,13 @@ export class RPGHttpServer {
 	private get login(): RPGLoginService {
 		this.service ||= createRPGLoginServiceFromConfig();
 		return this.service;
+	}
+
+	private get contestRuntimeManager(): RPGContestRuntimeManager {
+		this.contestRuntimes ||= new RPGContestRuntimeManager({
+			getCharacterTeam: characterId => this.login.repository.get(characterId)?.state.team,
+		});
+		return this.contestRuntimes;
 	}
 
 	private async route(req: http.IncomingMessage, res: http.ServerResponse, url: URL): Promise<void> {
@@ -798,7 +807,7 @@ export class RPGHttpServer {
 				return;
 			}
 		}
-		const contestMatch = /^\/api\/rpg\/contest-sessions\/([^/]+)(?:\/(invite|response|selection|start))?$/.exec(url.pathname);
+		const contestMatch = /^\/api\/rpg\/contest-sessions\/([^/]+)(?:\/(invite|response|selection|start|runtime|action))?$/.exec(url.pathname);
 		if (contestMatch) {
 			const token = this.token(req);
 			const contestSessionId = decodeURIComponent(contestMatch[1]);
@@ -837,7 +846,39 @@ export class RPGHttpServer {
 				return;
 			}
 			if (method === 'POST' && action === 'start') {
-				this.json(res, 200, {contestSession: this.login.startContestSession(token, contestSessionId)});
+				const contestSession = this.login.startContestSession(token, contestSessionId);
+				try {
+					const contest = this.contestRuntimeManager.start(contestSession);
+					this.json(res, 200, {contestSession, contest});
+				} catch (error) {
+					this.login.rollbackContestSessionStart(contestSessionId);
+					throw error;
+				}
+				return;
+			}
+			if (method === 'GET' && action === 'runtime') {
+				this.login.getContestSession(token, contestSessionId);
+				const account = this.login.getSession(token);
+				const contest = this.contestRuntimeManager.snapshot(contestSessionId, {
+					master: account.role === 'master',
+					characterId: account.mode === 'player' ? (account.characterId || account.viewAsCharacterId) : undefined,
+				});
+				if (contest.status === 'ended') this.login.completeContestSession(contestSessionId);
+				this.json(res, 200, {contest});
+				return;
+			}
+			if (method === 'POST' && action === 'action') {
+				this.login.getContestSession(token, contestSessionId);
+				const account = this.login.getSession(token);
+				const body = await this.body(req);
+				const contest = this.contestRuntimeManager.action(
+					contestSessionId, body as unknown as RPGContestRuntimeAction, {
+						master: account.role === 'master',
+						characterId: account.mode === 'player' ? (account.characterId || account.viewAsCharacterId) : undefined,
+					}
+				);
+				if (contest.status === 'ended') this.login.completeContestSession(contestSessionId);
+				this.json(res, 200, {contest});
 				return;
 			}
 		}

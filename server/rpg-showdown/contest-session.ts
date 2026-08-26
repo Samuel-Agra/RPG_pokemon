@@ -55,6 +55,7 @@ export interface RPGContestSession {
 	createdAt: number;
 	updatedAt: number;
 	startedAt?: number;
+	endedAt?: number;
 	cancelledAt?: number;
 }
 
@@ -246,6 +247,29 @@ export class RPGContestSessionService {
 		session.presentationOrder = order;
 		session.status = 'started';
 		session.startedAt = now;
+		session.updatedAt = now;
+		this.repository.set(session);
+		return structuredClone(session);
+	}
+
+	rollbackStart(id: string): RPGContestSession {
+		const session = this.get(id);
+		if (session.status !== 'started') throw new Error('RPG contest is not awaiting runtime rollback');
+		session.status = 'ready';
+		delete session.startedAt;
+		session.presentationOrder = [];
+		session.updatedAt = this.now();
+		this.repository.set(session);
+		return structuredClone(session);
+	}
+
+	complete(id: string): RPGContestSession {
+		const session = this.get(id);
+		if (session.status === 'ended') return session;
+		if (session.status !== 'started') throw new Error('RPG contest is not active');
+		const now = this.now();
+		session.status = 'ended';
+		session.endedAt = now;
 		session.updatedAt = now;
 		this.repository.set(session);
 		return structuredClone(session);

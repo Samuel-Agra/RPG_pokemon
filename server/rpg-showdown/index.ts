@@ -102,6 +102,7 @@ import {
 export * from './battle-session';
 export * from './contest-session';
 export * from './contest-move-catalog';
+export * from './contest-runtime';
 export * from './box-management';
 export * from './bag-management';
 export * from './team-builder-management';
@@ -2869,7 +2870,7 @@ export class RPGLoginService {
 
 	listContestSessions(token: string): RPGContestSession[] {
 		const session = this.getSession(token);
-		if (session.mode === 'master') return this.contestSessions.list();
+		if (session.role === 'master') return this.contestSessions.list();
 		const characterId = session.characterId || session.viewAsCharacterId;
 		if (!characterId) throw new Error('RPG player session requires a character');
 		return this.contestSessions.list(characterId);
@@ -2878,7 +2879,7 @@ export class RPGLoginService {
 	getContestSession(token: string, contestSessionId: string): RPGContestSession {
 		const account = this.getSession(token);
 		const contest = this.contestSessions.get(contestSessionId);
-		if (account.mode === 'master') return contest;
+		if (account.role === 'master') return contest;
 		const characterId = account.characterId || account.viewAsCharacterId;
 		if (contest.status === 'draft' || !contest.participants.some(entry => entry.characterId === characterId)) {
 			throw new Error('RPG player session cannot access another contest session');
@@ -2907,6 +2908,19 @@ export class RPGLoginService {
 	startContestSession(token: string, contestSessionId: string): RPGContestSession {
 		this.requireMasterMode(token);
 		return this.contestSessions.start(contestSessionId);
+	}
+
+	rollbackContestSessionStart(contestSessionId: string): RPGContestSession {
+		return this.contestSessions.rollbackStart(contestSessionId);
+	}
+
+	recoverInterruptedContestSessions(): RPGContestSession[] {
+		return this.contestSessions.list().filter(session => session.status === 'started')
+			.map(session => this.contestSessions.rollbackStart(session.id));
+	}
+
+	completeContestSession(contestSessionId: string): RPGContestSession {
+		return this.contestSessions.complete(contestSessionId);
 	}
 
 	cancelContestSession(token: string, contestSessionId: string): RPGContestSession {
@@ -4281,6 +4295,7 @@ export function createRPGLoginServiceFromConfig(
 	migrateCharacterBags(service);
 	migrateCharacterBoxes(service);
 	service.recoverInterruptedBattleSessions();
+	service.recoverInterruptedContestSessions();
 	repairOrphanedBoxPlacements(service);
 	if (config.rpgseedtestaccount !== false) ensurePermanentTestCharacters(service, masterCode);
 	return service;
