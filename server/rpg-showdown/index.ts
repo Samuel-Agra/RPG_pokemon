@@ -109,6 +109,7 @@ export * from './contest-session';
 export * from './contest-move-catalog';
 export * from './contest-runtime';
 export * from './contest-scoring';
+export * from './contest-stage';
 export * from './box-management';
 export * from './bag-management';
 export * from './team-builder-management';

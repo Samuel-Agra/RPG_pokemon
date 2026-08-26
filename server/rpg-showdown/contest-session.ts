@@ -38,6 +38,8 @@ export interface RPGContestScenario {
 	id: string;
 	name: string;
 	tags: string[];
+	weather?: '' | 'sun' | 'rain' | 'sand' | 'snow';
+	terrain?: '' | 'electric' | 'grassy' | 'psychic' | 'misty';
 }
 
 export interface RPGContestSession {
@@ -135,7 +137,7 @@ export class RPGContestSessionService {
 			mode: 'solo',
 			category: 'beauty',
 			rank: 'normal',
-			scenario: {id: 'classic-stage', name: 'Palco clássico', tags: []},
+			scenario: {id: 'classic-stage', name: 'Palco clássico', tags: [], weather: '', terrain: ''},
 			participants: [],
 			invitations: [],
 			presentationOrder: [],
@@ -356,7 +358,11 @@ export class RPGContestSessionService {
 		if (input.tags !== undefined && !Array.isArray(input.tags)) throw new Error('Invalid RPG contest scenario tags');
 		const tags = input.tags === undefined ? current.tags : [...new Set(input.tags.map(tag => toID(tag)).filter(Boolean))];
 		if (tags.length > 30) throw new Error('RPG contest scenario has too many tags');
-		return {id, name, tags};
+		const weather = input.weather === undefined ? current.weather || '' :
+			this.enumValue(input.weather, ['', 'sun', 'rain', 'sand', 'snow'] as const, 'contest scenario weather');
+		const terrain = input.terrain === undefined ? current.terrain || '' :
+			this.enumValue(input.terrain, ['', 'electric', 'grassy', 'psychic', 'misty'] as const, 'contest scenario terrain');
+		return {id, name, tags, weather, terrain};
 	}
 
 	private name(value?: string): string {

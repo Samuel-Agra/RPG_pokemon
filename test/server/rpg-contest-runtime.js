@@ -44,6 +44,8 @@ describe('RPG contest runtime', () => {
 		assert.deepEqual(view.participants[0].rounds[0], ['surf', 'surf', 'icebeam']);
 		assert.ok(view.participants[0].roundScores[0].moveBaseScore > 0);
 		assert.ok(view.participants[0].roundScores[0].comboScore <= 15);
+		assert.ok(view.participants[0].roundScores[0].fieldInteractionScore > 0);
+		assert.ok(view.participants[0].roundStages[0].moves[0].transformations.includes('field:wetstage'));
 		assert.equal(runtime.snapshot('contest-runtime', {master: true}).canJudge, true);
 		view = runtime.action('contest-runtime', {type: 'judging-complete'}, {master: true});
 		assert.equal(view.currentParticipantId, 'npc');

@@ -18,6 +18,8 @@ export interface RPGContestRoundMechanicalScore {
 	finaleScore: number;
 	specialComboBonus: number;
 	comboScore: number;
+	fieldInteractionScore: number;
+	scenarioMoveScore: number;
 	matchedCombos: {id: string, name: string}[];
 	discoveredInteractions: string[];
 	total: number;
@@ -173,7 +175,8 @@ export function scoreRPGContestRound(
 	const moveBaseScore = definitions.reduce((total, move) => total + move.baseScore, 0);
 	return {
 		moves: sequence, moveBaseScore, continuityScore, tagSynergyScore, finaleScore, specialComboBonus,
-		comboScore, matchedCombos: matched.map(combo => ({id: combo.id, name: combo.name})),
+		comboScore, fieldInteractionScore: 0, scenarioMoveScore: 0,
+		matchedCombos: matched.map(combo => ({id: combo.id, name: combo.name})),
 		discoveredInteractions: allRelations, total: moveBaseScore + comboScore,
 	};
 }
