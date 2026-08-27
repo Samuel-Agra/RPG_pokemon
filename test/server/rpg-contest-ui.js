@@ -18,10 +18,89 @@ describe('RPG contest UI', () => {
 	it('provides move selection, judging, reactions, results and an event-ready stage', () => {
 		const ui = fs.readFileSync(path.join(root, 'contest-ui.js'), 'utf8');
 		const css = fs.readFileSync(path.join(root, 'contest-ui.css'), 'utf8');
-		for (const marker of ['select-move', 'submit-judging', 'audienceReactions', 'contest.results', 'select-pokemon']) {
+		for (const marker of ['select-move', 'submit-judging', 'audienceReactions', 'contest.results', '/selection', '/response']) {
 			assert.ok(ui.includes(marker), marker);
 		}
+		for (const section of ['Concurso e formato', 'Participantes', 'Condições iniciais']) {
+			assert.ok(ui.includes(section), section);
+		}
+		assert.ok(!ui.includes('window.prompt'));
+		assert.ok(!ui.includes("step(3, 'Seleção dos Pokémon'"));
+		assert.ok(!ui.includes("step(5, 'Regras especiais'"));
+		for (const marker of ['NPCs temporários', 'Criar NPC temporário', '/battle-pokemon', '/contest-moves']) {
+			assert.ok(ui.includes(marker), marker);
+		}
+		assert.ok(ui.includes("rpgPlayerParticipantChoice(character, 'A'"));
+		for (const className of ['team-builder-showdown-card', 'team-builder-showdown-toolbar',
+			'team-builder-showdown-body', 'team-builder-portrait', 'team-builder-details', 'team-builder-four-moves']) {
+			assert.ok(ui.includes(className), className);
+		}
+		for (const marker of ['contest-npc-hp-controls', 'Editar atributos', 'team-builder-stats-browser',
+			'currentPP', 'evs: {...evs}', 'ivs: {...ivs}']) {
+			assert.ok(ui.includes(marker), marker);
+		}
+		assert.ok(ui.includes("if (profile.includeExperience) detailGrid.append(toolbarCell('XP', experience))"));
+		assert.ok(ui.includes('if (profile.includeExperience) rpgState.experience = Number(experience.value)'));
+		for (const marker of ['team-builder-master-status-popover', 'team-builder-master-status-header',
+			'team-builder-master-status-grid', 'team-builder-master-status-choice', 'statusOutsideHandler']) {
+			assert.ok(ui.includes(marker), marker);
+		}
+		for (const marker of ['team-builder-master-hp-popover', 'team-builder-master-hp-controls',
+			'team-builder-master-hp-slider', 'team-builder-master-hp-number', 'hpOutsideHandler',
+			"el('span', 'team-builder-stat-fill')", "hpTrack.classList.add(Number(hp.value) <= 0 ? 'fainted'"]) {
+			assert.ok(ui.includes(marker), marker);
+		}
+		for (const marker of ['contest-pokemon-search-box', 'contest-species-dropdown', 'speciesOutsideHandler',
+			'!entry.legendary', 'speciesSearch.value = pokemon.name']) assert.ok(ui.includes(marker), marker);
+		assert.ok(ui.includes("'contest-npc-property-label', 'Item'"));
+		assert.ok(ui.includes("'contest-npc-property-label', 'Habilidade'"));
+		assert.ok(css.includes('[data-temporary-npc-build="contest"] .team-builder-main-property .contest-npc-property-label'));
+		for (const marker of ['contest-item-search', 'contest-item-dropdown', 'contest-item-results',
+			"'Sem item'", 'entry.description', 'itemOutsideHandler']) assert.ok(ui.includes(marker), marker);
+		for (const marker of ['rpgRuntimeItemIcon(entry)', 'contest-item-option-text', 'contest-item-option-icon',
+			'contest-selected-item-icon', 'contest-selected-item-glyph', 'selectedItemIcon.replaceChildren()']) {
+			assert.ok(ui.includes(marker), marker);
+		}
+		assert.ok(!css.includes('.contest-selected-item-icon:empty { display: none; }'));
+		assert.ok(!ui.includes('Item carregado (opcional)'));
+		assert.ok(ui.includes('if (profile.showPortraitName) portrait.append'));
+		assert.ok(ui.includes("selectedPokemon.genders || ['M', 'F']"));
+		assert.ok(!ui.includes("el('span', '', 'Apelido')"));
+		assert.ok(!ui.includes('contest-species-picker-panel'));
 		assert.ok(css.includes('@keyframes contest-enter'));
 		assert.ok(css.includes('@keyframes contest-move'));
+	});
+
+	it('reuses the current temporary NPC builder in battle preparation', () => {
+		const contest = fs.readFileSync(path.join(root, 'contest-ui.js'), 'utf8');
+		const battle = fs.readFileSync(path.join(root, 'battle-ui-v2.js'), 'utf8');
+		assert.ok(contest.includes("contest: {scope: 'contest'"));
+		assert.ok(contest.includes("battle: {scope: 'battle'"));
+		assert.ok(contest.includes('function contestTemporaryNPCEditor'));
+		assert.ok(contest.includes('function battleTemporaryNPCEditor'));
+		assert.ok(contest.includes('return {render, battleTemporaryNPCEditor}'));
+		assert.ok(battle.includes('window.RPGContestUI.battleTemporaryNPCEditor'));
+		assert.ok(battle.includes("if (opponent.value === 'npc')"));
+		assert.ok(battle.includes("team: 'B', kind: 'npc'"));
+		assert.ok(battle.includes('pokemon: [structuredClone(npc.pokemon)]'));
+		assert.ok(!battle.includes('Cadastre um NPC antes de preparar esse tipo de batalha.'));
+	});
+
+	it('serves descriptions for the held-item picker catalog', () => {
+		const service = fs.readFileSync(path.resolve(__dirname, '../../server/rpg-showdown/index.ts'), 'utf8');
+		assert.ok(service.includes('description: RPGBagManagement.description(item)'));
+	});
+
+	it('excludes berries, breeding items and non-equippable items from contest scoring', () => {
+		const catalog = fs.readFileSync(path.resolve(__dirname, '../../server/rpg-showdown/contest-item-catalog.ts'), 'utf8');
+		assert.ok(catalog.includes("tags.has('berry')"));
+		assert.ok(catalog.includes("tags.has('breeding')"));
+		assert.ok(catalog.includes("item.category !== 'held' && !tags.has('held')"));
+		assert.ok(catalog.includes('canScore: false'));
+		for (const marker of ["'cellbattery'", "'berryjuice'", "category: 'tough'", 'points: 2',
+			"scoringMode: 'mega-activation'", "balanceGroup: 'mega-stones'"]) assert.ok(catalog.includes(marker), marker);
+		const runtime = fs.readFileSync(path.resolve(__dirname, '../../server/rpg-showdown/contest-runtime.ts'), 'utf8');
+		assert.ok(runtime.includes('activateMega?: boolean'));
+		assert.ok(runtime.includes('score.total += score.itemBonus'));
 	});
 });

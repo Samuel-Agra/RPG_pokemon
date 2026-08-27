@@ -11,6 +11,12 @@ export interface RPGContestMoveDefinition {
 	tags: string[];
 	changesField: boolean;
 	penalties: string[];
+	type: string;
+	battleCategory: string;
+	basePower: number | null;
+	accuracy: number | null;
+	pp: number;
+	description: string;
 }
 
 interface RPGContestMoveOverride {
@@ -143,6 +149,12 @@ function moveDefinition(move: Move): RPGContestMoveDefinition {
 		tags: normalizedTags(tags),
 		changesField,
 		penalties: normalizedTags(penalties),
+		type: move.type,
+		battleCategory: move.category,
+		basePower: move.category === 'Status' ? null : move.basePower || null,
+		accuracy: move.accuracy === true ? null : Number(move.accuracy) || null,
+		pp: move.pp || 1,
+		description: move.shortDesc || move.desc || '',
 	};
 }
 

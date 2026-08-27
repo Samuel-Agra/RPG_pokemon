@@ -1,4 +1,5 @@
 import { Dex } from '../../sim/dex';
+import {getRPGAllowedSexes} from '../../sim/rpg-showdown';
 
 export interface RPGBattlePokemonCatalogEntry {
 	id: string;
@@ -6,6 +7,10 @@ export interface RPGBattlePokemonCatalogEntry {
 	num: number;
 	spriteId: string;
 	baseSpriteId: string;
+	types: string[];
+	abilities: string[];
+	genders: string[];
+	baseStats: {hp: number, atk: number, def: number, spa: number, spd: number, spe: number};
 	legendary: boolean;
 	pseudoLegendary: boolean;
 	regularWildEligible: boolean;
@@ -50,6 +55,10 @@ export function getRPGBattlePokemonCatalog(): RPGBattlePokemonCatalogEntry[] {
 			return {
 				id: species.id,
 				name: species.name,
+				types: [...species.types],
+				abilities: [...new Set(Object.values(species.abilities).filter((ability): ability is string => !!ability))],
+				genders: [...getRPGAllowedSexes(species.name)],
+				baseStats: {...species.baseStats},
 				num: species.num,
 				spriteId: species.spriteid,
 				baseSpriteId: dex.species.get(species.baseSpecies).spriteid,

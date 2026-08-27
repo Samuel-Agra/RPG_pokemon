@@ -129,4 +129,26 @@ describe('RPG contest runtime', () => {
 		assert.throws(() => runtime.action('contest-runtime', {type: 'select-move', moveId: 'surf'}, {characterId: 'may'}),
 			/does not know/);
 	});
+
+	it('Mega Evolves together with a move and only then enables the Mega Stone bonus', () => {
+		const charizard = pokemon('Charizard', ['flamethrower']);
+		charizard.item = 'Charizardite X';
+		const teams = new Map([['may', [charizard]]]);
+		const session = startedSession();
+		session.category = 'tough';
+		const runtime = new RPGContestRuntimeManager({getCharacterTeam: id => teams.get(id)});
+		let view = runtime.start(session);
+		assert.equal(view.participants[0].pokemon.megaEligible, true);
+		for (let index = 0; index < 3; index++) {
+			view = runtime.action('contest-runtime', {
+				type: 'select-move', moveId: 'flamethrower', activateMega: index === 0,
+			}, {characterId: 'may'});
+		}
+		const master = runtime.snapshot('contest-runtime', {master: true});
+		assert.equal(master.participants[0].rounds[0].length, 3);
+		assert.equal(master.participants[0].pokemon.megaActivated, true);
+		assert.equal(master.participants[0].roundScores[0].itemBonus, 2);
+		assert.equal(master.participants[0].roundScores[0].itemBonusActive, true);
+		assert.ok(master.events.some(event => event.megaActivated && event.moveId === 'flamethrower'));
+	});
 });

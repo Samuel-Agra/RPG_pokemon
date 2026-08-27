@@ -51,6 +51,7 @@ import {
 	type RPGContestComboRepository,
 } from './contest-scoring';
 import {applyRPGContestPerformance, type RPGContestPlacement} from './contest-progression';
+import {classifyRPGContestItem, type RPGContestItemClassification} from './contest-item-catalog';
 import {
 	RPGBoxManagement,
 	type RPGBoxManagementView,
@@ -108,6 +109,7 @@ import {
 export * from './battle-session';
 export * from './contest-session';
 export * from './contest-move-catalog';
+export * from './contest-item-catalog';
 export * from './contest-runtime';
 export * from './contest-scoring';
 export * from './contest-stage';
@@ -1800,7 +1802,8 @@ export class RPGLoginService {
 	}
 
 	listBagItemCatalog(token: string, search = ''): (RPGItemDefinition & {
-		icon: string | null, sprite: number | null,
+		icon: string | null, sprite: number | null, description: string,
+		contest: RPGContestItemClassification,
 	})[] {
 		this.requireMasterRole(token);
 		const query = toID(search);
@@ -1808,6 +1811,8 @@ export class RPGLoginService {
 			.filter(item => !query || item.id.includes(query) || toID(item.name).includes(query))
 			.map(item => ({
 				...item,
+				description: RPGBagManagement.description(item),
+				contest: classifyRPGContestItem(item),
 				icon: item.source === 'custom' ? null : getRPGItemIconPath(item.id),
 				sprite: item.source === 'custom' ? null :
 				(Number.isInteger(Dex.items.get(item.id).spritenum) ? Dex.items.get(item.id).spritenum! : null),

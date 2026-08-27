@@ -506,7 +506,7 @@ function rpgPlayerPokemonSelection(session, character) {
 		choice.wrapper.append(pokemonSprite(pokemon));
 		const info = createElement('span');
 		info.append(createElement('strong', '', pokemon.name || pokemon.species));
-\t\tinfo.append(createElement('small', '', 'Nv. ' + (pokemon.level || 1)));
+		info.append(createElement('small', '', 'Nv. ' + (pokemon.level || 1)));
 		if (breeding) info.append(createElement('small', 'breeding-time', 'Em procria\u00e7\u00e3o \u00b7 Indispon\u00edvel para batalha'));
 		choice.wrapper.append(info);
 		choice.input.addEventListener('change', () => {

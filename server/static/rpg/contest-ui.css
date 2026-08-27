@@ -21,6 +21,90 @@
 .contest-judge-grid label { display: grid; gap: 5px; }
 .contest-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .contest-results ol { margin-bottom: 0; }
+.contest-editor .battle-step-body { display: grid; gap: 14px; }
+.contest-basic-grid { display: grid; grid-template-columns: minmax(220px, 1.6fr) repeat(3, minmax(130px, 1fr)); gap: 12px; align-items: end; }
+.contest-participant-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: stretch; }
+.contest-player-list, .contest-registered-npcs { min-width: 0; max-height: 360px; overflow: auto; }
+.contest-reserved-npcs { display: grid; place-items: center; min-height: 145px; margin-top: 10px; padding: 20px; border: 1px dashed #aab6c5; border-radius: 10px; color: var(--muted); text-align: center; }
+.contest-temporary-npcs, .contest-catalog-section { display: grid; gap: 12px; }
+.contest-temporary-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.contest-temporary-heading > div { font-weight: 700; }
+.contest-npc-creator-title { grid-template-columns: minmax(0, 1fr) auto; }
+.contest-npc-creator-title h4 { margin: 0; color: #293f5e; }
+.contest-npc-coordinator-bar { display: grid; grid-template-columns: auto minmax(220px, 1fr) auto; align-items: end; gap: 12px; padding: 10px 12px; background: #f7f9fc; border-bottom: 1px solid #bac4d1; }
+.contest-npc-coordinator-bar h4 { align-self: center; margin: 0; color: #293f5e; }
+.contest-npc-showdown-body { grid-template-columns: 180px minmax(360px, 1fr) minmax(220px, .65fr); }
+.contest-npc-details .team-builder-form-grid { margin: 0; }
+.contest-temporary-npcs[data-temporary-npc-build="contest"] .team-builder-main-property,
+.contest-temporary-npcs[data-temporary-npc-build="battle"] .team-builder-main-property { position: relative; display: flex; align-items: center; min-width: 0; overflow: visible; padding: 12px 10px 7px; }
+.contest-temporary-npcs[data-temporary-npc-build="contest"] .team-builder-main-property .contest-npc-property-label,
+.contest-temporary-npcs[data-temporary-npc-build="battle"] .team-builder-main-property .contest-npc-property-label { position: absolute; z-index: 2; top: -11px; left: 8px; display: block; padding: 2px 7px; border: 1px solid #aeb9c8; border-radius: 4px; background: #dce4ef; color: #4f5f75; font-size: 9px; font-weight: 700; line-height: 1.2; text-transform: none; }
+.contest-temporary-npcs[data-temporary-npc-build="contest"] .team-builder-main-property input,
+.contest-temporary-npcs[data-temporary-npc-build="contest"] .team-builder-main-property select,
+.contest-temporary-npcs[data-temporary-npc-build="battle"] .team-builder-main-property input,
+.contest-temporary-npcs[data-temporary-npc-build="battle"] .team-builder-main-property select { box-sizing: border-box; width: 100%; min-width: 0; }
+.contest-selected-item-icon { flex: 0 0 34px; display: grid; place-items: center; width: 34px; height: 34px; }
+.contest-selected-item-icon img, .contest-selected-item-glyph { max-width: 32px; max-height: 32px; object-fit: contain; image-rendering: pixelated; }
+.contest-item-dropdown { position: absolute; z-index: 48; top: calc(100% + 7px); left: 0; width: min(520px, 78vw); max-height: min(390px, 55vh); padding: 7px; overflow: hidden; box-shadow: 0 12px 28px #24354d44; }
+.contest-item-results { display: grid; gap: 4px; max-height: calc(min(390px, 55vh) - 16px); overflow-y: auto; }
+.contest-item-option { display: grid; grid-template-columns: 42px minmax(0, 1fr); align-items: center; gap: 10px; width: 100%; min-height: 62px; padding: 8px 11px 8px 9px; border: 1px solid transparent; border-radius: 5px; background: transparent; color: #293f5e; text-align: left; }
+.contest-item-option:hover, .contest-item-option:focus-visible { border-color: #83a3c8; background: #e7f0fa; outline: none; }
+.contest-item-option-text { min-width: 0; display: grid; gap: 3px; }
+.contest-item-option-text strong { font-size: 12px; }
+.contest-item-option-text small { color: #65758a; font-size: 10px; line-height: 1.35; }
+.contest-item-option-icon { display: grid; place-items: center; width: 42px; height: 42px; color: #7b8796; }
+.contest-item-option-icon.empty { opacity: 0; }
+.contest-item-option-icon img, .contest-item-option-glyph { max-width: 40px; max-height: 40px; object-fit: contain; image-rendering: pixelated; }
+.contest-pokemon-placeholder { display: grid; place-items: center; width: 150px; height: 130px; border: 1px dashed #aeb9c8; color: var(--muted); text-align: center; }
+.contest-temporary-npcs[data-temporary-npc-build="contest"] .contest-pokemon-toolbar .team-builder-detail-grid { grid-template-columns: 82px 164px 96px; width: max-content; }
+.contest-temporary-npcs[data-temporary-npc-build="contest"] .contest-pokemon-toolbar .team-builder-detail-cell:nth-child(2) { min-width: 164px; }
+.contest-temporary-npcs[data-temporary-npc-build="contest"] .contest-pokemon-toolbar .team-builder-detail-cell:nth-child(2) select { width: 100%; min-width: 148px; }
+.contest-temporary-npcs[data-temporary-npc-build="contest"] .contest-pokemon-toolbar .team-builder-detail-cell:nth-child(3) input { width: 72px; max-width: 100%; }
+.contest-temporary-npcs[data-temporary-npc-build="battle"] .contest-pokemon-toolbar .team-builder-detail-grid { grid-template-columns: 82px 164px 96px; width: max-content; }
+.contest-temporary-npcs[data-temporary-npc-build="battle"] .contest-pokemon-toolbar .team-builder-detail-cell:nth-child(2) { min-width: 164px; }
+.contest-temporary-npcs[data-temporary-npc-build="battle"] .contest-pokemon-toolbar .team-builder-detail-cell:nth-child(2) select { width: 100%; min-width: 148px; }
+.contest-temporary-npcs[data-temporary-npc-build="battle"] .contest-pokemon-toolbar .team-builder-detail-cell:nth-child(3) input { width: 72px; max-width: 100%; }
+.contest-pokemon-search-box { position: relative; z-index: 30; }
+.contest-pokemon-search-box input { width: 100%; font-size: 17px; line-height: 1.2; font-weight: 700; }
+.contest-species-dropdown { position: absolute; z-index: 50; top: calc(100% + 7px); left: 0; display: grid; grid-template-rows: minmax(0, 1fr); width: min(800px, 88vw); height: min(480px, 62vh); min-height: min(480px, 62vh); max-height: min(480px, 62vh); padding: 12px; overflow: hidden; box-shadow: 0 14px 34px #24354d44; }
+.contest-species-dropdown .contest-species-grid { grid-template-columns: repeat(6, 120px); grid-auto-rows: 104px; column-gap: 5px; row-gap: 8px; justify-content: start; align-content: start; max-height: none; min-height: 0; }
+.contest-species-empty { grid-column: 1 / -1; }
+.contest-shiny-toggle { cursor: pointer; }
+.contest-status-select { width: auto; min-width: 78px; min-height: 28px; padding: 2px 7px; }
+.team-builder-main-hp input { width: 105px; min-height: 25px; padding: 2px 6px; text-align: right; }
+.contest-npc-hp-controls { display: grid; grid-template-columns: 34px minmax(70px, 1fr) 34px; gap: 5px; margin-top: 6px; }
+.contest-npc-hp-controls .button { min-height: 28px; padding: 2px; }
+.contest-npc-hp-controls input { width: 100%; }
+.contest-npc-stats .team-builder-summary-nature .button { margin-left: auto; padding: 4px 8px; }
+.contest-npc-stats-meta { display: grid; grid-template-columns: minmax(170px, 1fr) auto repeat(2, minmax(110px, .6fr)); align-items: end; gap: 12px; margin-top: 12px; }
+.contest-npc-stats-meta > small { align-self: center; font-weight: 700; }
+.contest-npc-creator .team-builder-stats-browser { margin: 0 12px 12px; }
+.contest-species-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; max-height: 340px; overflow: auto; padding: 5px; }
+.contest-species-option { box-sizing: border-box; display: grid; grid-template-rows: 72px minmax(0, 1fr); justify-items: center; align-items: center; gap: 4px; width: 120px; height: 104px; min-width: 120px; min-height: 104px; max-width: 120px; max-height: 104px; padding: 8px; overflow: hidden; border: 1px solid #ccd5df; border-radius: 10px; background: white; color: inherit; cursor: pointer; }
+.contest-species-option.selected { border-color: #3778c2; box-shadow: 0 0 0 2px #3778c244; background: #edf6ff; }
+.contest-species-option .pokemon-sprite { max-width: 72px; max-height: 72px; }
+.contest-catalog-search { width: 100%; }
+.contest-move-results { display: grid; grid-template-columns: repeat(auto-fill, minmax(155px, 1fr)); gap: 7px; max-height: 230px; overflow: auto; }
+.contest-move-option { display: grid; gap: 2px; text-align: left; }
+.contest-selected-moves { min-height: 136px; }
+.contest-temporary-list { display: grid; gap: 9px; }
+.contest-temporary-card { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; padding: 11px; border: 1px solid #c5cfda; border-radius: 12px; background: white; }
+.contest-temporary-card > div { display: grid; gap: 2px; }
+.contest-condition-grid { display: grid; grid-template-columns: repeat(2, minmax(180px, 1fr)); gap: 12px; max-width: 650px; }
+.contest-pokemon-selection { margin-top: 15px; }
+.contest-pokemon-selection .pokemon-choice.unavailable { opacity: .55; }
 @keyframes contest-enter { from { opacity: 0; transform: translateY(24px) scale(.96); } }
 @keyframes contest-move { from { opacity: 0; transform: translateY(16px) scale(.8); } 55% { transform: translateY(-4px) scale(1.08); } }
-@media (max-width: 620px) { .contest-toolbar, .contest-card-header { align-items: stretch; flex-direction: column; } }
+@media (max-width: 900px) {
+	.contest-basic-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+	.contest-npc-showdown-body { grid-template-columns: 150px minmax(0, 1fr); }
+	.contest-npc-state { grid-column: 1 / -1; }
+}
+@media (max-width: 620px) {
+	.contest-toolbar, .contest-card-header, .contest-temporary-heading { align-items: stretch; flex-direction: column; }
+	.contest-basic-grid, .contest-participant-columns, .contest-condition-grid, .contest-npc-showdown-body, .contest-npc-coordinator-bar { grid-template-columns: 1fr; }
+	.contest-npc-state { grid-column: auto; }
+	.contest-npc-stats-meta { grid-template-columns: 1fr; }
+	.contest-species-dropdown { width: min(92vw, 800px); height: min(440px, 60vh); min-height: min(440px, 60vh); max-height: min(440px, 60vh); }
+	.contest-species-dropdown .contest-species-grid { grid-template-columns: repeat(auto-fill, 120px); }
+}

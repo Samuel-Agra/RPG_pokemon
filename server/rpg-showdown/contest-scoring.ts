@@ -1,5 +1,6 @@
 import {toID} from '../../sim/dex-data';
 import {getRPGContestMove, type RPGContestMoveDefinition} from './contest-move-catalog';
+import type {RPGContestCategory} from './contest-session';
 
 export interface RPGContestComboDefinition {
 	id: string;
@@ -28,6 +29,10 @@ export interface RPGContestRoundMechanicalScore {
 	repetitionPenalty: number;
 	matchedCombos: {id: string, name: string}[];
 	discoveredInteractions: string[];
+	itemId: string;
+	itemCategory: RPGContestCategory | null;
+	itemBonus: number;
+	itemBonusActive: boolean;
 	total: number;
 }
 
@@ -211,5 +216,6 @@ export function scoreRPGContestRound(
 		repetitionPenaltyRate: 0, repetitionPenalty: 0,
 		matchedCombos: matched.map(combo => ({id: combo.id, name: combo.name})),
 		discoveredInteractions: allRelations, total: moveBaseScore + comboScore,
+		itemId: '', itemCategory: null, itemBonus: 0, itemBonusActive: false,
 	};
 }
