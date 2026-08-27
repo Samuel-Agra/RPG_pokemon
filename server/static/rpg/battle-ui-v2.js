@@ -254,11 +254,17 @@ function rpgBattleEditor(characters, existing, onClose) {
 		columns.append(column);
 	}
 	participantsStep.body.append(columns);
-	const npcPanel = createElement('div', 'npc-placeholder hidden');
-	npcPanel.append(
-		createElement('strong', '', 'NPCs da campanha'),
-		createElement('p', '', 'Nenhum NPC cadastrado. A cria\u00e7\u00e3o e as equipes de NPCs ser\u00e3o adicionadas na pr\u00f3xima parte.'),
+	const npcPanel = createElement('div', 'battle-temporary-npc-panel hidden');
+	const initialTemporaryNPCs = (existing?.participants || [])
+		.filter(participant => participant.kind === 'npc')
+		.flatMap(participant => (participant.pokemon || []).map((pokemon, index) => ({
+			id: participant.id + (index ? `-${index + 1}` : ''), kind: 'npc',
+			displayName: participant.displayName, pokemon,
+		})));
+	const temporaryNPCs = window.RPGContestUI.battleTemporaryNPCEditor(
+		{api}, initialTemporaryNPCs
 	);
+	npcPanel.append(temporaryNPCs.root);
 	participantsStep.body.append(npcPanel);
 	form.append(participantsStep.step);
 
@@ -399,7 +405,6 @@ function rpgBattleEditor(characters, existing, onClose) {
 		error.classList.add('hidden');
 		for (const item of actions.querySelectorAll('button')) item.disabled = true;
 		try {
-			if (opponent.value === 'npc') throw new Error('Cadastre um NPC antes de preparar esse tipo de batalha.');
 			const participants = [];
 			const isRaid = format.value === 'raid';
 			for (const [key, input] of playerInputs) {
@@ -417,6 +422,17 @@ function rpgBattleEditor(characters, existing, onClose) {
 			}
 			if (!participants.some(item => item.team === 'A')) throw new Error('Escolha ao menos um Player para a Equipe A.');
 			if (opponent.value === 'player' && !participants.some(item => item.team === 'B')) throw new Error('Escolha ao menos um Player para a Equipe B.');
+			if (opponent.value === 'npc') {
+				const npcs = temporaryNPCs.participants();
+				if (!npcs.length) throw new Error('Crie ao menos um NPC temporário.');
+				for (const [index, npc] of npcs.entries()) {
+					participants.push({
+						id: `npc-b-${index + 1}-${npc.id}`, team: 'B', kind: 'npc',
+						displayName: npc.displayName, npcRole: 'generic', selectionLimit: 1,
+						pokemon: [structuredClone(npc.pokemon)],
+					});
+				}
+			}
 			if (opponent.value === 'wild' || opponent.value === 'horde') {
 				const selected = wildSelectors.map(item => ({
 					species: item.species.value, level: Number(item.level.value),
