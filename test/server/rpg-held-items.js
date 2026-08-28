@@ -16,10 +16,10 @@ describe('RPG held item registry', () => {
 		const dex = Dex.mod('gen9');
 		const held = RPGItems.list().filter(item => item.tags?.includes('held'));
 		const currentHeld = held.filter(item =>
-			!item.tags?.includes('megastone') && !item.tags?.includes('legacy')
+			!item.tags?.includes('megastone') && !item.tags?.includes('legacy') && !item.tags?.includes('contestonly')
 		);
 		assert.equal(currentHeld.length, 176);
-		assert.equal(held.length, 245);
+		assert.equal(held.length, 263);
 		assert.equal(held.filter(item => item.tags?.includes('megastone')).length, 47);
 		assert.equal(held.filter(item => item.tags?.includes('berry')).length, 47);
 		assert.deepEqual(held.filter(item => item.tags?.includes('gem')).map(item => item.id), ['normalgem']);
@@ -63,6 +63,11 @@ describe('RPG held item registry', () => {
 		assert.deepEqual(
 			[RPGItems.require('protein').price.buy, RPGItems.require('protein').price.sell], [150000, 37500]
 		);
+		for (const item of held.filter(entry => entry.tags?.includes('contestterastalization'))) {
+			assert.deepEqual([item.price.buy, item.price.sell], [2000, 1000], item.name);
+			assert.equal(item.effect.type, 'equip-held-item');
+			assert.match(item.effect.description, /Item muito usado em disputas de concursos/);
+		}
 	});
 	it('maps all 47 classic Mega Stones to valid native Mega formes', () => {
 		const dex = Dex.mod('gen9');

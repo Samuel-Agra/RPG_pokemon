@@ -315,8 +315,15 @@ export class RPGContestRuntimeManager {
 			score.total += stage.fieldInteractionScore + stage.scenarioMoveScore;
 			if (state.round === 2) Object.assign(score, applyRPGContestSecondRoundCreativity(score, participant.rounds[0]));
 			const item = getRPGContestItemClassification(participant.pokemon.item);
-			const itemActive = item.canScore && item.category === state.session.category &&
-				(item.scoringMode === 'passive' || (item.scoringMode === 'mega-activation' && participant.pokemon.megaActivated));
+			const matchingTeraMoves = item.scoringMode === 'tera-matching-moves' && item.teraType ?
+				roundMoves.map(getRPGContestMove).filter(move => toID(move.type) === toID(item.teraType!)).length : 0;
+			const itemActive = item.canScore && (
+				(item.scoringMode === 'tera-matching-moves' && matchingTeraMoves >= 2) ||
+				(item.category === state.session.category && (
+					item.scoringMode === 'passive' ||
+					(item.scoringMode === 'mega-activation' && participant.pokemon.megaActivated)
+				))
+			);
 			score.itemId = toID(participant.pokemon.item);
 			score.itemCategory = item.category;
 			score.itemBonus = itemActive ? item.points : 0;

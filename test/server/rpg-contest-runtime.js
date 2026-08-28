@@ -151,4 +151,34 @@ describe('RPG contest runtime', () => {
 		assert.equal(master.participants[0].roundScores[0].itemBonusActive, true);
 		assert.ok(master.events.some(event => event.megaActivated && event.moveId === 'flamethrower'));
 	});
+
+	it('awards the contest Terastallization bonus after two matching move types in the round', () => {
+		const performer = pokemon('Charizard', ['flamethrower', 'firespin', 'surf']);
+		performer.item = 'Teralização Fire';
+		const teams = new Map([['may', [performer]]]);
+		const runtime = new RPGContestRuntimeManager({getCharacterTeam: id => teams.get(id)});
+		runtime.start(startedSession());
+		for (const moveId of ['flamethrower', 'surf', 'firespin']) {
+			runtime.action('contest-runtime', {type: 'select-move', moveId}, {characterId: 'may'});
+		}
+		const score = runtime.snapshot('contest-runtime', {master: true}).participants[0].roundScores[0];
+		assert.equal(score.itemId, 'teralizaofire');
+		assert.equal(score.itemCategory, null);
+		assert.equal(score.itemBonus, 5);
+		assert.equal(score.itemBonusActive, true);
+	});
+
+	it('does not award the contest Terastallization bonus with only one matching move type', () => {
+		const performer = pokemon('Charizard', ['flamethrower', 'surf', 'icebeam']);
+		performer.item = 'Teralização Fire';
+		const teams = new Map([['may', [performer]]]);
+		const runtime = new RPGContestRuntimeManager({getCharacterTeam: id => teams.get(id)});
+		runtime.start(startedSession());
+		for (const moveId of ['flamethrower', 'surf', 'icebeam']) {
+			runtime.action('contest-runtime', {type: 'select-move', moveId}, {characterId: 'may'});
+		}
+		const score = runtime.snapshot('contest-runtime', {master: true}).participants[0].roundScores[0];
+		assert.equal(score.itemBonus, 0);
+		assert.equal(score.itemBonusActive, false);
+	});
 });

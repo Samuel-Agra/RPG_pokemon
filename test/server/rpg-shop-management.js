@@ -121,6 +121,9 @@ describe('RPG shared commerce management', () => {
 		assert.equal(equipment.candidates.some(item => item.id === 'destinyknot'), false);
 		const evolution = service.getCommerceShop(master.token, 'evolution-central');
 		assert(evolution.filters.includes('Itens de evolução'));
+		assert(evolution.filters.includes('Teracristalização'));
+		assert.equal(evolution.candidates.filter(item => item.category === 'terastalization').length, 18);
+		assert(evolution.candidates.some(item => item.id === 'teralizaofire' && item.recommendedBuyPrice === 2000));
 		assert(evolution.offers.length > 0, 'Master should see every compatible item, including disabled ones');
 	});
 

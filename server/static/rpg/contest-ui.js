@@ -628,9 +628,11 @@ window.RPGContestUI = (() => {
 			const categoryOrder = ['beauty', 'cute', 'cool', 'smart', 'tough'];
 			const heldItems = itemCatalog
 				.filter(entry => entry.category === 'held' || entry.tags?.includes('held'))
+				.filter(entry => profile.scope === 'contest' || !entry.tags?.includes('contestonly'))
 				.filter(entry => profile.scope !== 'contest' || entry.contest?.canScore)
 				.sort((left, right) => profile.scope === 'contest' ?
-					categoryOrder.indexOf(left.contest.category) - categoryOrder.indexOf(right.contest.category) ||
+					(left.contest.scoringMode === 'tera-matching-moves' ? 5 : categoryOrder.indexOf(left.contest.category)) -
+					(right.contest.scoringMode === 'tera-matching-moves' ? 5 : categoryOrder.indexOf(right.contest.category)) ||
 					left.contest.points - right.contest.points || left.name.localeCompare(right.name, 'pt-BR') :
 					left.name.localeCompare(right.name, 'pt-BR'));
 			const itemOptions = el('section', 'panel contest-item-dropdown hidden');
@@ -644,9 +646,12 @@ window.RPGContestUI = (() => {
 			function selectItem(entry) {
 				item.value = entry?.name || ''; itemSearch.value = entry?.name || '';
 				const contestItem = entry?.contest;
-				itemContestCategory.textContent = contestItem?.canScore ? labels[contestItem.category] : 'Sem categoria';
+				itemContestCategory.textContent = contestItem?.scoringMode === 'tera-matching-moves' ?
+					`Teralização ${contestItem.teraType}` : contestItem?.canScore ? labels[contestItem.category] : 'Sem categoria';
 				itemContestPoints.textContent = contestItem?.canScore ?
-					`${contestItem.points} ${contestItem.points === 1 ? 'ponto' : 'pontos'}${contestItem.scoringMode === 'mega-activation' ? ' ao Mega Evoluir' : ''}` : '0 pontos';
+					`${contestItem.points} ${contestItem.points === 1 ? 'ponto' : 'pontos'}` +
+					(contestItem.scoringMode === 'mega-activation' ? ' ao Mega Evoluir' :
+						contestItem.scoringMode === 'tera-matching-moves' ? ` com 2 moves ${contestItem.teraType}` : '') : '0 pontos';
 				selectedItemIcon.replaceChildren();
 				const selectedIcon = entry && typeof rpgRuntimeItemIcon === 'function' ? rpgRuntimeItemIcon(entry) : null;
 				if (selectedIcon) { selectedIcon.classList.add('contest-selected-item-glyph'); selectedItemIcon.append(selectedIcon); }
@@ -661,16 +666,19 @@ window.RPGContestUI = (() => {
 				none.append(noneIcon, noneText); itemResults.append(none);
 				let visibleCategory = null;
 				for (const entry of heldItems.filter(entry => !query || entry.name.toLowerCase().includes(query) || entry.id.includes(query))) {
-					if (profile.scope === 'contest' && entry.contest.category !== visibleCategory) {
-						visibleCategory = entry.contest.category;
-						itemResults.append(el('div', 'contest-item-category-heading', labels[visibleCategory]));
+					const group = entry.contest.scoringMode === 'tera-matching-moves' ? 'terastalization' : entry.contest.category;
+					if (profile.scope === 'contest' && group !== visibleCategory) {
+						visibleCategory = group;
+						itemResults.append(el('div', 'contest-item-category-heading', group === 'terastalization' ? 'Teralização' : labels[group]));
 					}
 					const option = actionButton('', () => selectItem(entry)); option.className = 'contest-item-option';
 					const text = el('span', 'contest-item-option-text');
 					text.append(el('strong', '', entry.name));
 					if (profile.scope === 'contest') {
 						const contestItem = entry.contest;
-						const scoring = `${labels[contestItem.category]} · ${contestItem.points} ${contestItem.points === 1 ? 'ponto' : 'pontos'}` +
+						const scoring = contestItem.scoringMode === 'tera-matching-moves' ?
+							`Teralização ${contestItem.teraType} · +5 pontos ao usar pelo menos 2 moves ${contestItem.teraType}` :
+							`${labels[contestItem.category]} · ${contestItem.points} ${contestItem.points === 1 ? 'ponto' : 'pontos'}` +
 							(contestItem.scoringMode === 'mega-activation' ? ' ao Mega Evoluir' : ' por estar equipado');
 						text.append(el('small', 'contest-item-score', scoring));
 					} else {

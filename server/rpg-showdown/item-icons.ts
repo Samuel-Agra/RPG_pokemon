@@ -19,7 +19,7 @@ const ORIGINAL_RPG_ITEM_ICONS = new Set([
 	'portableincubator', 'everstone',
 ]);
 
-const RPG_ITEM_ICON_VERSION = '20260824-1';
+const RPG_ITEM_ICON_VERSION = '20260828-1';
 
 const RPG_TM_ICON_TYPES = new Set([
 	'normal', 'fire', 'water', 'electric', 'grass', 'ice', 'fighting', 'poison',
@@ -29,8 +29,14 @@ const RPG_TM_ICON_TYPES = new Set([
 export function getRPGItemIconPath(item: string): string | null {
 	const id = toID(item);
 	if (ORIGINAL_RPG_ITEM_ICONS.has(id)) return `./assets/item-icons/${id}.png?v=${RPG_ITEM_ICON_VERSION}`;
+	const definition = RPGItems.get(id);
+	if (definition?.tags?.includes('contestterastalization')) {
+		const teraType = toID(String(definition.effect?.teraType || ''));
+		if (RPG_TM_ICON_TYPES.has(teraType)) {
+			return `./assets/item-icons/tera-${teraType}.png?v=${RPG_ITEM_ICON_VERSION}`;
+		}
+	}
 	if (/^tm\d{3}$/.test(id)) {
-		const definition = RPGItems.get(id);
 		const moveId = typeof definition?.effect?.move === 'string' ? toID(definition.effect.move) : '';
 		const type = moveId ? toID(Dex.mod('gen9').moves.get(moveId).type) : '';
 		if (RPG_TM_ICON_TYPES.has(type)) return `./assets/item-icons/tm-${type}.png?v=${RPG_ITEM_ICON_VERSION}`;

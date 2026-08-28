@@ -142,6 +142,14 @@ describe('RPG contest UI', () => {
 		assert.ok(runtime.includes('score.total += score.itemBonus'));
 	});
 
+	it('shows contest-only Terastallization items with their type condition', () => {
+		const ui = fs.readFileSync(path.join(root, 'contest-ui.js'), 'utf8');
+		for (const marker of ["'tera-matching-moves'", "!entry.tags?.includes('contestonly')",
+			"group === 'terastalization' ? 'Teralização'", '+5 pontos ao usar pelo menos 2 moves']) {
+			assert.ok(ui.includes(marker), marker);
+		}
+	});
+
 	it('uses the account trainer catalog for temporary NPC sprites', () => {
 		const ui = fs.readFileSync(path.join(root, 'contest-ui.js'), 'utf8');
 		const css = fs.readFileSync(path.join(root, 'contest-ui.css'), 'utf8');

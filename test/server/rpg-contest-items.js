@@ -11,6 +11,7 @@ describe('RPG contest held items', () => {
 		for (const item of RPGItems.list()) {
 			const contest = classifyRPGContestItem(item);
 			if (!contest.canScore) continue;
+			if (contest.scoringMode === 'tera-matching-moves') continue;
 			assert.ok(contest.points >= 1 && contest.points <= 3);
 			if (contest.balanceGroup === 'mega-stones') {
 				assert.equal(contest.category, 'tough');
@@ -31,5 +32,22 @@ describe('RPG contest held items', () => {
 			assert.equal(contest.exclusionReason, 'not-useful');
 		}
 		assert.equal(classifyRPGContestItem(RPGItems.require('oranberry')).canScore, false);
+	});
+
+	it('registers one contest-only Terastallization item for every regular Pokemon type', () => {
+		const teraItems = RPGItems.list().filter(item => item.tags?.includes('contestterastalization'));
+		assert.equal(teraItems.length, 18);
+		for (const item of teraItems) {
+			const contest = classifyRPGContestItem(item);
+			assert.equal(item.usableInBattle, false);
+			assert.equal(item.effect.type, 'equip-held-item');
+			assert.equal(item.price.buy, 2000);
+			assert.equal(item.price.sell, 1000);
+			assert.equal(contest.canScore, true);
+			assert.equal(contest.points, 5);
+			assert.equal(contest.category, null);
+			assert.equal(contest.scoringMode, 'tera-matching-moves');
+			assert.ok(contest.teraType);
+		}
 	});
 });

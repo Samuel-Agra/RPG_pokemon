@@ -156,6 +156,10 @@ const evolutionItems: RPGItemDefinition[] = [
 	effect: { type: 'evolve' },
 }));
 const heldItemId = (name: string) => name.toLowerCase().replace(/[^a-z0-9]+/g, '');
+const contestTeraTypes = [
+	'Bug', 'Dark', 'Dragon', 'Electric', 'Fairy', 'Fighting', 'Fire', 'Flying', 'Ghost',
+	'Grass', 'Ground', 'Ice', 'Normal', 'Poison', 'Psychic', 'Rock', 'Steel', 'Water',
+] as const;
 const generalHeldItemNames = `
 Ability Shield
 Absorb Bulb
@@ -414,6 +418,20 @@ Pink Bow
 Polkadot Bow
 `.trim().split('\n');
 const heldItems: RPGItemDefinition[] = [
+	...contestTeraTypes.map(teraType => ({
+		id: heldItemId(`Teralização ${teraType}`), name: `Teralização ${teraType}`,
+		category: 'held' as const, stackLimit: 99, usableInBattle: false, consumedOnUse: false,
+		source: 'rpg' as const,
+		price: {
+			currency: 'pokedollar' as const, source: 'legacy-game' as const, buy: 2000, sell: 1000,
+			reference: 'Pokémon Scarlet/Violet e Pokémon Legends: Z-A — Tera Shard',
+		},
+		effect: {
+			type: 'equip-held-item', teraType, contestOnly: true,
+			description: 'Item muito usado em disputas de concursos.',
+		},
+		tags: ['held', 'contest-only', 'contest-terastalization', 'teracrystal', `tera-type-${teraType}`],
+	})),
 	...generalHeldItemNames.filter(name => !breedingItemNames.includes(name)).map(name => ({
 		id: heldItemId(name), name, category: 'held' as const, stackLimit: 99,
 		usableInBattle: false, consumedOnUse: false, source: 'showdown' as const,

@@ -71,6 +71,8 @@ describe('RPG Team Builder management backend', () => {
 		service.masterSetBagItemQuantity(master.token, 'samuel', 'hpup', 2, bag.revision, 'add');
 		bag = service.getBag(master.token, 'samuel');
 		service.masterSetBagItemQuantity(master.token, 'samuel', 'everstone', 1, bag.revision, 'add');
+		bag = service.getBag(master.token, 'samuel');
+		service.masterSetBagItemQuantity(master.token, 'samuel', 'teralizaowater', 1, bag.revision, 'add');
 		const pokemonId = service.getBox(player.token).team[0].pokemonId;
 		const view = service.getPokemonTeamBuilder(player.token, undefined, pokemonId);
 
@@ -88,6 +90,9 @@ describe('RPG Team Builder management backend', () => {
 		assert.equal(view.items.choices.some(item => item.id === 'leftovers' && !item.berry), true);
 		assert.equal(view.items.choices.some(item => item.id === 'oranberry' && item.berry), true);
 		assert.equal(view.items.choices.some(item => item.id === 'everstone' && item.quantity === 1), true);
+		assert.equal(view.items.choices.some(item => item.id === 'teralizaowater' && item.quantity === 1), true);
+		assert.match(view.items.choices.find(item => item.id === 'teralizaowater').description, /disputas de concursos/);
+		assert.match(view.items.choices.find(item => item.id === 'teralizaowater').icon, /tera-water\.png/);
 		assert.equal(view.ivs.vitamins.find(item => item.id === 'hpup').quantity, 2);
 		assert.equal(view.moves.choices.some(move => move.source === 'level'), true);
 		assert.equal(view.permissions.training, true);

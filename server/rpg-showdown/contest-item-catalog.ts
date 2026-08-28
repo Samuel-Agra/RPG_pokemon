@@ -5,15 +5,16 @@ import type { RPGContestCategory } from './contest-session';
 
 export type RPGContestItemExclusionReason =
 	'berry' | 'breeding' | 'not-equippable' | 'not-useful' | 'unclassified';
-export type RPGContestItemScoringMode = 'none' | 'passive' | 'mega-activation';
+export type RPGContestItemScoringMode = 'none' | 'passive' | 'mega-activation' | 'tera-matching-moves';
 
 export interface RPGContestItemClassification {
 	canScore: boolean;
 	exclusionReason: RPGContestItemExclusionReason | null;
 	category: RPGContestCategory | null;
-	points: 0 | 1 | 2 | 3;
+	points: 0 | 1 | 2 | 3 | 5;
 	scoringMode: RPGContestItemScoringMode;
 	balanceGroup: 'mega-stones' | null;
+	teraType: string | null;
 }
 
 const CATEGORIES: readonly RPGContestCategory[] = ['beauty', 'cute', 'cool', 'smart', 'tough'];
@@ -30,6 +31,7 @@ const VISUALLY_INELIGIBLE = new Set(['cellbattery', 'berryjuice']);
 
 const excluded = (reason: RPGContestItemExclusionReason): RPGContestItemClassification => ({
 	canScore: false, exclusionReason: reason, category: null, points: 0, scoringMode: 'none', balanceGroup: null,
+	teraType: null,
 });
 
 function exclusionReason(item: RPGItemDefinition): RPGContestItemExclusionReason | null {
@@ -61,11 +63,17 @@ function buildCatalog(): Map<string, RPGContestItemClassification> {
 		const reason = exclusionReason(item);
 		if (reason) {
 			result.set(item.id, excluded(reason));
+		} else if (item.tags?.includes('contestterastalization')) {
+			const teraType = String(item.effect?.teraType || '').trim();
+			result.set(item.id, {
+				canScore: true, exclusionReason: null, category: null, points: 5,
+				scoringMode: 'tera-matching-moves', balanceGroup: null, teraType,
+			});
 		} else if (item.tags?.includes('megastone')) {
 			hasMegaStones = true;
 			result.set(item.id, {
 				canScore: true, exclusionReason: null, category: 'tough', points: 2,
-				scoringMode: 'mega-activation', balanceGroup: 'mega-stones',
+				scoringMode: 'mega-activation', balanceGroup: 'mega-stones', teraType: null,
 			});
 		} else {
 			regular.push(item);
@@ -98,7 +106,7 @@ function buildCatalog(): Map<string, RPGContestItemClassification> {
 		used.set(category, used.get(category)! + 1);
 		result.set(item.id, {
 			canScore: true, exclusionReason: null, category, points: visualPoints(item),
-			scoringMode: 'passive', balanceGroup: null,
+			scoringMode: 'passive', balanceGroup: null, teraType: null,
 		});
 	}
 	return result;

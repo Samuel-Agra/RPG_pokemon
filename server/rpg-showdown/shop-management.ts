@@ -118,10 +118,10 @@ function itemGroup(item: RPGItemDefinition): {shopType?: RPGShopType, category: 
 	if (item.category === 'tm') return {shopType: 'tm', category: 'tms'};
 	if (tags.has('megastone')) return {shopType: 'mega-stone', category: 'mega-stones'};
 	if (tags.has('berry')) return {shopType: 'farm', category: 'berries'};
-	if (item.category === 'held') return {shopType: 'equipment', category: 'held-items'};
-	if (tags.has('terastal') || tags.has('teracrystal')) {
+	if (tags.has('contestterastalization') || tags.has('terastal') || tags.has('teracrystal')) {
 		return {shopType: 'evolution', category: 'terastalization'};
 	}
+	if (item.category === 'held') return {shopType: 'equipment', category: 'held-items'};
 	if (item.category === 'evolution') return {shopType: 'evolution', category: 'evolution-items'};
 	if (tags.has('fossil')) return {shopType: 'thrift', category: 'fossils'};
 	if (tags.has('treasure')) return {shopType: 'thrift', category: 'treasures'};
