@@ -157,7 +157,7 @@ describe('RPG contest UI', () => {
 
 	it('generates contest-only temporary NPCs by contest rank', () => {
 		const ui = fs.readFileSync(path.join(root, 'contest-ui.js'), 'utf8');
-		for (const marker of ['Criar NPC aleatório', 'generateRandomNPC(rankId)',
+		for (const marker of ['Criar NPC aleatório', 'generateRandomNPC()', "profile.contestRank?.() || 'normal'",
 			"normal: {level: 20, quality: 0}", "master: {level: 90, quality: 4}",
 			"entry.contest.category === category", 'randomRank: rankId']) assert.ok(ui.includes(marker), marker);
 		assert.ok(ui.includes("if (profile.scope === 'contest')"));

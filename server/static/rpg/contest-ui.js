@@ -306,15 +306,9 @@ window.RPGContestUI = (() => {
 			avatarCatalog = avatarData.avatars || [];
 		}
 		if (profile.scope === 'contest') {
-			const randomWrap = el('div', 'contest-random-npc-picker');
-			const randomButton = actionButton('✦ Criar NPC aleatório', () => {
-				randomRanks.classList.toggle('hidden');
-			});
-			const randomRanks = el('div', 'panel contest-random-npc-ranks hidden');
-			for (const [rankId, rankLabel] of [['normal', 'Normal'], ['great', 'Great'], ['super', 'Super'], ['hyper', 'Hyper'], ['master', 'Master']]) {
-				randomRanks.append(actionButton(rankLabel, () => void generateRandomNPC(rankId)));
-			}
-			randomWrap.append(randomButton, randomRanks); headingActions.append(randomWrap);
+			const randomButton = actionButton('✦ Criar NPC aleatório', () => void generateRandomNPC());
+			randomButton.classList.add('contest-random-npc-button');
+			headingActions.append(randomButton);
 		}
 		heading.append(headingActions); root.append(heading);
 		function renderCards() {
@@ -341,14 +335,15 @@ window.RPGContestUI = (() => {
 				renderCreator(); creator.classList.remove('hidden'); create.classList.add('hidden');
 			} finally { create.disabled = false; }
 		}
-		async function generateRandomNPC(rankId) {
+		async function generateRandomNPC() {
 			const ranks = {
 				normal: {level: 20, quality: 0}, great: {level: 35, quality: 1}, super: {level: 50, quality: 2},
 				hyper: {level: 70, quality: 3}, master: {level: 90, quality: 4},
 			};
+			const rankId = profile.contestRank?.() || 'normal';
 			const rank = ranks[rankId]; if (!rank) return;
-			const rankPanel = heading.querySelector('.contest-random-npc-ranks');
-			for (const button of rankPanel.querySelectorAll('button')) button.disabled = true;
+			const randomButton = headingActions.querySelector('.contest-random-npc-button');
+			if (randomButton) randomButton.disabled = true;
 			try {
 				await loadTemporaryCatalogs();
 				const eligiblePokemon = pokemonCatalog.filter(entry => !entry.legendary);
@@ -388,11 +383,11 @@ window.RPGContestUI = (() => {
 						pp: selected.map(move => move.pp), status: '', friendship: 100, contestPerformance: rank.quality * 5,
 						contestPerformanceTrainerId: id},
 				}}});
-				rankPanel.classList.add('hidden'); renderCards();
+				renderCards();
 			} catch (error) {
 				window.alert(error.message);
 			} finally {
-				for (const button of rankPanel.querySelectorAll('button')) button.disabled = false;
+				if (randomButton) randomButton.disabled = false;
 			}
 		}
 		function renderCreator() {
@@ -946,8 +941,8 @@ window.RPGContestUI = (() => {
 		function closeCreator() { creator.classList.add('hidden'); creator.replaceChildren(); create.classList.remove('hidden'); }
 		renderCards(); root.append(creator, cards); return {root, participants: () => structuredClone(participants)};
 	}
-	function contestTemporaryNPCEditor(context, initialParticipants, contestCategory) {
-		return buildTemporaryNPCEditor(context, initialParticipants, {...temporaryNPCProfiles.contest, contestCategory});
+	function contestTemporaryNPCEditor(context, initialParticipants, contestCategory, contestRank) {
+		return buildTemporaryNPCEditor(context, initialParticipants, {...temporaryNPCProfiles.contest, contestCategory, contestRank});
 	}
 	function battleTemporaryNPCEditor(context, initialParticipants) {
 		return buildTemporaryNPCEditor(context, initialParticipants, temporaryNPCProfiles.battle);
@@ -980,7 +975,7 @@ window.RPGContestUI = (() => {
 		const registeredNPCs = el('div', 'participant-column contest-registered-npcs');
 		registeredNPCs.append(el('strong', '', 'NPCs'), el('div', 'contest-reserved-npcs', 'Espaço reservado para os NPCs cadastrados da campanha.'));
 		participantColumns.append(players, registeredNPCs);
-		const temporaryNPCs = contestTemporaryNPCEditor(context, existing?.participants || [], () => category.value);
+		const temporaryNPCs = contestTemporaryNPCEditor(context, existing?.participants || [], () => category.value, () => rank.value);
 		participantsStep.body.append(participantColumns, temporaryNPCs.root); form.append(participantsStep.section);
 
 		const conditions = step(3, 'Condições iniciais', 'Defina o clima e o terreno permanentes do palco.');
