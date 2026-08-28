@@ -147,9 +147,34 @@ window.RPGContestUI = (() => {
 		root.dataset.temporaryNpcBuild = profile.scope;
 		const heading = el('div', 'contest-temporary-heading');
 		heading.append(el('div', '', 'NPCs temporários'));
-		const create = actionButton('＋ Criar NPC temporário', () => void openCreator(), true); heading.append(create); root.append(heading);
+		const headingActions = el('div', 'contest-temporary-heading-actions');
+		const create = actionButton('＋ Criar NPC temporário', () => void openCreator(), true); headingActions.append(create);
 		const creator = el('section', 'panel team-builder-showdown-card contest-npc-creator hidden'); const cards = el('div', 'contest-temporary-list');
 		const participants = (initialParticipants || []).filter(item => item.kind === 'npc').map(item => structuredClone(item));
+		async function loadTemporaryCatalogs() {
+			if (pokemonCatalog && moveCatalog && itemCatalog && avatarCatalog) return;
+			const [pokemonData, moveData, itemData, avatarData] = await Promise.all([
+				context.api('/battle-pokemon'), context.api('/contest-moves'), context.api('/bag/master/catalog'),
+				fetch('./avatars.json', {cache: 'no-cache'}).then(response => {
+					if (!response.ok) throw new Error('Catálogo de sprites de treinador indisponível.');
+					return response.json();
+				}),
+			]);
+			pokemonCatalog = pokemonData.pokemon || []; moveCatalog = moveData.moves || []; itemCatalog = itemData.items || [];
+			avatarCatalog = avatarData.avatars || [];
+		}
+		if (profile.scope === 'contest') {
+			const randomWrap = el('div', 'contest-random-npc-picker');
+			const randomButton = actionButton('✦ Criar NPC aleatório', () => {
+				randomRanks.classList.toggle('hidden');
+			});
+			const randomRanks = el('div', 'panel contest-random-npc-ranks hidden');
+			for (const [rankId, rankLabel] of [['normal', 'Normal'], ['great', 'Great'], ['super', 'Super'], ['hyper', 'Hyper'], ['master', 'Master']]) {
+				randomRanks.append(actionButton(rankLabel, () => void generateRandomNPC(rankId)));
+			}
+			randomWrap.append(randomButton, randomRanks); headingActions.append(randomWrap);
+		}
+		heading.append(headingActions); root.append(heading);
 		function renderCards() {
 			cards.replaceChildren();
 			for (const participant of participants) {
@@ -161,25 +186,72 @@ window.RPGContestUI = (() => {
 				}
 				card.append(pokemonSprite(set)); const info = el('div');
 				info.append(el('strong', '', participant.displayName), el('small', '', `${set.name || set.species} · Nv. ${set.level}`), el('small', '', set.moves.join(' · ')));
+				if (profile.scope === 'contest' && participant.randomRank) {
+					info.append(el('small', 'contest-random-npc-rank', `NPC aleatório · ${labels[participant.randomRank]}`));
+				}
 				card.append(info, actionButton('Remover', () => { participants.splice(participants.indexOf(participant), 1); renderCards(); })); cards.append(card);
 			}
 		}
 		async function openCreator() {
 			create.disabled = true;
 			try {
-				if (!pokemonCatalog || !moveCatalog || !itemCatalog || !avatarCatalog) {
-					const [pokemonData, moveData, itemData, avatarData] = await Promise.all([
-						context.api('/battle-pokemon'), context.api('/contest-moves'), context.api('/bag/master/catalog'),
-						fetch('./avatars.json', {cache: 'no-cache'}).then(response => {
-							if (!response.ok) throw new Error('Catálogo de sprites de treinador indisponível.');
-							return response.json();
-						}),
-					]);
-					pokemonCatalog = pokemonData.pokemon || []; moveCatalog = moveData.moves || []; itemCatalog = itemData.items || [];
-					avatarCatalog = avatarData.avatars || [];
-				}
+				await loadTemporaryCatalogs();
 				renderCreator(); creator.classList.remove('hidden'); create.classList.add('hidden');
 			} finally { create.disabled = false; }
+		}
+		async function generateRandomNPC(rankId) {
+			const ranks = {
+				normal: {level: 20, quality: 0}, great: {level: 35, quality: 1}, super: {level: 50, quality: 2},
+				hyper: {level: 70, quality: 3}, master: {level: 90, quality: 4},
+			};
+			const rank = ranks[rankId]; if (!rank) return;
+			const rankPanel = heading.querySelector('.contest-random-npc-ranks');
+			for (const button of rankPanel.querySelectorAll('button')) button.disabled = true;
+			try {
+				await loadTemporaryCatalogs();
+				const eligiblePokemon = pokemonCatalog.filter(entry => !entry.legendary);
+				let pokemon = null; let legalMoves = [];
+				for (let attempt = 0; attempt < 12 && legalMoves.length < 4; attempt++) {
+					pokemon = eligiblePokemon[Math.floor(Math.random() * eligiblePokemon.length)];
+					const query = new URLSearchParams({species: pokemon.name, level: String(rank.level)});
+					const data = await context.api('/contest-pokemon-moves?' + query); legalMoves = data.moves || [];
+				}
+				if (!pokemon || legalMoves.length < 4) throw new Error('Não foi possível montar um NPC aleatório.');
+				const category = profile.contestCategory?.() || 'beauty';
+				const scoredMoves = legalMoves.map(move => ({move, quality:
+					move.baseScore + (move.category === category ? 3 : 0) + Math.min(2, move.tags?.length / 4 || 0) - (move.penalties?.length || 0) * 3,
+				})).sort((left, right) => left.quality - right.quality);
+				const windowStart = Math.round((scoredMoves.length - 4) * rank.quality / 4);
+				const movePool = scoredMoves.slice(Math.max(0, windowStart - 3), Math.min(scoredMoves.length, windowStart + 7));
+				const selected = [];
+				while (selected.length < 4 && movePool.length) {
+					const weightedIndex = rank.quality >= 3 ? movePool.length - 1 : Math.floor(Math.random() * movePool.length);
+					selected.push(movePool.splice(weightedIndex, 1)[0].move);
+				}
+				const usefulItems = itemCatalog.filter(entry => entry.contest?.canScore && entry.contest.category === category && entry.contest.scoringMode === 'passive');
+				const desiredPoints = rank.quality >= 4 ? 3 : rank.quality >= 2 ? 2 : 1;
+				const itemChoices = usefulItems.filter(entry => entry.contest.points === desiredPoints);
+				const heldItem = itemChoices[Math.floor(Math.random() * itemChoices.length)] || null;
+				const avatar = avatarCatalog[Math.floor(Math.random() * avatarCatalog.length)] || {id: 'lucas-contest', name: 'Lucas'};
+				const allowedGenders = pokemon.genders || ['M', 'F'];
+				const gender = allowedGenders[Math.floor(Math.random() * allowedGenders.length)] || '';
+				const hpBase = pokemon.baseStats?.hp || 50;
+				const maximumHP = pokemon.id === 'shedinja' ? 1 : Math.floor((2 * hpBase + 31) * rank.level / 100) + rank.level + 10;
+				const index = participants.length + 1; const id = `npc-random-${index}-${avatar.id}`;
+				participants.push({id, kind: 'npc', displayName: avatar.name, avatar: avatar.id, randomRank: rankId, pokemon: {set: {
+					name: pokemon.name, species: pokemon.name, level: rank.level, moves: selected.map(move => move.moveId),
+					ability: pokemon.abilities?.[0] || '', item: heldItem?.id || '', nature: contestNatures[Math.floor(Math.random() * contestNatures.length)],
+					gender, shiny: false, evs: {hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0},
+					ivs: {hp: 31, atk: 31, def: 31, spa: 31, spd: 31, spe: 31}, rpg: {hp: maximumHP,
+						pp: selected.map(move => move.pp), status: '', friendship: 100, contestPerformance: rank.quality * 5,
+						contestPerformanceTrainerId: id},
+				}}});
+				rankPanel.classList.add('hidden'); renderCards();
+			} catch (error) {
+				window.alert(error.message);
+			} finally {
+				for (const button of rankPanel.querySelectorAll('button')) button.disabled = false;
+			}
 		}
 		function renderCreator() {
 			creator.replaceChildren(); const title = el('div', 'contest-npc-coordinator-bar');
@@ -732,8 +804,8 @@ window.RPGContestUI = (() => {
 		function closeCreator() { creator.classList.add('hidden'); creator.replaceChildren(); create.classList.remove('hidden'); }
 		renderCards(); root.append(creator, cards); return {root, participants: () => structuredClone(participants)};
 	}
-	function contestTemporaryNPCEditor(context, initialParticipants) {
-		return buildTemporaryNPCEditor(context, initialParticipants, temporaryNPCProfiles.contest);
+	function contestTemporaryNPCEditor(context, initialParticipants, contestCategory) {
+		return buildTemporaryNPCEditor(context, initialParticipants, {...temporaryNPCProfiles.contest, contestCategory});
 	}
 	function battleTemporaryNPCEditor(context, initialParticipants) {
 		return buildTemporaryNPCEditor(context, initialParticipants, temporaryNPCProfiles.battle);
@@ -766,7 +838,7 @@ window.RPGContestUI = (() => {
 		const registeredNPCs = el('div', 'participant-column contest-registered-npcs');
 		registeredNPCs.append(el('strong', '', 'NPCs'), el('div', 'contest-reserved-npcs', 'Espaço reservado para os NPCs cadastrados da campanha.'));
 		participantColumns.append(players, registeredNPCs);
-		const temporaryNPCs = contestTemporaryNPCEditor(context, existing?.participants || []);
+		const temporaryNPCs = contestTemporaryNPCEditor(context, existing?.participants || [], () => category.value);
 		participantsStep.body.append(participantColumns, temporaryNPCs.root); form.append(participantsStep.section);
 
 		const conditions = step(3, 'Condições iniciais', 'Defina o clima e o terreno permanentes do palco.');
