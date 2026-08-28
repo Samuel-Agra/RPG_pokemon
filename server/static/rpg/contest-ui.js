@@ -13,6 +13,12 @@ window.RPGContestUI = (() => {
 		['stageUse', 'Uso do palco'], ['trainerPokemonSync', 'Sincronia'],
 		['interpretationFinale', 'Interpretação e final'],
 	];
+	const contestBackgrounds = [
+		{id: 'classic-hall', name: 'Salão clássico'}, {id: 'sunset-harbor', name: 'Porto ao pôr do sol'},
+		{id: 'neon-arena', name: 'Arena neon'}, {id: 'enchanted-clearing', name: 'Clareira encantada'},
+		{id: 'festival-plaza', name: 'Praça de festival'}, {id: 'snowy-overlook', name: 'Mirante nevado'},
+	];
+	const contestBackgroundUrl = id => new URL(`./assets/contest-backgrounds/${id}.png`, document.baseURI).href;
 	const contestStats = [['hp', 'HP'], ['atk', 'Attack'], ['def', 'Defense'], ['spa', 'Sp. Attack'], ['spd', 'Sp. Defense'], ['spe', 'Speed']];
 	const contestNatures = ['Adamant', 'Bashful', 'Bold', 'Brave', 'Calm', 'Careful', 'Docile', 'Gentle', 'Hardy', 'Hasty',
 		'Impish', 'Jolly', 'Lax', 'Lonely', 'Mild', 'Modest', 'Naive', 'Naughty', 'Quiet', 'Quirky', 'Rash', 'Relaxed',
@@ -63,6 +69,10 @@ window.RPGContestUI = (() => {
 	function renderRuntime(context, session, contest) {
 		const wrap = el('div', 'contest-page');
 		const stage = el('section', 'contest-stage');
+		const backgroundId = contest.scenario?.backgroundId || session.scenario?.backgroundId;
+		if (backgroundId) {
+			stage.classList.add('has-background'); stage.style.backgroundImage = `url("${contestBackgroundUrl(backgroundId)}")`;
+		}
 		const content = el('div', 'contest-stage-content');
 		content.append(el('div', 'contest-badges', `Rodada ${contest.round} · ${labels[contest.category]} · ${labels[contest.rank]}`));
 		const current = contest.participants.find(item => item.id === contest.currentParticipantId);
@@ -842,10 +852,36 @@ window.RPGContestUI = (() => {
 		participantsStep.body.append(participantColumns, temporaryNPCs.root); form.append(participantsStep.section);
 
 		const conditions = step(3, 'Condições iniciais', 'Defina o clima e o terreno permanentes do palco.');
+		const backgroundPicker = el('div', 'contest-background-picker');
+		const backgroundInput = el('input'); backgroundInput.type = 'hidden'; backgroundInput.value = existing?.scenario?.backgroundId || 'classic-hall';
+		const backgroundToggle = actionButton('', () => {
+			const opening = backgroundOptions.classList.contains('hidden'); backgroundOptions.classList.toggle('hidden', !opening);
+			if (opening) renderBackgroundOptions();
+		});
+		backgroundToggle.className = 'contest-background-toggle';
+		const backgroundOptions = el('div', 'panel contest-background-options hidden');
+		function backgroundImage(entry) {
+			const image = el('img'); image.src = contestBackgroundUrl(entry.id); image.alt = ''; image.loading = 'lazy'; return image;
+		}
+		function renderBackgroundToggle() {
+			const selected = contestBackgrounds.find(entry => entry.id === backgroundInput.value) || contestBackgrounds[0];
+			backgroundInput.value = selected.id; backgroundToggle.replaceChildren(backgroundImage(selected), el('strong', '', selected.name), el('span', '', '▾'));
+		}
+		function renderBackgroundOptions() {
+			backgroundOptions.replaceChildren();
+			for (const entry of contestBackgrounds) {
+				const option = actionButton('', () => {
+					backgroundInput.value = entry.id; backgroundOptions.classList.add('hidden'); renderBackgroundToggle();
+				});
+				option.className = `contest-background-option${entry.id === backgroundInput.value ? ' selected' : ''}`;
+				option.append(backgroundImage(entry), el('strong', '', entry.name)); backgroundOptions.append(option);
+			}
+		}
+		backgroundPicker.append(backgroundInput, backgroundToggle, backgroundOptions); renderBackgroundToggle();
 		const weather = select([['', 'Nenhum'], ['sun', 'Sol'], ['rain', 'Chuva'], ['sand', 'Tempestade de areia'], ['snow', 'Neve']], existing?.scenario?.weather || '');
 		const terrain = select([['', 'Nenhum'], ['electric', 'Elétrico'], ['grassy', 'Grama'], ['psychic', 'Psíquico'], ['misty', 'Névoa']], existing?.scenario?.terrain || '');
 		const conditionGrid = el('div', 'contest-condition-grid');
-		conditionGrid.append(field('Clima inicial', weather), field('Terreno inicial', terrain));
+		conditionGrid.append(field('Cenário', backgroundPicker), field('Clima inicial', weather), field('Terreno inicial', terrain));
 		conditions.body.append(conditionGrid); form.append(conditions.section);
 
 		const error = el('p', 'form-error hidden'); const actions = el('div', 'battle-editor-actions');
@@ -863,7 +899,8 @@ window.RPGContestUI = (() => {
 				}
 				participants.push(...temporaryNPCs.participants());
 				const request = {name: name.value.trim(), mode: 'solo', category: category.value, rank: rank.value, participants,
-					scenario: {id: existing?.scenario?.id || 'classic-stage', name: name.value.trim() || 'Palco do concurso', tags: [], weather: weather.value, terrain: terrain.value}};
+					scenario: {id: existing?.scenario?.id || 'classic-stage', name: name.value.trim() || 'Palco do concurso', tags: [],
+						backgroundId: backgroundInput.value, weather: weather.value, terrain: terrain.value}};
 				let sessionId = existing?.id;
 				if (!sessionId) {
 					const created = await context.api('/contest-sessions', {method: 'POST', body: {name: request.name}}); sessionId = created.contestSession.id;

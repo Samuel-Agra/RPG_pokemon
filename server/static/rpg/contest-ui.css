@@ -7,6 +7,8 @@
 .contest-badge { padding: 4px 9px; border-radius: 999px; background: #e9eef7; color: #314665; font-size: 12px; }
 .contest-stage { position: relative; overflow: hidden; min-height: 330px; color: white; border-radius: 20px; background: radial-gradient(circle at 50% 15%, #809cff 0, #3a477d 38%, #171c35 100%); }
 .contest-stage::before { content: ''; position: absolute; inset: auto -10% -45% -10%; height: 70%; border-radius: 50%; background: radial-gradient(ellipse, #f9d889, #be7b38 58%, #56341f); box-shadow: 0 -8px 30px #ffd57c66; }
+.contest-stage.has-background { background-position: center; background-size: cover; image-rendering: pixelated; }
+.contest-stage.has-background::before { display: none; }
 .contest-stage-content { position: relative; z-index: 1; display: grid; gap: 14px; }
 .contest-performer { text-align: center; padding: 28px 10px 8px; animation: contest-enter .45s ease-out; }
 .contest-performer strong { display: block; font-size: 24px; }
@@ -124,7 +126,15 @@
 .contest-temporary-trainer-sprite { width: 52px; height: 58px; object-fit: contain; image-rendering: pixelated; }
 .contest-random-npc-rank { color: #4c6f9f; font-weight: 700; }
 .contest-temporary-card > div { display: grid; gap: 2px; }
-.contest-condition-grid { display: grid; grid-template-columns: repeat(2, minmax(180px, 1fr)); gap: 12px; max-width: 650px; }
+.contest-condition-grid { display: grid; grid-template-columns: repeat(2, minmax(180px, 1fr)); gap: 12px; max-width: 760px; }
+.contest-condition-grid > .field:first-child { grid-column: 1 / -1; }
+.contest-background-picker { position: relative; }
+.contest-background-toggle { box-sizing: border-box; display: grid; grid-template-columns: 150px minmax(0, 1fr) auto; align-items: center; gap: 12px; width: 100%; min-height: 90px; padding: 7px; color: #2b405c; background: linear-gradient(#fff, #e5eaf0); border: 1px solid #9daaba; border-radius: 4px; text-align: left; }
+.contest-background-toggle img { width: 150px; height: 76px; object-fit: cover; image-rendering: pixelated; }
+.contest-background-options { position: absolute; z-index: 44; top: calc(100% + 5px); left: 0; display: grid; grid-template-columns: repeat(3, minmax(150px, 1fr)); gap: 7px; width: min(720px, 86vw); padding: 8px; box-shadow: 0 10px 26px #24354d44; }
+.contest-background-option { display: grid; gap: 5px; min-width: 0; padding: 5px; color: #304866; background: linear-gradient(#fff, #e3e8ee); border: 1px solid #b2bbc7; border-radius: 4px; text-align: left; }
+.contest-background-option:hover, .contest-background-option.selected { background: #dbe9f8; border-color: #4f78aa; }
+.contest-background-option img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; image-rendering: pixelated; }
 .contest-pokemon-selection { margin-top: 15px; }
 .contest-pokemon-selection .pokemon-choice.unavailable { opacity: .55; }
 @keyframes contest-enter { from { opacity: 0; transform: translateY(24px) scale(.96); } }
@@ -142,4 +152,5 @@
 	.contest-species-dropdown { width: min(92vw, 800px); height: min(440px, 60vh); min-height: min(440px, 60vh); max-height: min(440px, 60vh); }
 	.contest-species-dropdown .contest-species-grid { grid-template-columns: repeat(auto-fill, 120px); }
 	.contest-npc-avatar-results { grid-template-columns: repeat(3, minmax(90px, 1fr)); }
+	.contest-background-options { grid-template-columns: repeat(2, minmax(130px, 1fr)); }
 }

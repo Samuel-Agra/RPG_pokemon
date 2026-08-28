@@ -162,4 +162,19 @@ describe('RPG contest UI', () => {
 			"entry.contest.category === category", 'randomRank: rankId']) assert.ok(ui.includes(marker), marker);
 		assert.ok(ui.includes("if (profile.scope === 'contest')"));
 	});
+
+	it('lets the master choose a persistent contest background', () => {
+		const ui = fs.readFileSync(path.join(root, 'contest-ui.js'), 'utf8');
+		const css = fs.readFileSync(path.join(root, 'contest-ui.css'), 'utf8');
+		const service = fs.readFileSync(path.resolve(__dirname, '../../server/rpg-showdown/contest-session.ts'), 'utf8');
+		for (const id of ['classic-hall', 'sunset-harbor', 'neon-arena', 'enchanted-clearing', 'festival-plaza', 'snowy-overlook']) {
+			assert.ok(ui.includes(id), id);
+			assert.ok(fs.existsSync(path.join(root, 'assets/contest-backgrounds', `${id}.png`)), id);
+		}
+		assert.ok(ui.includes('backgroundId: backgroundInput.value'));
+		assert.ok(ui.includes("new URL(`./assets/contest-backgrounds/${id}.png`, document.baseURI).href"));
+		assert.ok(ui.includes("stage.classList.add('has-background')"));
+		assert.ok(service.includes('backgroundId?: string'));
+		assert.ok(css.includes('.contest-background-options'));
+	});
 });
