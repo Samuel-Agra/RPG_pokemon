@@ -50,4 +50,13 @@ describe('RPG contest mechanical scoring and combos', () => {
 		assert.equal(repeated.repetitionPenaltyRate, 1);
 		assert.equal(repeated.total, 0);
 	});
+
+	it('penalizes a repeated move within one round and makes three uses mechanically worthless', () => {
+		const varied = scoreRPGContestRound(['endeavor', 'protect', 'endeavor']);
+		const outrageous = scoreRPGContestRound(['endeavor', 'endeavor', 'endeavor']);
+		assert.equal(varied.repetitionPenaltyRate, 0.4);
+		assert.ok(varied.repetitionPenalty > 0);
+		assert.equal(outrageous.repetitionPenaltyRate, 1);
+		assert.equal(outrageous.total, 0);
+	});
 });

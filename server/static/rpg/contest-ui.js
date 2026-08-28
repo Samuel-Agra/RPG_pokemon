@@ -2,6 +2,7 @@
 
 window.RPGContestUI = (() => {
 	let refreshTimer = null;
+	const dismissedContestResults = new Set();
 	let pokemonCatalog = null;
 	let moveCatalog = null;
 	let itemCatalog = null;
@@ -54,7 +55,40 @@ window.RPGContestUI = (() => {
 		const text = el('div'); text.append(el('h3', '', title), el('p', '', description)); heading.append(text);
 		const body = el('div', 'battle-step-body'); section.append(heading, body); return {section, body};
 	};
-	async function refresh(context) { await context.rerender(); }
+	async function rerenderPreservingViewport(context) {
+		const scrollLeft = window.scrollX;
+		const scrollTop = window.scrollY;
+		const active = document.activeElement;
+		const focusId = active?.id || '';
+		const focusName = active?.getAttribute?.('name') || '';
+		await context.rerender();
+		window.scrollTo(scrollLeft, scrollTop);
+		const replacement = focusId ? document.getElementById(focusId) :
+			(focusName ? document.querySelector(`[name="${CSS.escape(focusName)}"]`) : null);
+		if (replacement instanceof HTMLElement) replacement.focus({preventScroll: true});
+	}
+	async function refresh(context) { await rerenderPreservingViewport(context); }
+	function preContestFingerprint(sessions) {
+		return JSON.stringify(sessions);
+	}
+	function schedulePreContestRefresh(context, page, sessions) {
+		const fingerprint = preContestFingerprint(sessions);
+		const check = async () => {
+			if (!page.isConnected) return;
+			try {
+				const data = await context.api('/contest-sessions');
+				const latestSessions = data.contestSessions || [];
+				if (preContestFingerprint(latestSessions) !== fingerprint) {
+					await rerenderPreservingViewport(context);
+					return;
+				}
+			} catch {
+				// Uma falha momentânea não deve interromper as próximas atualizações.
+			}
+			if (page.isConnected) refreshTimer = window.setTimeout(check, 1200);
+		};
+		refreshTimer = window.setTimeout(check, 1200);
+	}
 	function badges(session) {
 		const row = el('div', 'contest-badges');
 		for (const text of [labels[session.category], labels[session.rank], `${session.participants.length} participantes`]) {
@@ -66,7 +100,32 @@ window.RPGContestUI = (() => {
 		const data = await context.api(`/contest-sessions/${encodeURIComponent(session.id)}/runtime`);
 		return renderRuntime(context, session, data.contest);
 	}
+	async function applyRuntimeResponse(context, session, request) {
+		let data;
+		try {
+			data = await request;
+		} catch (requestError) {
+			try {
+				data = await context.api(`/contest-sessions/${encodeURIComponent(session.id)}/runtime`);
+			} catch {
+				throw requestError;
+			}
+			if (data.contest?.status !== 'ended') throw requestError;
+		}
+		if (data.contest?.status === 'ended') {
+			if (refreshTimer) window.clearTimeout(refreshTimer);
+			refreshTimer = null;
+			const root = document.getElementById('dashboard-content');
+			root.replaceChildren(renderRuntime(context, session, data.contest)); return;
+		}
+		await refresh(context);
+	}
 	function renderRuntime(context, session, contest) {
+		if (contest.status === 'ended' && contest.results) {
+			if (refreshTimer) window.clearTimeout(refreshTimer);
+			refreshTimer = null;
+			return resultsPanel(context, session, contest);
+		}
 		const wrap = el('div', 'contest-page');
 		const stage = el('section', 'contest-stage');
 		const backgroundId = contest.scenario?.backgroundId || session.scenario?.backgroundId;
@@ -99,8 +158,8 @@ window.RPGContestUI = (() => {
 				const button = el('button', 'contest-move', move.name);
 				button.type = 'button'; button.disabled = !contest.canAct;
 				button.addEventListener('click', async () => {
-					await context.api(`/contest-sessions/${encodeURIComponent(session.id)}/action`, {method: 'POST', body: {type: 'select-move', moveId: move.id, activateMega}});
-					await refresh(context);
+					await applyRuntimeResponse(context, session, context.api(`/contest-sessions/${encodeURIComponent(session.id)}/action`,
+						{method: 'POST', body: {type: 'select-move', moveId: move.id, activateMega}}));
 				});
 				moves.append(button);
 			}
@@ -108,13 +167,12 @@ window.RPGContestUI = (() => {
 		}
 		stage.append(content); wrap.append(stage);
 		if (contest.canJudge) wrap.append(judgePanel(context, session));
-		if (contest.status === 'ended' && contest.results) wrap.append(resultsPanel(contest));
-		else if (!context.master && current && current.characterId === context.character?.id) {
+		if (!context.master && current && current.characterId === context.character?.id) {
 			const actions = el('div', 'contest-actions');
 			actions.append(actionButton('Abandonar concurso', async () => {
 				if (!window.confirm('Abandonar desclassifica o participante sem possibilidade de retorno.')) return;
-				await context.api(`/contest-sessions/${encodeURIComponent(session.id)}/action`, {method: 'POST', body: {type: 'abandon'}});
-				await refresh(context);
+				await applyRuntimeResponse(context, session, context.api(`/contest-sessions/${encodeURIComponent(session.id)}/action`,
+					{method: 'POST', body: {type: 'abandon'}}));
 			})); wrap.append(actions);
 		}
 		return wrap;
@@ -129,24 +187,98 @@ window.RPGContestUI = (() => {
 			field.append(input); grid.append(field);
 		}
 		form.append(grid);
-		const comment = el('textarea'); comment.name = 'comment'; comment.placeholder = 'Comentário público opcional'; form.append(comment);
 		const submit = el('button', 'button primary', 'Confirmar notas'); submit.type = 'submit'; form.append(submit);
 		form.addEventListener('submit', async event => {
 			event.preventDefault(); const data = new FormData(form); const values = {};
 			for (const [id] of criteria) values[id] = Number(data.get(id));
-			await context.api(`/contest-sessions/${encodeURIComponent(session.id)}/action`, {method: 'POST', body: {type: 'submit-judging', criteria: values, comment: data.get('comment')}});
-			await refresh(context);
+			await applyRuntimeResponse(context, session, context.api(`/contest-sessions/${encodeURIComponent(session.id)}/action`,
+				{method: 'POST', body: {type: 'submit-judging', criteria: values}}));
 		});
 		return form;
 	}
-	function resultsPanel(contest) {
-		const panel = el('section', 'panel contest-results'); panel.append(el('h3', '', 'Resultado final'));
-		const list = el('ol');
-		for (const result of [...contest.results].filter(item => !item.disqualified).sort((a, b) => a.place - b.place)) {
-			const participant = contest.participants.find(item => item.id === result.participantId);
-			list.append(el('li', '', `${participant?.displayName || result.participantId} — ${result.total} pontos · +${result.performanceGain} Performance`));
+	function resultsPanel(context, session, contest) {
+		const page = el('div', 'contest-final-page');
+		const resultById = new Map(contest.results.map(result => [result.participantId, result]));
+		const ordered = [...contest.participants].sort((left, right) => {
+			const leftPlace = resultById.get(left.id)?.place ?? 999; const rightPlace = resultById.get(right.id)?.place ?? 999;
+			return leftPlace - rightPlace;
+		});
+		const winner = ordered.find(participant => resultById.get(participant.id)?.place === 1);
+		const hero = el('section', 'contest-final-hero');
+		hero.append(el('small', '', 'Vencedor do concurso'), el('h2', '', winner?.displayName || 'Concurso encerrado'));
+		if (winner) hero.append(el('p', '', `${winner.pokemon.name} conquistou o público e recebeu o principal destaque da apresentação.`));
+		page.append(hero);
+		const podium = el('section', 'panel contest-final-participants'); podium.append(el('h3', '', 'Classificação final'));
+		const cards = el('div', 'contest-final-participant-grid');
+		const moveName = (participant, moveId) => participant.pokemon.moves.find(move => move.id === moveId)?.name || moveId;
+		for (const participant of ordered) {
+			const result = resultById.get(participant.id); const card = el('article', 'contest-final-participant');
+			const identity = el('div', 'contest-final-identity');
+			if (participant.avatar) {
+				const trainer = el('img', 'contest-final-trainer'); trainer.src = RPGAssets.url(`sprites/trainers/${participant.avatar}.png`); trainer.alt = participant.displayName; identity.append(trainer);
+			}
+			const pokemon = spriteImage(participant.pokemon.species); pokemon.classList.add('contest-final-pokemon'); identity.append(pokemon);
+			const heading = el('div'); heading.append(el('strong', '', result?.disqualified ? 'Desclassificado' : `${result?.place || '—'}º lugar`),
+				el('h4', '', participant.displayName), el('small', '', participant.pokemon.name));
+			if (result && !result.disqualified) heading.append(el('span', 'contest-final-score', `Nota final: ${result.total}`));
+			card.append(identity, heading);
+			const details = el('details', 'contest-final-rounds'); details.append(el('summary', '', 'Ver apresentações'));
+			for (let round = 0; round < 2; round++) {
+				const block = el('div', 'contest-final-round'); block.append(el('strong', '', `${round + 1}ª rodada`));
+				const moves = el('div', 'contest-final-move-sequence');
+				for (const move of participant.rounds[round]) moves.append(el('span', '', moveName(participant, move)));
+				block.append(moves);
+				const reaction = participant.audienceReactions[round];
+				if (reaction) block.append(el('p', 'contest-final-reaction', `${reaction.emoji} ${reaction.label}`));
+				const comments = participant.judgeComments?.[round];
+				if (comments) {
+					const list = el('ul', 'contest-final-comments');
+					for (const [criterion] of criteria) list.append(el('li', '', comments[criterion]));
+					block.append(list);
+				}
+				details.append(block);
+			}
+			card.append(details); cards.append(card);
 		}
-		panel.append(list); return panel;
+		podium.append(cards); page.append(podium);
+		const highlightLabels = {visualComposition: 'Composição visual', sequenceContinuity: 'Continuidade', stageUse: 'Uso do palco pelos jurados',
+			trainerPokemonSync: 'Sincronia', interpretationFinale: 'Interpretação e encerramento'};
+		const highlights = el('section', 'panel contest-final-highlights'); highlights.append(el('h3', '', 'Destaques do concurso'));
+		const highlightGrid = el('div', 'contest-highlight-grid');
+		const participantNames = ids => ids.map(id => contest.participants.find(participant => participant.id === id)?.displayName || id).join(' e ');
+		for (const [criterion, label] of Object.entries(highlightLabels)) highlightGrid.append(el('div', '', `${label}: ${participantNames(contest.highlights?.judgeCategories?.[criterion] || [])}`));
+		for (const [label, ids] of [['Reação do público', contest.highlights?.audience], ['Uso do cenário', contest.highlights?.scenario],
+			['Melhor combo', contest.highlights?.combo], ['Evolução entre rodadas', contest.highlights?.evolution]]) {
+			highlightGrid.append(el('div', '', `${label}: ${participantNames(ids || [])}`));
+		}
+		highlights.append(highlightGrid); page.append(highlights);
+		if (context.master) {
+			const review = el('details', 'panel contest-master-review'); review.append(el('summary', '', 'Revisar detalhes do mestre'));
+			for (const participant of ordered) {
+				const row = el('div', 'contest-master-result-row'); row.append(el('strong', '', participant.displayName));
+				const result = resultById.get(participant.id);
+				if (result && 'total' in result) row.append(el('span', '', `Total: ${result.total} · Performance: +${result.performanceGain}`));
+				review.append(row);
+				for (let round = 0; round < 2; round++) {
+					const judging = participant.judging?.[round]; const mechanical = participant.roundScores?.[round];
+					if (!judging) continue;
+					const detail = el('p', 'contest-master-round-detail');
+					const criterionNotes = criteria.map(([id, label]) => `${label}: ${judging.criteria[id]}`).join(' · ');
+					detail.textContent = `${round + 1}ª rodada — ${criterionNotes}`;
+					if (mechanical) detail.textContent += ` · Mecânica: ${mechanical.total} · Final: ${judging.totalAfterJudging}`;
+					review.append(detail);
+				}
+			}
+			page.append(review);
+		}
+		const actions = el('div', 'contest-final-actions');
+		actions.append(actionButton(context.master ? 'Encerrar e sair' : 'Encerrar', () => {
+			dismissedContestResults.add(session.id); void context.rerender();
+		}, true));
+		if (context.master) {
+			const future = actionButton('Salvar como registro da campanha (futuramente)', () => {}, false); future.disabled = true; actions.append(future);
+		}
+		page.append(actions); return page;
 	}
 	const temporaryNPCProfiles = {
 		contest: {scope: 'contest', finishLabel: 'Adicionar NPC ao concurso', includeExperience: false, statePopovers: true, showPortraitName: false},
@@ -921,7 +1053,7 @@ window.RPGContestUI = (() => {
 		for (const [index, pokemon] of (context.character.team || []).entries()) {
 			const metadata = context.character.box?.party?.[index]?.metadata || {};
 			const fainted = (pokemon.rpg?.hp ?? 1) <= 0; const unavailable = fainted || !!metadata.evTraining || !!metadata.breeding;
-			const label = el('label', `pokemon-choice${unavailable ? ' unavailable' : ''}`); const input = el('input');
+			const label = el('label', `battle-check pokemon-choice${unavailable ? ' unavailable' : ''}`); const input = el('input');
 			input.type = 'radio'; input.name = `contest-${session.id}`; input.disabled = unavailable; input.checked = selected === index;
 			input.addEventListener('change', () => { selected = index; }); label.append(input, pokemonSprite(pokemon));
 			const info = el('span'); info.append(el('strong', '', pokemon.name || pokemon.species), el('small', '', `${pokemon.species} · Nv. ${pokemon.level || 1}`));
@@ -930,43 +1062,85 @@ window.RPGContestUI = (() => {
 			else if (metadata.breeding) info.append(el('small', '', 'Em procriação'));
 			label.append(info); grid.append(label);
 		}
-		const save = actionButton('Salvar seleção', async () => {
-			if (!Number.isSafeInteger(selected)) return;
-			await context.api(`/contest-sessions/${encodeURIComponent(session.id)}/selection`, {method: 'POST', body: {teamIndex: selected}}); await refresh(context);
-		}, true);
-		panel.append(grid, save); return panel;
+		panel.getPokemonSelection = () => {
+			if (!Number.isSafeInteger(selected)) throw new Error('Escolha um Pokémon para o concurso.');
+			return selected;
+		};
+		panel.append(grid); return panel;
+	}
+	function playerContestCard(context, session) {
+		const card = el('article', 'panel battle-session-card contest-invitation-card');
+		const header = el('div', 'battle-session-head');
+		const title = el('div');
+		title.append(el('strong', '', session.name || 'Concurso sem nome'),
+			el('small', '', `${labels[session.category] || session.category} · ${labels[session.rank] || session.rank} · Solo`));
+		const statusLabels = {draft: 'Rascunho', inviting: 'Aguardando respostas', ready: 'Pronto', declined: 'Recusado'};
+		header.append(title, el('span', `battle-status status-${session.status}`, statusLabels[session.status] || session.status));
+		card.append(header);
+
+		const summary = el('div', 'battle-teams contest-invitation-summary');
+		const contestInfo = el('div', 'battle-team');
+		contestInfo.append(el('strong', '', 'Concurso'), el('small', '', `Categoria: ${labels[session.category] || session.category}`),
+			el('small', '', `Nível: ${labels[session.rank] || session.rank}`));
+		const participants = el('div', 'battle-team'); participants.append(el('strong', '', 'Participantes'));
+		for (const participant of session.participants) {
+			participants.append(el('small', '', participant.displayName));
+		}
+		summary.append(contestInfo, participants); card.append(summary);
+
+		if (session.invitations.length) {
+			const invitationList = el('div', 'battle-invitations');
+			for (const invitation of session.invitations) {
+				const participant = session.participants.find(item => item.characterId === invitation.characterId);
+				const responseLabel = {pending: 'pendente', accepted: 'aceitou', declined: 'recusou'}[invitation.response];
+				invitationList.append(el('span', `invitation-${invitation.response}`,
+					`${participant?.displayName || invitation.characterId}: ${responseLabel}`));
+			}
+			card.append(invitationList);
+		}
+
+		const invitation = session.invitations.find(item => item.characterId === context.character?.id);
+		const participant = session.participants.find(item => item.characterId === context.character?.id);
+		const selection = invitation?.response === 'pending' && participant && !participant.pokemon ?
+			playerPokemonSelection(context, session, participant) : null;
+		if (selection) card.append(selection);
+		if (invitation?.response === 'pending') {
+			const actions = el('div', 'battle-session-actions');
+			actions.append(actionButton('Recusar', async () => {
+				await context.api(`/contest-sessions/${encodeURIComponent(session.id)}/response`, {method: 'POST', body: {response: 'declined'}});
+				await refresh(context);
+			}));
+			const accept = actionButton('Aceitar', async () => {
+				if (selection?.getPokemonSelection) {
+					await context.api(`/contest-sessions/${encodeURIComponent(session.id)}/selection`,
+						{method: 'POST', body: {teamIndex: selection.getPokemonSelection()}});
+				}
+				await context.api(`/contest-sessions/${encodeURIComponent(session.id)}/response`, {method: 'POST', body: {response: 'accepted'}});
+				await refresh(context);
+			}, true);
+			actions.lastChild.classList.add('danger');
+			actions.append(accept); card.append(actions);
+		}
+		return card;
 	}
 	function sessionCard(context, session, openEditor) {
+		if (!context.master) return playerContestCard(context, session);
 		const card = el('article', 'panel contest-card'); const header = el('div', 'contest-card-header');
 		const title = el('div'); title.append(el('h3', '', session.name)); title.append(badges(session)); header.append(title);
 		const actions = el('div', 'contest-actions');
-		if (session.status === 'started' || session.status === 'ended') actions.append(actionButton('Abrir palco', async () => {
+		if (session.status === 'started') actions.append(actionButton('Abrir palco', async () => {
 			const root = document.getElementById('dashboard-content'); root.replaceChildren(await runtime(context, session));
 		}, true));
 		if (context.master && session.status === 'ready') actions.append(actionButton('Iniciar', async () => {
 			await context.api(`/contest-sessions/${encodeURIComponent(session.id)}/start`, {method: 'POST'}); await refresh(context);
 		}, true));
 		if (context.master && ['draft', 'declined'].includes(session.status)) actions.prepend(actionButton('Editar preparação', () => openEditor(session)));
-		if (!context.master && ['inviting', 'ready'].includes(session.status)) {
-			const invitation = session.invitations.find(item => item.characterId === context.character?.id);
-			const participant = session.participants.find(item => item.characterId === context.character?.id);
-			if (invitation?.response === 'pending' && participant?.pokemon) {
-				actions.append(actionButton('Aceitar', async () => {
-					await context.api(`/contest-sessions/${encodeURIComponent(session.id)}/response`, {method: 'POST', body: {response: 'accepted'}}); await refresh(context);
-				}, true));
-			}
-			if (invitation?.response === 'pending') {
-				actions.append(actionButton('Recusar', async () => {
-					await context.api(`/contest-sessions/${encodeURIComponent(session.id)}/response`, {method: 'POST', body: {response: 'declined'}}); await refresh(context);
-				}));
-			}
+		if (context.master && !['started', 'ended', 'cancelled'].includes(session.status)) {
+			actions.append(actionButton('Cancelar concurso', async () => {
+				await context.api(`/contest-sessions/${encodeURIComponent(session.id)}`, {method: 'DELETE'}); await refresh(context);
+			}));
 		}
 		header.append(actions); card.append(header);
-		if (!context.master && session.status === 'inviting') {
-			const invitation = session.invitations.find(item => item.characterId === context.character?.id);
-			const participant = session.participants.find(item => item.characterId === context.character?.id);
-			if (invitation?.response === 'pending' && participant && !participant.pokemon) card.append(playerPokemonSelection(context, session, participant));
-		}
 		return card;
 	}
 	async function render(context) {
@@ -976,8 +1150,18 @@ window.RPGContestUI = (() => {
 		const active = sessions.find(session => session.status === 'started');
 		if (active) {
 			const page = await runtime(context, active);
-			refreshTimer = window.setTimeout(() => void context.rerender(), 1200);
+			if (!page.classList.contains('contest-final-page')) {
+				refreshTimer = window.setTimeout(() => void rerenderPreservingViewport(context), 1200);
+			}
 			return page;
+		}
+		const completed = sessions.find(session => session.status === 'ended' && !dismissedContestResults.has(session.id));
+		if (completed) {
+			try {
+				return await runtime(context, completed);
+			} catch {
+				dismissedContestResults.add(completed.id);
+			}
 		}
 		const page = el('div', 'contest-page');
 		const toolbar = el('div', 'panel contest-toolbar');
@@ -989,9 +1173,12 @@ window.RPGContestUI = (() => {
 		};
 		if (context.master) toolbar.append(actionButton('＋ Novo concurso', () => openEditor(), true));
 		page.append(toolbar, editorHost); const list = el('div', 'contest-list');
-		for (const session of sessions) list.append(sessionCard(context, session, openEditor));
-		if (!sessions.length) list.append(el('div', 'panel empty-state', 'Nenhum concurso preparado.'));
-		page.append(list); return page;
+		const visibleSessions = sessions.filter(session => !['cancelled', 'started', 'ended'].includes(session.status));
+		for (const session of visibleSessions) list.append(sessionCard(context, session, openEditor));
+		if (!visibleSessions.length) list.append(el('div', 'panel empty-state', 'Nenhum concurso em preparação.'));
+		page.append(list);
+		schedulePreContestRefresh(context, page, sessions);
+		return page;
 	}
 	return {render, battleTemporaryNPCEditor};
 })();

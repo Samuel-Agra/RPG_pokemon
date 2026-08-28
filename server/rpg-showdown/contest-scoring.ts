@@ -36,6 +36,19 @@ export interface RPGContestRoundMechanicalScore {
 	total: number;
 }
 
+export function applyRPGContestWithinRoundRepetition(
+	score: RPGContestRoundMechanicalScore
+): RPGContestRoundMechanicalScore {
+	const counts = new Map<string, number>();
+	for (const move of score.moves) counts.set(move, (counts.get(move) || 0) + 1);
+	const maximumUses = Math.max(...counts.values());
+	const repetitionPenaltyRate = maximumUses >= 3 ? 1 : maximumUses === 2 ? 0.4 : 0;
+	if (!repetitionPenaltyRate) return score;
+	const beforeRepetition = score.total + score.repetitionPenalty;
+	const repetitionPenalty = Number((beforeRepetition * repetitionPenaltyRate).toFixed(1));
+	return {...score, repetitionPenaltyRate, repetitionPenalty, total: beforeRepetition - repetitionPenalty};
+}
+
 export function applyRPGContestSecondRoundCreativity(
 	score: RPGContestRoundMechanicalScore, firstRound: readonly string[]
 ): RPGContestRoundMechanicalScore {
@@ -185,7 +198,8 @@ export class RPGContestComboService {
 }
 
 export function scoreRPGContestRound(
-	moves: readonly string[], combos: readonly RPGContestComboDefinition[] = RPG_DEFAULT_CONTEST_COMBOS
+	moves: readonly string[], combos: readonly RPGContestComboDefinition[] = RPG_DEFAULT_CONTEST_COMBOS,
+	applyWithinRoundRepetition = true
 ): RPGContestRoundMechanicalScore {
 	if (!Array.isArray(moves) || moves.length !== 3) throw new Error('RPG contest round requires exactly three moves');
 	const definitions = moves.map(getRPGContestMove) as [RPGContestMoveDefinition, RPGContestMoveDefinition, RPGContestMoveDefinition];
@@ -209,7 +223,7 @@ export function scoreRPGContestRound(
 	const specialComboBonus = Math.min(6, matched.reduce((maximum, combo) => Math.max(maximum, combo.bonus), 0));
 	const comboScore = Math.min(15, continuityScore + tagSynergyScore + finaleScore + specialComboBonus);
 	const moveBaseScore = definitions.reduce((total, move) => total + move.baseScore, 0);
-	return {
+	const score: RPGContestRoundMechanicalScore = {
 		moves: sequence, moveBaseScore, continuityScore, tagSynergyScore, finaleScore, specialComboBonus,
 		comboScore, fieldInteractionScore: 0, scenarioMoveScore: 0,
 		novelMoveBonus: 0, originalityScore: 0, inventiveInteractionScore: 0, creativityScore: 0,
@@ -218,4 +232,5 @@ export function scoreRPGContestRound(
 		discoveredInteractions: allRelations, total: moveBaseScore + comboScore,
 		itemId: '', itemCategory: null, itemBonus: 0, itemBonusActive: false,
 	};
+	return applyWithinRoundRepetition ? applyRPGContestWithinRoundRepetition(score) : score;
 }

@@ -23,6 +23,28 @@
 .contest-judge-grid label { display: grid; gap: 5px; }
 .contest-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .contest-results ol { margin-bottom: 0; }
+.contest-final-page { display: grid; gap: 16px; }
+.contest-final-hero { padding: 28px; color: white; border-radius: 18px; background: linear-gradient(135deg, #253c68, #6a3f82); text-align: center; box-shadow: 0 8px 24px #1d294033; }
+.contest-final-hero small { text-transform: uppercase; letter-spacing: .12em; opacity: .8; }
+.contest-final-hero h2 { margin: 5px 0; font-size: 30px; }
+.contest-final-hero p { margin: 6px auto 0; max-width: 620px; }
+.contest-final-participant-grid { display: grid; gap: 10px; }
+.contest-final-participant { display: grid; grid-template-columns: 126px minmax(150px, .5fr) minmax(300px, 1fr); align-items: center; gap: 14px; padding: 12px; border: 1px solid #c5cfda; border-radius: 10px; background: #f8fafc; }
+.contest-final-identity { display: flex; align-items: end; justify-content: center; min-height: 76px; }
+.contest-final-trainer { width: 58px; height: 72px; object-fit: contain; image-rendering: pixelated; }
+.contest-final-pokemon { width: 68px; height: 68px; object-fit: contain; image-rendering: pixelated; }
+.contest-final-participant h4 { margin: 3px 0; font-size: 17px; }
+.contest-final-rounds summary, .contest-master-review summary { color: #29456f; font-weight: 700; cursor: pointer; }
+.contest-final-round { margin-top: 9px; padding: 9px; border-left: 3px solid #7897be; background: #eef3f9; }
+.contest-final-move-sequence { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 5px; }
+.contest-final-move-sequence span { padding: 3px 7px; border-radius: 999px; background: white; border: 1px solid #c5d0df; }
+.contest-final-reaction { margin: 7px 0 3px; }
+.contest-final-comments { margin: 5px 0 0; padding-left: 18px; color: #53657a; font-size: 11px; }
+.contest-highlight-grid { display: grid; grid-template-columns: repeat(2, minmax(220px, 1fr)); gap: 8px; }
+.contest-highlight-grid > div { padding: 9px 11px; border-left: 3px solid #9471ae; background: #f3eef7; }
+.contest-master-result-row { display: flex; justify-content: space-between; gap: 12px; padding: 8px 0; border-bottom: 1px solid #d8dfe8; }
+.contest-master-round-detail { margin: 5px 0 10px; color: #53657a; font-size: 11px; }
+.contest-final-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
 .contest-editor .battle-step-body { display: grid; gap: 14px; }
 .contest-basic-grid { display: grid; grid-template-columns: minmax(220px, 1.6fr) repeat(3, minmax(130px, 1fr)); gap: 12px; align-items: end; }
 .contest-participant-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: stretch; }
@@ -136,6 +158,7 @@
 .contest-background-option:hover, .contest-background-option.selected { background: #dbe9f8; border-color: #4f78aa; }
 .contest-background-option img { width: 100%; aspect-ratio: 16 / 9; object-fit: cover; image-rendering: pixelated; }
 .contest-pokemon-selection { margin-top: 15px; }
+.contest-invitation-card .contest-pokemon-selection { margin-top: 0; }
 .contest-pokemon-selection .pokemon-choice.unavailable { opacity: .55; }
 @keyframes contest-enter { from { opacity: 0; transform: translateY(24px) scale(.96); } }
 @keyframes contest-move { from { opacity: 0; transform: translateY(16px) scale(.8); } 55% { transform: translateY(-4px) scale(1.08); } }
@@ -153,4 +176,7 @@
 	.contest-species-dropdown .contest-species-grid { grid-template-columns: repeat(auto-fill, 120px); }
 	.contest-npc-avatar-results { grid-template-columns: repeat(3, minmax(90px, 1fr)); }
 	.contest-background-options { grid-template-columns: repeat(2, minmax(130px, 1fr)); }
+	.contest-final-participant { grid-template-columns: 100px minmax(0, 1fr); }
+	.contest-final-rounds { grid-column: 1 / -1; }
+	.contest-highlight-grid { grid-template-columns: 1fr; }
 }

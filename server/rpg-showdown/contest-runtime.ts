@@ -4,7 +4,8 @@ import type {PokemonSet} from '../../sim/teams';
 import {getRPGContestMove} from './contest-move-catalog';
 import {getRPGContestItemClassification} from './contest-item-catalog';
 import {
-	applyRPGContestSecondRoundCreativity, RPG_DEFAULT_CONTEST_COMBOS, scoreRPGContestRound,
+	applyRPGContestSecondRoundCreativity, applyRPGContestWithinRoundRepetition,
+	RPG_DEFAULT_CONTEST_COMBOS, scoreRPGContestRound,
 	type RPGContestComboDefinition, type RPGContestRoundMechanicalScore,
 } from './contest-scoring';
 import type {RPGContestParticipant, RPGContestSession} from './contest-session';
@@ -61,6 +62,7 @@ export interface RPGContestRuntimeParticipant {
 	scenarioCoherenceBonus: number;
 	judging: [RPGContestRoundJudging | null, RPGContestRoundJudging | null];
 	audienceReactions: [RPGContestAudienceReaction | null, RPGContestAudienceReaction | null];
+	judgeComments: [RPGContestJudgingComments | null, RPGContestJudgingComments | null];
 	teamIndex?: number;
 }
 
@@ -68,6 +70,7 @@ export type RPGContestJudgingCriterion =
 	'visualComposition' | 'sequenceContinuity' | 'stageUse' | 'trainerPokemonSync' | 'interpretationFinale';
 
 export type RPGContestJudgingScores = Record<RPGContestJudgingCriterion, number>;
+export type RPGContestJudgingComments = Record<RPGContestJudgingCriterion, string>;
 
 export interface RPGContestRoundJudging {
 	criteria: RPGContestJudgingScores;
@@ -123,7 +126,23 @@ export interface RPGContestRuntimeSnapshot {
 	events: RPGContestRuntimeEvent[];
 	canAct: boolean;
 	canJudge: boolean;
-	results: RPGContestPlacement[] | null;
+	results: (RPGContestPlacement | RPGContestPublicPlacement)[] | null;
+	highlights: RPGContestFinalHighlights | null;
+}
+
+export interface RPGContestPublicPlacement {
+	participantId: string;
+	place: number | null;
+	total: number;
+	disqualified: boolean;
+}
+
+export interface RPGContestFinalHighlights {
+	judgeCategories: Record<RPGContestJudgingCriterion, string[]>;
+	audience: string[];
+	scenario: string[];
+	combo: string[];
+	evolution: string[];
 }
 
 export type RPGContestRuntimeAction =
@@ -143,6 +162,12 @@ export const RPG_CONTEST_JUDGING_CRITERIA: Readonly<Record<RPGContestJudgingCrit
 	interpretationFinale: 'Interpretação e encerramento',
 });
 
+const RPG_CONTEST_JUDGING_COMMENT_LEVELS = [
+	'prejudicou a apresentação.', 'não apareceu de forma clara.', 'teve uma tentativa ainda simples.',
+	'contribuiu de maneira adequada.', 'foi bem trabalhada durante a apresentação.',
+	'foi um dos grandes pontos do espetáculo.', 'alcançou um resultado excepcional.',
+] as const;
+
 interface RPGContestRuntimeState {
 	session: RPGContestSession;
 	status: 'active' | 'ended';
@@ -153,6 +178,7 @@ interface RPGContestRuntimeState {
 	events: RPGContestRuntimeEvent[];
 	nextSequence: number;
 	results: RPGContestPlacement[] | null;
+	finishedAt?: number;
 }
 
 export interface RPGContestRuntimeManagerOptions {
@@ -164,6 +190,8 @@ export interface RPGContestRuntimeManagerOptions {
 
 export class RPGContestRuntimeManager {
 	private readonly runtimes = new Map<string, RPGContestRuntimeState>();
+	private static readonly ENDED_RUNTIME_TTL = 60 * 60 * 1000;
+	private static readonly MAX_ENDED_RUNTIMES = 50;
 	private readonly now: () => number;
 	private readonly onFinished?: RPGContestRuntimeManagerOptions['onFinished'];
 	private readonly getCharacterTeam: (characterId: string) => PokemonSet[] | undefined;
@@ -177,6 +205,7 @@ export class RPGContestRuntimeManager {
 	}
 
 	start(session: RPGContestSession): RPGContestRuntimeSnapshot {
+		this.pruneEndedRuntimes();
 		const sessionId = toID(session.id);
 		if (session.status !== 'started') throw new Error('RPG contest session has not started');
 		if (this.runtimes.has(sessionId)) return this.snapshot(sessionId, {master: true});
@@ -212,6 +241,9 @@ export class RPGContestRuntimeManager {
 				participant.judging = [null, null];
 			}
 		}
+		const results = state.results ? (viewer.master ? structuredClone(state.results) : state.results.map(result => ({
+			participantId: result.participantId, place: result.place, total: result.total, disqualified: result.disqualified,
+		}))) : null;
 		return {
 			sessionId: state.session.id,
 			status: state.status,
@@ -227,7 +259,8 @@ export class RPGContestRuntimeManager {
 			events: structuredClone(state.events.slice(-100)),
 			canAct: state.phase === 'awaiting_move' && !!current && this.canControl(current, viewer),
 			canJudge: state.phase === 'awaiting_judging' && viewer.master === true,
-			results: state.results ? structuredClone(state.results) : null,
+			results,
+			highlights: state.status === 'ended' ? this.finalHighlights(state) : null,
 		};
 	}
 
@@ -276,7 +309,7 @@ export class RPGContestRuntimeManager {
 				participant.stageMoves[state.round - 1], participant.stageStates[state.round - 1]
 			);
 			participant.roundStages[state.round - 1] = stage;
-			const score = scoreRPGContestRound(roundMoves, this.getCombos());
+			const score = scoreRPGContestRound(roundMoves, this.getCombos(), false);
 			score.fieldInteractionScore = stage.fieldInteractionScore;
 			score.scenarioMoveScore = stage.scenarioMoveScore;
 			score.total += stage.fieldInteractionScore + stage.scenarioMoveScore;
@@ -289,6 +322,7 @@ export class RPGContestRuntimeManager {
 			score.itemBonus = itemActive ? item.points : 0;
 			score.itemBonusActive = itemActive;
 			score.total += score.itemBonus;
+			Object.assign(score, applyRPGContestWithinRoundRepetition(score));
 			participant.roundScores[state.round - 1] = score;
 			if (state.round === 2 && participant.roundStages[0]?.scenarioMoveScore && stage.scenarioMoveScore) {
 				participant.scenarioCoherenceBonus = 2;
@@ -328,6 +362,7 @@ export class RPGContestRuntimeManager {
 			return;
 		}
 		state.status = 'ended';
+		state.finishedAt = this.now();
 		state.phase = 'finished';
 		state.currentOrderIndex = state.session.presentationOrder.length;
 		state.results = rankRPGContestParticipants(state.participants.map(participant => ({
@@ -340,6 +375,19 @@ export class RPGContestRuntimeManager {
 		this.onFinished?.(structuredClone(state.session), structuredClone(state.results));
 	}
 
+	private pruneEndedRuntimes(now = this.now()): void {
+		const ended = [...this.runtimes.entries()]
+			.filter((entry): entry is [string, RPGContestRuntimeState] => entry[1].finishedAt !== undefined)
+			.sort((left, right) => left[1].finishedAt! - right[1].finishedAt!);
+		for (const [id, state] of ended) {
+			if (now - state.finishedAt! >= RPGContestRuntimeManager.ENDED_RUNTIME_TTL) this.runtimes.delete(id);
+		}
+		const retained = ended.filter(([id]) => this.runtimes.has(id));
+		for (const [id] of retained.slice(0, Math.max(0, retained.length - RPGContestRuntimeManager.MAX_ENDED_RUNTIMES))) {
+			this.runtimes.delete(id);
+		}
+	}
+
 	private runtimeParticipant(participant: RPGContestParticipant, session: RPGContestSession): RPGContestRuntimeParticipant {
 		const set = this.participantSet(participant);
 		const firstStage = createRPGContestStage(session.scenario);
@@ -350,7 +398,7 @@ export class RPGContestRuntimeManager {
 			pokemon: this.pokemon(set, false, participant.characterId || participant.id), teamIndex: participant.pokemon?.teamIndex,
 			disqualified: false, rounds: [[], []], roundScores: [null, null],
 			stageStates: [firstStage, secondStage], stageMoves: [[], []], roundStages: [null, null],
-			scenarioCoherenceBonus: 0, judging: [null, null], audienceReactions: [null, null],
+			scenarioCoherenceBonus: 0, judging: [null, null], audienceReactions: [null, null], judgeComments: [null, null],
 		};
 	}
 
@@ -396,9 +444,38 @@ export class RPGContestRuntimeManager {
 			copyPenalty: copyPenalty as RPGContestRoundJudging['copyPenalty'], copyJustification, comment,
 			totalAfterJudging,
 		};
+		participant.judgeComments[state.round - 1] = this.judgingComments(criteria);
 		const reaction = this.audienceReaction(totalAfterJudging, mechanical, comment);
 		participant.audienceReactions[state.round - 1] = reaction;
 		this.emit(state, 'judging-complete', participant.id, {audienceReaction: reaction});
+	}
+
+	private judgingComments(criteria: RPGContestJudgingScores): RPGContestJudgingComments {
+		return Object.fromEntries(Object.entries(criteria).map(([criterion, score]) => [criterion,
+			`${RPG_CONTEST_JUDGING_CRITERIA[criterion as RPGContestJudgingCriterion]} ${RPG_CONTEST_JUDGING_COMMENT_LEVELS[score + 1]}`,
+		])) as RPGContestJudgingComments;
+	}
+
+	private finalHighlights(state: RPGContestRuntimeState): RPGContestFinalHighlights {
+		const active = state.participants.filter(participant => !participant.disqualified);
+		const leaders = (value: (participant: RPGContestRuntimeParticipant) => number) => {
+			if (!active.length) return [];
+			const scores = active.map(participant => [participant.id, value(participant)] as const);
+			const best = Math.max(...scores.map(([, score]) => score));
+			return scores.filter(([, score]) => score === best).map(([id]) => id);
+		};
+		const judgeCategories = Object.fromEntries((Object.keys(RPG_CONTEST_JUDGING_CRITERIA) as RPGContestJudgingCriterion[])
+			.map(criterion => [criterion, leaders(participant => participant.judging.reduce((sum, judging) =>
+				sum + (judging?.criteria[criterion] || 0), 0))])) as RPGContestFinalHighlights['judgeCategories'];
+		return {
+			judgeCategories,
+			audience: leaders(participant => participant.audienceReactions.reduce((sum, reaction) => sum + (reaction?.level || 0), 0)),
+			scenario: leaders(participant => participant.roundScores.reduce((sum, score) =>
+				sum + (score?.fieldInteractionScore || 0) + (score?.scenarioMoveScore || 0), 0)),
+			combo: leaders(participant => participant.roundScores.reduce((sum, score) => sum + (score?.comboScore || 0), 0)),
+			evolution: leaders(participant => (participant.judging[1]?.totalAfterJudging || 0) -
+				(participant.judging[0]?.totalAfterJudging || 0)),
+		};
 	}
 
 	private audienceReaction(

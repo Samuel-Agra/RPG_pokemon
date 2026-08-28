@@ -514,22 +514,13 @@ function rpgPlayerPokemonSelection(session, character) {
 		});
 		grid.append(choice.wrapper);
 	}
-	const save = button('Salvar sele\u00e7\u00e3o', 'button');
-	save.addEventListener('click', async () => {
+	panel.getPokemonSelection = () => {
 		if (!selected.size || selected.size > participant.selectionLimit) {
-			showToast('Escolha entre 1 e ' + participant.selectionLimit + ' Pok\u00e9mon.', true);
-			return;
+			throw new Error('Escolha entre 1 e ' + participant.selectionLimit + ' Pokémon.');
 		}
-		save.disabled = true;
-		try {
-			await api('/battle-sessions/' + encodeURIComponent(session.id) + '/selection', {
-				method: 'POST', body: { pokemon: [...selected].map(teamIndex => ({ teamIndex })) },
-			});
-			showToast('Sele\u00e7\u00e3o salva. Agora voc\u00ea pode aceitar o convite.');
-			await renderDashboard();
-		} catch (error) { showToast(error.message, true); } finally { save.disabled = false; }
-	});
-	panel.append(grid, save);
+		return [...selected].map(teamIndex => ({teamIndex}));
+	};
+	panel.append(grid);
 	return panel;
 }
 

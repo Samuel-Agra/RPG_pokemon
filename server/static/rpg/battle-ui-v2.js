@@ -539,22 +539,12 @@ function rpgPlayerPokemonSelection(session, character) {
 		choice.input.addEventListener('change', () => { if (choice.input.checked) selected.add(index); else selected.delete(index); });
 		grid.append(choice.wrapper);
 	}
-	const save = button('Salvar sele\u00e7\u00e3o', 'button');
-	save.addEventListener('click', async () => {
-		if (!selected.size || selected.size > participant.selectionLimit) return showToast('Escolha entre 1 e ' + participant.selectionLimit + ' Pok\u00e9mon.', true);
-		save.disabled = true;
-		try {
-			await api('/battle-sessions/' + encodeURIComponent(session.id) + '/selection', { method: 'POST', body: { pokemon: [...selected].map(teamIndex => ({ teamIndex })) } });
-			showToast('Sele\u00e7\u00e3o salva. Agora aceite o convite.');
-			await renderDashboard();
-		} catch (error) { showToast(error.message, true); } finally { save.disabled = false; }
-	});
 	panel.getPokemonSelection = () => {
 		if (!selected.size || selected.size > participant.selectionLimit) throw new Error('Escolha entre 1 e ' + participant.selectionLimit + ' Pokémon.');
 		return [...selected].map(teamIndex => ({teamIndex}));
 	};
 
-	panel.append(grid, save);
+	panel.append(grid);
 	return panel;
 }
 
