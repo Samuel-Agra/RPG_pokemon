@@ -1,6 +1,7 @@
 import {Dex} from '../../sim/dex';
 import {toID} from '../../sim/dex-data';
 import type {Move} from '../../sim/dex-moves';
+import {getRPGMoveMetadata} from './battle-move-analysis';
 import type {RPGContestCategory} from './contest-session';
 
 export interface RPGContestMoveDefinition {
@@ -120,6 +121,7 @@ function inferredBaseScore(move: Move, tags: Set<string>): number {
 
 function moveDefinition(move: Move): RPGContestMoveDefinition {
 	const override = MOVE_OVERRIDES[move.id] || {};
+	const metadata = getRPGMoveMetadata(move);
 	const tags = new Set<string>(TYPE_TAGS[toID(move.type)] || []);
 	if (move.category === 'Physical') tags.add('power');
 	if (move.category === 'Special') tags.add('energy');
@@ -154,7 +156,7 @@ function moveDefinition(move: Move): RPGContestMoveDefinition {
 		basePower: move.category === 'Status' ? null : move.basePower || null,
 		accuracy: move.accuracy === true ? null : Number(move.accuracy) || null,
 		pp: move.pp || 1,
-		description: move.shortDesc || move.desc || '',
+		description: metadata.description,
 	};
 }
 
@@ -166,6 +168,32 @@ export function getRPGContestMoveCatalog(): readonly RPGContestMoveDefinition[] 
 		.map(moveDefinition)
 		.sort((a, b) => a.name.localeCompare(b.name)));
 	return cachedCatalog.map(move => structuredClone(move));
+}
+
+/**
+ * Returns the legal Gen 9 move pool used by the Team Builder for a species.
+ * Full learnsets include inherited entries from previous evolutions; acquisition
+ * methods are intentionally merged for the temporary contest NPC editor.
+ */
+export function getRPGContestPokemonMoveCatalog(speciesName: string, level = 100): RPGContestMoveDefinition[] {
+	const dex = Dex.mod('gen9');
+	const species = dex.species.get(speciesName);
+	if (!species.exists) throw new Error('Unknown RPG contest Pokemon species');
+	const maximumLevel = Math.max(1, Math.min(100, Math.round(Number(level) || 1)));
+	const moveIds = new Set<string>();
+	for (const learnsetData of dex.species.getFullLearnset(species.id)) {
+		for (const [moveId, sources] of Object.entries(learnsetData.learnset)) {
+			const available = sources.some(source => {
+				if (source.startsWith('9M') || source.startsWith('9E')) return true;
+				const learned = /^9L(\d+)/.exec(source);
+				return !!learned && Number(learned[1]) <= maximumLevel;
+			});
+			if (available) moveIds.add(toID(moveId));
+		}
+	}
+	return getRPGContestMoveCatalog()
+		.filter(move => moveIds.has(move.moveId))
+		.map(move => structuredClone(move));
 }
 
 export function getRPGContestMove(moveId: string): RPGContestMoveDefinition {

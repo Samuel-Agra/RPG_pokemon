@@ -31,9 +31,20 @@
 .contest-temporary-heading > div { font-weight: 700; }
 .contest-npc-creator-title { grid-template-columns: minmax(0, 1fr) auto; }
 .contest-npc-creator-title h4 { margin: 0; color: #293f5e; }
-.contest-npc-coordinator-bar { display: grid; grid-template-columns: auto minmax(220px, 1fr) auto; align-items: end; gap: 12px; padding: 10px 12px; background: #f7f9fc; border-bottom: 1px solid #bac4d1; }
+.contest-npc-coordinator-bar { display: grid; grid-template-columns: auto 58px minmax(220px, 1fr) auto; align-items: end; gap: 12px; padding: 10px 12px; background: #f7f9fc; border-bottom: 1px solid #bac4d1; }
 .contest-npc-coordinator-bar h4 { align-self: center; margin: 0; color: #293f5e; }
-.contest-npc-showdown-body { grid-template-columns: 180px minmax(360px, 1fr) minmax(220px, .65fr); }
+.contest-npc-avatar-picker { position: relative; align-self: end; }
+.contest-npc-avatar-button { box-sizing: border-box; display: grid; place-items: center; width: 58px; height: 43px; padding: 2px; overflow: hidden; border: 1px solid #9ba8b8; border-radius: 4px; background: linear-gradient(#fff, #e7ebf0); }
+.contest-npc-avatar-button:hover { border-color: #567aa8; background: #edf3fa; }
+.contest-npc-avatar-button img { width: 48px; height: 40px; object-fit: contain; image-rendering: pixelated; }
+.contest-npc-avatar-dropdown { position: absolute; z-index: 55; top: calc(100% + 6px); left: 0; width: min(650px, 82vw); height: min(430px, 58vh); padding: 9px; overflow: hidden; box-shadow: 0 14px 34px #24354d44; }
+.contest-npc-avatar-search { box-sizing: border-box; width: 100%; margin-bottom: 7px; }
+.contest-npc-avatar-results { display: grid; grid-template-columns: repeat(5, minmax(100px, 1fr)); gap: 6px; max-height: calc(min(430px, 58vh) - 55px); overflow-y: auto; scrollbar-gutter: stable; }
+.contest-npc-avatar-option { display: grid; grid-template-rows: 72px auto; place-items: center; min-width: 0; min-height: 98px; padding: 5px; color: #304866; background: linear-gradient(#fff, #e3e8ee); border: 1px solid #b2bbc7; border-radius: 4px; font-size: 10px; font-weight: 700; }
+.contest-npc-avatar-option:hover, .contest-npc-avatar-option.selected { background: #dbe9f8; border-color: #4f78aa; }
+.contest-npc-avatar-option img { width: 64px; height: 72px; object-fit: contain; image-rendering: pixelated; }
+.contest-editor, .contest-npc-creator.team-builder-showdown-card { overflow: visible; }
+.contest-npc-showdown-body { grid-template-columns: 180px minmax(360px, 1fr) 27%; }
 .contest-npc-details .team-builder-form-grid { margin: 0; }
 .contest-temporary-npcs[data-temporary-npc-build="contest"] .team-builder-main-property,
 .contest-temporary-npcs[data-temporary-npc-build="battle"] .team-builder-main-property { position: relative; display: flex; align-items: center; min-width: 0; overflow: visible; padding: 12px 10px 7px; }
@@ -43,10 +54,14 @@
 .contest-temporary-npcs[data-temporary-npc-build="contest"] .team-builder-main-property select,
 .contest-temporary-npcs[data-temporary-npc-build="battle"] .team-builder-main-property input,
 .contest-temporary-npcs[data-temporary-npc-build="battle"] .team-builder-main-property select { box-sizing: border-box; width: 100%; min-width: 0; }
+.contest-item-build-summary { flex-direction: column; align-items: flex-start !important; justify-content: center; gap: 2px; }
+.contest-item-build-summary strong { color: #223f69; font-size: 14px; }
+.contest-item-build-summary small { color: #65758a; font-size: 11px; }
 .contest-selected-item-icon { flex: 0 0 34px; display: grid; place-items: center; width: 34px; height: 34px; }
 .contest-selected-item-icon img, .contest-selected-item-glyph { max-width: 32px; max-height: 32px; object-fit: contain; image-rendering: pixelated; }
 .contest-item-dropdown { position: absolute; z-index: 48; top: calc(100% + 7px); left: 0; width: min(520px, 78vw); max-height: min(390px, 55vh); padding: 7px; overflow: hidden; box-shadow: 0 12px 28px #24354d44; }
 .contest-item-results { display: grid; gap: 4px; max-height: calc(min(390px, 55vh) - 16px); overflow-y: auto; }
+.contest-item-category-heading { position: sticky; top: 0; z-index: 1; padding: 6px 8px 3px; color: #29456f; background: #fff; font: 700 12px Georgia, serif; border-bottom: 1px solid #c7d2e2; }
 .contest-item-option { display: grid; grid-template-columns: 42px minmax(0, 1fr); align-items: center; gap: 10px; width: 100%; min-height: 62px; padding: 8px 11px 8px 9px; border: 1px solid transparent; border-radius: 5px; background: transparent; color: #293f5e; text-align: left; }
 .contest-item-option:hover, .contest-item-option:focus-visible { border-color: #83a3c8; background: #e7f0fa; outline: none; }
 .contest-item-option-text { min-width: 0; display: grid; gap: 3px; }
@@ -57,9 +72,11 @@
 .contest-item-option-icon img, .contest-item-option-glyph { max-width: 40px; max-height: 40px; object-fit: contain; image-rendering: pixelated; }
 .contest-pokemon-placeholder { display: grid; place-items: center; width: 150px; height: 130px; border: 1px dashed #aeb9c8; color: var(--muted); text-align: center; }
 .contest-temporary-npcs[data-temporary-npc-build="contest"] .contest-pokemon-toolbar .team-builder-detail-grid { grid-template-columns: 82px 164px 96px; width: max-content; }
+.contest-temporary-npcs[data-temporary-npc-build="contest"] .contest-pokemon-toolbar { grid-template-columns: auto minmax(360px, 1fr) 27%; }
 .contest-temporary-npcs[data-temporary-npc-build="contest"] .contest-pokemon-toolbar .team-builder-detail-cell:nth-child(2) { min-width: 164px; }
 .contest-temporary-npcs[data-temporary-npc-build="contest"] .contest-pokemon-toolbar .team-builder-detail-cell:nth-child(2) select { width: 100%; min-width: 148px; }
 .contest-temporary-npcs[data-temporary-npc-build="contest"] .contest-pokemon-toolbar .team-builder-detail-cell:nth-child(3) input { width: 72px; max-width: 100%; }
+.contest-moves-toolbar-title { box-sizing: border-box; align-self: stretch; justify-self: stretch; display: flex; align-items: center; justify-content: flex-start; width: 100%; min-width: 0; padding: 8px 12px; border: 1px solid #b5beca; border-radius: 4px; background: #fff; color: #263d61; font: 700 16px Georgia, serif; line-height: 1.2; text-align: left; }
 .contest-temporary-npcs[data-temporary-npc-build="battle"] .contest-pokemon-toolbar .team-builder-detail-grid { grid-template-columns: 82px 164px 96px; width: max-content; }
 .contest-temporary-npcs[data-temporary-npc-build="battle"] .contest-pokemon-toolbar .team-builder-detail-cell:nth-child(2) { min-width: 164px; }
 .contest-temporary-npcs[data-temporary-npc-build="battle"] .contest-pokemon-toolbar .team-builder-detail-cell:nth-child(2) select { width: 100%; min-width: 148px; }
@@ -87,8 +104,20 @@
 .contest-move-results { display: grid; grid-template-columns: repeat(auto-fill, minmax(155px, 1fr)); gap: 7px; max-height: 230px; overflow: auto; }
 .contest-move-option { display: grid; gap: 2px; text-align: left; }
 .contest-selected-moves { min-height: 136px; }
+.contest-side-moves { position: relative; align-self: stretch; min-width: 0; height: auto; max-height: none; padding: 10px; }
+.contest-side-moves .contest-selected-moves { grid-template-columns: minmax(0, 1fr); gap: 6px; min-height: 0; margin: 0; }
+.contest-side-moves .team-builder-four-moves .team-builder-move-slot { width: 100%; min-width: 0; height: 50px; min-height: 50px; max-height: 50px; }
+.contest-side-moves .team-builder-four-moves .team-builder-move-card,
+.contest-side-moves .team-builder-four-moves .team-builder-move-card.rpg-move-button { box-sizing: border-box; width: 100%; height: 50px; min-height: 50px; max-height: 50px; padding: 7px; border-radius: 5px; }
+.contest-side-moves .rpg-move-button-body { display: none; }
+.contest-side-moves .team-builder-master-pp-control { display: none; }
+.contest-move-dropdown { position: absolute; z-index: 50; top: 0; right: 0; display: grid; grid-template-rows: auto minmax(0, 1fr); gap: 8px; width: min(900px, 88vw); height: min(480px, 62vh); padding: 12px; overflow: hidden; box-shadow: 0 14px 34px #24354d44; }
+.contest-move-dropdown .contest-catalog-search { box-sizing: border-box; width: 100%; }
+.contest-move-dropdown .contest-move-results { display: grid; grid-template-columns: 1fr; max-height: none; min-height: 0; overflow-y: auto; }
 .contest-temporary-list { display: grid; gap: 9px; }
 .contest-temporary-card { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; padding: 11px; border: 1px solid #c5cfda; border-radius: 12px; background: white; }
+.contest-temporary-npcs[data-temporary-npc-build="contest"] .contest-temporary-card { grid-template-columns: auto auto minmax(0, 1fr) auto; }
+.contest-temporary-trainer-sprite { width: 52px; height: 58px; object-fit: contain; image-rendering: pixelated; }
 .contest-temporary-card > div { display: grid; gap: 2px; }
 .contest-condition-grid { display: grid; grid-template-columns: repeat(2, minmax(180px, 1fr)); gap: 12px; max-width: 650px; }
 .contest-pokemon-selection { margin-top: 15px; }
@@ -107,4 +136,5 @@
 	.contest-npc-stats-meta { grid-template-columns: 1fr; }
 	.contest-species-dropdown { width: min(92vw, 800px); height: min(440px, 60vh); min-height: min(440px, 60vh); max-height: min(440px, 60vh); }
 	.contest-species-dropdown .contest-species-grid { grid-template-columns: repeat(auto-fill, 120px); }
+	.contest-npc-avatar-results { grid-template-columns: repeat(3, minmax(90px, 1fr)); }
 }

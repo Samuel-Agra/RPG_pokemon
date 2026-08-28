@@ -428,7 +428,7 @@ function rpgBattleEditor(characters, existing, onClose) {
 				for (const [index, npc] of npcs.entries()) {
 					participants.push({
 						id: `npc-b-${index + 1}-${npc.id}`, team: 'B', kind: 'npc',
-						displayName: npc.displayName, npcRole: 'generic', selectionLimit: 1,
+						displayName: npc.displayName, avatar: npc.avatar, npcRole: 'generic', selectionLimit: 1,
 						pokemon: [structuredClone(npc.pokemon)],
 					});
 				}

@@ -18,7 +18,7 @@ import {
 import { getRPGBattlePokemonCatalog } from './pokemon-catalog';
 import { RPGBattleRuntimeManager, type RPGBattleRuntimeAction } from './battle-runtime';
 import { getRPGBattleSceneCatalog } from './battle-scene';
-import { getRPGContestMoveCatalog } from './contest-move-catalog';
+import { getRPGContestMoveCatalog, getRPGContestPokemonMoveCatalog } from './contest-move-catalog';
 import {RPGContestRuntimeManager, type RPGContestRuntimeAction} from './contest-runtime';
 import { getRPGItemIconPath } from './item-icons';
 
@@ -793,6 +793,13 @@ export class RPGHttpServer {
 		if (method === 'GET' && url.pathname === '/api/rpg/contest-moves') {
 			this.login.getSession(this.token(req));
 			this.json(res, 200, {moves: getRPGContestMoveCatalog()});
+			return;
+		}
+		if (method === 'GET' && url.pathname === '/api/rpg/contest-pokemon-moves') {
+			this.login.getSession(this.token(req));
+			this.json(res, 200, {moves: getRPGContestPokemonMoveCatalog(
+				url.searchParams.get('species') || '', Number(url.searchParams.get('level') || 1)
+			)});
 			return;
 		}
 		if (url.pathname === '/api/rpg/contest-combos') {
