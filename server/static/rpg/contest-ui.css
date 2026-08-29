@@ -355,8 +355,37 @@
 .contest-sequence span { background: #ffffff22; padding: 6px 10px; border-radius: 10px; }
 .contest-sequence span:last-child { box-shadow: 0 0 10px #5077a655; }
 .contest-reaction { text-align: center; font-size: 18px; min-height: 28px; }
-.contest-judge-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
-.contest-judge-grid label { display: grid; gap: 5px; }
+.contest-stage-judge {
+	--judge-panel: #172432e8; --judge-accent: #f4ce69; --judge-glow: #f4ce6955; --judge-ink: #f6f8fc;
+	position: absolute; z-index: 17; top: clamp(92px, 16%, 132px); right: clamp(30px, 5vw, 78px); display: grid; gap: 8px;
+	width: clamp(190px, 17vw, 245px); padding: 11px; color: var(--judge-ink); background: var(--judge-panel);
+	border: 1px solid color-mix(in srgb, var(--judge-accent) 72%, white); border-radius: 11px;
+	box-shadow: 0 7px 20px #0009, 0 0 14px var(--judge-glow); backdrop-filter: blur(6px);
+}
+.contest-stage-judge.category-beauty { --judge-panel: #611b46e8; --judge-accent: #ffb4d0; --judge-glow: #ff80b87a; --judge-ink: #fff3f8; }
+.contest-stage-judge.category-cute { --judge-panel: #356da8e8; --judge-accent: #ffb7da; --judge-glow: #a8dcff7a; --judge-ink: #f5fbff; }
+.contest-stage-judge.category-cool { --judge-panel: #42155fe8; --judge-accent: #ffd158; --judge-glow: #c775ff7a; --judge-ink: #fff5cf; }
+.contest-stage-judge.category-smart { --judge-panel: #074b45e8; --judge-accent: #e5cd88; --judge-glow: #91e3ce70; --judge-ink: #f8f1d8; }
+.contest-stage-judge.category-tough { --judge-panel: #54180de8; --judge-accent: #ff9c57; --judge-glow: #ff5a277a; --judge-ink: #fff0df; }
+.contest-stage-judge h3 { margin: 0 0 2px; color: var(--judge-accent); font: 700 15px Georgia, 'Times New Roman', serif; text-align: center; text-shadow: 0 2px 4px #000b; }
+.contest-judge-grid { display: grid; gap: 5px; }
+.contest-judge-grid label { display: grid; grid-template-columns: minmax(0, 1fr) 44px; align-items: center; gap: 7px; }
+.contest-stage-judge .contest-judge-grid label > span {
+	overflow: hidden; color: var(--judge-ink) !important; font-size: 10px; font-weight: 800; line-height: 1.12;
+	text-overflow: ellipsis; text-shadow: 0 1px 2px #000, 0 0 4px color-mix(in srgb, var(--judge-accent) 28%, transparent);
+}
+.contest-judge-grid input {
+	box-sizing: border-box; width: 44px; min-height: 28px; padding: 3px 4px; color: #1f2d42; background: #f8fafde8;
+	border: 1px solid var(--judge-accent); border-radius: 5px; font-weight: 800; text-align: center;
+}
+.contest-stage-judge .contest-stage-judge-submit {
+	width: 100%; min-height: 30px; padding: 5px 8px; color: var(--judge-ink); background: color-mix(in srgb, var(--judge-panel) 74%, #fff 12%);
+	border-color: color-mix(in srgb, var(--judge-accent) 68%, white); box-shadow: 0 2px 7px #0007; font-size: 10px;
+}
+.contest-stage-judge .contest-stage-judge-submit:hover { color: #fff; border-color: var(--judge-accent); box-shadow: 0 2px 8px #0008, 0 0 9px var(--judge-glow); }
+@media (max-width: 760px) {
+	.contest-stage-judge { top: 100px; right: 18px; width: 180px; }
+}
 .contest-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
 .contest-confirmable-action { display: inline-grid; grid-template-columns: repeat(2, minmax(92px, auto)); gap: 7px; }
 .contest-confirmable-action > .button:only-child { grid-column: 1 / -1; }
@@ -368,11 +397,81 @@
 .contest-final-hero small { text-transform: uppercase; letter-spacing: .12em; opacity: .8; }
 .contest-final-hero h2 { margin: 5px 0; font-size: 30px; }
 .contest-final-hero p { margin: 6px auto 0; max-width: 620px; }
+.contest-final-ceremony { min-height: clamp(560px, 52vw, 760px); }
+.contest-final-ceremony-heading .contest-stage-identity { margin-top: -3px; }
+.contest-final-podium-entry {
+	--podium-left: 50%; position: absolute; z-index: 2; left: var(--podium-left); bottom: 10%; width: 29%; height: 56%;
+	transform: translateX(-50%); pointer-events: none;
+}
+.contest-final-podium-entry.place-1 { --podium-left: 50%; z-index: 4; bottom: 8%; height: 61%; }
+.contest-final-podium-entry.place-2 { --podium-left: 74%; z-index: 3; }
+.contest-final-podium-entry.place-3 { --podium-left: 26%; z-index: 2; }
+.contest-final-podium-trainer {
+	position: absolute; z-index: 2; left: 50%; bottom: 19%; width: clamp(82px, 9vw, 132px); height: clamp(118px, 13vw, 188px);
+	object-fit: contain; object-position: center bottom; image-rendering: pixelated; filter: drop-shadow(0 5px 3px #0008); transform: translateX(-50%);
+}
+.contest-final-podium-entry.place-1 .contest-final-podium-trainer { width: clamp(96px, 10vw, 148px); height: clamp(137px, 15vw, 210px); }
+.contest-final-podium-entry.place-2 .contest-final-podium-trainer { bottom: 24%; transform: translateX(-50%) translateY(-12px) scale(.9); }
+.contest-final-podium-entry.place-3 .contest-final-podium-trainer { bottom: 29%; transform: translateX(-50%) translateY(-23px) scale(.8); }
+.contest-final-podium-pokemon {
+	position: absolute; left: 4%; bottom: 12%; display: grid; place-items: end center; width: clamp(110px, 14vw, 205px); height: clamp(110px, 14vw, 205px);
+	filter: drop-shadow(0 6px 4px #0009); transform-origin: center bottom;
+}
+.contest-final-podium-entry.place-2 .contest-final-podium-pokemon { left: auto; right: -3%; }
+.contest-final-podium-entry.place-3 .contest-final-podium-pokemon { left: -3%; }
+.contest-final-podium-pokemon.behind { z-index: 1; bottom: 25%; }
+.contest-final-podium-pokemon.front { z-index: 3; bottom: 8%; }
+.contest-final-podium-pokemon .rpg-showdown-sprite, .contest-final-podium-pokemon .pokemon-sprite { display: grid; place-items: end center; width: 100%; height: 100%; }
+.contest-final-podium-pokemon img { width: auto; height: auto; max-width: 100%; max-height: 100%; image-rendering: pixelated; }
+.contest-final-podium-pokemon.look-right img { transform: scaleX(-1); }
+.contest-final-podium-pokemon.size-small { scale: .78; }
+.contest-final-podium-pokemon.size-medium { scale: 1; }
+.contest-final-podium-pokemon.size-large { scale: 1.26; }
+.contest-final-podium-pokemon.size-giant { scale: 1.48; }
+.contest-final-podium-entry.place-2 .contest-final-podium-pokemon { transform: translateY(-14px) scale(.9); }
+.contest-final-podium-entry.place-3 .contest-final-podium-pokemon { transform: translateY(-27px) scale(.8); }
+.contest-final-podium-label {
+	position: absolute; z-index: 5; top: -18%; left: 50%; display: grid; justify-items: center; min-width: 150px; padding: 6px 13px;
+	color: var(--podium-ink, #fff); background: var(--podium-panel, #17223fed); border: 2px solid var(--podium-accent, #ffe29f); border-radius: 12px;
+	box-shadow: 0 5px 15px #0009, 0 0 12px var(--podium-glow, #ffe29f55); transform: translateX(-50%); text-align: center; cursor: pointer; pointer-events: auto;
+}
+.contest-final-podium-entry.place-1 .contest-final-podium-label { top: -14%; }
+.contest-final-podium-label strong { color: var(--podium-accent, #ffd86c); font-family: var(--podium-font, Georgia, 'Times New Roman', serif); font-size: 17px; text-transform: uppercase; letter-spacing: .07em; }
+.contest-final-podium-entry.place-1 .contest-final-podium-label strong { font-size: 21px; text-shadow: 0 0 8px #ffcf4f; }
+.contest-final-podium-label span { max-width: 180px; overflow: hidden; font-size: 16px; font-weight: 800; text-overflow: ellipsis; white-space: nowrap; }
+.contest-final-podium-label small { color: #dbe6fa; }
+.contest-final-podium-score { margin-top: 2px; color: #ffe8a4 !important; font-weight: 800; }
+.contest-final-ceremony.category-beauty { --podium-panel: #611b46ed; --podium-accent: #ffb4d0; --podium-glow: #ff80b888; --podium-font: Georgia, 'Times New Roman', serif; }
+.contest-final-ceremony.category-cute { --podium-panel: #356da8ed; --podium-accent: #ffb7da; --podium-glow: #a8dcff88; --podium-font: 'Arial Rounded MT Bold', Arial, sans-serif; }
+.contest-final-ceremony.category-cool { --podium-panel: #42155fed; --podium-accent: #ffd158; --podium-glow: #c775ff88; --podium-font: Impact, 'Arial Black', sans-serif; }
+.contest-final-ceremony.category-smart { --podium-panel: #074b45ed; --podium-accent: #e5cd88; --podium-glow: #91e3ce77; --podium-font: Georgia, 'Times New Roman', serif; }
+.contest-final-ceremony.category-tough { --podium-panel: #54180ded; --podium-accent: #ff9c57; --podium-glow: #ff5a2788; --podium-font: Impact, 'Arial Black', sans-serif; }
+.contest-final-podium-details {
+	position: absolute; z-index: 8; top: 5%; left: 50%; display: none; width: min(240px, 92%); padding: 10px;
+	color: var(--podium-ink, #fff); background: var(--podium-panel, #17223ff2); border: 2px solid var(--podium-accent, #ffe29f);
+	border-radius: 13px; box-shadow: 0 8px 22px #000c, 0 0 14px var(--podium-glow, #ffe29f55); transform: translateX(-50%); pointer-events: auto;
+}
+.contest-final-podium-entry.details-open { z-index: 10; }
+.contest-final-podium-entry.details-open .contest-final-podium-details { display: grid; gap: 9px; animation: contest-podium-details-open .22s ease-out both; }
+.contest-final-podium-round { display: grid; gap: 5px; padding-bottom: 8px; border-bottom: 1px solid color-mix(in srgb, var(--podium-accent, #ffe29f) 45%, transparent); }
+.contest-final-podium-round:last-child { padding-bottom: 0; border-bottom: 0; }
+.contest-final-podium-round > strong { color: var(--podium-accent, #ffe29f); font-family: var(--podium-font, inherit); text-transform: uppercase; letter-spacing: .05em; }
+.contest-final-podium-round .contest-final-move-sequence { justify-content: center; }
+.contest-final-podium-round .contest-final-move-sequence span { color: #263d61; background: #fff; }
+.contest-final-podium-round .contest-final-reaction { margin: 2px 0 0; text-align: center; }
+@keyframes contest-podium-details-open { from { opacity: 0; translate: 0 -8px; scale: .94; } to { opacity: 1; translate: 0; scale: 1; } }
 .contest-final-participant-grid { display: grid; gap: 10px; }
 .contest-final-participant { display: grid; grid-template-columns: 126px minmax(150px, .5fr) minmax(300px, 1fr); align-items: center; gap: 14px; padding: 12px; border: 1px solid #c5cfda; border-radius: 10px; background: #f8fafc; }
 .contest-final-identity { display: flex; align-items: end; justify-content: center; min-height: 76px; }
 .contest-final-trainer { width: 58px; height: 72px; object-fit: contain; image-rendering: pixelated; }
 .contest-final-pokemon { width: 68px; height: 68px; object-fit: contain; image-rendering: pixelated; }
+@media (max-width: 760px) {
+	.contest-final-podium-entry { width: 34%; }
+	.contest-final-podium-entry.place-2 { --podium-left: 78%; }
+	.contest-final-podium-entry.place-3 { --podium-left: 22%; }
+	.contest-final-podium-label { min-width: 108px; padding-inline: 7px; }
+	.contest-final-podium-label span { max-width: 120px; font-size: 13px; }
+}
 .contest-final-participant h4 { margin: 3px 0; font-size: 17px; }
 .contest-final-rounds summary, .contest-master-review summary { color: #29456f; font-weight: 700; cursor: pointer; }
 .contest-final-round { margin-top: 9px; padding: 9px; border-left: 3px solid #7897be; background: #eef3f9; }

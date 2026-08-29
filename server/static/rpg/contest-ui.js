@@ -331,6 +331,7 @@ window.RPGContestUI = (() => {
 				cacheKey: `${contest.sessionId || session.id}:${current.id}:${contest.round}`,
 			});
 		}
+		if (contest.canJudge) stage.append(judgePanel(context, session, contest.category));
 		wrap.append(stage);
 		const canViewCurrentMoves = Boolean(current && (context.master || current.characterId === context.character?.id));
 		if (canViewCurrentMoves) {
@@ -378,7 +379,6 @@ window.RPGContestUI = (() => {
 			content.append(moves);
 			wrap.append(content);
 		}
-		if (contest.canJudge) wrap.append(judgePanel(context, session));
 		if (!context.master && current && current.characterId === context.character?.id) {
 			const actions = el('div', 'contest-actions');
 			actions.append(confirmableAction('Abandonar concurso', async () => {
@@ -395,8 +395,8 @@ window.RPGContestUI = (() => {
 		}
 		return wrap;
 	}
-	function judgePanel(context, session) {
-		const form = el('form', 'panel contest-card');
+	function judgePanel(context, session, category) {
+		const form = el('form', `contest-stage-judge category-${category}`);
 		form.append(el('h3', '', 'Avaliação do mestre'));
 		const grid = el('div', 'contest-judge-grid');
 		for (const [id, label] of criteria) {
@@ -405,7 +405,7 @@ window.RPGContestUI = (() => {
 			field.append(input); grid.append(field);
 		}
 		form.append(grid);
-		const submit = el('button', 'button primary', 'Confirmar notas'); submit.type = 'submit'; form.append(submit);
+		const submit = el('button', 'button contest-stage-judge-submit', 'Confirmar notas'); submit.type = 'submit'; form.append(submit);
 		form.addEventListener('submit', async event => {
 			event.preventDefault(); const data = new FormData(form); const values = {};
 			for (const [id] of criteria) values[id] = Number(data.get(id));
@@ -421,15 +421,64 @@ window.RPGContestUI = (() => {
 			const leftPlace = resultById.get(left.id)?.place ?? 999; const rightPlace = resultById.get(right.id)?.place ?? 999;
 			return leftPlace - rightPlace;
 		});
-		const winner = ordered.find(participant => resultById.get(participant.id)?.place === 1);
-		const hero = el('section', 'contest-final-hero');
-		hero.append(el('small', '', 'Vencedor do concurso'), el('h2', '', winner?.displayName || 'Concurso encerrado'));
-		if (winner) hero.append(el('p', '', `${winner.pokemon.name} conquistou o público e recebeu o principal destaque da apresentação.`));
-		page.append(hero);
-		const podium = el('section', 'panel contest-final-participants'); podium.append(el('h3', '', 'Classificação final'));
-		const cards = el('div', 'contest-final-participant-grid');
+		const finalists = ordered.filter(participant => {
+			const result = resultById.get(participant.id);
+			return !result?.disqualified && Number(result?.place) >= 1 && Number(result?.place) <= 3;
+		});
 		const moveName = (participant, moveId) => participant.pokemon.moves.find(move => move.id === moveId)?.name || moveId;
-		for (const participant of ordered) {
+		const ceremony = el('section', `contest-stage contest-final-ceremony category-${contest.category}`);
+		const backgroundId = contest.scenario?.backgroundId || session.scenario?.backgroundId;
+		if (backgroundId) {
+			ceremony.classList.add('has-background'); ceremony.style.backgroundImage = `url("${contestBackgroundUrl(backgroundId)}")`;
+		}
+		const ceremonyHeading = el('div', `contest-stage-heading contest-final-ceremony-heading category-${contest.category}`);
+		const categoryArt = el('img', 'contest-stage-category-art'); categoryArt.src = contestCategoryHeaderUrl(contest.category);
+		categoryArt.alt = labels[contest.category];
+		const ceremonyIdentity = el('div', 'contest-stage-identity'); ceremonyIdentity.append(el('span', '', 'Cerimônia final'), el('small', '', 'Pódio do concurso'));
+		ceremonyHeading.append(categoryArt, ceremonyIdentity); ceremony.append(ceremonyHeading);
+		for (const participant of finalists) {
+			const result = resultById.get(participant.id); const place = Number(result.place);
+			const entry = el('article', `contest-final-podium-entry place-${place}`);
+			const pokemonBehind = Number(participant.pokemon.heightM) >= 1.5;
+			const pokemonOnViewerRight = place === 2;
+			const pokemonHost = el('div', `contest-final-podium-pokemon ${pokemonBehind ? 'behind' : 'front'}${pokemonOnViewerRight ? ' look-right' : ''} size-${participant.pokemon.sizeClass || 'medium'}`);
+			const animatedPokemon = typeof rpgRuntimeSprite === 'function' ? rpgRuntimeSprite({
+				name: participant.pokemon.name, species: participant.pokemon.species, shiny: participant.pokemon.shiny,
+				spriteId: participant.pokemon.spriteId,
+			}) : spriteImage(participant.pokemon.species);
+			pokemonHost.append(animatedPokemon);
+			const trainer = el('img', 'contest-final-podium-trainer');
+			trainer.src = RPGAssets.url(`sprites/trainers/${participant.avatar || 'pokemonbreeder'}.png`);
+			trainer.alt = `Treinador ${participant.displayName}`;
+			const label = el('button', 'contest-final-podium-label'); label.type = 'button';
+			label.append(el('strong', '', place === 1 ? 'Campeão' : `${place}º lugar`), el('span', '', participant.displayName),
+				el('small', '', participant.pokemon.name), el('small', 'contest-final-podium-score', `Nota final: ${result.total}`));
+			const details = el('div', 'contest-final-podium-details');
+			for (let round = 0; round < 2; round++) {
+				const block = el('div', 'contest-final-podium-round'); block.append(el('strong', '', `${round + 1}ª rodada`));
+				const moves = el('div', 'contest-final-move-sequence');
+				for (const move of participant.rounds[round]) moves.append(el('span', '', moveName(participant, move)));
+				block.append(moves);
+				const reaction = participant.audienceReactions[round];
+				if (reaction) block.append(el('p', 'contest-final-reaction', `${reaction.emoji} ${reaction.label}`));
+				details.append(block);
+			}
+			label.addEventListener('click', () => {
+				const opening = !entry.classList.contains('details-open');
+				for (const other of ceremony.querySelectorAll('.contest-final-podium-entry.details-open')) other.classList.remove('details-open');
+				entry.classList.toggle('details-open', opening);
+			});
+			entry.append(pokemonHost, trainer, label, details); ceremony.append(entry);
+		}
+		page.append(ceremony);
+		const remaining = ordered.filter(participant => {
+			const result = resultById.get(participant.id);
+			return result?.disqualified || Number(result?.place) >= 4;
+		});
+		if (remaining.length) {
+			const podium = el('section', 'panel contest-final-participants'); podium.append(el('h3', '', 'Demais participantes'));
+			const cards = el('div', 'contest-final-participant-grid');
+		for (const participant of remaining) {
 			const result = resultById.get(participant.id); const card = el('article', 'contest-final-participant');
 			const identity = el('div', 'contest-final-identity');
 			if (participant.avatar) {
@@ -448,17 +497,12 @@ window.RPGContestUI = (() => {
 				block.append(moves);
 				const reaction = participant.audienceReactions[round];
 				if (reaction) block.append(el('p', 'contest-final-reaction', `${reaction.emoji} ${reaction.label}`));
-				const comments = participant.judgeComments?.[round];
-				if (comments) {
-					const list = el('ul', 'contest-final-comments');
-					for (const [criterion] of criteria) list.append(el('li', '', comments[criterion]));
-					block.append(list);
-				}
 				details.append(block);
 			}
 			card.append(details); cards.append(card);
 		}
-		podium.append(cards); page.append(podium);
+			podium.append(cards); page.append(podium);
+		}
 		const highlightLabels = {visualComposition: 'Composição visual', sequenceContinuity: 'Continuidade', stageUse: 'Uso do palco pelos jurados',
 			trainerPokemonSync: 'Sincronia', interpretationFinale: 'Interpretação e encerramento'};
 		const highlights = el('section', 'panel contest-final-highlights'); highlights.append(el('h3', '', 'Destaques do concurso'));

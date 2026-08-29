@@ -463,6 +463,20 @@ describe('RPG contest UI', () => {
 		assert.ok(ui.indexOf('wrap.append(content)') > ui.indexOf('if (canViewCurrentMoves) {'));
 	});
 
+	it('places the Master judging panel inside the stage with category styling', () => {
+		const ui = fs.readFileSync(path.join(root, 'contest-ui.js'), 'utf8');
+		const css = fs.readFileSync(path.join(root, 'contest-ui.css'), 'utf8');
+		assert.ok(ui.includes('if (contest.canJudge) stage.append(judgePanel(context, session, contest.category))'));
+		assert.ok(!ui.includes('if (contest.canJudge) wrap.append(judgePanel'));
+		assert.ok(ui.includes("const form = el('form', `contest-stage-judge category-${category}`)"));
+		assert.ok(ui.includes("'button contest-stage-judge-submit', 'Confirmar notas'"));
+		assert.ok(css.includes('top: clamp(92px, 16%, 132px); right: clamp(30px, 5vw, 78px)'));
+		assert.ok(css.includes('color: var(--judge-ink) !important'));
+		for (const category of ['beauty', 'cute', 'cool', 'smart', 'tough']) {
+			assert.ok(css.includes(`.contest-stage-judge.category-${category}`));
+		}
+	});
+
 	it('matches the battle invitation card for contest players', () => {
 		const ui = fs.readFileSync(path.join(root, 'contest-ui.js'), 'utf8');
 		for (const marker of ['function playerContestCard(context, session)', 'battle-session-card contest-invitation-card',
@@ -482,9 +496,9 @@ describe('RPG contest UI', () => {
 	it('keeps the final ceremony visible and exposes only the final score to players', () => {
 		const ui = fs.readFileSync(path.join(root, 'contest-ui.js'), 'utf8');
 		const runtime = fs.readFileSync(path.resolve(__dirname, '../../server/rpg-showdown/contest-runtime.ts'), 'utf8');
-		for (const marker of ['Classificação final', 'Destaques do concurso', 'Reação do público',
+		for (const marker of ['Cerimônia final', 'Demais participantes', 'Destaques do concurso', 'Reação do público',
 			'Uso do cenário', 'Melhor combo', 'Evolução entre rodadas', "context.master ? 'Encerrar e sair' : 'Encerrar'",
-			'Revisar detalhes do mestre', 'judgeComments']) assert.ok(ui.includes(marker), marker);
+			'Revisar detalhes do mestre']) assert.ok(ui.includes(marker), marker);
 		assert.ok(ui.includes("if (contest.status === 'ended' && contest.results) {"));
 		assert.ok(ui.includes('return resultsPanel(context, session, contest)'));
 		assert.ok(ui.includes("refreshTimer = null"));
@@ -498,5 +512,31 @@ describe('RPG contest UI', () => {
 		assert.ok(runtime.includes('participantId: result.participantId, place: result.place, total: result.total, disqualified: result.disqualified'));
 		assert.ok(runtime.includes('participant.judging = [null, null]'));
 		assert.ok(runtime.includes('participant.roundScores = [null, null]'));
+	});
+
+	it('keeps the contest scenario for a three-place ceremony and lists cards from fourth place onward', () => {
+		const ui = fs.readFileSync(path.join(root, 'contest-ui.js'), 'utf8');
+		const css = fs.readFileSync(path.join(root, 'contest-ui.css'), 'utf8');
+		for (const marker of ['contest-final-ceremony', 'contestBackgroundUrl(backgroundId)', 'contest-final-podium-entry place-${place}',
+			"place === 1 ? 'Campeão'", "Number(participant.pokemon.heightM) >= 1.5", "pokemonBehind ? 'behind' : 'front'",
+			"result?.disqualified || Number(result?.place) >= 4", 'Demais participantes']) assert.ok(ui.includes(marker), marker);
+		for (const marker of ['.contest-final-podium-entry.place-1', '.contest-final-podium-entry.place-2',
+			'.contest-final-podium-entry.place-3', '.contest-final-podium-pokemon.behind', '.contest-final-podium-pokemon.front',
+			'.contest-final-podium-pokemon.look-right img { transform: scaleX(-1); }', 'top: -18%']) {
+			assert.ok(css.includes(marker), marker);
+		}
+		assert.ok(ui.includes('const pokemonOnViewerRight = place === 2'));
+		assert.ok(ui.includes("pokemonOnViewerRight ? ' look-right' : ''"));
+		assert.ok(ui.includes("const label = el('button', 'contest-final-podium-label')"));
+		assert.ok(ui.includes("entry.classList.toggle('details-open', opening)"));
+		assert.ok(ui.includes("const details = el('div', 'contest-final-podium-details')"));
+		assert.ok(!ui.includes("const list = el('ul', 'contest-final-comments')"));
+		for (const category of ['beauty', 'cute', 'cool', 'smart', 'tough']) {
+			assert.ok(css.includes(`.contest-final-ceremony.category-${category}`));
+		}
+		assert.ok(css.includes('.contest-final-podium-entry.details-open .contest-final-podium-details'));
+		assert.ok(css.includes('.contest-final-podium-round .contest-final-move-sequence span { color: #263d61; background: #fff; }'));
+		assert.ok(css.includes('.contest-final-podium-entry.place-2 .contest-final-podium-trainer { bottom: 24%;'));
+		assert.ok(css.includes('.contest-final-podium-entry.place-3 .contest-final-podium-trainer { bottom: 29%;'));
 	});
 });
