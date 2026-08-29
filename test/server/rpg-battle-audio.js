@@ -10,8 +10,17 @@ describe('RPG battle audio', function () {
 			listeners: {},
 			addEventListener(type, listener) { this.listeners[type] = listener; }, removeEventListener() {},
 			createElement() {
+				const classes = new Set();
 				return {
-					className: '', type: '', setAttribute() {},
+					className: '', type: '', setAttribute() {}, style: {setProperty() {}},
+					children: [], append(...children) { this.children.push(...children); }, focus() {},
+					contains(node) { return this === node || this.children.some(child => child.contains?.(node)); },
+					classList: {
+						add: (...names) => names.forEach(name => classes.add(name)),
+						remove: (...names) => names.forEach(name => classes.delete(name)),
+						toggle: name => classes.has(name) ? (classes.delete(name), false) : (classes.add(name), true),
+						contains: name => classes.has(name),
+					},
 					addEventListener(type, listener) { this['on' + type] = listener; },
 				};
 			},
@@ -63,12 +72,21 @@ describe('RPG battle audio', function () {
 		}).file, 'oras-rival.mp3');
 		assert.equal(api.selectTrack({musicContext: {activity: 'performance'}, participants: []}).file, 'bw2-homika-dogars.mp3');
 	});
+	it('plays the prepared performance theme for contests without restarting it on refresh', function () {
+		const {api, audioInstances} = load();
+		assert.equal(api.playForContest().file, 'bw2-homika-dogars.mp3');
+		assert.equal(audioInstances.length, 1);
+		assert.equal(audioInstances[0].src, 'https://play.pokemonshowdown.com/audio/bw2-homika-dogars.mp3');
+		api.playForContest();
+		assert.equal(audioInstances.length, 1, 'contest refresh must preserve the current music instance');
+		assert.equal(audioInstances[0].paused, false);
+	});
 	it('plays a Pokemon cry from the external provider at a restrained volume', function () {
 		const {api, audioInstances} = load();
 		api.playCry('charizard-megax', {baseId: 'charizard'});
 		assert.equal(audioInstances.length, 1);
 		assert.equal(audioInstances[0].src, 'https://play.pokemonshowdown.com/audio/cries/charizard-megax.mp3');
-		assert(Math.abs(audioInstances[0].volume - 0.225) < 1e-9);
+		assert(Math.abs(audioInstances[0].volume - 0.28) < 1e-9);
 	});
 	it('starts quietly and exposes an unmounted persistent volume control', function () {
 		const {api, storage} = load();
@@ -79,14 +97,45 @@ describe('RPG battle audio', function () {
 		assert.equal(api.getVolume(), 0.25);
 		assert.equal(storage.get('rpg-battle-music-volume'), '0.25');
 	});
+	it('provides a continuous vertical contest volume slider whose minimum is mute', function () {
+		const {api, document} = load();
+		const wrapper = api.createVerticalVolumeControl();
+		const [panel, button] = wrapper.children;
+		const [value, slider] = panel.children;
+		assert.equal(slider.type, 'range');
+		assert.equal(slider.min, '0');
+		assert.equal(slider.max, '100');
+		panel.classList.add('hidden');
+		button.onclick();
+		assert.equal(panel.classList.contains('hidden'), false);
+		document.listeners.pointerdown({target: {}});
+		assert.equal(panel.classList.contains('hidden'), true, 'clicking outside must close the slider');
+		slider.value = '0'; slider.oninput();
+		assert.equal(api.getVolume(), 0);
+		assert.equal(value.textContent, 'Mudo');
+		assert.equal(button.textContent, '♫ Mudo');
+	});
+	it('persists an independent effects mute without muting contest music', function () {
+		const {api, storage, audioInstances} = load();
+		api.playForContest();
+		const control = api.createEffectsToggleButton();
+		control.onclick();
+		assert.equal(api.getEffectsMuted(), true);
+		assert.equal(storage.get('rpg-effects-muted'), 'true');
+		assert.equal(api.playEffect('impact'), null);
+		assert.equal(audioInstances[0].paused, false, 'music remains active when effects are muted');
+		control.onclick();
+		assert.equal(api.getEffectsMuted(), false);
+		assert(api.playEffect('impact'));
+	});
 	it('plays original local cues and keeps unchanged ambience running', function () {
 		const {api, audioInstances} = load();
 		const effect = api.playEffect('heal');
-		assert.equal(effect.src, './assets/audio/heal.wav?v=20260811-11');
+		assert.equal(effect.src, './assets/audio/heal.wav?v=20260829-14');
 		assert.equal(api.setEnvironment({weather: 'RainDance', terrain: 'Electric Terrain'}), 'raindance|electricterrain');
 		assert.equal(audioInstances.length, 3);
-		assert.equal(audioInstances[1].src, './assets/audio/weather-rain.wav?v=20260811-11');
-		assert.equal(audioInstances[2].src, './assets/audio/terrain-electric.wav?v=20260811-11');
+		assert.equal(audioInstances[1].src, './assets/audio/weather-rain.wav?v=20260829-14');
+		assert.equal(audioInstances[2].src, './assets/audio/terrain-electric.wav?v=20260829-14');
 		assert.equal(audioInstances[1].loop, true);
 		api.setEnvironment({weather: 'RainDance', terrain: 'Electric Terrain'});
 		assert.equal(audioInstances.length, 3, 'render updates must not restart ambience');
@@ -101,7 +150,7 @@ describe('RPG battle audio', function () {
 		document.listeners.click({target: {closest: () => control(false)}});
 		assert.equal(audioInstances.length, 0);
 		document.listeners.click({target: {closest: () => control(true)}});
-		assert.equal(audioInstances[0].src, './assets/audio/ui-click.wav?v=20260811-11');
+		assert.equal(audioInstances[0].src, './assets/audio/ui-click.wav?v=20260829-14');
 	});
 	it('exposes the complete capture, faint, flee and block cue set', function () {
 		const {api} = load();
@@ -113,9 +162,9 @@ describe('RPG battle audio', function () {
 		for (const name of ['statusBurn', 'statusPoison', 'statusParalysis', 'statusSleep',
 			'statusFreeze', 'berryBite', 'heldItemActivate', 'levelUp', 'shinySparkle']) assert(api.effects[name], name);
 		const shiny = api.playEffect('shinySparkle');
-		assert.equal(shiny.src, './assets/audio/shiny-sparkle.wav?v=20260811-11');
+		assert.equal(shiny.src, './assets/audio/shiny-sparkle.wav?v=20260829-14');
 		const music = api.playProgressionMusic();
-		assert.equal(music.src, './assets/audio/progression-theme.wav?v=20260811-11');
+		assert.equal(music.src, './assets/audio/progression-theme.wav?v=20260829-14');
 		assert.equal(music.loop, true);
 		assert.equal(audioInstances.length, 2);
 	});

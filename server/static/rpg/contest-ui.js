@@ -7,6 +7,9 @@ window.RPGContestUI = (() => {
 	let moveCatalog = null;
 	let itemCatalog = null;
 	let avatarCatalog = null;
+	const contestAnimationCursors = new Map();
+	let contestAnimationQueue = Promise.resolve();
+	let contestAnimationActive = false;
 	const labels = {beauty: 'Beleza', cute: 'Fofura', cool: 'Estilo', smart: 'Inteligência', tough: 'Força',
 		normal: 'Normal', great: 'Great', super: 'Super', hyper: 'Hyper', master: 'Master'};
 	const criteria = [
@@ -20,6 +23,7 @@ window.RPGContestUI = (() => {
 		{id: 'festival-plaza', name: 'Praça de festival'}, {id: 'snowy-overlook', name: 'Mirante nevado'},
 	];
 	const contestBackgroundUrl = id => new URL(`./assets/contest-backgrounds/${id}.png`, document.baseURI).href;
+	const contestCategoryHeaderUrl = id => new URL(`./assets/contest-category-headers/${id}.png?v=20260829-2`, document.baseURI).href;
 	const contestStats = [['hp', 'HP'], ['atk', 'Attack'], ['def', 'Defense'], ['spa', 'Sp. Attack'], ['spd', 'Sp. Defense'], ['spe', 'Speed']];
 	const contestNatures = ['Adamant', 'Bashful', 'Bold', 'Brave', 'Calm', 'Careful', 'Docile', 'Gentle', 'Hardy', 'Hasty',
 		'Impish', 'Jolly', 'Lax', 'Lonely', 'Mild', 'Modest', 'Naive', 'Naughty', 'Quiet', 'Quirky', 'Rash', 'Relaxed',
@@ -34,9 +38,48 @@ window.RPGContestUI = (() => {
 		if (text !== undefined) node.textContent = text;
 		return node;
 	};
+	const cssId = value => String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+	const contestMoveTraitLabels = Object.freeze({
+		weather: 'Clima', terrain: 'Terrain', dance: 'Dança', sound: 'Som', healing: 'Cura',
+		movement: 'Movimento', light: 'Luz', wind: 'Vento', flower: 'Flores', wave: 'Onda',
+		explosion: 'Explosão', defense: 'Defesa', speed: 'Velocidade', playful: 'Expressivo',
+		magic: 'Mágico', beam: 'Feixe', shadow: 'Sombra', mist: 'Névoa', smoke: 'Fumaça',
+	});
+	const contestBattleCategoryLabels = Object.freeze({physical: 'Físico', special: 'Especial', status: 'Status'});
+	function contestMoveTraits(move) {
+		const traits = [];
+		const battleCategory = contestBattleCategoryLabels[cssId(move.battleCategory)];
+		if (battleCategory) traits.push(battleCategory);
+		for (const tag of move.tags || []) {
+			const label = contestMoveTraitLabels[cssId(tag)];
+			if (label && !traits.includes(label)) traits.push(label);
+			if (traits.length >= 3) break;
+		}
+		return traits;
+	}
 	const actionButton = (text, handler, primary = false) => {
 		const node = el('button', `button${primary ? ' primary' : ''}`, text);
 		node.type = 'button'; node.addEventListener('click', handler); return node;
+	};
+	const confirmableAction = (label, handler) => {
+		const control = el('div', 'contest-confirmable-action');
+		control.setAttribute('aria-live', 'polite');
+		const showInitial = () => control.replaceChildren(actionButton(label, showConfirmation));
+		const showConfirmation = () => {
+			const confirm = actionButton('Confirmar', () => {
+				confirm.disabled = true; cancel.disabled = true;
+				void Promise.resolve(handler()).catch(error => {
+					console.error('RPG contest abandon action failed', error);
+					showInitial();
+				});
+			}, true);
+			confirm.classList.add('contest-abandon-confirm');
+			const cancel = actionButton('Cancelar', showInitial);
+			cancel.classList.add('contest-abandon-cancel');
+			control.replaceChildren(confirm, cancel);
+		};
+		showInitial();
+		return control;
 	};
 	const field = (label, control, help = '') => {
 		const wrapper = el('label', 'field'); wrapper.append(el('span', '', label), control);
@@ -98,7 +141,129 @@ window.RPGContestUI = (() => {
 	}
 	async function runtime(context, session) {
 		const data = await context.api(`/contest-sessions/${encodeURIComponent(session.id)}/runtime`);
+		initializeContestAnimationCursor(data.contest, true);
 		return renderRuntime(context, session, data.contest);
+	}
+	function initializeContestAnimationCursor(contest, force = false) {
+		if (!contest?.sessionId) return;
+		if (!force && contestAnimationCursors.has(contest.sessionId)) return;
+		contestAnimationCursors.set(contest.sessionId,
+			(contest.events || []).reduce((maximum, event) => Math.max(maximum, event.sequence), -1));
+	}
+	function takePendingContestAnimations(contest) {
+		if (!contest?.sessionId) return [];
+		if (!contestAnimationCursors.has(contest.sessionId)) {
+			initializeContestAnimationCursor(contest);
+			return [];
+		}
+		const cursor = contestAnimationCursors.get(contest.sessionId);
+		const pending = (contest.events || []).filter(event => event.sequence > cursor)
+			.sort((left, right) => left.sequence - right.sequence);
+		if (pending.length) contestAnimationCursors.set(contest.sessionId, pending[pending.length - 1].sequence);
+		return pending;
+	}
+	function enterContestMode() {
+		document.getElementById('dashboard-screen')?.classList.add('contest-mode');
+	}
+	function leaveContestMode() {
+		if (refreshTimer) window.clearTimeout(refreshTimer);
+		refreshTimer = null;
+		window.RPGBattleAudio?.stop();
+		document.getElementById('dashboard-screen')?.classList.remove('contest-mode');
+	}
+	function contestBackButton(context) {
+		const back = actionButton('Voltar', () => {
+			leaveContestMode();
+			context.state.dashboardView = 'overview';
+			void context.rerender();
+		});
+		back.classList.add('rpg-leave-room');
+		return back;
+	}
+	function scheduleActiveContestRefresh(context, session, page, contest) {
+		const fingerprint = JSON.stringify(contest);
+		const check = async () => {
+			if (!page.isConnected) return;
+			if (contestAnimationActive) {
+				refreshTimer = window.setTimeout(check, 250);
+				return;
+			}
+			try {
+				const data = await context.api(`/contest-sessions/${encodeURIComponent(session.id)}/runtime`);
+				if (JSON.stringify(data.contest) !== fingerprint) {
+					void transitionRuntimePage(context, session, page, data.contest);
+					return;
+				}
+			} catch {
+				// Mantém o palco atual durante uma falha momentânea de atualização.
+			}
+			if (page.isConnected) refreshTimer = window.setTimeout(check, 1200);
+		};
+		refreshTimer = window.setTimeout(check, 1200);
+	}
+	function replaceRuntimePage(context, session, currentPage, contest) {
+		if (refreshTimer) window.clearTimeout(refreshTimer);
+		refreshTimer = null;
+		const scrollLeft = window.scrollX; const scrollTop = window.scrollY;
+		const nextPage = renderRuntime(context, session, contest);
+		let mountedPage = nextPage;
+		if (currentPage?.isConnected) {
+			currentPage.className = nextPage.className;
+			currentPage.replaceChildren(...nextPage.childNodes);
+			mountedPage = currentPage;
+		} else {
+			document.getElementById('dashboard-body')?.replaceChildren(nextPage);
+		}
+		window.scrollTo(scrollLeft, scrollTop);
+		if (!mountedPage.classList.contains('contest-final-page')) {
+			scheduleActiveContestRefresh(context, session, mountedPage, contest);
+		}
+		return mountedPage;
+	}
+	async function playContestAnimationEvents(page, contest, events) {
+		const stage = page?.querySelector?.('.contest-stage');
+		if (!stage || !window.RPGContestAnimations) return;
+		const pokemon = stage.querySelector('.contest-stage-pokemon');
+		const trainer = stage.querySelector('.contest-stage-trainer');
+		for (const event of events) {
+			if (event.type === 'move-selected') {
+				const participant = contest.participants.find(entry => entry.id === event.participantId);
+				const move = participant?.pokemon.moves.find(entry => entry.moveId === event.moveId || entry.id === event.moveId);
+				if (move) await window.RPGContestAnimations.playMove(stage, pokemon, trainer, move, event, {
+					pokemonName: participant.pokemon.name, contestCategory: contest.category,
+				});
+			} else if (event.type === 'judging-complete') {
+				await window.RPGContestAnimations.reaction(stage, event.audienceReaction);
+			} else if (event.type === 'participant-disqualified') {
+				await window.RPGContestAnimations.disqualify(stage);
+			}
+		}
+	}
+	function transitionRuntimePage(context, session, currentPage, contest) {
+		const pending = takePendingContestAnimations(contest);
+		if (!pending.length || !currentPage?.isConnected) return Promise.resolve(replaceRuntimePage(context, session, currentPage, contest));
+		contestAnimationActive = true;
+		currentPage.classList.add('contest-animating');
+		contestAnimationQueue = contestAnimationQueue.catch(() => undefined).then(async () => {
+			const beforeReplacement = pending.filter(event =>
+				['move-selected', 'judging-complete', 'participant-disqualified'].includes(event.type));
+			await playContestAnimationEvents(currentPage, contest, beforeReplacement);
+			const entered = pending.some(event => event.type === 'participant-enter');
+			if (entered) await window.RPGContestAnimations?.cleanupStage?.(currentPage.querySelector('.contest-stage'));
+			const mountedPage = replaceRuntimePage(context, session, currentPage, contest);
+			if (entered && !mountedPage.classList.contains('contest-final-page')) {
+				mountedPage.classList.add('contest-animating');
+				await window.RPGContestAnimations?.entrance?.(mountedPage.querySelector('.contest-stage'));
+				mountedPage.classList.remove('contest-animating');
+			}
+		}).catch(error => {
+			console.error('RPG contest animation queue failed', error);
+			replaceRuntimePage(context, session, currentPage, contest);
+		}).finally(() => {
+			contestAnimationActive = false;
+			currentPage?.classList.remove('contest-animating');
+		});
+		return contestAnimationQueue;
 	}
 	async function applyRuntimeResponse(context, session, request) {
 		let data;
@@ -112,41 +277,68 @@ window.RPGContestUI = (() => {
 			}
 			if (data.contest?.status !== 'ended') throw requestError;
 		}
-		if (data.contest?.status === 'ended') {
-			if (refreshTimer) window.clearTimeout(refreshTimer);
-			refreshTimer = null;
-			const root = document.getElementById('dashboard-content');
-			root.replaceChildren(renderRuntime(context, session, data.contest)); return;
-		}
-		await refresh(context);
+		const currentPage = document.querySelector('#dashboard-body > .contest-page, #dashboard-body > .contest-final-page');
+		await transitionRuntimePage(context, session, currentPage, data.contest);
 	}
 	function renderRuntime(context, session, contest) {
+		enterContestMode();
 		if (contest.status === 'ended' && contest.results) {
 			if (refreshTimer) window.clearTimeout(refreshTimer);
 			refreshTimer = null;
+			window.RPGBattleAudio?.stop();
 			return resultsPanel(context, session, contest);
 		}
+		window.RPGBattleAudio?.playForContest?.();
 		const wrap = el('div', 'contest-page');
 		const stage = el('section', 'contest-stage');
+		const stageControls = el('div', 'contest-stage-controls');
+		if (window.RPGBattleAudio?.createVerticalVolumeControl) stageControls.append(window.RPGBattleAudio.createVerticalVolumeControl());
+		if (window.RPGBattleAudio?.createEffectsToggleButton) stageControls.append(window.RPGBattleAudio.createEffectsToggleButton());
+		stageControls.append(contestBackButton(context)); stage.append(stageControls);
 		const backgroundId = contest.scenario?.backgroundId || session.scenario?.backgroundId;
 		if (backgroundId) {
 			stage.classList.add('has-background'); stage.style.backgroundImage = `url("${contestBackgroundUrl(backgroundId)}")`;
 		}
-		const content = el('div', 'contest-stage-content');
-		content.append(el('div', 'contest-badges', `Rodada ${contest.round} · ${labels[contest.category]} · ${labels[contest.rank]}`));
 		const current = contest.participants.find(item => item.id === contest.currentParticipantId);
 		if (current) {
+			const activeStageState = current.stageStates?.[contest.round - 1];
+			const temporaryStage = activeStageState?.temporary;
+			stage.dataset.hasTemporaryEffects = String(Boolean(temporaryStage?.weather || temporaryStage?.terrain || temporaryStage?.tags?.length));
+			const stageHeading = el('div', `contest-stage-heading category-${contest.category}`);
+			const categoryArt = el('img', 'contest-stage-category-art');
+			categoryArt.src = contestCategoryHeaderUrl(contest.category);
+			categoryArt.alt = labels[contest.category];
+			const stageIdentity = el('div', 'contest-stage-identity');
+			stageIdentity.append(
+				el('span', '', current.displayName),
+				el('span', '', current.pokemon.name),
+				el('small', '', `Rodada ${contest.round}`),
+			);
+			stageHeading.append(categoryArt, stageIdentity);
+			stage.append(stageHeading);
+			const actors = el('div', 'contest-stage-actors');
+			const trainer = el('img', 'contest-stage-trainer');
+			trainer.src = RPGAssets.url(`sprites/trainers/${current.avatar || 'pokemonbreeder'}.png`);
+			trainer.alt = `Treinador ${current.displayName}`;
+			const pokemonHost = el('div', `contest-stage-pokemon size-${current.pokemon.sizeClass || 'medium'}`);
+			pokemonHost.dataset.pokemonHeight = current.pokemon.heightM || 0;
+			const animatedPokemon = typeof rpgRuntimeSprite === 'function' ? rpgRuntimeSprite({
+				name: current.pokemon.name, species: current.pokemon.species, shiny: current.pokemon.shiny,
+				spriteId: current.pokemon.spriteId,
+			}) : spriteImage(current.pokemon.species);
+			pokemonHost.append(animatedPokemon); actors.append(trainer, pokemonHost); stage.append(actors);
+			window.RPGContestAnimations?.renderPersistentStage?.(stage, activeStageState, {
+				cacheKey: `${contest.sessionId || session.id}:${current.id}:${contest.round}`,
+			});
+		}
+		wrap.append(stage);
+		const canViewCurrentMoves = Boolean(current && (context.master || current.characterId === context.character?.id));
+		if (canViewCurrentMoves) {
+			const content = el('section', 'panel contest-stage-content');
 			let activateMega = false;
-			const performer = el('div', 'contest-performer');
-			performer.append(el('strong', '', current.displayName));
-			performer.append(el('span', '', `${current.pokemon.name} · Performance ${current.pokemon.performance}`));
-			content.append(performer);
-			const sequence = el('div', 'contest-sequence');
-			for (const move of current.rounds[contest.round - 1]) sequence.append(el('span', '', move));
-			content.append(sequence);
-			const reaction = current.audienceReactions[contest.round - 1];
-			content.append(el('div', 'contest-reaction', reaction ? `${reaction.emoji} ${reaction.label}` : 'O público aguarda a apresentação.'));
 			const moves = el('div', 'contest-moves');
+			const currentRoundMoves = current.rounds[contest.round - 1] || [];
+			const firstRoundMoves = current.rounds[0] || [];
 			if (current.pokemon.megaEligible && !current.pokemon.megaActivated) {
 				const mega = actionButton(`Mega Evoluir para ${current.pokemon.megaSpecies}`, () => {
 					activateMega = !activateMega;
@@ -155,8 +347,28 @@ window.RPGContestUI = (() => {
 				mega.disabled = !contest.canAct; moves.append(mega);
 			}
 			for (const move of current.pokemon.moves) {
-				const button = el('button', 'contest-move', move.name);
+				const moveId = cssId(move.id);
+				const positions = currentRoundMoves.reduce((result, usedMove, index) => {
+					if (cssId(usedMove) === moveId) result.push(index + 1);
+					return result;
+				}, []);
+				const usedInFirstRound = contest.round === 2 && firstRoundMoves.some(usedMove => cssId(usedMove) === moveId);
+				const button = el('button', `contest-move rpg-move-button type-${cssId(move.type)}${usedInFirstRound ? ' used-first-round' : ''}`);
 				button.type = 'button'; button.disabled = !contest.canAct;
+				const heading = el('span', 'contest-move-heading');
+				heading.append(el('strong', '', move.name), el('span', `rpg-type-badge type-${cssId(move.type)}`, move.type.toUpperCase()));
+				const details = el('span', 'contest-move-details');
+				const traits = el('span', 'contest-move-traits');
+				for (const trait of contestMoveTraits(move)) traits.append(el('small', '', trait));
+				details.append(traits);
+				const affectsStage = move.changesField || (move.tags || []).some(tag => cssId(tag) === 'fieldchange');
+				if (affectsStage) details.append(el('span', 'contest-move-field', '◇ Afeta o palco'));
+				if (positions.length) {
+					const order = el('span', 'contest-move-order');
+					for (const position of positions) order.append(el('b', '', String(position)));
+					details.append(order);
+				}
+				button.append(heading, details);
 				button.addEventListener('click', async () => {
 					await applyRuntimeResponse(context, session, context.api(`/contest-sessions/${encodeURIComponent(session.id)}/action`,
 						{method: 'POST', body: {type: 'select-move', moveId: move.id, activateMega}}));
@@ -164,13 +376,19 @@ window.RPGContestUI = (() => {
 				moves.append(button);
 			}
 			content.append(moves);
+			wrap.append(content);
 		}
-		stage.append(content); wrap.append(stage);
 		if (contest.canJudge) wrap.append(judgePanel(context, session));
 		if (!context.master && current && current.characterId === context.character?.id) {
 			const actions = el('div', 'contest-actions');
-			actions.append(actionButton('Abandonar concurso', async () => {
-				if (!window.confirm('Abandonar desclassifica o participante sem possibilidade de retorno.')) return;
+			actions.append(confirmableAction('Abandonar concurso', async () => {
+				await applyRuntimeResponse(context, session, context.api(`/contest-sessions/${encodeURIComponent(session.id)}/action`,
+					{method: 'POST', body: {type: 'abandon'}}));
+			})); wrap.append(actions);
+		}
+		if (context.master && current?.kind === 'npc') {
+			const actions = el('div', 'contest-actions');
+			actions.append(confirmableAction('Abandonar com este NPC', async () => {
 				await applyRuntimeResponse(context, session, context.api(`/contest-sessions/${encodeURIComponent(session.id)}/action`,
 					{method: 'POST', body: {type: 'abandon'}}));
 			})); wrap.append(actions);
@@ -272,8 +490,9 @@ window.RPGContestUI = (() => {
 			page.append(review);
 		}
 		const actions = el('div', 'contest-final-actions');
+		if (window.RPGBattleAudio?.createEffectsToggleButton) actions.append(window.RPGBattleAudio.createEffectsToggleButton());
 		actions.append(actionButton(context.master ? 'Encerrar e sair' : 'Encerrar', () => {
-			dismissedContestResults.add(session.id); void context.rerender();
+			dismissedContestResults.add(session.id); leaveContestMode(); void context.rerender();
 		}, true));
 		if (context.master) {
 			const future = actionButton('Salvar como registro da campanha (futuramente)', () => {}, false); future.disabled = true; actions.append(future);
@@ -1132,7 +1351,7 @@ window.RPGContestUI = (() => {
 		const title = el('div'); title.append(el('h3', '', session.name)); title.append(badges(session)); header.append(title);
 		const actions = el('div', 'contest-actions');
 		if (session.status === 'started') actions.append(actionButton('Abrir palco', async () => {
-			const root = document.getElementById('dashboard-content'); root.replaceChildren(await runtime(context, session));
+			const root = document.getElementById('dashboard-body'); root.replaceChildren(await runtime(context, session));
 		}, true));
 		if (context.master && session.status === 'ready') actions.append(actionButton('Iniciar', async () => {
 			await context.api(`/contest-sessions/${encodeURIComponent(session.id)}/start`, {method: 'POST'}); await refresh(context);
@@ -1152,9 +1371,11 @@ window.RPGContestUI = (() => {
 		const data = await context.api('/contest-sessions'); const sessions = data.contestSessions || [];
 		const active = sessions.find(session => session.status === 'started');
 		if (active) {
-			const page = await runtime(context, active);
+			const runtimeData = await context.api(`/contest-sessions/${encodeURIComponent(active.id)}/runtime`);
+			initializeContestAnimationCursor(runtimeData.contest, true);
+			const page = renderRuntime(context, active, runtimeData.contest);
 			if (!page.classList.contains('contest-final-page')) {
-				refreshTimer = window.setTimeout(() => void rerenderPreservingViewport(context), 1200);
+				scheduleActiveContestRefresh(context, active, page, runtimeData.contest);
 			}
 			return page;
 		}
@@ -1183,5 +1404,5 @@ window.RPGContestUI = (() => {
 		schedulePreContestRefresh(context, page, sessions);
 		return page;
 	}
-	return {render, battleTemporaryNPCEditor};
+	return {render, battleTemporaryNPCEditor, stopAudio: () => window.RPGBattleAudio?.stop()};
 })();

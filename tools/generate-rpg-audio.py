@@ -41,6 +41,17 @@ def write_samples(name, samples, peak=.72):
     with wave.open(str(OUTPUT / name), "wb") as target:
         target.setnchannels(1); target.setsampwidth(2); target.setframerate(RATE)
         target.writeframes(b"".join(frames))
+def write_stereo_samples(name, channels, sample_rate, peak=.72):
+    highest = max((abs(value) for channel in channels for value in channel), default=1.) or 1.
+    scale = peak / highest
+    frames = []
+    for left, right in zip(*channels):
+        frames.append(struct.pack("<hh", int(max(-1, min(1, left * scale)) * 32767),
+                                  int(max(-1, min(1, right * scale)) * 32767)))
+    OUTPUT.mkdir(parents=True, exist_ok=True)
+    with wave.open(str(OUTPUT / name), "wb") as target:
+        target.setnchannels(2); target.setsampwidth(2); target.setframerate(sample_rate)
+        target.writeframes(b"".join(frames))
 def rain_samples(duration):
     """Periodic filtered noise plus wrapped droplets: rain, without an audible loop seam."""
     total = int(RATE * duration)
@@ -254,6 +265,89 @@ def ice_crack_samples(duration=2.0):
         samples[index] += math.sin(phase) * shape * irregular * .075
     return samples
 
+def audience_reaction_samples(level):
+    """Stereo crowd made from irregular handclaps, room movement and nonverbal calls."""
+    sample_rate = 32_000
+    durations = (1.15, 1.35, 1.65, 2.0, 2.45, 3.0)
+    duration = durations[level - 1]
+    total = int(sample_rate * duration)
+    left = [0.] * total
+    right = [0.] * total
+    rng = random.Random(290826 + level * 101)
+
+    # A diffuse room bed gives the individual claps a believable shared space.
+    states = [0., 0., 0., 0.]
+    for index in range(total):
+        time = index / sample_rate
+        white_l, white_r = rng.uniform(-1., 1.), rng.uniform(-1., 1.)
+        states[0] += .035 * (white_l - states[0]); states[1] += .004 * (white_l - states[1])
+        states[2] += .035 * (white_r - states[2]); states[3] += .004 * (white_r - states[3])
+        fade = min(1., time / .11, (duration - time) / .28)
+        swell = .58 + .42 * math.sin(math.pi * min(1., time / duration))
+        room_gain = .012 if level == 1 else .016 + level * .005
+        if level == 1:
+            left[index] += (states[1] * .7 + (states[0] - states[1]) * .1) * fade * .07
+            right[index] += (states[3] * .7 + (states[2] - states[3]) * .1) * fade * .07
+        else:
+            left[index] += (states[0] - states[1]) * fade * swell * room_gain
+            right[index] += (states[2] - states[3]) * fade * swell * room_gain
+
+    # Each clap is two short, differently filtered transients with its own stereo position.
+    clap_counts = (0, 7, 18, 34, 58, 88)
+    for _ in range(clap_counts[level - 1]):
+        start_time = rng.uniform(.06, duration - .18)
+        pan = rng.uniform(-.88, .88)
+        gain_l, gain_r = math.sqrt((1 - pan) / 2), math.sqrt((1 + pan) / 2)
+        length = int(rng.uniform(.045, .095) * sample_rate)
+        start = int(start_time * sample_rate)
+        filtered_fast = filtered_slow = 0.
+        strength = rng.uniform(.13, .24) * (.78 + level * .045)
+        for offset in range(length):
+            target = start + offset
+            if not (0 <= target < total): continue
+            progress = offset / max(1, length)
+            white = rng.uniform(-1., 1.)
+            filtered_fast += .36 * (white - filtered_fast)
+            filtered_slow += .07 * (white - filtered_slow)
+            snap = filtered_fast - filtered_slow
+            envelope_value = math.exp(-progress * 9.2) + .34 * math.exp(-max(0., progress - .13) * 18.)
+            value = snap * strength * envelope_value
+            left[target] += value * gain_l; right[target] += value * gain_r
+
+    # Short breathy calls avoid intelligible speech and electronic sine-like cheering.
+    call_counts = (0, 0, 2, 5, 9, 15)
+    for _ in range(call_counts[level - 1]):
+        start = int(rng.uniform(.08, max(.09, duration - .48)) * sample_rate)
+        length = int(rng.uniform(.24, .5) * sample_rate)
+        base = rng.uniform(155., 285.)
+        phase = rng.uniform(0., 2 * math.pi)
+        pan = rng.uniform(-.8, .8)
+        gain_l, gain_r = math.sqrt((1 - pan) / 2), math.sqrt((1 + pan) / 2)
+        strength = rng.uniform(.018, .037) * (1 + level * .04)
+        breath_state = 0.
+        for offset in range(length):
+            target = start + offset
+            if target >= total: break
+            progress = offset / max(1, length)
+            shape = math.sin(math.pi * progress) ** .7
+            frequency = base * (1. + .19 * math.sin(math.pi * progress) + .025 * math.sin(progress * 31.))
+            phase += 2 * math.pi * frequency / sample_rate
+            breath_state += .18 * (rng.uniform(-1., 1.) - breath_state)
+            voice = math.tanh(1.7 * (math.sin(phase) + .24 * math.sin(phase * 2.02)))
+            value = (voice * .7 + breath_state * .3) * shape * strength
+            left[target] += value * gain_l; right[target] += value * gain_r
+
+    # Level one communicates discomfort through chair movement and a restrained cough.
+    if level == 1:
+        for event_time in (.28, .73):
+            start = int(event_time * sample_rate)
+            length = int(.085 * sample_rate)
+            for offset in range(length):
+                progress = offset / length
+                value = rng.uniform(-1., 1.) * .075 * math.sin(math.pi * progress) * math.exp(-progress * 3.)
+                left[start + offset] += value * .7; right[start + offset] += value * .45
+    return (left, right), sample_rate
+
 def short_effects():
     write("ui-click.wav", .075, lambda t: tone(t, 0, .07, 760, .28, 300, "triangle"))
     write("impact.wav", .18, lambda t: noise(t, 0, .12, .35) + tone(t, 0, .17, 145, .42, 58))
@@ -283,6 +377,11 @@ def short_effects():
         for index, frequency in enumerate((620., 830., 1040.))))
     write("level-up.wav", 1.18, lambda t: sum(tone(t, index * .13, .42, frequency, .22, frequency * 1.015, "triangle")
         for index, frequency in enumerate((440., 554.37, 659.25, 880., 1108.73, 1318.51))))
+    for level in range(1, 7):
+        # Curated contest reactions are replaced manually and must survive routine audio regeneration.
+        if (OUTPUT / f"contest-audience-{level}.wav").exists(): continue
+        channels, sample_rate = audience_reaction_samples(level)
+        write_stereo_samples(f"contest-audience-{level}.wav", channels, sample_rate, .4 + level * .065)
 def progression_music_samples(duration):
     notes = (261.63, 329.63, 392., 523.25, 293.66, 369.99, 440., 587.33,
              329.63, 392., 493.88, 659.25, 293.66, 369.99, 440., 587.33)
@@ -339,4 +438,4 @@ def ambience():
     write_samples("terrain-misty.wav", misty_samples(d), .58)
 if __name__ == "__main__":
     short_effects(); ambience(); write_samples("progression-theme.wav", progression_music_samples(12.), .46)
-    print(f"Generated 33 original sounds in {OUTPUT}")
+    print(f"Generated 39 original sounds in {OUTPUT}")

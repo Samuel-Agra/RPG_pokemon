@@ -37,4 +37,22 @@ describe('RPG contest stage', () => {
 		assert.equal(reset.temporary.weather, '');
 		assert.deepEqual(reset.temporary.tags, []);
 	});
+
+	it('persists non-weather stage changes and lets Defog clear them', () => {
+		const scenario = {id: 'neutral-stage', name: 'Palco neutro', tags: [], weather: '', terrain: ''};
+		const stage = createRPGContestStage(scenario);
+		for (const [move, tag] of [
+			['spikes', 'spikes'], ['toxicspikes', 'toxicspikes'], ['stealthrock', 'floatingrocks'],
+			['stickyweb', 'stickyweb'], ['sandsearstorm', 'heatedsand'],
+		]) {
+			const result = applyRPGContestMoveToStage(stage, move, scenario);
+			assert.ok(result.transformations.includes(`field:${tag}`), move);
+			assert.ok(result.stateAfter.temporary.tags.includes(tag), move);
+		}
+		const cleared = applyRPGContestMoveToStage(stage, 'defog', scenario);
+		assert.ok(cleared.transformations.includes('field:cleared-stage'));
+		assert.deepEqual(cleared.stateAfter.temporary.tags.sort(), ['clearair', 'wind']);
+		assert.equal(cleared.stateAfter.temporary.weather, '');
+		assert.equal(cleared.stateAfter.temporary.terrain, '');
+	});
 });

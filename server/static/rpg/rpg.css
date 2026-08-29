@@ -517,7 +517,6 @@ input, select {
 	box-shadow: 0 3px 12px #0006;
 }
 .toast.error { background: #8d3030; border-color: #581b1b; }
-footer { padding: 12px; color: #687382; font-size: 10px; text-align: center; }
 
 .avatar-picker { position: relative; }
 .avatar-picker-toggle {

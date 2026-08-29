@@ -47,6 +47,12 @@ const FIELD_TAGS: Readonly<Record<string, readonly string[]>> = Object.freeze({
 	leafstorm: ['plant', 'leaf', 'scattered-leaves'],
 	smokescreen: ['smoke', 'darkened-stage'], haze: ['mist', 'haze'], mist: ['mist'],
 	whirlpool: ['water', 'whirlpool'], firespin: ['fire', 'flame-ring'],
+	spikes: ['metal', 'spikes', 'sharp-stage'],
+	toxicspikes: ['poison', 'toxic-spikes', 'toxic-stage'],
+	stealthrock: ['rock', 'debris', 'floating-rocks'],
+	stickyweb: ['web', 'threads', 'sticky-web'],
+	defog: ['wind', 'clear-air'],
+	sandsearstorm: ['sand', 'wind', 'heated-sand', 'sand-vortex'],
 });
 
 const ENVIRONMENT_RELATIONS: readonly [string, string, string][] = [
@@ -62,6 +68,9 @@ const ENVIRONMENT_RELATIONS: readonly [string, string, string][] = [
 	['water', 'ice', 'água congelada'], ['water', 'light', 'reflexo sobre a água'],
 	['smoke', 'light', 'feixe atravessando a fumaça'], ['debris', 'psychic', 'detritos levitando'],
 	['leaf', 'wind', 'redemoinho de folhas'], ['frozen-stage', 'fire', 'gelo convertido em vapor'],
+	['spikes', 'psychic', 'espinhos metálicos levitando'], ['toxic-stage', 'light', 'brilho sobre o veneno'],
+	['floating-rocks', 'wind', 'rochas girando pelo palco'], ['web', 'wind', 'teias suspensas no ar'],
+	['heated-sand', 'fire', 'areia incandescente'], ['clear-air', 'light', 'palco iluminado com nitidez'],
 ];
 
 function normalizedTags(values: Iterable<string>): string[] {
@@ -118,6 +127,12 @@ export function applyRPGContestMoveToStage(
 		state.temporary.terrain = terrain;
 		state.temporary.tags = normalizedTags([...state.temporary.tags, terrain]);
 		transformations.push(`terrain:${terrain}`);
+	}
+	if (move.moveId === 'defog') {
+		state.temporary.weather = '';
+		state.temporary.terrain = '';
+		state.temporary.tags = [];
+		transformations.push('field:cleared-stage');
 	}
 	for (const tag of FIELD_TAGS[move.moveId] || []) {
 		state.temporary.tags = normalizedTags([...state.temporary.tags, tag]);

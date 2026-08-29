@@ -77,18 +77,14 @@ describe('RPG contest runtime', () => {
 		assert.equal(view.round, 2);
 		assert.equal(view.currentParticipantId, 'may');
 		view = runtime.action('contest-runtime', {type: 'abandon'}, {characterId: 'may'});
-		assert.equal(view.currentParticipantId, 'npc');
 		assert.equal(view.participants[0].disqualified, true);
-		assert.throws(() => runtime.action('contest-runtime', {type: 'abandon'}, {characterId: 'may'}), /active Player/);
-		for (const moveId of ['swift', 'swift', 'tackle']) {
-			view = runtime.action('contest-runtime', {type: 'select-move', moveId}, {master: true});
-		}
-		view = runtime.action('contest-runtime', judging(), {master: true});
 		assert.equal(view.status, 'ended');
 		assert.equal(view.phase, 'finished');
 		assert.equal(view.results.length, 2);
 		assert.equal(view.results.find(result => result.participantId === 'may').place, null);
 		assert.equal(view.results.find(result => result.participantId === 'npc').place, 1);
+		const masterKOView = runtime.snapshot('contest-runtime', {master: true});
+		assert.equal(masterKOView.results.find(result => result.participantId === 'npc').performanceGain, 0);
 		assert.deepEqual(view.events.map(event => event.sequence), view.events.map((event, index) => index));
 	});
 
@@ -112,6 +108,27 @@ describe('RPG contest runtime', () => {
 		}), {master: true});
 		assert.equal(view.participants[0].judging[0].mechanicalCorrection, -3);
 		assert.equal(view.participants[0].judging[0].copyPenalty, -6);
+	});
+
+	it('lets the Master abandon only the current NPC and ends when one participant remains', () => {
+		const npc = (id, species) => ({
+			id, kind: 'npc', displayName: id.toUpperCase(), pokemon: {set: pokemon(species, ['tackle'])},
+		});
+		const session = startedSession();
+		session.participants = [npc('npc-one', 'Eevee'), npc('npc-two', 'Pikachu'), npc('npc-three', 'Meowth')];
+		session.presentationOrder = ['npc-one', 'npc-two', 'npc-three'];
+		session.invitations = [];
+		const runtime = new RPGContestRuntimeManager();
+		let view = runtime.start(session);
+		view = runtime.action(session.id, {type: 'abandon'}, {master: true});
+		assert.equal(view.participants.find(entry => entry.id === 'npc-one').disqualified, true);
+		assert.equal(view.currentParticipantId, 'npc-two');
+		assert.equal(view.status, 'active');
+		view = runtime.action(session.id, {type: 'abandon'}, {master: true});
+		assert.equal(view.status, 'ended');
+		assert.equal(view.results.find(result => result.participantId === 'npc-three').place, 1);
+		assert.equal(view.results.find(result => result.participantId === 'npc-three').performanceGain, 0);
+		assert.equal(view.results.find(result => result.participantId === 'npc-two').place, null);
 	});
 
 	it('accepts TM changes until the first move and freezes the entire moveset afterwards', () => {

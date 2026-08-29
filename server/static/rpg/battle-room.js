@@ -1362,7 +1362,7 @@ async function rpgBattleRoom(session, character, characters = [], isMaster = fal
 	const engine = createElement('span', 'rpg-engine-state rpg-engine-state-hidden', 'Conectando ao simulador...');
 	engine.setAttribute('role', 'status');
 	engine.setAttribute('aria-live', 'polite');
-	const back = button('Voltar ao painel', 'button rpg-leave-room');
+	const back = button('Voltar', 'button rpg-leave-room');
 	back.addEventListener('click', () => {
 		stopped = true;
 		state.dismissedBattleSessionIds?.add(session.id);

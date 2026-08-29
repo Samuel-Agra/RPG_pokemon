@@ -15,6 +15,7 @@ export interface RPGContestMoveDefinition {
 	type: string;
 	battleCategory: string;
 	basePower: number | null;
+	battleStatus: string;
 	accuracy: number | null;
 	pp: number;
 	description: string;
@@ -154,6 +155,7 @@ function moveDefinition(move: Move): RPGContestMoveDefinition {
 		type: move.type,
 		battleCategory: move.category,
 		basePower: move.category === 'Status' ? null : move.basePower || null,
+		battleStatus: move.status || '',
 		accuracy: move.accuracy === true ? null : Number(move.accuracy) || null,
 		pp: move.pp || 1,
 		description: metadata.description,

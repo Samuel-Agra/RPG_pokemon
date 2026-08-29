@@ -1632,7 +1632,8 @@ async function confirmCharacterDeletion(event) {
 
 async function renderDashboard() {
 	show('dashboard');
-	document.getElementById('dashboard-screen').classList.remove('battle-mode');
+	if (state.dashboardView !== 'contests') window.RPGContestUI?.stopAudio?.();
+	document.getElementById('dashboard-screen').classList.remove('battle-mode', 'contest-mode');
 	const body = $('#dashboard-body');
 	body.replaceChildren(createElement('div', 'panel loading-block', 'Carregando painel...'));
 	const isMasterMode = state.session.role === 'master' && state.session.mode === 'master';

@@ -1,6 +1,7 @@
 import {Dex} from '../../sim/dex';
 import {toID} from '../../sim/dex-data';
 import type {PokemonSet} from '../../sim/teams';
+import {getRPGPokemonSizeClass, type RPGPokemonSizeClass} from '../../sim/rpg-showdown';
 import {getRPGContestMove} from './contest-move-catalog';
 import {getRPGContestItemClassification} from './contest-item-catalog';
 import {
@@ -28,6 +29,9 @@ export interface RPGContestRuntimeViewer {
 export interface RPGContestRuntimePokemon {
 	name: string;
 	species: string;
+	spriteId: string;
+	heightM: number;
+	sizeClass: RPGPokemonSizeClass;
 	level: number;
 	gender: string;
 	shiny: boolean;
@@ -38,7 +42,10 @@ export interface RPGContestRuntimePokemon {
 	performanceBonus: number;
 	hp: number | null;
 	status: string;
-	moves: {id: string, name: string}[];
+	moves: {
+		id: string; name: string; type: string; battleCategory: string; basePower: number | null;
+		battleStatus: string; tags: string[]; changesField: boolean;
+	}[];
 	movesFrozen: boolean;
 	megaEligible: boolean;
 	megaActivated: boolean;
@@ -341,14 +348,25 @@ export class RPGContestRuntimeManager {
 	}
 
 	private abandon(state: RPGContestRuntimeState, viewer: RPGContestRuntimeViewer): void {
-		const characterId = toID(viewer.characterId || '');
-		const participant = state.participants.find(entry =>
-			!entry.disqualified && entry.kind === 'player' && entry.characterId === characterId
-		);
-		if (!participant) throw new Error('Only an active Player participant can abandon the RPG contest');
+		let participant: RPGContestRuntimeParticipant | undefined;
+		if (viewer.master) {
+			const current = this.current(state);
+			if (current.kind === 'npc' && !current.disqualified) participant = current;
+			if (!participant) throw new Error('The Master can only abandon the current NPC participant');
+		} else {
+			const characterId = toID(viewer.characterId || '');
+			participant = state.participants.find(entry =>
+				!entry.disqualified && entry.kind === 'player' && entry.characterId === characterId
+			);
+			if (!participant) throw new Error('Only an active Player participant can abandon the RPG contest');
+		}
 		participant.disqualified = true;
 		participant.disqualifiedAt = this.now();
 		this.emit(state, 'participant-disqualified', participant.id);
+		if (state.participants.filter(entry => !entry.disqualified).length <= 1) {
+			this.finish(state, false);
+			return;
+		}
 		if (participant.id === this.currentId(state)) this.advance(state);
 	}
 
@@ -368,6 +386,10 @@ export class RPGContestRuntimeManager {
 			this.advance(state);
 			return;
 		}
+		this.finish(state);
+	}
+
+	private finish(state: RPGContestRuntimeState, awardPerformance = true): void {
 		state.status = 'ended';
 		state.finishedAt = this.now();
 		state.phase = 'finished';
@@ -378,6 +400,9 @@ export class RPGContestRuntimeManager {
 			scenarioCoherenceBonus: participant.scenarioCoherenceBonus,
 			performanceBonus: participant.pokemon.performanceBonus,
 		})));
+		if (!awardPerformance) {
+			for (const result of state.results) result.performanceGain = 0;
+		}
 		this.emit(state, 'contest-finished');
 		this.onFinished?.(structuredClone(state.session), structuredClone(state.results));
 	}
@@ -527,7 +552,8 @@ export class RPGContestRuntimeManager {
 		const heldItem = Dex.items.get(set.item || '');
 		const megaSpecies = heldItem.megaStone?.[species.name] || heldItem.megaStone?.[species.baseSpecies] || '';
 		return {
-			name: set.name || set.species, species: set.species, level: set.level || 1,
+			name: set.name || set.species, species: species.name, spriteId: species.spriteid,
+			heightM: species.heightm, sizeClass: getRPGPokemonSizeClass(species.heightm), level: set.level || 1,
 			gender: set.gender || 'N', shiny: !!set.shiny, nature: set.nature || '', item: set.item || '',
 			friendship: Math.max(0, Math.min(255, set.rpg?.friendship ?? set.happiness ?? 0)),
 			performance, performanceBonus: getRPGContestPerformanceBonus(performance),
@@ -536,7 +562,12 @@ export class RPGContestRuntimeManager {
 			megaActivated: false, megaSpecies,
 			moves: (set.moves || []).map(move => {
 				const definition = getRPGContestMove(move);
-				return {id: definition.moveId, name: definition.name};
+				return {
+					id: definition.moveId, name: definition.name, type: definition.type,
+					battleCategory: definition.battleCategory, basePower: definition.basePower,
+					battleStatus: definition.battleStatus, tags: [...definition.tags],
+					changesField: definition.changesField,
+				};
 			}),
 		};
 	}

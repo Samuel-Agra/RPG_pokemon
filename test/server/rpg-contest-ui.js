@@ -104,8 +104,12 @@ describe('RPG contest UI', () => {
 		assert.ok(ui.includes("selectedPokemon.genders || ['M', 'F']"));
 		assert.ok(!ui.includes("el('span', '', 'Apelido')"));
 		assert.ok(!ui.includes('contest-species-picker-panel'));
-		assert.ok(css.includes('@keyframes contest-enter'));
-		assert.ok(css.includes('@keyframes contest-move'));
+		assert.ok(css.includes('@keyframes contest-trainer-idle'));
+		assert.ok(css.includes('.contest-stage-trainer { position: absolute; left: 59%; bottom: 31%;'));
+		assert.ok(css.includes('.contest-stage-pokemon { position: absolute; left: 50%;'));
+		assert.ok(ui.includes("size-${current.pokemon.sizeClass || 'medium'}"));
+		for (const size of ['small', 'medium', 'large', 'giant']) assert.ok(css.includes(`.contest-stage-pokemon.size-${size}`));
+		assert.ok(!css.includes('@keyframes contest-move'));
 	});
 
 	it('reuses the current temporary NPC builder in battle preparation', () => {
@@ -115,7 +119,7 @@ describe('RPG contest UI', () => {
 		assert.ok(contest.includes("battle: {scope: 'battle'"));
 		assert.ok(contest.includes('function contestTemporaryNPCEditor'));
 		assert.ok(contest.includes('function battleTemporaryNPCEditor'));
-		assert.ok(contest.includes('return {render, battleTemporaryNPCEditor}'));
+		assert.ok(contest.includes('return {render, battleTemporaryNPCEditor,'));
 		assert.ok(battle.includes('window.RPGContestUI.battleTemporaryNPCEditor'));
 		assert.ok(battle.includes("if (opponent.value === 'npc')"));
 		assert.ok(battle.includes("team: 'B', kind: 'npc'"));
@@ -209,6 +213,254 @@ describe('RPG contest UI', () => {
 		assert.ok(ui.includes('async function rerenderPreservingViewport(context)'));
 		assert.ok(ui.includes('window.scrollTo(scrollLeft, scrollTop)'));
 		assert.ok(ui.includes('replacement.focus({preventScroll: true})'));
+	});
+
+	it('keeps the active contest fluid and does not reset unchanged judging fields', () => {
+		const ui = fs.readFileSync(path.join(root, 'contest-ui.js'), 'utf8');
+		assert.ok(ui.includes('function scheduleActiveContestRefresh(context, session, page, contest)'));
+		assert.ok(ui.includes('if (JSON.stringify(data.contest) !== fingerprint)'));
+		assert.ok(ui.includes('function replaceRuntimePage(context, session, currentPage, contest)'));
+		assert.ok(ui.includes('currentPage.replaceChildren(...nextPage.childNodes)'));
+		assert.ok(!ui.includes('window.setTimeout(() => void rerenderPreservingViewport(context), 1200)'));
+		assert.ok(!ui.includes("document.getElementById('dashboard-content')"));
+	});
+
+	it('keeps the contest scenery visual and moves all information below it', () => {
+		const ui = fs.readFileSync(path.join(root, 'contest-ui.js'), 'utf8');
+		const css = fs.readFileSync(path.join(root, 'contest-ui.css'), 'utf8');
+		assert.ok(ui.includes("const actors = el('div', 'contest-stage-actors')"));
+		assert.ok(ui.includes("el('img', 'contest-stage-trainer')"));
+		assert.ok(ui.includes("typeof rpgRuntimeSprite === 'function'"));
+		assert.ok(ui.includes("const content = el('section', 'panel contest-stage-content')"));
+		assert.ok(ui.includes('wrap.append(stage)'));
+		assert.ok(ui.includes('wrap.append(content)'));
+		assert.ok(css.includes('@keyframes contest-trainer-idle'));
+		assert.ok(!css.includes('@keyframes contest-move'));
+	});
+
+	it('keeps only compact type-colored move controls below the active stage', () => {
+		const ui = fs.readFileSync(path.join(root, 'contest-ui.js'), 'utf8');
+		const css = fs.readFileSync(path.join(root, 'contest-ui.css'), 'utf8');
+		assert.ok(!ui.includes("'contest-performer', `Performance"));
+		assert.ok(!ui.includes("'O público aguarda a apresentação.'"));
+		assert.ok(ui.includes("const cssId = value => String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '')"));
+		assert.ok(ui.includes('`contest-move rpg-move-button type-${cssId(move.type)}${usedInFirstRound'));
+		assert.ok(css.includes('.contest-move { position: relative; box-sizing: border-box; display: grid;'));
+		assert.ok(css.includes('min-height: 70px;'));
+		assert.ok(css.includes('text-align: left;'));
+		assert.ok(css.includes('#dashboard-screen.contest-mode { margin-top: -20px;'));
+		assert.ok(ui.includes('currentRoundMoves = current.rounds[contest.round - 1] || []'));
+		assert.ok(ui.includes("usedInFirstRound ? ' used-first-round' : ''"));
+		assert.ok(ui.includes("el('b', '', String(position))"));
+		assert.ok(ui.includes("move.changesField || (move.tags || []).some(tag => cssId(tag) === 'fieldchange')"));
+		assert.ok(ui.includes("'◇ Afeta o palco'"));
+		assert.ok(ui.includes('function contestMoveTraits(move)'));
+		for (const trait of ['Clima', 'Terrain', 'Dança', 'Som', 'Cura', 'Movimento', 'Luz', 'Vento']) {
+			assert.ok(ui.includes(`'${trait}'`), trait);
+		}
+		assert.ok(css.includes('.contest-move-traits small, .contest-move-field'));
+		assert.ok(css.includes('.contest-move.used-first-round'));
+		assert.ok(css.includes('.contest-move-order { position: absolute; z-index: 2; top: -10px; left: 50%;'));
+	});
+
+	it('expands an active contest like a battle room and restores the overview on return', () => {
+		const ui = fs.readFileSync(path.join(root, 'contest-ui.js'), 'utf8');
+		const css = fs.readFileSync(path.join(root, 'contest-ui.css'), 'utf8');
+		const dashboard = fs.readFileSync(path.join(root, 'rpg.js'), 'utf8');
+		assert.ok(ui.includes("classList.add('contest-mode')"));
+		assert.ok(ui.includes("actionButton('Voltar'"));
+		assert.ok(ui.includes("back.classList.add('rpg-leave-room')"));
+		assert.ok(ui.includes("context.state.dashboardView = 'overview'"));
+		assert.ok(css.includes('#dashboard-screen.contest-mode .sidebar'));
+		assert.ok(css.includes('#dashboard-screen.contest-mode .contest-stage { min-height: clamp(560px, 52vw, 760px); }'));
+		assert.ok(css.includes('#dashboard-screen.contest-mode .contest-stage-pokemon'));
+		assert.ok(css.includes('.contest-stage-controls { position: absolute; z-index: 20; right: 14px; bottom: 14px; display: flex; flex-direction: column;'));
+		assert.ok(css.includes('.contest-stage-controls .button'));
+		assert.ok(dashboard.includes("classList.remove('battle-mode', 'contest-mode')"));
+	});
+
+	it('shows finished category artwork and dynamic presentation identity at the top center of the stage', () => {
+		const ui = fs.readFileSync(path.join(root, 'contest-ui.js'), 'utf8');
+		const css = fs.readFileSync(path.join(root, 'contest-ui.css'), 'utf8');
+		assert.ok(ui.includes("const stageHeading = el('div', `contest-stage-heading category-${contest.category}`)"));
+		assert.ok(ui.includes("new URL(`./assets/contest-category-headers/${id}.png?v=20260829-2`, document.baseURI).href"));
+		assert.ok(ui.includes('categoryArt.src = contestCategoryHeaderUrl(contest.category)'));
+		assert.ok(ui.includes("categoryArt.alt = labels[contest.category]"));
+		assert.ok(ui.includes("el('span', '', current.displayName)"));
+		assert.ok(ui.includes("el('span', '', current.pokemon.name)"));
+		assert.ok(ui.includes("el('small', '', `Rodada ${contest.round}`)"));
+		assert.ok(css.includes('top: 10px; left: 50%;'));
+		assert.ok(css.includes('width: clamp(230px, 24vw, 330px);'));
+		assert.ok(css.includes('transform: translateX(-50%)'));
+		assert.ok(css.includes('.contest-stage-category-art'));
+		assert.ok(css.includes('.contest-stage-identity'));
+		assert.ok(css.includes('font-size: 22px; font-weight: 700;'));
+		for (const category of ['beauty', 'cute', 'cool', 'smart', 'tough']) {
+			assert.ok(css.includes(`.contest-stage-heading.category-${category}`));
+			assert.ok(fs.existsSync(path.join(root, 'assets', 'contest-category-headers', `${category}.png`)));
+		}
+		for (const ornament of ["content: '✦'", "content: '♥'", "content: '★'", "content: '◈'", "content: '▲'"]) {
+			assert.ok(css.includes(ornament), ornament);
+		}
+		assert.ok(css.includes("font-family: 'Arial Rounded MT Bold'"));
+		assert.ok(css.includes("font-family: Impact, 'Arial Black'"));
+	});
+
+	it('lets the Master abandon the NPC whose presentation is active', () => {
+		const ui = fs.readFileSync(path.join(root, 'contest-ui.js'), 'utf8');
+		assert.ok(ui.includes("context.master && current?.kind === 'npc'"));
+		assert.ok(ui.includes("confirmableAction('Abandonar com este NPC'"));
+		assert.ok(ui.includes("body: {type: 'abandon'}"));
+	});
+
+	it('replaces each abandon button with inline Confirmar and Cancelar actions', () => {
+		const ui = fs.readFileSync(path.join(root, 'contest-ui.js'), 'utf8');
+		const css = fs.readFileSync(path.join(root, 'contest-ui.css'), 'utf8');
+		assert.ok(ui.includes("const confirmableAction = (label, handler) =>"));
+		assert.ok(ui.includes("actionButton('Confirmar'"));
+		assert.ok(ui.includes("actionButton('Cancelar', showInitial)"));
+		assert.ok(ui.includes("cancel.classList.add('contest-abandon-cancel')"));
+		assert.ok(ui.includes("confirmableAction('Abandonar concurso'"));
+		assert.ok(!ui.includes('window.confirm'));
+		assert.ok(css.includes('.contest-confirmable-action { display: inline-grid;'));
+		assert.ok(css.includes('.contest-confirmable-action .contest-abandon-cancel'));
+	});
+
+	it('queues contest choreography in event order before replacing the visual snapshot', () => {
+		const ui = fs.readFileSync(path.join(root, 'contest-ui.js'), 'utf8');
+		const adapter = fs.readFileSync(path.join(root, 'contest-animation-adapter.js'), 'utf8');
+		const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
+		for (const marker of ['contestAnimationCursors', 'contestAnimationQueue', 'contestAnimationActive',
+			'event.sequence > cursor', 'await playContestAnimationEvents(currentPage, contest, beforeReplacement)',
+			"pending.some(event => event.type === 'participant-enter')"]) {
+			assert.ok(ui.includes(marker), marker);
+		}
+		assert.ok(ui.indexOf('await playContestAnimationEvents(currentPage, contest, beforeReplacement)') <
+			ui.indexOf('const mountedPage = replaceRuntimePage(context, session, currentPage, contest)'));
+		for (const marker of ['window.RPGContestAnimations', 'RPGShowdownAnimations.play',
+			'personal ? [pokemon] : [anchor]', 'await stageChange(stage, event)', 'await wait(180)',
+			'fallbackMove(stage, pokemon, move)']) {
+			assert.ok(adapter.includes(marker), marker);
+		}
+		assert.ok(html.indexOf('battle-animations-moves.js') < html.indexOf('contest-animation-adapter.js'));
+		assert.ok(html.indexOf('contest-animation-adapter.js') < html.indexOf('contest-ui.js'));
+	});
+
+	it('keeps the prepared contest theme playing through runtime refreshes and stops it on exit', () => {
+		const ui = fs.readFileSync(path.join(root, 'contest-ui.js'), 'utf8');
+		const css = fs.readFileSync(path.join(root, 'contest-ui.css'), 'utf8');
+		const dashboard = fs.readFileSync(path.join(root, 'rpg.js'), 'utf8');
+		assert.ok(ui.includes('window.RPGBattleAudio?.playForContest?.()'));
+		assert.ok(ui.includes('window.RPGBattleAudio?.stop()'));
+		assert.ok(ui.indexOf("if (contest.status === 'ended' && contest.results)") <
+			ui.indexOf('window.RPGBattleAudio?.playForContest?.()'));
+		assert.ok(ui.includes("window.RPGBattleAudio?.stop();\n\t\t\treturn resultsPanel(context, session, contest);"));
+		assert.ok(ui.includes('window.RPGBattleAudio.createVerticalVolumeControl()'));
+		assert.ok(ui.includes('window.RPGBattleAudio.createEffectsToggleButton()'));
+		assert.ok(css.includes('.contest-stage-controls > .rpg-vertical-volume > .button { width: 94px; }'));
+		assert.ok(css.includes('center / 6px calc(100% - 16px) no-repeat'));
+		assert.ok(ui.includes("stopAudio: () => window.RPGBattleAudio?.stop()"));
+		assert.ok(dashboard.includes("if (state.dashboardView !== 'contests') window.RPGContestUI?.stopAudio?.()"));
+	});
+
+	it('plays an existing matching sound at each contest move impact', () => {
+		const adapter = fs.readFileSync(path.join(root, 'contest-animation-adapter.js'), 'utf8');
+		for (const sound of ['heal', 'statusBurn', 'statusFreeze', 'statusParalysis', 'statusPoison',
+			'statusSleep', 'impact']) assert.ok(adapter.includes(`'${sound}'`));
+		assert.ok(adapter.includes("if (move.battleCategory === 'Physical' || move.battleCategory === 'Special' || Number(move.basePower) > 0) return 'impact'"));
+		assert.ok(adapter.includes("return ''"));
+		assert.ok(adapter.includes('{onImpact: playMoveSound}'));
+		assert.ok(adapter.includes('if (sound) window.RPGBattleAudio?.playEffect(sound)'));
+		const runtime = fs.readFileSync(path.resolve(__dirname, '../../server/rpg-showdown/contest-runtime.ts'), 'utf8');
+		for (const field of ['type: definition.type', 'battleCategory: definition.battleCategory',
+			'basePower: definition.basePower', 'battleStatus: definition.battleStatus', 'tags: [...definition.tags]',
+			'changesField: definition.changesField']) {
+			assert.ok(runtime.includes(field));
+		}
+	});
+
+	it('narrates every contest move with expressive typography and synchronized trainer gestures', () => {
+		const ui = fs.readFileSync(path.join(root, 'contest-ui.js'), 'utf8');
+		const adapter = fs.readFileSync(path.join(root, 'contest-animation-adapter.js'), 'utf8');
+		const css = fs.readFileSync(path.join(root, 'contest-ui.css'), 'utf8');
+		assert.ok(adapter.includes('const EXPRESSIVE_LINES = ['));
+		assert.ok((adapter.match(/\(name, move\) =>/g) || []).length >= 20);
+		assert.ok(adapter.includes('expressiveCue(stage, options.pokemonName, move, event, options.contestCategory)'));
+		assert.ok(adapter.includes("node.append(document.createElement('span'), document.createElement('strong')"));
+		assert.ok(adapter.includes('trainerChoreography(move)'));
+		assert.ok(ui.includes('pokemonName: participant.pokemon.name, contestCategory: contest.category'));
+		assert.ok(css.includes('left: clamp(42px, 6vw, 92px)'));
+		for (let variant = 0; variant < 8; variant++) assert.ok(css.includes(`.contest-expressive-callout.style-${variant}`));
+		for (const gesture of ['command', 'flourish', 'cheer', 'conduct', 'focus']) {
+			assert.ok(css.includes(`.contest-trainer-action-${gesture}`));
+		}
+	});
+
+	it('scales the audience animation through all six reaction levels', () => {
+		const adapter = fs.readFileSync(path.join(root, 'contest-animation-adapter.js'), 'utf8');
+		const css = fs.readFileSync(path.join(root, 'contest-ui.css'), 'utf8');
+		const audio = fs.readFileSync(path.join(root, 'battle-audio.js'), 'utf8');
+		assert.ok(adapter.includes('const particleCounts = [3, 6, 10, 16, 24, 34]'));
+		assert.ok(adapter.includes("Math.max(1, Math.min(6, Number(reaction.level) || 1))"));
+		assert.ok(adapter.includes("className = 'contest-audience-wave'"));
+		assert.ok(adapter.includes('playEffect(`contestAudience${level}`)'));
+		for (let level = 1; level <= 6; level++) assert.ok(css.includes(`.contest-audience-burst.level-${level}`));
+		for (let level = 1; level <= 6; level++) {
+			assert.ok(audio.includes(`contestAudience${level}: {file: 'contest-audience-${level}.wav'`));
+			assert.ok(fs.existsSync(path.join(root, 'assets', 'audio', `contest-audience-${level}.wav`)));
+		}
+		for (const animation of ['uneasy', 'warmth', 'flash', 'historic-flash', 'wave']) {
+			assert.ok(css.includes(`@keyframes contest-audience-${animation}`));
+		}
+	});
+
+	it('keeps contest weather, terrain and stage props visible until the participant round ends', () => {
+		const ui = fs.readFileSync(path.join(root, 'contest-ui.js'), 'utf8');
+		const adapter = fs.readFileSync(path.join(root, 'contest-animation-adapter.js'), 'utf8');
+		const css = fs.readFileSync(path.join(root, 'contest-ui.css'), 'utf8');
+		assert.ok(ui.includes('current.stageStates?.[contest.round - 1]'));
+		assert.ok(ui.includes('renderPersistentStage?.(stage'));
+		for (const marker of ['rpg-weather-effect weather', 'rpg-terrain-effect weather',
+			"spikes: {effect: 'caltrop'", "toxicspikes: {effect: 'poisoncaltrop'",
+			"floatingrocks: {effects: ['rock1', 'rock2', 'rock3']", "stickyweb: {effect: 'web'"]) {
+			assert.ok(adapter.includes(marker), marker);
+		}
+		assert.ok(adapter.includes('persistentStageSignatures'));
+		assert.ok(adapter.includes("previous !== undefined && previous !== signature"));
+		for (const filename of ['surf-ripples.png', 'earthquake-cracks.png', 'smokescreen-cloud.png',
+			'mist-wisps.png', 'sandsear-vortex.png']) {
+			assert.ok(adapter.includes(filename), filename);
+			assert.ok(fs.existsSync(path.join(root, 'assets', 'contest-effects', filename)), filename);
+		}
+		for (const marker of ['.contest-persistent-stage', '.contest-persistent-prop.is-entering',
+			'@keyframes contest-prop-land', '@keyframes contest-sprite-mist', '@keyframes contest-sprite-sand']) {
+			assert.ok(css.includes(marker), marker);
+		}
+		assert.ok(css.includes('.contest-persistent-environment { z-index: 3; }'));
+		assert.ok(!css.includes('.contest-persistent-stage { position: absolute; z-index: 1;'));
+	});
+
+	it('lets Altaria clear changed stage effects before the next participant enters', () => {
+		const ui = fs.readFileSync(path.join(root, 'contest-ui.js'), 'utf8');
+		const adapter = fs.readFileSync(path.join(root, 'contest-animation-adapter.js'), 'utf8');
+		const css = fs.readFileSync(path.join(root, 'contest-ui.css'), 'utf8');
+		assert.ok(ui.includes('stage.dataset.hasTemporaryEffects = String(Boolean('));
+		assert.ok(ui.includes("if (entered) await window.RPGContestAnimations?.cleanupStage?."));
+		assert.ok(ui.indexOf('cleanupStage?.(currentPage.querySelector') < ui.indexOf('const mountedPage = replaceRuntimePage'));
+		for (const marker of ["stage.dataset.hasTemporaryEffects !== 'true'", "name: 'Altaria'",
+			"className = 'contest-cleanup-altaria'", "className = 'contest-cleanup-wind'"]) {
+			assert.ok(adapter.includes(marker), marker);
+		}
+		for (const marker of ['@keyframes contest-participant-leave-stage', '@keyframes contest-altaria-cleanup',
+			'@keyframes contest-cleanup-wind', '@keyframes contest-clear-persistent-stage']) assert.ok(css.includes(marker), marker);
+	});
+
+	it('shows current contest moves only to their Player or to the Master', () => {
+		const ui = fs.readFileSync(path.join(root, 'contest-ui.js'), 'utf8');
+		assert.ok(ui.includes('const canViewCurrentMoves = Boolean(current && (context.master || current.characterId === context.character?.id))'));
+		assert.ok(ui.includes('if (canViewCurrentMoves) {'));
+		assert.ok(ui.indexOf("const content = el('section', 'panel contest-stage-content')") > ui.indexOf('if (canViewCurrentMoves) {'));
+		assert.ok(ui.indexOf('wrap.append(content)') > ui.indexOf('if (canViewCurrentMoves) {'));
 	});
 
 	it('matches the battle invitation card for contest players', () => {

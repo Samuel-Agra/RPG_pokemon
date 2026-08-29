@@ -1,10 +1,12 @@
 'use strict';
 (function configureRPGBattleAudio() {
 	const STORAGE_KEY = 'rpg-battle-music-volume';
+	const EFFECTS_STORAGE_KEY = 'rpg-effects-muted';
 	const DEFAULT_VOLUME = 0.18;
+	const DEFAULT_EFFECT_VOLUME = 0.35;
 	const VOLUME_STEPS = [0, 0.1, 0.18, 0.25, 0.35, 0.5];
 	const LOCAL_AUDIO_ROOT = './assets/audio/';
-	const LOCAL_AUDIO_VERSION = '20260811-11';
+	const LOCAL_AUDIO_VERSION = '20260829-14';
 	const localAudioUrl = file => LOCAL_AUDIO_ROOT + file + '?v=' + LOCAL_AUDIO_VERSION;
 	const EFFECTS = Object.freeze({
 		click: {file: 'ui-click.wav', gain: .55}, impact: {file: 'impact.wav', gain: 1.1},
@@ -29,6 +31,12 @@
 		heldItemActivate: {file: 'held-item-activate.wav', gain: .72},
 		levelUp: {file: 'level-up.wav', gain: .9},
 		shinySparkle: {file: 'shiny-sparkle.wav', gain: .62},
+		contestAudience1: {file: 'contest-audience-1.wav', gain: .55},
+		contestAudience2: {file: 'contest-audience-2.wav', gain: .62},
+		contestAudience3: {file: 'contest-audience-3.wav', gain: .72},
+		contestAudience4: {file: 'contest-audience-4.wav', gain: .82},
+		contestAudience5: {file: 'contest-audience-5.wav', gain: .92},
+		contestAudience6: {file: 'contest-audience-6.wav', gain: 1},
 	});
 	const PROGRESSION_MUSIC = Object.freeze({file: 'progression-theme.wav', gain: .22});
 	const ENVIRONMENTS = Object.freeze({
@@ -105,6 +113,7 @@
 		return null;
 	}
 	let volume = storedVolume();
+	let effectsMuted = storedEffectsMuted();
 	let audio = null;
 	let currentFile = '';
 	let unlockHandler = null;
@@ -166,16 +175,16 @@
 			.toLowerCase().replace(/[^a-z0-9-]+/g, '').replace(/^-+|-+$/g, '');
 	}
 	function playCry(value, options = {}) {
-		if (!window.RPGAssets?.external || !volume) return null;
+		if (!window.RPGAssets?.external || effectsMuted) return null;
 		const ids = [...new Set([cryIdentifier(value), cryIdentifier(options.baseId)].filter(Boolean))];
 		if (!ids.length) return null;
 		const start = () => {
 			cryTimers.delete(timer);
 			let candidate = 0;
 			const attempt = () => {
-				if (candidate >= ids.length || !volume) return;
+				if (candidate >= ids.length || effectsMuted) return;
 				const cry = new Audio(window.RPGAssets.url('audio/cries/' + ids[candidate++] + '.mp3'));
-				cry.volume = Math.min(0.35, volume * 1.25);
+				cry.volume = Math.min(0.35, DEFAULT_EFFECT_VOLUME * .8);
 				cryAudios.add(cry);
 				const cleanup = () => cryAudios.delete(cry);
 				cry.addEventListener('ended', cleanup, {once: true});
@@ -195,10 +204,10 @@
 	}
 	function playEffect(name) {
 		const definition = EFFECTS[name];
-		if (!definition || !volume) return null;
+		if (!definition || effectsMuted) return null;
 		const effect = new Audio(localAudioUrl(definition.file));
 		effect.preload = 'auto';
-		effect.volume = Math.min(.5, volume * definition.gain);
+		effect.volume = Math.min(.5, DEFAULT_EFFECT_VOLUME * definition.gain);
 		effectAudios.add(effect);
 		const cleanup = () => effectAudios.delete(effect);
 		effect.addEventListener('ended', cleanup, {once: true});
@@ -304,6 +313,12 @@
 		tryPlay();
 		return track;
 	}
+	function storedEffectsMuted() {
+		try { return window.localStorage?.getItem(EFFECTS_STORAGE_KEY) === 'true'; } catch { return false; }
+	}
+	function playForContest() {
+		return playForBattle({musicContext: {activity: 'performance'}, participants: []});
+	}
 	function stop() {
 		removeUnlockHandler();
 		stopEnvironment({fade: true});
@@ -340,8 +355,6 @@
 			progressionAudio.rpgTargetVolume = Math.min(.07, volume * PROGRESSION_MUSIC.gain);
 			progressionAudio.volume = progressionAudio.rpgTargetVolume;
 		}
-		for (const cry of cryAudios) cry.volume = Math.min(0.35, volume * 1.25);
-		for (const effect of effectAudios) effect.volume = Math.min(.5, volume);
 		for (const ambience of environmentAudios.values()) {
 			ambience.rpgTargetVolume = Math.min(.14, volume * (ambience.rpgGain || .32));
 			ambience.volume = ambience.rpgTargetVolume;
@@ -357,6 +370,18 @@
 		} catch {}
 		return volume;
 	}
+	function setEffectsMuted(muted) {
+		effectsMuted = !!muted;
+		if (effectsMuted) {
+			for (const timer of cryTimers) clearTimeout(timer);
+			cryTimers.clear();
+			for (const effect of effectAudios) { effect.pause(); effect.currentTime = 0; }
+			for (const cry of cryAudios) { cry.pause(); cry.currentTime = 0; }
+			effectAudios.clear(); cryAudios.clear();
+		}
+		try { window.localStorage?.setItem(EFFECTS_STORAGE_KEY, String(effectsMuted)); } catch {}
+		return effectsMuted;
+	}
 	function createVolumeButton() {
 		const control = document.createElement('button');
 		control.type = 'button';
@@ -364,7 +389,7 @@
 		const update = () => {
 			const percent = Math.round(volume * 100);
 			control.textContent = volume ? '\u266b ' + percent + '%' : '\u266b Mudo';
-			control.title = 'Volume da musica de batalha: ' + percent + '%';
+			control.title = 'Volume do áudio do RPG: ' + percent + '%';
 			control.setAttribute('aria-label', control.title);
 			control.setAttribute('aria-pressed', volume ? 'false' : 'true');
 		};
@@ -376,6 +401,56 @@
 		update();
 		return control;
 	}
+	function createVerticalVolumeControl() {
+		const wrapper = document.createElement('div');
+		wrapper.className = 'rpg-vertical-volume';
+		const panel = document.createElement('div');
+		panel.className = 'rpg-vertical-volume-panel hidden';
+		const value = document.createElement('output');
+		value.className = 'rpg-vertical-volume-value';
+		const slider = document.createElement('input');
+		slider.type = 'range'; slider.min = '0'; slider.max = '100'; slider.step = '1';
+		slider.className = 'rpg-vertical-volume-slider';
+		slider.setAttribute('orient', 'vertical');
+		const control = document.createElement('button');
+		control.type = 'button'; control.className = 'button rpg-contest-volume-control';
+		const update = () => {
+			const percent = Math.round(volume * 100);
+			slider.value = String(percent); slider.style.setProperty('--volume-percent', `${percent}%`);
+			value.value = `${percent}%`; value.textContent = percent ? `${percent}%` : 'Mudo';
+			control.textContent = percent ? `♫ ${percent}%` : '♫ Mudo';
+			control.title = `Volume do áudio do RPG: ${percent}%`;
+			control.setAttribute('aria-label', control.title);
+			control.setAttribute('aria-expanded', String(!panel.classList.contains('hidden')));
+		};
+		const closeOutside = event => {
+			if (wrapper.contains(event.target)) return;
+			panel.classList.add('hidden'); document.removeEventListener('pointerdown', closeOutside, true); update();
+		};
+		control.addEventListener('click', () => {
+			const opening = panel.classList.contains('hidden');
+			panel.classList.toggle('hidden'); update();
+			if (opening) {
+				document.addEventListener('pointerdown', closeOutside, true);
+				slider.focus({preventScroll: true});
+			} else document.removeEventListener('pointerdown', closeOutside, true);
+		});
+		slider.addEventListener('input', () => { setVolume(Number(slider.value) / 100); update(); });
+		panel.append(value, slider); wrapper.append(panel, control); update(); return wrapper;
+	}
+	function createEffectsToggleButton() {
+		const control = document.createElement('button');
+		control.type = 'button'; control.className = 'button rpg-contest-effects-control';
+		const update = () => {
+			control.textContent = effectsMuted ? '♩ Efeitos mudos' : '♪ Efeitos';
+			control.title = effectsMuted ? 'Ativar efeitos sonoros' : 'Silenciar efeitos sonoros';
+			control.setAttribute('aria-label', control.title);
+			control.setAttribute('aria-pressed', String(effectsMuted));
+			control.classList.toggle('muted', effectsMuted);
+		};
+		control.addEventListener('click', () => { setEffectsMuted(!effectsMuted); update(); });
+		update(); return control;
+	}
 	document.addEventListener('click', event => {
 		const control = event.target?.closest?.('button, [role="button"], .button');
 		if (control?.closest?.('.rpg-battle-room') && !control.disabled &&
@@ -386,8 +461,9 @@
 	});
 	window.RPGBattleAudio = Object.freeze({
 		tracks: TRACKS, effects: EFFECTS, environments: ENVIRONMENTS,
-		selectTrack, playForBattle, playCry, playEffect, setEnvironment, stopEnvironment,
-		playProgressionMusic, stopProgressionMusic, stop, setVolume,
-		getVolume: () => volume, createVolumeButton,
+		selectTrack, playForBattle, playForContest, playCry, playEffect, setEnvironment, stopEnvironment,
+		playProgressionMusic, stopProgressionMusic, stop, setVolume, setEffectsMuted,
+		getVolume: () => volume, getEffectsMuted: () => effectsMuted,
+		createVolumeButton, createVerticalVolumeControl, createEffectsToggleButton,
 	});
 })();
