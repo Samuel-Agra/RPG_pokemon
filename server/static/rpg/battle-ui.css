@@ -12,6 +12,7 @@
 .battle-session-head strong, .battle-session-head small { display: block; }
 .battle-toolbar small, .battle-session-head small { margin-top: 3px; color: var(--muted); }
 .battle-editor { margin-bottom: 16px; overflow: hidden; }
+.battle-editor.battle-scene-picker-open { position: relative; z-index: 30; overflow: visible; }
 .battle-editor-title { padding: 17px 19px; background: linear-gradient(#f9fbfd, #e1e8f0); border-bottom: 1px solid #aab5c2; }
 .battle-editor-title h2 { margin: 0; color: #293e5a; }
 .battle-step { border-bottom: 1px solid #c9ced5; }

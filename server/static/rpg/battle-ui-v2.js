@@ -103,19 +103,25 @@ function rpgScenePicker(selectedId = 'meadow') {
 			option.append(sceneImage(scene), text);
 			option.addEventListener('click', () => {
 				selected.value = scene.id;
-				options.classList.add('hidden');
-				toggle.setAttribute('aria-expanded', 'false');
+				setOpen(false);
 				renderToggle();
 			});
 			results.append(option);
 		}
 		if (!available.length) results.append(createElement('div', 'empty-state', 'Nenhum cenário encontrado.'));
 	}
-	toggle.addEventListener('click', () => {
-		const open = options.classList.contains('hidden');
+	function setOpen(open) {
 		options.classList.toggle('hidden', !open);
 		toggle.setAttribute('aria-expanded', String(open));
+		picker.closest('.battle-editor')?.classList.toggle('battle-scene-picker-open', open);
+	}
+	toggle.addEventListener('click', () => {
+		const open = options.classList.contains('hidden');
+		setOpen(open);
 		if (open) { search.focus(); renderResults(); }
+	});
+	document.addEventListener('pointerdown', event => {
+		if (!options.classList.contains('hidden') && !picker.contains(event.target)) setOpen(false);
 	});
 	search.addEventListener('input', renderResults);
 	renderToggle();
