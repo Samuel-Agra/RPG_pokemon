@@ -46,6 +46,13 @@ window.RPGContestUI = (() => {
 		magic: 'Mágico', beam: 'Feixe', shadow: 'Sombra', mist: 'Névoa', smoke: 'Fumaça',
 	});
 	const contestBattleCategoryLabels = Object.freeze({physical: 'Físico', special: 'Especial', status: 'Status'});
+	const oppositeContestCategories = Object.freeze({beauty: 'cool', cool: 'beauty', cute: 'tough', tough: 'cute'});
+	function contestMoveScoreForCategory(move, category) {
+		const baseScore = Number(move.baseScore) || 0;
+		if (move.category === category) return baseScore <= 0 ? baseScore : Math.min(10, baseScore + 2);
+		if (oppositeContestCategories[category] !== move.category) return baseScore;
+		return baseScore <= 0 ? baseScore : Math.min(2, Math.floor(baseScore / 2));
+	}
 	function contestMoveTraits(move) {
 		const traits = [];
 		const battleCategory = contestBattleCategoryLabels[cssId(move.battleCategory)];
@@ -134,7 +141,8 @@ window.RPGContestUI = (() => {
 	}
 	function badges(session) {
 		const row = el('div', 'contest-badges');
-		for (const text of [labels[session.category], labels[session.rank], `${session.participants.length} participantes`]) {
+		const modeLabels = {solo: 'Solo', duo: 'Dupla', trio: 'Trio'};
+		for (const text of [modeLabels[session.mode] || session.mode, labels[session.category], labels[session.rank], `${session.participants.length} participantes`]) {
 			row.append(el('span', 'contest-badge', text));
 		}
 		return row;
@@ -228,9 +236,22 @@ window.RPGContestUI = (() => {
 		for (const event of events) {
 			if (event.type === 'move-selected') {
 				const participant = contest.participants.find(entry => entry.id === event.participantId);
-				const move = participant?.pokemon.moves.find(entry => entry.moveId === event.moveId || entry.id === event.moveId);
-				if (move) await window.RPGContestAnimations.playMove(stage, pokemon, trainer, move, event, {
-					pokemonName: participant.pokemon.name, contestCategory: contest.category,
+				const pokemonIndex = Number(event.pokemonIndex || 0);
+				const performer = participant?.pokemonTeam?.[pokemonIndex] || participant?.pokemon;
+				const performerNode = stage.querySelector(`.contest-stage-pokemon[data-pokemon-index="${pokemonIndex}"]`) || pokemon;
+				const move = performer?.moves.find(entry => entry.moveId === event.moveId || entry.id === event.moveId);
+				if (move) await window.RPGContestAnimations.playMove(stage, performerNode, trainer, move, event, {
+					pokemonName: performer.name, contestCategory: contest.category,
+					onMegaTransform: () => {
+						const transformed = typeof rpgRuntimeSprite === 'function' ? rpgRuntimeSprite({
+							name: performer.name, species: performer.species, shiny: performer.shiny, spriteId: performer.spriteId,
+						}) : spriteImage(performer.species);
+						performerNode.classList.remove('size-small', 'size-medium', 'size-large', 'size-giant');
+						performerNode.classList.add(`size-${performer.sizeClass || 'medium'}`);
+						performerNode.dataset.pokemonHeight = performer.heightM || 0;
+						performerNode.replaceChildren(transformed);
+						return transformed;
+					},
 				});
 			} else if (event.type === 'judging-complete') {
 				await window.RPGContestAnimations.reaction(stage, event.audienceReaction);
@@ -309,24 +330,28 @@ window.RPGContestUI = (() => {
 			categoryArt.src = contestCategoryHeaderUrl(contest.category);
 			categoryArt.alt = labels[contest.category];
 			const stageIdentity = el('div', 'contest-stage-identity');
+			const pokemonTeam = current.pokemonTeam?.length ? current.pokemonTeam : [current.pokemon];
 			stageIdentity.append(
 				el('span', '', current.displayName),
-				el('span', '', current.pokemon.name),
+				el('span', '', pokemonTeam.map(pokemon => pokemon.name).join(' · ')),
 				el('small', '', `Rodada ${contest.round}`),
 			);
 			stageHeading.append(categoryArt, stageIdentity);
 			stage.append(stageHeading);
-			const actors = el('div', 'contest-stage-actors');
+			const actors = el('div', `contest-stage-actors mode-${contest.mode || 'solo'}`);
 			const trainer = el('img', 'contest-stage-trainer');
 			trainer.src = RPGAssets.url(`sprites/trainers/${current.avatar || 'pokemonbreeder'}.png`);
 			trainer.alt = `Treinador ${current.displayName}`;
-			const pokemonHost = el('div', `contest-stage-pokemon size-${current.pokemon.sizeClass || 'medium'}`);
-			pokemonHost.dataset.pokemonHeight = current.pokemon.heightM || 0;
-			const animatedPokemon = typeof rpgRuntimeSprite === 'function' ? rpgRuntimeSprite({
-				name: current.pokemon.name, species: current.pokemon.species, shiny: current.pokemon.shiny,
-				spriteId: current.pokemon.spriteId,
-			}) : spriteImage(current.pokemon.species);
-			pokemonHost.append(animatedPokemon); actors.append(trainer, pokemonHost); stage.append(actors);
+			actors.append(trainer);
+			pokemonTeam.forEach((pokemon, pokemonIndex) => {
+				const pokemonHost = el('div', `contest-stage-pokemon slot-${pokemonIndex} size-${pokemon.sizeClass || 'medium'}`);
+				pokemonHost.dataset.pokemonHeight = pokemon.heightM || 0; pokemonHost.dataset.pokemonIndex = pokemonIndex;
+				const animatedPokemon = typeof rpgRuntimeSprite === 'function' ? rpgRuntimeSprite({
+					name: pokemon.name, species: pokemon.species, shiny: pokemon.shiny, spriteId: pokemon.spriteId,
+				}) : spriteImage(pokemon.species);
+				pokemonHost.append(animatedPokemon); actors.append(pokemonHost);
+			});
+			stage.append(actors);
 			window.RPGContestAnimations?.renderPersistentStage?.(stage, activeStageState, {
 				cacheKey: `${contest.sessionId || session.id}:${current.id}:${contest.round}`,
 			});
@@ -336,26 +361,46 @@ window.RPGContestUI = (() => {
 		const canViewCurrentMoves = Boolean(current && (context.master || current.characterId === context.character?.id));
 		if (canViewCurrentMoves) {
 			const content = el('section', 'panel contest-stage-content');
-			let activateMega = false;
-			const moves = el('div', 'contest-moves');
+			const moves = el('div', `contest-moves mode-${contest.mode || 'solo'}`);
 			const currentRoundMoves = current.rounds[contest.round - 1] || [];
+			const currentRoundPokemonIndexes = current.roundPokemonIndexes?.[contest.round - 1] || currentRoundMoves.map(() => 0);
 			const firstRoundMoves = current.rounds[0] || [];
-			if (current.pokemon.megaEligible && !current.pokemon.megaActivated) {
-				const mega = actionButton(`Mega Evoluir para ${current.pokemon.megaSpecies}`, () => {
-					activateMega = !activateMega;
-					mega.classList.toggle('primary', activateMega);
+			const pokemonTeam = current.pokemonTeam?.length ? current.pokemonTeam : [current.pokemon];
+			pokemonTeam.forEach((pokemon, pokemonIndex) => {
+			let activateMega = false;
+			const group = el('section', 'contest-pokemon-move-group');
+			const groupHeading = el('div', 'contest-pokemon-move-group-heading');
+			groupHeading.append(el('strong', 'contest-pokemon-move-group-name', pokemon.name));
+			if (pokemon.megaEligible && !pokemon.megaActivated) {
+				const mega = el('button', 'contest-mega-button'); mega.type = 'button';
+				mega.title = `Mega Evoluir para ${pokemon.megaSpecies}`;
+				mega.setAttribute('aria-label', mega.title); mega.setAttribute('aria-pressed', 'false');
+				const megaSource = globalThis.RPGAssets?.megaSymbol;
+				if (megaSource) {
+					const megaImage = el('img', 'contest-mega-button-image'); megaImage.src = megaSource; megaImage.alt = '';
+					megaImage.addEventListener('error', () => { megaImage.remove(); mega.classList.add('fallback'); }, {once: true});
+					mega.append(megaImage);
+				} else {
+					mega.classList.add('fallback');
+				}
+				mega.addEventListener('click', () => {
+					activateMega = !activateMega; mega.classList.toggle('active', activateMega);
+					mega.setAttribute('aria-pressed', String(activateMega));
 				});
-				mega.disabled = !contest.canAct; moves.append(mega);
+				mega.disabled = !contest.canAct; groupHeading.append(mega);
 			}
-			for (const move of current.pokemon.moves) {
+			group.append(groupHeading);
+			const usesByPokemon = currentRoundPokemonIndexes.filter(index => index === pokemonIndex).length;
+			const maximumUses = contest.mode === 'trio' ? 1 : contest.mode === 'duo' ? 2 : 3;
+			for (const move of pokemon.moves) {
 				const moveId = cssId(move.id);
 				const positions = currentRoundMoves.reduce((result, usedMove, index) => {
-					if (cssId(usedMove) === moveId) result.push(index + 1);
+					if (currentRoundPokemonIndexes[index] === pokemonIndex && cssId(usedMove) === moveId) result.push(index + 1);
 					return result;
 				}, []);
 				const usedInFirstRound = contest.round === 2 && firstRoundMoves.some(usedMove => cssId(usedMove) === moveId);
 				const button = el('button', `contest-move rpg-move-button type-${cssId(move.type)}${usedInFirstRound ? ' used-first-round' : ''}`);
-				button.type = 'button'; button.disabled = !contest.canAct;
+				button.type = 'button'; button.disabled = !contest.canAct || usesByPokemon >= maximumUses;
 				const heading = el('span', 'contest-move-heading');
 				heading.append(el('strong', '', move.name), el('span', `rpg-type-badge type-${cssId(move.type)}`, move.type.toUpperCase()));
 				const details = el('span', 'contest-move-details');
@@ -372,10 +417,12 @@ window.RPGContestUI = (() => {
 				button.append(heading, details);
 				button.addEventListener('click', async () => {
 					await applyRuntimeResponse(context, session, context.api(`/contest-sessions/${encodeURIComponent(session.id)}/action`,
-						{method: 'POST', body: {type: 'select-move', moveId: move.id, activateMega}}));
+						{method: 'POST', body: {type: 'select-move', moveId: move.id, pokemonIndex, activateMega}}));
 				});
-				moves.append(button);
+				group.append(button);
 			}
+			moves.append(group);
+			});
 			content.append(moves);
 			wrap.append(content);
 		}
@@ -425,7 +472,8 @@ window.RPGContestUI = (() => {
 			const result = resultById.get(participant.id);
 			return !result?.disqualified && Number(result?.place) >= 1 && Number(result?.place) <= 3;
 		});
-		const moveName = (participant, moveId) => participant.pokemon.moves.find(move => move.id === moveId)?.name || moveId;
+		const moveName = (participant, moveId) => (participant.pokemonTeam || [participant.pokemon])
+			.flatMap(pokemon => pokemon.moves).find(move => move.id === moveId)?.name || moveId;
 		const ceremony = el('section', `contest-stage contest-final-ceremony category-${contest.category}`);
 		const backgroundId = contest.scenario?.backgroundId || session.scenario?.backgroundId;
 		if (backgroundId) {
@@ -439,20 +487,13 @@ window.RPGContestUI = (() => {
 		for (const participant of finalists) {
 			const result = resultById.get(participant.id); const place = Number(result.place);
 			const entry = el('article', `contest-final-podium-entry place-${place}`);
-			const pokemonBehind = Number(participant.pokemon.heightM) >= 1.5;
-			const pokemonOnViewerRight = place === 2;
-			const pokemonHost = el('div', `contest-final-podium-pokemon ${pokemonBehind ? 'behind' : 'front'}${pokemonOnViewerRight ? ' look-right' : ''} size-${participant.pokemon.sizeClass || 'medium'}`);
-			const animatedPokemon = typeof rpgRuntimeSprite === 'function' ? rpgRuntimeSprite({
-				name: participant.pokemon.name, species: participant.pokemon.species, shiny: participant.pokemon.shiny,
-				spriteId: participant.pokemon.spriteId,
-			}) : spriteImage(participant.pokemon.species);
-			pokemonHost.append(animatedPokemon);
+			const podiumPokemonTeam = participant.pokemonTeam?.length ? participant.pokemonTeam : [participant.pokemon];
 			const trainer = el('img', 'contest-final-podium-trainer');
 			trainer.src = RPGAssets.url(`sprites/trainers/${participant.avatar || 'pokemonbreeder'}.png`);
 			trainer.alt = `Treinador ${participant.displayName}`;
 			const label = el('button', 'contest-final-podium-label'); label.type = 'button';
 			label.append(el('strong', '', place === 1 ? 'Campeão' : `${place}º lugar`), el('span', '', participant.displayName),
-				el('small', '', participant.pokemon.name), el('small', 'contest-final-podium-score', `Nota final: ${result.total}`));
+				el('small', '', podiumPokemonTeam.map(pokemon => pokemon.name).join(' · ')), el('small', 'contest-final-podium-score', `Nota final: ${result.total}`));
 			const details = el('div', 'contest-final-podium-details');
 			for (let round = 0; round < 2; round++) {
 				const block = el('div', 'contest-final-podium-round'); block.append(el('strong', '', `${round + 1}ª rodada`));
@@ -468,7 +509,19 @@ window.RPGContestUI = (() => {
 				for (const other of ceremony.querySelectorAll('.contest-final-podium-entry.details-open')) other.classList.remove('details-open');
 				entry.classList.toggle('details-open', opening);
 			});
-			entry.append(pokemonHost, trainer, label, details); ceremony.append(entry);
+			entry.append(trainer);
+			let frontPosition = 0; let behindPosition = 0;
+			podiumPokemonTeam.forEach((pokemon, pokemonIndex) => {
+				const pokemonBehind = Number(pokemon.heightM) >= 1.5;
+				const position = pokemonBehind ? behindPosition++ : frontPosition++;
+				const pokemonOnViewerRight = position === 1;
+				const pokemonHost = el('div', `contest-final-podium-pokemon ${pokemonBehind ? `behind behind-slot-${position}` : `front front-slot-${position}`}${pokemonOnViewerRight ? ' look-right' : ''} size-${pokemon.sizeClass || 'medium'}`);
+				const animatedPokemon = typeof rpgRuntimeSprite === 'function' ? rpgRuntimeSprite({
+					name: pokemon.name, species: pokemon.species, shiny: pokemon.shiny, spriteId: pokemon.spriteId,
+				}) : spriteImage(pokemon.species);
+				pokemonHost.append(animatedPokemon); entry.append(pokemonHost);
+			});
+			entry.append(label, details); ceremony.append(entry);
 		}
 		page.append(ceremony);
 		const remaining = ordered.filter(participant => {
@@ -484,11 +537,15 @@ window.RPGContestUI = (() => {
 			if (participant.avatar) {
 				const trainer = el('img', 'contest-final-trainer'); trainer.src = RPGAssets.url(`sprites/trainers/${participant.avatar}.png`); trainer.alt = participant.displayName; identity.append(trainer);
 			}
-			const pokemon = spriteImage(participant.pokemon.species); pokemon.classList.add('contest-final-pokemon'); identity.append(pokemon);
-			const heading = el('div'); heading.append(el('strong', '', result?.disqualified ? 'Desclassificado' : `${result?.place || '—'}º lugar`),
-				el('h4', '', participant.displayName), el('small', '', participant.pokemon.name));
+			const team = el('div', 'contest-final-team');
+			for (const pokemon of participant.pokemonTeam || [participant.pokemon]) {
+				const slot = el('div', 'contest-final-team-slot');
+				const image = spriteImage(pokemon.species); image.classList.add('contest-final-pokemon'); slot.append(image); team.append(slot);
+			}
+			const heading = el('div', 'contest-final-participant-info'); heading.append(el('strong', '', result?.disqualified ? 'Desclassificado' : `${result?.place || '—'}º lugar`),
+				el('h4', '', participant.displayName), el('small', '', (participant.pokemonTeam || [participant.pokemon]).map(pokemon => pokemon.name).join(' · ')));
 			if (result && !result.disqualified) heading.append(el('span', 'contest-final-score', `Nota final: ${result.total}`));
-			card.append(identity, heading);
+			card.append(identity, team, heading);
 			const details = el('details', 'contest-final-rounds'); details.append(el('summary', '', 'Ver apresentações'));
 			for (let round = 0; round < 2; round++) {
 				const block = el('div', 'contest-final-round'); block.append(el('strong', '', `${round + 1}ª rodada`));
@@ -556,6 +613,7 @@ window.RPGContestUI = (() => {
 		const create = actionButton('＋ Criar NPC temporário', () => void openCreator(), true); headingActions.append(create);
 		const creator = el('section', 'panel team-builder-showdown-card contest-npc-creator hidden'); const cards = el('div', 'contest-temporary-list');
 		const participants = (initialParticipants || []).filter(item => item.kind === 'npc').map(item => structuredClone(item));
+		let pendingNpcBuild = null;
 		async function loadTemporaryCatalogs() {
 			if (pokemonCatalog && moveCatalog && itemCatalog && avatarCatalog) return;
 			const [pokemonData, moveData, itemData, avatarData] = await Promise.all([
@@ -577,14 +635,21 @@ window.RPGContestUI = (() => {
 		function renderCards() {
 			cards.replaceChildren();
 			for (const participant of participants) {
-				const card = el('article', 'contest-temporary-card'); const set = participant.pokemon.set;
+				const card = el('article', 'contest-temporary-card');
+				const pokemonTeam = participant.pokemonTeam?.length ? participant.pokemonTeam : [participant.pokemon];
 				if (profile.scope === 'contest' && participant.avatar) {
 					const trainer = el('img', 'contest-temporary-trainer-sprite');
 					trainer.src = RPGAssets.url(`sprites/trainers/${participant.avatar}.png`);
 					trainer.alt = `Treinador ${participant.displayName}`; trainer.loading = 'lazy'; card.append(trainer);
 				}
-				card.append(pokemonSprite(set)); const info = el('div');
-				info.append(el('strong', '', participant.displayName), el('small', '', `${set.name || set.species} · Nv. ${set.level}`), el('small', '', set.moves.join(' · ')));
+				const teamSprites = el('div', 'contest-temporary-team-sprites');
+				for (const selection of pokemonTeam) teamSprites.append(pokemonSprite(selection.set));
+				card.append(teamSprites); const info = el('div');
+				info.append(el('strong', '', participant.displayName));
+				for (const selection of pokemonTeam) {
+					const set = selection.set;
+					info.append(el('small', '', `${set.name || set.species} · Nv. ${set.level}`), el('small', '', set.moves.join(' · ')));
+				}
 				if (profile.scope === 'contest' && participant.randomRank) {
 					info.append(el('small', 'contest-random-npc-rank', `NPC aleatório · ${labels[participant.randomRank]}`));
 				}
@@ -610,42 +675,43 @@ window.RPGContestUI = (() => {
 			try {
 				await loadTemporaryCatalogs();
 				const eligiblePokemon = pokemonCatalog.filter(entry => !entry.legendary);
-				let pokemon = null; let legalMoves = [];
-				for (let attempt = 0; attempt < 12 && legalMoves.length < 4; attempt++) {
-					pokemon = eligiblePokemon[Math.floor(Math.random() * eligiblePokemon.length)];
-					const query = new URLSearchParams({species: pokemon.name, level: String(rank.level)});
-					const data = await context.api('/contest-pokemon-moves?' + query); legalMoves = data.moves || [];
-				}
-				if (!pokemon || legalMoves.length < 4) throw new Error('Não foi possível montar um NPC aleatório.');
 				const category = profile.contestCategory?.() || 'beauty';
-				const scoredMoves = legalMoves.map(move => ({move, quality:
-					move.baseScore + (move.category === category ? 3 : 0) + Math.min(2, move.tags?.length / 4 || 0) - (move.penalties?.length || 0) * 3,
-				})).sort((left, right) => left.quality - right.quality);
-				const windowStart = Math.round((scoredMoves.length - 4) * rank.quality / 4);
-				const movePool = scoredMoves.slice(Math.max(0, windowStart - 3), Math.min(scoredMoves.length, windowStart + 7));
-				const selected = [];
-				while (selected.length < 4 && movePool.length) {
-					const weightedIndex = rank.quality >= 3 ? movePool.length - 1 : Math.floor(Math.random() * movePool.length);
-					selected.push(movePool.splice(weightedIndex, 1)[0].move);
-				}
 				const usefulItems = itemCatalog.filter(entry => entry.contest?.canScore && entry.contest.category === category && entry.contest.scoringMode === 'passive');
 				const desiredPoints = rank.quality >= 4 ? 3 : rank.quality >= 2 ? 2 : 1;
 				const itemChoices = usefulItems.filter(entry => entry.contest.points === desiredPoints);
-				const heldItem = itemChoices[Math.floor(Math.random() * itemChoices.length)] || null;
 				const avatar = avatarCatalog[Math.floor(Math.random() * avatarCatalog.length)] || {id: 'lucas-contest', name: 'Lucas'};
-				const allowedGenders = pokemon.genders || ['M', 'F'];
-				const gender = allowedGenders[Math.floor(Math.random() * allowedGenders.length)] || '';
-				const hpBase = pokemon.baseStats?.hp || 50;
-				const maximumHP = pokemon.id === 'shedinja' ? 1 : Math.floor((2 * hpBase + 31) * rank.level / 100) + rank.level + 10;
 				const index = participants.length + 1; const id = `npc-random-${index}-${avatar.id}`;
-				participants.push({id, kind: 'npc', displayName: avatar.name, avatar: avatar.id, randomRank: rankId, pokemon: {set: {
-					name: pokemon.name, species: pokemon.name, level: rank.level, moves: selected.map(move => move.moveId),
-					ability: pokemon.abilities?.[0] || '', item: heldItem?.id || '', nature: contestNatures[Math.floor(Math.random() * contestNatures.length)],
-					gender, shiny: false, evs: {hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0},
-					ivs: {hp: 31, atk: 31, def: 31, spa: 31, spd: 31, spe: 31}, rpg: {hp: maximumHP,
-						pp: selected.map(move => move.pp), status: '', friendship: 100, contestPerformance: rank.quality * 5,
-						contestPerformanceTrainerId: id},
-				}}});
+				const required = profile.contestMode?.() === 'trio' ? 3 : profile.contestMode?.() === 'duo' ? 2 : 1;
+				const pokemonTeam = [];
+				for (let slot = 0; slot < required; slot++) {
+					let pokemon = null; let legalMoves = [];
+					for (let attempt = 0; attempt < 12 && legalMoves.length < 4; attempt++) {
+						pokemon = eligiblePokemon[Math.floor(Math.random() * eligiblePokemon.length)];
+						const query = new URLSearchParams({species: pokemon.name, level: String(rank.level)});
+						const data = await context.api('/contest-pokemon-moves?' + query); legalMoves = data.moves || [];
+					}
+					if (!pokemon || legalMoves.length < 4) throw new Error('Não foi possível montar um NPC aleatório.');
+					const scoredMoves = legalMoves.map(move => ({move, quality: contestMoveScoreForCategory(move, category) +
+						Math.min(2, move.tags?.length / 4 || 0) - (move.penalties?.length || 0) * 3})).sort((left, right) => left.quality - right.quality);
+					const windowStart = Math.round((scoredMoves.length - 4) * rank.quality / 4);
+					const movePool = scoredMoves.slice(Math.max(0, windowStart - 3), Math.min(scoredMoves.length, windowStart + 7));
+					const selected = [];
+					while (selected.length < 4 && movePool.length) {
+						const weightedIndex = rank.quality >= 3 ? movePool.length - 1 : Math.floor(Math.random() * movePool.length);
+						selected.push(movePool.splice(weightedIndex, 1)[0].move);
+					}
+					const heldItem = itemChoices[Math.floor(Math.random() * itemChoices.length)] || null;
+					const allowedGenders = pokemon.genders || ['M', 'F']; const gender = allowedGenders[Math.floor(Math.random() * allowedGenders.length)] || '';
+					const hpBase = pokemon.baseStats?.hp || 50;
+					const maximumHP = pokemon.id === 'shedinja' ? 1 : Math.floor((2 * hpBase + 31) * rank.level / 100) + rank.level + 10;
+					pokemonTeam.push({set: {name: pokemon.name, species: pokemon.name, level: rank.level, moves: selected.map(move => move.moveId),
+						ability: pokemon.abilities?.[0] || '', item: heldItem?.id || '', nature: contestNatures[Math.floor(Math.random() * contestNatures.length)],
+						gender, shiny: false, evs: {hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0},
+						ivs: {hp: 31, atk: 31, def: 31, spa: 31, spd: 31, spe: 31}, rpg: {hp: maximumHP, pp: selected.map(move => move.pp),
+							status: '', friendship: 100, contestPerformance: rank.quality * 5, contestPerformanceTrainerId: id}}});
+				}
+				participants.push({id, kind: 'npc', displayName: avatar.name, avatar: avatar.id, randomRank: rankId,
+					pokemon: pokemonTeam[0], pokemonTeam});
 				renderCards();
 			} catch (error) {
 				window.alert(error.message);
@@ -655,9 +721,11 @@ window.RPGContestUI = (() => {
 		}
 		function renderCreator() {
 			creator.replaceChildren(); const title = el('div', 'contest-npc-coordinator-bar');
-			title.append(el('h4', '', 'Criar NPC temporário'), actionButton('Cancelar', closeCreator)); creator.append(title);
-			const npcName = el('input'); npcName.placeholder = 'Nome do coordenador'; npcName.maxLength = 60;
-			let selectedAvatar = avatarCatalog[0] || {id: 'lucas', name: 'Lucas'};
+			const requiredPokemon = profile.scope === 'contest' ? (profile.contestMode?.() === 'trio' ? 3 : profile.contestMode?.() === 'duo' ? 2 : 1) : 1;
+			const nextPokemonNumber = (pendingNpcBuild?.pokemonTeam.length || 0) + 1;
+			title.append(el('h4', '', requiredPokemon > 1 ? `Criar NPC temporário · Pokémon ${nextPokemonNumber} de ${requiredPokemon}` : 'Criar NPC temporário'), actionButton('Cancelar', closeCreator)); creator.append(title);
+			const npcName = el('input'); npcName.placeholder = 'Nome do coordenador'; npcName.maxLength = 60; npcName.value = pendingNpcBuild?.displayName || '';
+			let selectedAvatar = avatarCatalog.find(avatar => avatar.id === pendingNpcBuild?.avatar) || avatarCatalog[0] || {id: 'lucas', name: 'Lucas'};
 			const avatarPicker = el('div', 'contest-npc-avatar-picker');
 			let avatarOutsideHandler = null;
 			const avatarButton = actionButton('', event => {
@@ -1187,7 +1255,8 @@ window.RPGContestUI = (() => {
 			if (profile.scope !== 'contest') {
 				moveSection.append(moveHeading, moveChips, moveSearch, moveResults); creator.append(moveSection);
 			}
-			const error = el('p', 'form-error hidden'); const finish = actionButton(profile.finishLabel, () => {
+			const finishLabel = requiredPokemon > 1 && nextPokemonNumber < requiredPokemon ? `Adicionar Pokémon ${nextPokemonNumber}` : profile.finishLabel;
+			const error = el('p', 'form-error hidden'); const finish = actionButton(finishLabel, () => {
 				try {
 					if (!npcName.value.trim()) throw new Error('Informe o nome do NPC.');
 					if (!selectedPokemon) throw new Error('Selecione um Pokémon.');
@@ -1200,20 +1269,29 @@ window.RPGContestUI = (() => {
 					const rpgState = {hp: Number(hp.value), pp: selectedMoves.map(move => move.currentPP ?? move.pp), status: status.value, friendship: Number(friendship.value),
 						contestPerformance: Number(performance.value), contestPerformanceTrainerId: id};
 					if (profile.includeExperience) rpgState.experience = Number(experience.value);
-					participants.push({id, kind: 'npc', displayName: npcName.value.trim(), avatar: selectedAvatar.id, pokemon: {set: {
+					const selection = {set: {
 						name: selectedPokemon.name, species: selectedPokemon.name, level: Number(level.value),
 						moves: selectedMoves.map(move => move.moveId), ability: ability.value, item: item.value.trim(), nature: nature.value,
 						gender: gender.value, shiny: shiny.checked, evs: {...evs}, ivs: {...ivs}, rpg: rpgState,
-					}}}); renderCards(); closeCreator();
+					}};
+					if (!pendingNpcBuild) pendingNpcBuild = {id, displayName: npcName.value.trim(), avatar: selectedAvatar.id, pokemonTeam: []};
+					pendingNpcBuild.pokemonTeam.push(selection);
+					if (pendingNpcBuild.pokemonTeam.length < requiredPokemon) {
+						renderCreator();
+						return;
+					}
+					participants.push({id: pendingNpcBuild.id, kind: 'npc', displayName: pendingNpcBuild.displayName,
+						avatar: pendingNpcBuild.avatar, pokemon: pendingNpcBuild.pokemonTeam[0], pokemonTeam: pendingNpcBuild.pokemonTeam});
+					pendingNpcBuild = null; renderCards(); closeCreator();
 				} catch (caught) { error.textContent = caught.message; error.classList.remove('hidden'); }
 			}, true);
 			creator.append(error, finish);
 		}
-		function closeCreator() { creator.classList.add('hidden'); creator.replaceChildren(); create.classList.remove('hidden'); }
+		function closeCreator() { pendingNpcBuild = null; creator.classList.add('hidden'); creator.replaceChildren(); create.classList.remove('hidden'); }
 		renderCards(); root.append(creator, cards); return {root, participants: () => structuredClone(participants)};
 	}
-	function contestTemporaryNPCEditor(context, initialParticipants, contestCategory, contestRank) {
-		return buildTemporaryNPCEditor(context, initialParticipants, {...temporaryNPCProfiles.contest, contestCategory, contestRank});
+	function contestTemporaryNPCEditor(context, initialParticipants, contestCategory, contestRank, contestMode) {
+		return buildTemporaryNPCEditor(context, initialParticipants, {...temporaryNPCProfiles.contest, contestCategory, contestRank, contestMode});
 	}
 	function battleTemporaryNPCEditor(context, initialParticipants) {
 		return buildTemporaryNPCEditor(context, initialParticipants, temporaryNPCProfiles.battle);
@@ -1227,7 +1305,7 @@ window.RPGContestUI = (() => {
 
 		const basic = step(1, 'Concurso e formato', 'Defina a identidade, categoria e nível do concurso.');
 		const name = el('input'); name.maxLength = 80; name.value = existing?.name || ''; name.placeholder = 'Nome do concurso';
-		const mode = select([['solo', 'Solo']], 'solo'); mode.disabled = true;
+		const mode = select([['solo', 'Solo'], ['duo', 'Dupla'], ['trio', 'Trio']], existing?.mode || 'solo');
 		const category = select([['beauty', 'Beleza'], ['cute', 'Fofura'], ['cool', 'Estilo'], ['smart', 'Inteligência'], ['tough', 'Força']], existing?.category || 'beauty');
 		const rank = select([['normal', 'Normal'], ['great', 'Great'], ['super', 'Super'], ['hyper', 'Hyper'], ['master', 'Master']], existing?.rank || 'normal');
 		const basicGrid = el('div', 'contest-basic-grid'); basicGrid.append(field('Nome', name), field('Formato', mode), field('Categoria', category), field('Rank', rank));
@@ -1246,7 +1324,7 @@ window.RPGContestUI = (() => {
 		const registeredNPCs = el('div', 'participant-column contest-registered-npcs');
 		registeredNPCs.append(el('strong', '', 'NPCs'), el('div', 'contest-reserved-npcs', 'Espaço reservado para os NPCs cadastrados da campanha.'));
 		participantColumns.append(players, registeredNPCs);
-		const temporaryNPCs = contestTemporaryNPCEditor(context, existing?.participants || [], () => category.value, () => rank.value);
+		const temporaryNPCs = contestTemporaryNPCEditor(context, existing?.participants || [], () => category.value, () => rank.value, () => mode.value);
 		participantsStep.body.append(participantColumns, temporaryNPCs.root); form.append(participantsStep.section);
 
 		const conditions = step(3, 'Condições iniciais', 'Defina o clima e o terreno permanentes do palco.');
@@ -1296,7 +1374,7 @@ window.RPGContestUI = (() => {
 					participants.push({id: `${characterId}-contest`, kind: 'player', characterId, displayName: character.characterName, avatar: character.avatar});
 				}
 				participants.push(...temporaryNPCs.participants());
-				const request = {name: name.value.trim(), mode: 'solo', category: category.value, rank: rank.value, participants,
+				const request = {name: name.value.trim(), mode: mode.value, category: category.value, rank: rank.value, participants,
 					scenario: {id: existing?.scenario?.id || 'classic-stage', name: name.value.trim() || 'Palco do concurso', tags: [],
 						backgroundId: backgroundInput.value, weather: weather.value, terrain: terrain.value}};
 				let sessionId = existing?.id;
@@ -1314,14 +1392,20 @@ window.RPGContestUI = (() => {
 	}
 	function playerPokemonSelection(context, session, participant) {
 		const panel = el('div', 'player-battle-selection contest-pokemon-selection');
-		panel.append(el('strong', '', 'Escolha o Pokémon para o concurso'));
-		const grid = el('div', 'pokemon-choice-grid'); let selected = participant.pokemon?.teamIndex;
+		const required = session.mode === 'trio' ? 3 : session.mode === 'duo' ? 2 : 1;
+		panel.append(el('strong', '', `Escolha ${required === 1 ? 'o Pokémon' : `${required} Pokémon`} para o concurso`));
+		const grid = el('div', 'pokemon-choice-grid');
+		const selected = new Set((participant.pokemonTeam || (participant.pokemon ? [participant.pokemon] : [])).map(entry => entry.teamIndex));
 		for (const [index, pokemon] of (context.character.team || []).entries()) {
 			const metadata = context.character.box?.party?.[index]?.metadata || {};
 			const fainted = (pokemon.rpg?.hp ?? 1) <= 0; const unavailable = fainted || !!metadata.evTraining || !!metadata.breeding;
 			const label = el('label', `battle-check pokemon-choice${unavailable ? ' unavailable' : ''}`); const input = el('input');
-			input.type = 'radio'; input.name = `contest-${session.id}`; input.disabled = unavailable; input.checked = selected === index;
-			input.addEventListener('change', () => { selected = index; }); label.append(input, pokemonSprite(pokemon));
+			input.type = required === 1 ? 'radio' : 'checkbox'; input.name = `contest-${session.id}`; input.disabled = unavailable; input.checked = selected.has(index);
+			input.addEventListener('change', () => {
+				if (required === 1) selected.clear();
+				if (input.checked) selected.add(index); else selected.delete(index);
+				if (selected.size > required) { selected.delete(index); input.checked = false; }
+			}); label.append(input, pokemonSprite(pokemon));
 			const info = el('span'); info.append(el('strong', '', pokemon.name || pokemon.species), el('small', '', `${pokemon.species} · Nv. ${pokemon.level || 1}`));
 			if (fainted) info.append(el('small', 'form-error', 'Desmaiado'));
 			else if (metadata.evTraining) info.append(el('small', '', 'Em treinamento'));
@@ -1329,8 +1413,8 @@ window.RPGContestUI = (() => {
 			label.append(info); grid.append(label);
 		}
 		panel.getPokemonSelection = () => {
-			if (!Number.isSafeInteger(selected)) throw new Error('Escolha um Pokémon para o concurso.');
-			return selected;
+			if (selected.size !== required) throw new Error(`Escolha exatamente ${required} Pokémon para o concurso.`);
+			return [...selected];
 		};
 		panel.append(grid); return panel;
 	}
@@ -1338,8 +1422,9 @@ window.RPGContestUI = (() => {
 		const card = el('article', 'panel battle-session-card contest-invitation-card');
 		const header = el('div', 'battle-session-head');
 		const title = el('div');
+		const modeLabels = {solo: 'Solo', duo: 'Dupla', trio: 'Trio'};
 		title.append(el('strong', '', session.name || 'Concurso sem nome'),
-			el('small', '', `${labels[session.category] || session.category} · ${labels[session.rank] || session.rank} · Solo`));
+			el('small', '', `${labels[session.category] || session.category} · ${labels[session.rank] || session.rank} · ${modeLabels[session.mode] || session.mode}`));
 		const statusLabels = {draft: 'Rascunho', inviting: 'Aguardando respostas', ready: 'Pronto', declined: 'Recusado'};
 		header.append(title, el('span', `battle-status status-${session.status}`, statusLabels[session.status] || session.status));
 		card.append(header);
@@ -1367,7 +1452,9 @@ window.RPGContestUI = (() => {
 
 		const invitation = session.invitations.find(item => item.characterId === context.character?.id);
 		const participant = session.participants.find(item => item.characterId === context.character?.id);
-		const selection = invitation?.response === 'pending' && participant && !participant.pokemon ?
+		const requiredPokemon = session.mode === 'trio' ? 3 : session.mode === 'duo' ? 2 : 1;
+		const selectedCount = participant?.pokemonTeam?.length || (participant?.pokemon ? 1 : 0);
+		const selection = invitation?.response === 'pending' && participant && selectedCount !== requiredPokemon ?
 			playerPokemonSelection(context, session, participant) : null;
 		if (selection) card.append(selection);
 		if (invitation?.response === 'pending') {
@@ -1379,7 +1466,7 @@ window.RPGContestUI = (() => {
 			const accept = actionButton('Aceitar', async () => {
 				if (selection?.getPokemonSelection) {
 					await context.api(`/contest-sessions/${encodeURIComponent(session.id)}/selection`,
-						{method: 'POST', body: {teamIndex: selection.getPokemonSelection()}});
+						{method: 'POST', body: {teamIndexes: selection.getPokemonSelection()}});
 				}
 				await context.api(`/contest-sessions/${encodeURIComponent(session.id)}/response`, {method: 'POST', body: {response: 'accepted'}});
 				await refresh(context);

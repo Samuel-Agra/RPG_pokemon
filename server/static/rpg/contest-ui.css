@@ -120,7 +120,7 @@
 	object-fit: contain; image-rendering: pixelated; transform: translate(-50%, -50%) scale(var(--texture-scale)); filter: drop-shadow(0 3px 3px #0005);
 }
 .contest-persistent-texture.water img, .contest-persistent-texture.cracks img { top: calc(var(--texture-top) + 5%); width: clamp(82px, 13vw, 188px); height: clamp(54px, 8vw, 116px); }
-.contest-persistent-texture.water img { opacity: .72; animation: contest-sprite-water 2.2s var(--texture-delay) ease-in-out infinite; }
+.contest-persistent-texture.water img { opacity: .72; }
 .contest-persistent-texture.cracks img { opacity: .78; }
 .contest-persistent-texture.smoke img { top: calc(var(--texture-top) - 18%); opacity: .68; animation: contest-sprite-smoke 3.4s var(--texture-delay) ease-in-out infinite alternate; }
 .contest-persistent-texture.mist img { top: calc(var(--texture-top) - 12%); width: clamp(100px, 16vw, 230px); opacity: .58; animation: contest-sprite-mist 5s var(--texture-delay) linear infinite; }
@@ -139,7 +139,6 @@
 @keyframes contest-persistent-float { from { translate: 0 -5px; rotate: -5deg; } to { translate: 0 6px; rotate: 7deg; } }
 @keyframes contest-persistent-leaf { 0%, 100% { translate: -5px 0; rotate: -14deg; } 50% { translate: 8px -12px; rotate: 20deg; } }
 @keyframes contest-persistent-pulse { from { filter: brightness(.9) drop-shadow(0 3px 3px #0008); } to { filter: brightness(1.35) drop-shadow(0 0 9px currentColor); } }
-@keyframes contest-sprite-water { 0%, 100% { opacity: .52; scale: .92; } 50% { opacity: .82; scale: 1.06; } }
 @keyframes contest-sprite-smoke { from { translate: -7px 5px; scale: .92; } to { translate: 8px -8px; scale: 1.08; } }
 @keyframes contest-sprite-mist { from { translate: -30px 0; opacity: .38; } 50% { opacity: .68; } to { translate: 30px -4px; opacity: .38; } }
 @keyframes contest-sprite-sand { 0%, 100% { rotate: -4deg; scale: .94; } 50% { rotate: 5deg; scale: 1.06; } }
@@ -155,6 +154,17 @@
 @keyframes contest-clear-persistent-stage { from { opacity: 1; filter: none; } 55% { opacity: .58; filter: brightness(1.45) blur(1px); } to { opacity: 0; filter: brightness(1.8) blur(8px); translate: -12% -4%; } }
 .contest-stage-trainer { position: absolute; left: 59%; bottom: 31%; width: clamp(88px, 12vw, 138px); height: clamp(126px, 18vw, 198px); object-fit: contain; object-position: center bottom; image-rendering: pixelated; filter: drop-shadow(0 5px 3px #0007); transform-origin: center bottom; animation: contest-trainer-idle 1.8s ease-in-out infinite; }
 .contest-stage-pokemon { position: absolute; left: 50%; bottom: 26%; display: grid; place-items: end center; width: clamp(150px, 23vw, 245px); height: clamp(150px, 23vw, 245px); filter: drop-shadow(0 7px 4px #0008); transform: translateX(-50%); }
+.contest-stage-actors.mode-duo .contest-stage-trainer { left: 50%; bottom: 34%; translate: -50% 0; scale: .9; }
+.contest-stage-actors.mode-duo .contest-stage-pokemon.slot-0 { left: 36%; bottom: 25%; }
+.contest-stage-actors.mode-duo .contest-stage-pokemon.slot-1 { left: 65%; bottom: 25%; }
+.contest-stage-actors.mode-trio .contest-stage-pokemon.slot-0 { left: 50%; bottom: 26%; }
+.contest-stage-actors.mode-trio .contest-stage-pokemon.slot-1 { left: 31%; bottom: 23%; }
+.contest-stage-actors.mode-trio .contest-stage-pokemon.slot-2 { left: 76%; bottom: 24%; }
+.contest-stage-actors.mode-duo .contest-stage-pokemon, .contest-stage-actors.mode-trio .contest-stage-pokemon { width: clamp(125px, 18vw, 205px); height: clamp(125px, 18vw, 205px); }
+#dashboard-screen.contest-mode .contest-stage-actors.mode-duo .contest-stage-pokemon,
+#dashboard-screen.contest-mode .contest-stage-actors.mode-trio .contest-stage-pokemon { width: clamp(150px, 20vw, 255px); height: clamp(150px, 20vw, 255px); }
+.contest-stage-actors.mode-duo .contest-stage-pokemon.slot-1 img,
+.contest-stage-actors.mode-trio .contest-stage-pokemon.slot-2 img { transform: scaleX(-1); }
 .contest-stage-pokemon .rpg-showdown-sprite, .contest-stage-pokemon .pokemon-sprite { position: relative; inset: auto; display: grid; place-items: end center; width: 100%; height: 100%; background: transparent; border: 0; box-shadow: none; }
 .contest-stage-pokemon .rpg-showdown-sprite img, .contest-stage-pokemon .pokemon-sprite img { width: auto; height: auto; max-width: 100%; max-height: 100%; image-rendering: pixelated; }
 .contest-stage-pokemon.size-small .rpg-showdown-sprite { scale: .88; }
@@ -351,6 +361,27 @@
 .contest-move-field { flex: none; }
 .contest-move-order { position: absolute; z-index: 2; top: -10px; left: 50%; display: flex; gap: 4px; transform: translateX(-50%); }
 .contest-move-order b { display: grid; place-items: center; width: 20px; height: 20px; color: #26354a; background: #fff3a4; border: 1px solid #d5a822; border-radius: 50%; font-size: 11px; line-height: 1; text-shadow: none; box-shadow: 0 1px 3px #0006; }
+.contest-pokemon-move-group { display: contents; }
+.contest-pokemon-move-group-heading { grid-column: 1 / -1; display: flex; align-items: center; gap: 7px; min-width: 0; padding: 5px 9px; color: #263d61; background: #e8eef7; border-radius: 6px; }
+.contest-pokemon-move-group-name { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; font-family: Georgia, 'Times New Roman', serif; }
+.contest-mega-button { position: relative; flex: 0 0 auto; width: 28px; height: 28px; margin: -4px 0; padding: 2px; border: 1px solid transparent; border-radius: 50%; background: transparent; cursor: pointer; }
+.contest-mega-button-image { display: block; width: 100%; height: 100%; object-fit: contain; image-rendering: pixelated; filter: drop-shadow(0 0 3px #9b58db); pointer-events: none; }
+.contest-mega-button:hover { background: #fff9; filter: brightness(1.12); }
+.contest-mega-button.active { border-color: #b869e5; background: radial-gradient(circle, #fff 15%, #e6c5f7 62%, #8a4bb3 100%); box-shadow: 0 0 8px #a951e7; }
+.contest-mega-button:disabled { opacity: .45; cursor: default; filter: grayscale(.45); }
+.contest-mega-button.fallback { border-color: #8b56bd; background: conic-gradient(#8244c7, #4388df, #36c9bd, #7bd34e, #f0d447, #e47342, #c84fa9, #8244c7); }
+.contest-mega-button.fallback::after { content: ''; position: absolute; inset: 8px 10px; border-radius: 55% 20%; background: #25426f; box-shadow: -3px 3px 0 -1px #fff, 3px -3px 0 -1px #fff; transform: rotate(-28deg); }
+.contest-moves.mode-duo, .contest-moves.mode-trio { align-items: start; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.contest-moves.mode-duo .contest-pokemon-move-group,
+.contest-moves.mode-trio .contest-pokemon-move-group {
+	display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; min-width: 0;
+	padding: 8px; border: 1px solid #c7d1df; border-radius: 8px; background: #f4f7fb;
+}
+.contest-moves.mode-duo .contest-pokemon-move-group { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.contest-moves.mode-trio { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.contest-moves.mode-trio .contest-pokemon-move-group { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.contest-moves.mode-trio .contest-pokemon-move-group-heading { grid-column: 1 / -1; }
+.contest-moves.mode-trio .contest-move { min-height: 76px; }
 .contest-sequence { display: flex; justify-content: center; flex-wrap: wrap; gap: 8px; min-height: 32px; }
 .contest-sequence span { background: #ffffff22; padding: 6px 10px; border-radius: 10px; }
 .contest-sequence span:last-child { box-shadow: 0 0 10px #5077a655; }
@@ -417,8 +448,12 @@
 	position: absolute; left: 4%; bottom: 12%; display: grid; place-items: end center; width: clamp(110px, 14vw, 205px); height: clamp(110px, 14vw, 205px);
 	filter: drop-shadow(0 6px 4px #0009); transform-origin: center bottom;
 }
-.contest-final-podium-entry.place-2 .contest-final-podium-pokemon { left: auto; right: -3%; }
-.contest-final-podium-entry.place-3 .contest-final-podium-pokemon { left: -3%; }
+.contest-final-podium-pokemon.front-slot-0 { left: -6%; right: auto; }
+.contest-final-podium-pokemon.front-slot-1 { left: auto; right: -6%; }
+.contest-final-podium-pokemon.front-slot-2 { left: 31%; right: auto; bottom: 2%; }
+.contest-final-podium-pokemon.behind-slot-0 { left: 8%; right: auto; }
+.contest-final-podium-pokemon.behind-slot-1 { left: auto; right: 8%; }
+.contest-final-podium-pokemon.behind-slot-2 { left: 34%; right: auto; bottom: 34%; }
 .contest-final-podium-pokemon.behind { z-index: 1; bottom: 25%; }
 .contest-final-podium-pokemon.front { z-index: 3; bottom: 8%; }
 .contest-final-podium-pokemon .rpg-showdown-sprite, .contest-final-podium-pokemon .pokemon-sprite { display: grid; place-items: end center; width: 100%; height: 100%; }
@@ -461,10 +496,19 @@
 .contest-final-podium-round .contest-final-reaction { margin: 2px 0 0; text-align: center; }
 @keyframes contest-podium-details-open { from { opacity: 0; translate: 0 -8px; scale: .94; } to { opacity: 1; translate: 0; scale: 1; } }
 .contest-final-participant-grid { display: grid; gap: 10px; }
-.contest-final-participant { display: grid; grid-template-columns: 126px minmax(150px, .5fr) minmax(300px, 1fr); align-items: center; gap: 14px; padding: 12px; border: 1px solid #c5cfda; border-radius: 10px; background: #f8fafc; }
-.contest-final-identity { display: flex; align-items: end; justify-content: center; min-height: 76px; }
+.contest-final-participant { display: grid; grid-template-columns: 72px minmax(220px, max-content) minmax(190px, .55fr) minmax(300px, 1fr); align-items: center; gap: 18px; padding: 14px 18px; overflow: hidden; border: 1px solid #c5cfda; border-radius: 10px; background: #f8fafc; }
+.contest-final-identity { display: flex; align-items: end; justify-content: center; min-width: 0; min-height: 76px; }
 .contest-final-trainer { width: 58px; height: 72px; object-fit: contain; image-rendering: pixelated; }
-.contest-final-pokemon { width: 68px; height: 68px; object-fit: contain; image-rendering: pixelated; }
+.contest-final-team { display: grid; grid-auto-flow: column; grid-auto-columns: 72px; align-items: end; justify-content: start; gap: 8px; min-width: 0; min-height: 76px; }
+.contest-final-team-slot { display: grid; place-items: end center; width: 72px; height: 76px; min-width: 0; }
+.contest-final-pokemon { display: block; width: 68px; height: 68px; max-width: 100%; object-fit: contain; image-rendering: pixelated; }
+.contest-final-participant-info { min-width: 0; padding-left: 18px; border-left: 1px solid #d6dee8; }
+.contest-final-participant-info small { display: block; overflow-wrap: anywhere; line-height: 1.35; }
+.contest-final-participant-info .contest-final-score { display: block; margin-top: 5px; }
+@media (max-width: 1100px) {
+	.contest-final-participant { grid-template-columns: 72px minmax(220px, max-content) minmax(0, 1fr); }
+	.contest-final-rounds { grid-column: 1 / -1; }
+}
 @media (max-width: 760px) {
 	.contest-final-podium-entry { width: 34%; }
 	.contest-final-podium-entry.place-2 { --podium-left: 78%; }
@@ -582,6 +626,8 @@
 .contest-temporary-card { display: grid; grid-template-columns: auto 1fr auto; align-items: center; gap: 12px; padding: 11px; border: 1px solid #c5cfda; border-radius: 12px; background: white; }
 .contest-temporary-npcs[data-temporary-npc-build="contest"] .contest-temporary-card { grid-template-columns: auto auto minmax(0, 1fr) auto; }
 .contest-temporary-trainer-sprite { width: 52px; height: 58px; object-fit: contain; image-rendering: pixelated; }
+.contest-temporary-team-sprites { display: flex; align-items: end; gap: 3px; }
+.contest-temporary-team-sprites .pokemon-sprite { width: 58px; height: 58px; }
 .contest-random-npc-rank { color: #4c6f9f; font-weight: 700; }
 .contest-temporary-card > div { display: grid; gap: 2px; }
 .contest-condition-grid { display: grid; grid-template-columns: repeat(2, minmax(180px, 1fr)); gap: 12px; max-width: 760px; }
@@ -619,7 +665,10 @@
 	.contest-species-dropdown .contest-species-grid { grid-template-columns: repeat(auto-fill, 120px); }
 	.contest-npc-avatar-results { grid-template-columns: repeat(3, minmax(90px, 1fr)); }
 	.contest-background-options { grid-template-columns: repeat(2, minmax(130px, 1fr)); }
-	.contest-final-participant { grid-template-columns: 100px minmax(0, 1fr); }
+	.contest-final-participant { grid-template-columns: 64px minmax(0, 1fr); gap: 12px; padding: 12px; }
+	.contest-final-team { grid-column: 2; grid-row: 1; grid-auto-columns: minmax(48px, 64px); gap: 4px; }
+	.contest-final-team-slot { width: 64px; }
+	.contest-final-participant-info { grid-column: 1 / -1; padding: 10px 0 0; border-top: 1px solid #d6dee8; border-left: 0; }
 	.contest-final-rounds { grid-column: 1 / -1; }
 	.contest-highlight-grid { grid-template-columns: 1fr; }
 }

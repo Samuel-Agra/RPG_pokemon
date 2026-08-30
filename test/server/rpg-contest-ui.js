@@ -107,7 +107,7 @@ describe('RPG contest UI', () => {
 		assert.ok(css.includes('@keyframes contest-trainer-idle'));
 		assert.ok(css.includes('.contest-stage-trainer { position: absolute; left: 59%; bottom: 31%;'));
 		assert.ok(css.includes('.contest-stage-pokemon { position: absolute; left: 50%;'));
-		assert.ok(ui.includes("size-${current.pokemon.sizeClass || 'medium'}"));
+		assert.ok(ui.includes("size-${pokemon.sizeClass || 'medium'}"));
 		for (const size of ['small', 'medium', 'large', 'giant']) assert.ok(css.includes(`.contest-stage-pokemon.size-${size}`));
 		assert.ok(!css.includes('@keyframes contest-move'));
 	});
@@ -171,7 +171,9 @@ describe('RPG contest UI', () => {
 		const ui = fs.readFileSync(path.join(root, 'contest-ui.js'), 'utf8');
 		for (const marker of ['Criar NPC aleatório', 'generateRandomNPC()', "profile.contestRank?.() || 'normal'",
 			"normal: {level: 20, quality: 0}", "master: {level: 90, quality: 4}",
-			"entry.contest.category === category", 'randomRank: rankId']) assert.ok(ui.includes(marker), marker);
+			"entry.contest.category === category", 'randomRank: rankId', 'contestMoveScoreForCategory(move, category)',
+			"beauty: 'cool', cool: 'beauty', cute: 'tough', tough: 'cute'", 'Math.min(10, baseScore + 2)',
+			'Math.min(2, Math.floor(baseScore / 2))']) assert.ok(ui.includes(marker), marker);
 		assert.ok(ui.includes("if (profile.scope === 'contest')"));
 	});
 
@@ -228,7 +230,7 @@ describe('RPG contest UI', () => {
 	it('keeps the contest scenery visual and moves all information below it', () => {
 		const ui = fs.readFileSync(path.join(root, 'contest-ui.js'), 'utf8');
 		const css = fs.readFileSync(path.join(root, 'contest-ui.css'), 'utf8');
-		assert.ok(ui.includes("const actors = el('div', 'contest-stage-actors')"));
+		assert.ok(ui.includes("const actors = el('div', `contest-stage-actors mode-${contest.mode || 'solo'}`)"));
 		assert.ok(ui.includes("el('img', 'contest-stage-trainer')"));
 		assert.ok(ui.includes("typeof rpgRuntimeSprite === 'function'"));
 		assert.ok(ui.includes("const content = el('section', 'panel contest-stage-content')"));
@@ -287,7 +289,7 @@ describe('RPG contest UI', () => {
 		assert.ok(ui.includes('categoryArt.src = contestCategoryHeaderUrl(contest.category)'));
 		assert.ok(ui.includes("categoryArt.alt = labels[contest.category]"));
 		assert.ok(ui.includes("el('span', '', current.displayName)"));
-		assert.ok(ui.includes("el('span', '', current.pokemon.name)"));
+		assert.ok(ui.includes("pokemonTeam.map(pokemon => pokemon.name).join(' · ')"));
 		assert.ok(ui.includes("el('small', '', `Rodada ${contest.round}`)"));
 		assert.ok(css.includes('top: 10px; left: 50%;'));
 		assert.ok(css.includes('width: clamp(230px, 24vw, 330px);'));
@@ -388,7 +390,7 @@ describe('RPG contest UI', () => {
 		assert.ok(adapter.includes('expressiveCue(stage, options.pokemonName, move, event, options.contestCategory)'));
 		assert.ok(adapter.includes("node.append(document.createElement('span'), document.createElement('strong')"));
 		assert.ok(adapter.includes('trainerChoreography(move)'));
-		assert.ok(ui.includes('pokemonName: participant.pokemon.name, contestCategory: contest.category'));
+		assert.ok(ui.includes('pokemonName: performer.name, contestCategory: contest.category'));
 		assert.ok(css.includes('left: clamp(42px, 6vw, 92px)'));
 		for (let variant = 0; variant < 8; variant++) assert.ok(css.includes(`.contest-expressive-callout.style-${variant}`));
 		for (const gesture of ['command', 'flourish', 'cheer', 'conduct', 'focus']) {
@@ -477,6 +479,29 @@ describe('RPG contest UI', () => {
 		}
 	});
 
+	it('supports solo, duo and trio formations with per-Pokemon move limits', () => {
+		const ui = fs.readFileSync(path.join(root, 'contest-ui.js'), 'utf8');
+		const css = fs.readFileSync(path.join(root, 'contest-ui.css'), 'utf8');
+		const session = fs.readFileSync(path.resolve(__dirname, '../../server/rpg-showdown/contest-session.ts'), 'utf8');
+		const runtime = fs.readFileSync(path.resolve(__dirname, '../../server/rpg-showdown/contest-runtime.ts'), 'utf8');
+		const http = fs.readFileSync(path.resolve(__dirname, '../../server/rpg-showdown/http.ts'), 'utf8');
+		for (const marker of ["['solo', 'Solo'], ['duo', 'Dupla'], ['trio', 'Trio']", 'mode: mode.value',
+			"session.mode === 'trio' ? 3 : session.mode === 'duo' ? 2 : 1", 'body: {teamIndexes: selection.getPokemonSelection()}',
+			'current.pokemonTeam?.length ? current.pokemonTeam : [current.pokemon]', 'current.roundPokemonIndexes',
+			'body: {type: \'select-move\', moveId: move.id, pokemonIndex, activateMega}']) assert.ok(ui.includes(marker), marker);
+		for (const marker of ['.contest-stage-actors.mode-duo .contest-stage-trainer',
+			'.contest-stage-actors.mode-duo .contest-stage-pokemon.slot-0', '.contest-stage-actors.mode-duo .contest-stage-pokemon.slot-1',
+			'.contest-stage-actors.mode-trio .contest-stage-pokemon.slot-0', '.contest-stage-actors.mode-trio .contest-stage-pokemon.slot-1',
+			'.contest-stage-actors.mode-trio .contest-stage-pokemon.slot-2']) assert.ok(css.includes(marker), marker);
+		for (const marker of ["export type RPGContestMode = 'solo' | 'duo' | 'trio'", 'pokemonTeam?: RPGContestPokemonSelection[]',
+			'RPG ${session.mode} contest requires exactly ${required} Pokemon']) assert.ok(session.includes(marker), marker);
+		for (const marker of ['pokemonTeam: RPGContestRuntimePokemon[]', 'roundPokemonIndexes: [number[], number[]]',
+			"state.session.mode === 'trio' ? 1 : state.session.mode === 'duo' ? 2 : 3", 'pokemonIndex,\n\t\t\tstageTransformations']) {
+			assert.ok(runtime.includes(marker), marker);
+		}
+		assert.ok(http.includes('body.teamIndexes.map(Number)'));
+	});
+
 	it('matches the battle invitation card for contest players', () => {
 		const ui = fs.readFileSync(path.join(root, 'contest-ui.js'), 'utf8');
 		for (const marker of ['function playerContestCard(context, session)', 'battle-session-card contest-invitation-card',
@@ -518,14 +543,14 @@ describe('RPG contest UI', () => {
 		const ui = fs.readFileSync(path.join(root, 'contest-ui.js'), 'utf8');
 		const css = fs.readFileSync(path.join(root, 'contest-ui.css'), 'utf8');
 		for (const marker of ['contest-final-ceremony', 'contestBackgroundUrl(backgroundId)', 'contest-final-podium-entry place-${place}',
-			"place === 1 ? 'Campeão'", "Number(participant.pokemon.heightM) >= 1.5", "pokemonBehind ? 'behind' : 'front'",
+			"place === 1 ? 'Campeão'", "Number(pokemon.heightM) >= 1.5", 'frontPosition = 0', 'behindPosition = 0',
 			"result?.disqualified || Number(result?.place) >= 4", 'Demais participantes']) assert.ok(ui.includes(marker), marker);
 		for (const marker of ['.contest-final-podium-entry.place-1', '.contest-final-podium-entry.place-2',
 			'.contest-final-podium-entry.place-3', '.contest-final-podium-pokemon.behind', '.contest-final-podium-pokemon.front',
 			'.contest-final-podium-pokemon.look-right img { transform: scaleX(-1); }', 'top: -18%']) {
 			assert.ok(css.includes(marker), marker);
 		}
-		assert.ok(ui.includes('const pokemonOnViewerRight = place === 2'));
+		assert.ok(ui.includes('const pokemonOnViewerRight = position === 1'));
 		assert.ok(ui.includes("pokemonOnViewerRight ? ' look-right' : ''"));
 		assert.ok(ui.includes("const label = el('button', 'contest-final-podium-label')"));
 		assert.ok(ui.includes("entry.classList.toggle('details-open', opening)"));

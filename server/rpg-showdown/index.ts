@@ -2959,12 +2959,12 @@ export class RPGLoginService {
 		return contest;
 	}
 
-	selectContestPokemon(token: string, contestSessionId: string, teamIndex: number): RPGContestSession {
+	selectContestPokemon(token: string, contestSessionId: string, teamIndexes: number | number[]): RPGContestSession {
 		const session = this.getSession(token);
 		if (session.role !== 'player' || session.mode !== 'player' || !session.characterId) {
 			throw new Error('RPG player session required to select a contest Pokemon');
 		}
-		return this.contestSessions.selectPokemon(contestSessionId, session.characterId, teamIndex);
+		return this.contestSessions.selectPokemon(contestSessionId, session.characterId, teamIndexes);
 	}
 
 	respondToContestInvitation(
@@ -2998,16 +2998,19 @@ export class RPGLoginService {
 	applyContestResults(session: RPGContestSession, results: readonly RPGContestPlacement[]): void {
 		const resultById = new Map(results.map(result => [result.participantId, result]));
 		for (const participant of session.participants) {
-			if (participant.kind !== 'player' || !participant.characterId || participant.pokemon?.teamIndex === undefined) continue;
+			if (participant.kind !== 'player' || !participant.characterId) continue;
 			const result = resultById.get(participant.id);
 			if (!result || result.disqualified) continue;
 			const record = this.repository.get(participant.characterId);
 			if (!record) continue;
 			const rewarded = record.state.completedContestRewards ||= [];
 			if (rewarded.includes(session.id)) continue;
-			const pokemon = record.state.team[participant.pokemon.teamIndex];
-			if (!pokemon) continue;
-			applyRPGContestPerformance(pokemon, record.state.id, result.performanceGain);
+			const selections = participant.pokemonTeam || (participant.pokemon ? [participant.pokemon] : []);
+			for (const selection of selections) {
+				if (selection.teamIndex === undefined) continue;
+				const pokemon = record.state.team[selection.teamIndex];
+				if (pokemon) applyRPGContestPerformance(pokemon, record.state.id, result.performanceGain);
+			}
 			rewarded.push(session.id);
 			record.state.updatedAt = Date.now();
 			this.repository.set(record);

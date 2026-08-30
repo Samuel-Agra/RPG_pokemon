@@ -16,6 +16,7 @@ import {
 } from './contest-progression';
 import {
 	applyRPGContestMoveToStage, createRPGContestStage, summarizeRPGContestRoundStage,
+	applyRPGContestMegaAbilityWeather,
 	type RPGContestMoveStageResult, type RPGContestRoundStageResult, type RPGContestStageState,
 } from './contest-stage';
 
@@ -42,6 +43,7 @@ export interface RPGContestRuntimePokemon {
 	performanceBonus: number;
 	hp: number | null;
 	status: string;
+	ability: string;
 	moves: {
 		id: string; name: string; type: string; battleCategory: string; basePower: number | null;
 		battleStatus: string; tags: string[]; changesField: boolean;
@@ -59,9 +61,11 @@ export interface RPGContestRuntimeParticipant {
 	characterId?: string;
 	avatar?: string;
 	pokemon: RPGContestRuntimePokemon;
+	pokemonTeam: RPGContestRuntimePokemon[];
 	disqualified: boolean;
 	disqualifiedAt?: number;
 	rounds: [string[], string[]];
+	roundPokemonIndexes: [number[], number[]];
 	roundScores: [RPGContestRoundMechanicalScore | null, RPGContestRoundMechanicalScore | null];
 	stageStates: [RPGContestStageState, RPGContestStageState];
 	stageMoves: [RPGContestMoveStageResult[], RPGContestMoveStageResult[]];
@@ -71,6 +75,7 @@ export interface RPGContestRuntimeParticipant {
 	audienceReactions: [RPGContestAudienceReaction | null, RPGContestAudienceReaction | null];
 	judgeComments: [RPGContestJudgingComments | null, RPGContestJudgingComments | null];
 	teamIndex?: number;
+	teamIndexes: number[];
 }
 
 export type RPGContestJudgingCriterion =
@@ -111,11 +116,13 @@ export interface RPGContestRuntimeEvent {
 	moveIndex?: number;
 	moveId?: string;
 	moveName?: string;
+	pokemonIndex?: number;
 	stageTransformations?: string[];
 	stageInteractions?: string[];
 	audienceReaction?: RPGContestAudienceReaction;
 	megaActivated?: boolean;
 	megaSpecies?: string;
+	megaSpriteId?: string;
 }
 
 export interface RPGContestRuntimeSnapshot {
@@ -126,6 +133,7 @@ export interface RPGContestRuntimeSnapshot {
 	currentParticipantId?: string;
 	currentMoveIndex: number;
 	category: RPGContestSession['category'];
+	mode: RPGContestSession['mode'];
 	rank: RPGContestSession['rank'];
 	scenario: RPGContestSession['scenario'];
 	presentationOrder: string[];
@@ -153,7 +161,7 @@ export interface RPGContestFinalHighlights {
 }
 
 export type RPGContestRuntimeAction =
-	{type: 'select-move', moveId: string, activateMega?: boolean} |
+	{type: 'select-move', moveId: string, pokemonIndex?: number, activateMega?: boolean} |
 	{type: 'abandon'} |
 	{
 		type: 'submit-judging', criteria: RPGContestJudgingScores, mechanicalCorrection?: number,
@@ -259,6 +267,7 @@ export class RPGContestRuntimeManager {
 			currentParticipantId,
 			currentMoveIndex: current ? current.rounds[state.round - 1].length : 0,
 			category: state.session.category,
+			mode: state.session.mode,
 			rank: state.session.rank,
 			scenario: structuredClone(state.session.scenario),
 			presentationOrder: [...state.session.presentationOrder],
@@ -289,52 +298,76 @@ export class RPGContestRuntimeManager {
 		const participant = this.current(state);
 		if (!this.canControl(participant, viewer)) throw new Error('RPG contest participant is controlled by another user');
 		this.refreshParticipantPokemon(state, participant);
+		const pokemonIndex = Number(action.pokemonIndex ?? 0);
+		if (!Number.isSafeInteger(pokemonIndex) || !participant.pokemonTeam[pokemonIndex]) {
+			throw new Error('Invalid RPG contest Pokemon performer');
+		}
+		const roundPokemonIndexes = participant.roundPokemonIndexes[state.round - 1];
+		const usesByPokemon = roundPokemonIndexes.filter(index => index === pokemonIndex).length;
+		const maximumUses = state.session.mode === 'trio' ? 1 : state.session.mode === 'duo' ? 2 : 3;
+		if (usesByPokemon >= maximumUses) throw new Error('This Pokemon cannot perform another move in this round');
+		const performingPokemon = participant.pokemonTeam[pokemonIndex];
 		const moveId = toID(action.moveId);
-		const selected = participant.pokemon.moves.find(move => move.id === moveId);
+		const selected = performingPokemon.moves.find(move => move.id === moveId);
 		if (!selected) throw new Error('Pokemon does not know this RPG contest move');
 		let megaActivated = false;
+		let megaAbilityWeather: ReturnType<typeof applyRPGContestMegaAbilityWeather> = null;
 		if (action.activateMega) {
-			if (!participant.pokemon.megaEligible) throw new Error('Pokemon cannot Mega Evolve with its held item');
-			if (participant.pokemon.megaActivated) throw new Error('Pokemon has already Mega Evolved');
-			participant.pokemon.megaActivated = true;
+			if (!performingPokemon.megaEligible) throw new Error('Pokemon cannot Mega Evolve with its held item');
+			if (performingPokemon.megaActivated) throw new Error('Pokemon has already Mega Evolved');
+			const previousAbility = performingPokemon.ability;
+			const megaForm = Dex.species.get(performingPokemon.megaSpecies);
+			performingPokemon.megaActivated = true;
+			performingPokemon.species = megaForm.name;
+			performingPokemon.spriteId = megaForm.spriteid;
+			performingPokemon.heightM = megaForm.heightm;
+			performingPokemon.sizeClass = getRPGPokemonSizeClass(megaForm.heightm);
+			performingPokemon.ability = megaForm.abilities[0] || previousAbility;
+			megaAbilityWeather = applyRPGContestMegaAbilityWeather(
+				participant.stageStates[state.round - 1], performingPokemon.ability, previousAbility
+			);
 			megaActivated = true;
 		}
-		participant.pokemon.movesFrozen = true;
+		for (const pokemon of participant.pokemonTeam) pokemon.movesFrozen = true;
 		const roundMoves = participant.rounds[state.round - 1];
 		roundMoves.push(moveId);
+		roundPokemonIndexes.push(pokemonIndex);
 		const stageMove = applyRPGContestMoveToStage(
 			participant.stageStates[state.round - 1], moveId, state.session.scenario
 		);
+		if (megaAbilityWeather) stageMove.transformations.unshift(megaAbilityWeather.transformation);
 		participant.stageMoves[state.round - 1].push(stageMove);
 		this.emit(state, 'move-selected', participant.id, {
-			moveIndex: roundMoves.length - 1, moveId, moveName: selected.name,
+			moveIndex: roundMoves.length - 1, moveId, moveName: selected.name, pokemonIndex,
 			stageTransformations: stageMove.transformations, stageInteractions: stageMove.interactions,
-			megaActivated, megaSpecies: megaActivated ? participant.pokemon.megaSpecies : undefined,
+			megaActivated, megaSpecies: megaActivated ? performingPokemon.megaSpecies : undefined,
+			megaSpriteId: megaActivated ? performingPokemon.spriteId : undefined,
 		});
 		if (roundMoves.length === 3) {
 			const stage = summarizeRPGContestRoundStage(
 				participant.stageMoves[state.round - 1], participant.stageStates[state.round - 1]
 			);
 			participant.roundStages[state.round - 1] = stage;
-			const score = scoreRPGContestRound(roundMoves, this.getCombos(), false);
+			const score = scoreRPGContestRound(roundMoves, this.getCombos(), false, state.session.category);
+			this.applyMegaAbilityCombos(score, roundMoves, participant.stageMoves[state.round - 1]);
 			score.fieldInteractionScore = stage.fieldInteractionScore;
 			score.scenarioMoveScore = stage.scenarioMoveScore;
 			score.total += stage.fieldInteractionScore + stage.scenarioMoveScore;
 			if (state.round === 2) Object.assign(score, applyRPGContestSecondRoundCreativity(score, participant.rounds[0]));
-			const item = getRPGContestItemClassification(participant.pokemon.item);
-			const matchingTeraMoves = item.scoringMode === 'tera-matching-moves' && item.teraType ?
-				roundMoves.map(getRPGContestMove).filter(move => toID(move.type) === toID(item.teraType!)).length : 0;
-			const itemActive = item.canScore && (
-				(item.scoringMode === 'tera-matching-moves' && matchingTeraMoves >= 2) ||
-				(item.category === state.session.category && (
-					item.scoringMode === 'passive' ||
-					(item.scoringMode === 'mega-activation' && participant.pokemon.megaActivated)
-				))
-			);
-			score.itemId = toID(participant.pokemon.item);
-			score.itemCategory = item.category;
-			score.itemBonus = itemActive ? item.points : 0;
-			score.itemBonusActive = itemActive;
+			const itemBonuses = participant.pokemonTeam.map((pokemon, index) => {
+				const item = getRPGContestItemClassification(pokemon.item);
+				const pokemonMoves = roundMoves.filter((move, moveIndex) => roundPokemonIndexes[moveIndex] === index);
+				const matchingTeraMoves = item.scoringMode === 'tera-matching-moves' && item.teraType ?
+					pokemonMoves.map(getRPGContestMove).filter(move => toID(move.type) === toID(item.teraType!)).length : 0;
+				const active = item.canScore && ((item.scoringMode === 'tera-matching-moves' && matchingTeraMoves >= 2) ||
+					(item.category === state.session.category && (item.scoringMode === 'passive' ||
+						(item.scoringMode === 'mega-activation' && pokemon.megaActivated))));
+				return {item, active, bonus: active ? item.points : 0};
+			});
+			score.itemId = participant.pokemonTeam.map(pokemon => toID(pokemon.item)).filter(Boolean).join(',');
+			score.itemCategory = itemBonuses.find(entry => entry.active)?.item.category || null;
+			score.itemBonus = itemBonuses.reduce((total, entry) => total + entry.bonus, 0);
+			score.itemBonusActive = score.itemBonus > 0;
 			score.total += score.itemBonus;
 			Object.assign(score, applyRPGContestWithinRoundRepetition(score));
 			participant.roundScores[state.round - 1] = score;
@@ -398,7 +431,7 @@ export class RPGContestRuntimeManager {
 			id: participant.id, disqualified: participant.disqualified,
 			roundTotals: participant.judging.filter(Boolean).map(judging => judging!.totalAfterJudging),
 			scenarioCoherenceBonus: participant.scenarioCoherenceBonus,
-			performanceBonus: participant.pokemon.performanceBonus,
+			performanceBonus: participant.pokemonTeam.reduce((sum, pokemon) => sum + pokemon.performanceBonus, 0) / participant.pokemonTeam.length,
 		})));
 		if (!awardPerformance) {
 			for (const result of state.results) result.performanceGain = 0;
@@ -421,14 +454,17 @@ export class RPGContestRuntimeManager {
 	}
 
 	private runtimeParticipant(participant: RPGContestParticipant, session: RPGContestSession): RPGContestRuntimeParticipant {
-		const set = this.participantSet(participant);
+		const sets = this.participantSets(participant);
+		const pokemonTeam = sets.map(set => this.pokemon(set, false, participant.characterId || participant.id));
+		const selections = participant.pokemonTeam || (participant.pokemon ? [participant.pokemon] : []);
 		const firstStage = createRPGContestStage(session.scenario);
 		const secondStage = createRPGContestStage(session.scenario);
 		return {
 			id: participant.id, kind: participant.kind, displayName: participant.displayName,
 			characterId: participant.characterId, avatar: participant.avatar,
-			pokemon: this.pokemon(set, false, participant.characterId || participant.id), teamIndex: participant.pokemon?.teamIndex,
-			disqualified: false, rounds: [[], []], roundScores: [null, null],
+			pokemon: pokemonTeam[0], pokemonTeam, teamIndex: selections[0]?.teamIndex,
+			teamIndexes: selections.map(selection => selection.teamIndex).filter((index): index is number => index !== undefined),
+			disqualified: false, rounds: [[], []], roundPokemonIndexes: [[], []], roundScores: [null, null],
 			stageStates: [firstStage, secondStage], stageMoves: [[], []], roundStages: [null, null],
 			scenarioCoherenceBonus: 0, judging: [null, null], audienceReactions: [null, null], judgeComments: [null, null],
 		};
@@ -527,12 +563,15 @@ export class RPGContestRuntimeManager {
 		return {level, label: labels[level], emoji: emojis[level], comments};
 	}
 
-	private participantSet(participant: RPGContestParticipant): PokemonSet {
-		if (participant.kind === 'npc') return structuredClone(participant.pokemon!.set!);
+	private participantSets(participant: RPGContestParticipant): PokemonSet[] {
+		const selections = participant.pokemonTeam || (participant.pokemon ? [participant.pokemon] : []);
+		if (participant.kind === 'npc') return selections.map(selection => structuredClone(selection.set!));
 		const team = this.getCharacterTeam(participant.characterId!);
-		const set = team?.[participant.pokemon!.teamIndex!];
-		if (!set) throw new Error('RPG contest Player Pokemon is no longer available');
-		return structuredClone(set);
+		return selections.map(selection => {
+			const set = team?.[selection.teamIndex!];
+			if (!set) throw new Error('RPG contest Player Pokemon is no longer available');
+			return structuredClone(set);
+		});
 	}
 
 	private refreshUnfrozenPokemon(state: RPGContestRuntimeState): void {
@@ -540,10 +579,11 @@ export class RPGContestRuntimeManager {
 	}
 
 	private refreshParticipantPokemon(state: RPGContestRuntimeState, participant: RPGContestRuntimeParticipant): void {
-		if (participant.kind !== 'player' || participant.pokemon.movesFrozen) return;
+		if (participant.kind !== 'player' || participant.pokemonTeam.some(pokemon => pokemon.movesFrozen)) return;
 		const source = state.session.participants.find(entry => entry.id === participant.id);
 		if (!source) return;
-		participant.pokemon = this.pokemon(this.participantSet(source), false, participant.characterId || participant.id);
+		participant.pokemonTeam = this.participantSets(source).map(set => this.pokemon(set, false, participant.characterId || participant.id));
+		participant.pokemon = participant.pokemonTeam[0];
 	}
 
 	private pokemon(set: PokemonSet, movesFrozen: boolean, trainerId: string): RPGContestRuntimePokemon {
@@ -558,7 +598,7 @@ export class RPGContestRuntimeManager {
 			friendship: Math.max(0, Math.min(255, set.rpg?.friendship ?? set.happiness ?? 0)),
 			performance, performanceBonus: getRPGContestPerformanceBonus(performance),
 			hp: Number.isFinite(set.rpg?.hp) ? Number(set.rpg!.hp) : null,
-			status: set.rpg?.status || '', movesFrozen, megaEligible: !!megaSpecies,
+			status: set.rpg?.status || '', ability: set.ability || species.abilities[0] || '', movesFrozen, megaEligible: !!megaSpecies,
 			megaActivated: false, megaSpecies,
 			moves: (set.moves || []).map(move => {
 				const definition = getRPGContestMove(move);
@@ -593,11 +633,43 @@ export class RPGContestRuntimeManager {
 		return participant.kind === 'npc' ? viewer.master === true : participant.characterId === toID(viewer.characterId || '');
 	}
 
+	private applyMegaAbilityCombos(
+		score: RPGContestRoundMechanicalScore, moves: readonly string[], stageMoves: readonly RPGContestMoveStageResult[]
+	): void {
+		const weatherMove: Readonly<Record<string, string>> = {
+			sun: 'sunnyday', rain: 'raindance', sand: 'sandstorm', snow: 'snowscape',
+		};
+		const timeline: string[] = [];
+		for (let index = 0; index < moves.length; index++) {
+			const weatherTransformation = stageMoves[index]?.transformations.find(value => value.startsWith('ability-weather:'));
+			const weather = weatherTransformation?.slice('ability-weather:'.length) || '';
+			if (weatherMove[weather]) timeline.push(weatherMove[weather]);
+			timeline.push(toID(moves[index]));
+		}
+		const isSubsequence = (sequence: readonly string[]) => {
+			let cursor = 0;
+			for (const entry of timeline) if (entry === sequence[cursor]) cursor++;
+			return cursor === sequence.length;
+		};
+		const matched = this.getCombos().filter(combo =>
+			combo.sequence.some(move => Object.values(weatherMove).includes(move)) && isSubsequence(combo.sequence));
+		if (!matched.length) return;
+		const previousSpecial = score.specialComboBonus;
+		const special = Math.min(6, Math.max(previousSpecial, ...matched.map(combo => combo.bonus)));
+		const increase = Math.min(15, score.comboScore - previousSpecial + special) - score.comboScore;
+		score.specialComboBonus = special;
+		score.comboScore += increase;
+		score.total += increase;
+		for (const combo of matched) {
+			if (!score.matchedCombos.some(entry => entry.id === combo.id)) score.matchedCombos.push({id: combo.id, name: combo.name});
+		}
+	}
+
 	private emit(
 		state: RPGContestRuntimeState, type: RPGContestRuntimeEventType, participantId?: string,
 		extra: Partial<Pick<RPGContestRuntimeEvent,
-			'moveIndex' | 'moveId' | 'moveName' | 'stageTransformations' | 'stageInteractions' | 'audienceReaction' |
-			'megaActivated' | 'megaSpecies'>> = {}
+			'moveIndex' | 'moveId' | 'moveName' | 'pokemonIndex' | 'stageTransformations' | 'stageInteractions' | 'audienceReaction' |
+			'megaActivated' | 'megaSpecies' | 'megaSpriteId'>> = {}
 	): void {
 		state.events.push({
 			sequence: state.nextSequence++, type, createdAt: this.now(), round: state.round,

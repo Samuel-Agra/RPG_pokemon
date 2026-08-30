@@ -80,6 +80,21 @@ export interface RPGContestComboRepository {
 	delete(id: string): boolean;
 }
 
+const OPPOSITE_CONTEST_CATEGORIES: Readonly<Partial<Record<RPGContestCategory, RPGContestCategory>>> = Object.freeze({
+	beauty: 'cool', cool: 'beauty', cute: 'tough', tough: 'cute',
+});
+
+/** Matching moves gain appeal, unrelated categories stay neutral, and contradictory categories are strongly reduced. */
+export function scoreRPGContestMoveForCategory(
+	move: RPGContestMoveDefinition, contestCategory?: RPGContestCategory
+): number {
+	if (!contestCategory) return move.baseScore;
+	if (move.category === contestCategory) return move.baseScore <= 0 ? move.baseScore : Math.min(10, move.baseScore + 2);
+	if (OPPOSITE_CONTEST_CATEGORIES[contestCategory] !== move.category) return move.baseScore;
+	if (move.baseScore <= 0) return move.baseScore;
+	return Math.min(2, Math.floor(move.baseScore / 2));
+}
+
 export class RPGMemoryContestComboRepository implements RPGContestComboRepository {
 	private readonly combos = new Map<string, RPGContestComboDefinition>();
 	list(): RPGContestComboDefinition[] {
@@ -199,7 +214,7 @@ export class RPGContestComboService {
 
 export function scoreRPGContestRound(
 	moves: readonly string[], combos: readonly RPGContestComboDefinition[] = RPG_DEFAULT_CONTEST_COMBOS,
-	applyWithinRoundRepetition = true
+	applyWithinRoundRepetition = true, contestCategory?: RPGContestCategory
 ): RPGContestRoundMechanicalScore {
 	if (!Array.isArray(moves) || moves.length !== 3) throw new Error('RPG contest round requires exactly three moves');
 	const definitions = moves.map(getRPGContestMove) as [RPGContestMoveDefinition, RPGContestMoveDefinition, RPGContestMoveDefinition];
@@ -222,7 +237,8 @@ export function scoreRPGContestRound(
 	const matched = combos.filter(combo => combo.sequence.every((move, index) => move === sequence[index]));
 	const specialComboBonus = Math.min(6, matched.reduce((maximum, combo) => Math.max(maximum, combo.bonus), 0));
 	const comboScore = Math.min(15, continuityScore + tagSynergyScore + finaleScore + specialComboBonus);
-	const moveBaseScore = definitions.reduce((total, move) => total + move.baseScore, 0);
+	const moveBaseScore = definitions.reduce((total, move) =>
+		total + scoreRPGContestMoveForCategory(move, contestCategory), 0);
 	const score: RPGContestRoundMechanicalScore = {
 		moves: sequence, moveBaseScore, continuityScore, tagSynergyScore, finaleScore, specialComboBonus,
 		comboScore, fieldInteractionScore: 0, scenarioMoveScore: 0,

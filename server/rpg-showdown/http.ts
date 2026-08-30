@@ -861,8 +861,9 @@ export class RPGHttpServer {
 			}
 			if (method === 'POST' && action === 'selection') {
 				const body = await this.body(req);
+				const teamIndexes = Array.isArray(body.teamIndexes) ? body.teamIndexes.map(Number) : Number(body.teamIndex);
 				this.json(res, 200, {contestSession: this.login.selectContestPokemon(
-					token, contestSessionId, Number(body.teamIndex)
+					token, contestSessionId, teamIndexes
 				)});
 				return;
 			}

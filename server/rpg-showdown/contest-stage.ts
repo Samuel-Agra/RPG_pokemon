@@ -99,6 +99,22 @@ export function resetRPGContestTemporaryStage(state: RPGContestStageState): RPGC
 	return {base: structuredClone(state.base), temporary: {weather: '', terrain: '', tags: []}};
 }
 
+/** Applies weather acquired specifically through Mega Evolution without treating it as a performed move. */
+export function applyRPGContestMegaAbilityWeather(
+	state: RPGContestStageState, ability: string, previousAbility: string
+): {weather: RPGContestWeather; transformation: string} | null {
+	const abilityId = toID(ability);
+	if (!abilityId || abilityId === toID(previousAbility)) return null;
+	const weatherByAbility: Readonly<Record<string, RPGContestWeather>> = {
+		drought: 'sun', drizzle: 'rain', sandstream: 'sand', snowwarning: 'snow',
+	};
+	const weather = weatherByAbility[abilityId];
+	if (!weather) return null;
+	state.temporary.weather = weather;
+	state.temporary.tags = normalizedTags([...state.temporary.tags, weather]);
+	return {weather, transformation: `ability-weather:${weather}`};
+}
+
 export function applyRPGContestMoveToStage(
 	state: RPGContestStageState, moveId: string, scenario: RPGContestScenario
 ): RPGContestMoveStageResult {

@@ -180,7 +180,7 @@
 		const trainerAction = `contest-trainer-action-${trainerChoreography(move)}`;
 		trainer?.classList.add('contest-trainer-presenting', trainerAction);
 		if (event.megaActivated && window.RPGShowdownAnimations?.megaEvolve) {
-			await window.RPGShowdownAnimations.megaEvolve(stage, pokemon);
+			await window.RPGShowdownAnimations.megaEvolve(stage, pokemon, {onTransform: options.onMegaTransform});
 			await wait(220);
 		}
 		const announcement = expressiveCue(stage, options.pokemonName, move, event, options.contestCategory);

@@ -7,7 +7,7 @@ export const RPG_CONTEST_MAX_PARTICIPANTS = 10;
 
 export type RPGContestSessionStatus =
 	'draft' | 'inviting' | 'ready' | 'declined' | 'started' | 'ended' | 'cancelled';
-export type RPGContestMode = 'solo';
+export type RPGContestMode = 'solo' | 'duo' | 'trio';
 export type RPGContestCategory = 'beauty' | 'cute' | 'cool' | 'smart' | 'tough';
 export type RPGContestRank = 'normal' | 'great' | 'super' | 'hyper' | 'master';
 export type RPGContestInvitationResponse = 'pending' | 'accepted' | 'declined';
@@ -26,6 +26,7 @@ export interface RPGContestParticipant {
 	characterId?: string;
 	avatar?: string;
 	pokemon?: RPGContestPokemonSelection;
+	pokemonTeam?: RPGContestPokemonSelection[];
 }
 
 export interface RPGContestInvitation {
@@ -165,7 +166,7 @@ export class RPGContestSessionService {
 	update(id: string, input: RPGUpdateContestSessionRequest): RPGContestSession {
 		const session = this.mutableDraft(id);
 		if (input.name !== undefined) session.name = this.name(input.name);
-		if (input.mode !== undefined && input.mode !== 'solo') throw new Error('Only solo RPG contests are available');
+		if (input.mode !== undefined) session.mode = this.enumValue(input.mode, ['solo', 'duo', 'trio'] as const, 'contest mode');
 		if (input.category !== undefined) session.category = this.enumValue(input.category,
 			['beauty', 'cute', 'cool', 'smart', 'tough'] as const, 'contest category');
 		if (input.rank !== undefined) session.rank = this.enumValue(input.rank,
@@ -192,7 +193,7 @@ export class RPGContestSessionService {
 		return structuredClone(session);
 	}
 
-	selectPokemon(id: string, characterId: string, teamIndex: number): RPGContestSession {
+	selectPokemon(id: string, characterId: string, teamIndexes: number | number[]): RPGContestSession {
 		const session = this.get(id);
 		if (session.status !== 'inviting') throw new Error('RPG contest is not accepting selections');
 		const normalized = toID(characterId);
@@ -202,15 +203,23 @@ export class RPGContestSessionService {
 		if (!invitation || invitation.response !== 'pending') {
 			throw new Error('RPG contest Pokemon selection must happen before answering the invitation');
 		}
+		const indexes = Array.isArray(teamIndexes) ? teamIndexes : [teamIndexes];
+		const required = this.pokemonCount(session.mode);
+		if (indexes.length !== required || new Set(indexes).size !== indexes.length) {
+			throw new Error(`RPG ${session.mode} contest requires exactly ${required} Pokemon`);
+		}
 		const team = this.getCharacterTeam(normalized);
-		if (!team || !Number.isSafeInteger(teamIndex) || teamIndex < 0 || teamIndex >= team.length) {
-			throw new Error('Invalid RPG contest Pokemon selection');
+		for (const teamIndex of indexes) {
+			if (!team || !Number.isSafeInteger(teamIndex) || teamIndex < 0 || teamIndex >= team.length) {
+				throw new Error('Invalid RPG contest Pokemon selection');
+			}
+			if (!this.isCharacterPokemonAvailable(normalized, teamIndex)) {
+				throw new Error('This Pokemon is unavailable for the RPG contest');
+			}
+			if ((team[teamIndex].rpg?.hp ?? 1) <= 0) throw new Error('A fainted Pokemon cannot enter an RPG contest');
 		}
-		if (!this.isCharacterPokemonAvailable(normalized, teamIndex)) {
-			throw new Error('This Pokemon is unavailable for the RPG contest');
-		}
-		if ((team[teamIndex].rpg?.hp ?? 1) <= 0) throw new Error('A fainted Pokemon cannot enter an RPG contest');
-		participant.pokemon = {teamIndex};
+		participant.pokemonTeam = indexes.map(teamIndex => ({teamIndex}));
+		participant.pokemon = participant.pokemonTeam[0];
 		session.updatedAt = this.now();
 		this.repository.set(session);
 		return structuredClone(session);
@@ -224,7 +233,9 @@ export class RPGContestSessionService {
 		if (invitation.response !== 'pending') throw new Error('RPG contest invitation was already answered');
 		if (response === 'accepted') {
 			const participant = session.participants.find(entry => entry.characterId === invitation.characterId);
-			if (!participant?.pokemon) throw new Error('RPG player must select one Pokemon before accepting');
+			if ((participant?.pokemonTeam?.length || (participant?.pokemon ? 1 : 0)) !== this.pokemonCount(session.mode)) {
+				throw new Error(`RPG player must select ${this.pokemonCount(session.mode)} Pokemon before accepting`);
+			}
 		}
 		invitation.response = this.enumValue(response, ['accepted', 'declined'] as const, 'contest response');
 		invitation.respondedAt = this.now();
@@ -298,26 +309,31 @@ export class RPGContestSessionService {
 	}
 
 	private validateConfiguration(session: RPGContestSession, requirePlayerPokemon: boolean): void {
+		const requiredPokemon = this.pokemonCount(session.mode);
 		if (session.participants.length < RPG_CONTEST_MIN_PARTICIPANTS ||
 			session.participants.length > RPG_CONTEST_MAX_PARTICIPANTS) {
 			throw new Error('RPG contest requires between 2 and 10 participants');
 		}
 		for (const participant of session.participants) {
 			if (participant.kind === 'player' && requirePlayerPokemon) {
-				if (!participant.pokemon || !Number.isSafeInteger(participant.pokemon.teamIndex)) {
-					throw new Error('Every RPG contest Player must select one Pokemon');
+				const selections = participant.pokemonTeam || (participant.pokemon ? [participant.pokemon] : []);
+				if (selections.length !== requiredPokemon || new Set(selections.map(selection => selection.teamIndex)).size !== requiredPokemon) {
+					throw new Error(`Every RPG contest Player must select ${requiredPokemon} Pokemon`);
 				}
-				const teamIndex = participant.pokemon.teamIndex!;
 				const team = this.getCharacterTeam(participant.characterId!);
-				if (!team?.[teamIndex] || !this.isCharacterPokemonAvailable(participant.characterId!, teamIndex)) {
-					throw new Error('A selected Pokemon became unavailable for the RPG contest');
-				}
-				if ((team[teamIndex].rpg?.hp ?? 1) <= 0) {
-					throw new Error('A fainted Pokemon cannot enter an RPG contest');
+				for (const selection of selections) {
+					const teamIndex = selection.teamIndex!;
+					if (!Number.isSafeInteger(teamIndex) || !team?.[teamIndex] || !this.isCharacterPokemonAvailable(participant.characterId!, teamIndex)) {
+						throw new Error('A selected Pokemon became unavailable for the RPG contest');
+					}
+					if ((team[teamIndex].rpg?.hp ?? 1) <= 0) throw new Error('A fainted Pokemon cannot enter an RPG contest');
 				}
 			}
-			if (participant.kind === 'npc' && !participant.pokemon?.set) {
-				throw new Error('Every RPG contest NPC requires one Pokemon');
+			if (participant.kind === 'npc') {
+				const selections = participant.pokemonTeam || (participant.pokemon ? [participant.pokemon] : []);
+				if (selections.length !== requiredPokemon || selections.some(selection => !selection.set)) {
+					throw new Error(`Every RPG contest NPC requires ${requiredPokemon} Pokemon`);
+				}
 			}
 		}
 	}
@@ -337,12 +353,16 @@ export class RPGContestSessionService {
 				if (!characterId || !this.getCharacterTeam(characterId)) throw new Error('Unknown RPG contest Player');
 				return {id, kind, displayName, characterId, avatar: entry.avatar};
 			}
-			if (!entry.pokemon?.set) throw new Error('RPG contest NPC requires one Pokemon');
-			const set = structuredClone(entry.pokemon.set);
-			if (!set.species || !Array.isArray(set.moves) || !set.moves.length || set.moves.length > 4) {
-				throw new Error('Invalid RPG contest NPC Pokemon');
-			}
-			return {id, kind, displayName, avatar: entry.avatar, pokemon: {set}};
+			const selections = entry.pokemonTeam || (entry.pokemon ? [entry.pokemon] : []);
+			if (!selections.length) throw new Error('RPG contest NPC requires Pokemon');
+			const pokemonTeam = selections.map(selection => {
+				const set = structuredClone(selection.set!);
+				if (!set?.species || !Array.isArray(set.moves) || !set.moves.length || set.moves.length > 4) {
+					throw new Error('Invalid RPG contest NPC Pokemon');
+				}
+				return {set};
+			});
+			return {id, kind, displayName, avatar: entry.avatar, pokemon: pokemonTeam[0], pokemonTeam};
 		});
 		if (new Set(participants.map(entry => entry.id)).size !== participants.length) {
 			throw new Error('RPG contest participant ids must be unique');
@@ -373,6 +393,10 @@ export class RPGContestSessionService {
 		const name = String(value || 'Novo Concurso Pokémon').trim();
 		if (!name || name.length > 80) throw new Error('Invalid RPG contest name');
 		return name;
+	}
+
+	private pokemonCount(mode: RPGContestMode): number {
+		return mode === 'trio' ? 3 : mode === 'duo' ? 2 : 1;
 	}
 
 	private requireId(value: string): string {
