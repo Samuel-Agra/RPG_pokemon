@@ -464,6 +464,8 @@ export class RPGBattleRuntimeManager {
 			this.finishTeamPreview(battle);
 			this.centerRaidOpponent(session, battle);
 			this.applyInitialHazards(battle, launch.initialHazards);
+			this.applyInitialBuffs(battle, launch.initialBuffs);
+			this.applyInitialGlobalEffects(battle, launch.initialGlobalEffects);
 			return this.snapshot(session.id);
 		} catch (error) {
 			this.runtimes.delete(runtimeId);
@@ -1022,7 +1024,7 @@ export class RPGBattleRuntimeManager {
 				if (participant.kind !== 'player') return this.prepareControlledSet(choice.set!);
 				const set = character!.team[choice.teamIndex!];
 				if (!set) throw new Error('Selected RPG character Pokemon no longer exists');
-				if (character!.box.party[choice.teamIndex!]?.metadata?.evTraining) {
+				if (character!.box.party?.[choice.teamIndex!]?.metadata?.evTraining) {
 					throw new Error('Este Pok\u00e9mon est\u00e1 em treinamento e n\u00e3o pode participar da batalha');
 				}
 				return structuredClone(set);
@@ -1093,6 +1095,35 @@ export class RPGBattleRuntimeManager {
 			for (let layer = 0; layer < Math.min(2, configured.toxicSpikes || 0); layer++) {
 				side.addSideCondition('toxicspikes', source, Dex.getActiveMove('toxicspikes'));
 			}
+		}
+	}
+
+	private applyInitialBuffs(battle: Battle, buffs: RPGBattleLaunchRequest['initialBuffs'] | undefined): void {
+		const keys = {
+			tailwind: 'tailwind', reflect: 'reflect', lightScreen: 'lightscreen',
+			auroraVeil: 'auroraveil', safeguard: 'safeguard', mist: 'mist',
+		} as const;
+		for (const [team, side] of [['A', battle.p1], ['B', battle.p2]] as const) {
+			const configured = buffs?.[team];
+			if (!configured) continue;
+			const source = side.pokemon[0];
+			for (const [key, moveId] of Object.entries(keys) as [keyof typeof keys, typeof keys[keyof typeof keys]][]) {
+				if (configured[key]) side.addSideCondition(moveId, source, Dex.getActiveMove(moveId));
+			}
+		}
+	}
+
+	private applyInitialGlobalEffects(
+		battle: Battle, effects: RPGBattleLaunchRequest['initialGlobalEffects'] | undefined
+	): void {
+		if (!effects) return;
+		const ids = {
+			trickRoom: 'trickroom', magicRoom: 'magicroom', wonderRoom: 'wonderroom', gravity: 'gravity',
+			mudSport: 'mudsport', waterSport: 'watersport', fairyLock: 'fairylock', ionDeluge: 'iondeluge',
+		} as const;
+		const source = battle.p1.pokemon[0];
+		for (const [key, moveId] of Object.entries(ids) as [keyof typeof ids, typeof ids[keyof typeof ids]][]) {
+			if (effects[key]) battle.field.addPseudoWeather(moveId, source, Dex.getActiveMove(moveId));
 		}
 	}
 
@@ -1406,7 +1437,8 @@ export class RPGBattleRuntimeManager {
 	): RPGRuntimeHUDEffect {
 		const id = toID(inputId);
 		const condition = battle.dex.conditions.get(id);
-		const duration = Number.isFinite(state.duration) ? state.duration! : null;
+		const configuredPermanent = (kind === 'weather' || kind === 'terrain') && state.duration === 0;
+		const duration = !configuredPermanent && Number.isFinite(state.duration) ? state.duration! : null;
 		const layers = Number.isFinite(state.layers) ? state.layers : null;
 		const source = state.source && typeof state.source === 'object' && 'side' in state.source ? state.source as Pokemon : null;
 		const sourceSide = source?.side?.id === 'p1' || source?.side?.id === 'p2' ? source.side.id : null;
@@ -1418,7 +1450,7 @@ export class RPGBattleRuntimeManager {
 			icon: this.hudEffectIcon(id, kind),
 			theme: this.hudEffectTheme(id, kind),
 			duration,
-			permanent: duration === null,
+			permanent: configuredPermanent || duration === null,
 			layers,
 			maxLayers: maxLayers[id] || null,
 			sourceSide,
@@ -1435,7 +1467,8 @@ export class RPGBattleRuntimeManager {
 			sandstorm: 'sandstorm', snow: 'snow', deltastream: 'wind',
 			electricterrain: 'electric', grassyterrain: 'grass', psychicterrain: 'psychic', mistyterrain: 'mist',
 			trickroom: 'trickroom', magicroom: 'magicroom', wonderroom: 'wonderroom', gravity: 'gravity',
-			mudsport: 'mud', watersport: 'water', reflect: 'reflect', lightscreen: 'lightscreen',
+			mudsport: 'mud', watersport: 'water', fairylock: 'lock', iondeluge: 'electric',
+			reflect: 'reflect', lightscreen: 'lightscreen',
 			auroraveil: 'auroraveil', safeguard: 'safeguard', mist: 'mistshield', tailwind: 'tailwind',
 			luckychant: 'luckychant',
 			stealthrock: 'rocks', spikes: 'spikes', toxicspikes: 'poison', stickyweb: 'web',

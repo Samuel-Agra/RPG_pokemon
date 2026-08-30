@@ -17,6 +17,10 @@ export interface RPGContestMoveDefinition {
 	basePower: number | null;
 	battleStatus: string;
 	accuracy: number | null;
+	alwaysHits: boolean;
+	target: string;
+	targetLabel: string;
+	flags: {id: string, label: string, description: string}[];
 	pp: number;
 	description: string;
 }
@@ -157,6 +161,10 @@ function moveDefinition(move: Move): RPGContestMoveDefinition {
 		basePower: move.category === 'Status' ? null : move.basePower || null,
 		battleStatus: move.status || '',
 		accuracy: move.accuracy === true ? null : Number(move.accuracy) || null,
+		alwaysHits: metadata.alwaysHits,
+		target: metadata.target,
+		targetLabel: metadata.targetLabel,
+		flags: metadata.flags,
 		pp: move.pp || 1,
 		description: metadata.description,
 	};
@@ -182,12 +190,23 @@ export function getRPGContestPokemonMoveCatalog(speciesName: string, level = 100
 	const species = dex.species.get(speciesName);
 	if (!species.exists) throw new Error('Unknown RPG contest Pokemon species');
 	const maximumLevel = Math.max(1, Math.min(100, Math.round(Number(level) || 1)));
+	const fullLearnset = dex.species.getFullLearnset(species.id);
+	const availableGenerations = new Set<number>();
+	for (const learnsetData of fullLearnset) for (const sources of Object.values(learnsetData.learnset)) {
+		for (const source of sources) {
+			const officialAcquisition = /^([1-9])[MEL]/.exec(source);
+			if (officialAcquisition) availableGenerations.add(Number(officialAcquisition[1]));
+		}
+	}
+	// Espécies ausentes da geração atual continuam selecionáveis no RPG.
+	// Para elas, usa o learnset da geração oficial mais recente disponível.
+	const generation = Math.max(...availableGenerations, 1);
 	const moveIds = new Set<string>();
-	for (const learnsetData of dex.species.getFullLearnset(species.id)) {
+	for (const learnsetData of fullLearnset) {
 		for (const [moveId, sources] of Object.entries(learnsetData.learnset)) {
 			const available = sources.some(source => {
-				if (source.startsWith('9M') || source.startsWith('9E')) return true;
-				const learned = /^9L(\d+)/.exec(source);
+				if (source.startsWith(`${generation}M`) || source.startsWith(`${generation}E`)) return true;
+				const learned = new RegExp(`^${generation}L(\\d+)`).exec(source);
 				return !!learned && Number(learned[1]) <= maximumLevel;
 			});
 			if (available) moveIds.add(toID(moveId));

@@ -93,6 +93,18 @@
 .battle-hazard-side { display: grid; grid-template-columns: 1fr 1fr; align-items: end; gap: 8px; min-width: 0; margin: 0; padding: 10px; background: #fff; border: 1px solid #c0c8d1; border-radius: 4px; }
 .battle-hazard-side legend { padding: 0 5px; color: #405b7b; font-weight: bold; }
 .battle-hazard-side .check-row { align-self: center; }
+.battle-buff-side { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: center; }
+.battle-global-environment { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.battle-global-effect-side { grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: center; }
+.battle-condition-help-target { cursor: context-menu; }
+.battle-condition-help {
+	position: fixed; z-index: 1200; width: min(310px, calc(100vw - 16px)); box-sizing: border-box;
+	padding: 11px 13px; color: #eef5fc; background: #26384ceF; border: 1px solid #8fa2b7;
+	border-radius: 5px; box-shadow: 0 5px 16px #0008; font-size: 11px; line-height: 1.45;
+	text-align: left; backdrop-filter: blur(6px);
+}
+.battle-condition-help strong { display: block; margin-bottom: 4px; color: #fff; font-size: 13px; }
+.battle-condition-help p { margin: 0; }
 .battle-wager-field { max-width: 360px; margin-top: 12px; padding: 10px; background: #fff8df; border: 1px solid #c9aa55; border-radius: 4px; }
 .battle-wager-field.hidden { display: none; }
 .battle-wager-field small { display: block; margin-top: 5px; color: #74622e; line-height: 1.35; }

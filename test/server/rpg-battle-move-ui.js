@@ -167,6 +167,9 @@ describe('RPG battle move controls', () => {
 		assert(script.includes('const RPG_HUD_ICON_SPRITES = {'));
 		assert(script.includes('reflect: [3, 2]'));
 		assert(script.includes('cannonade: [0, 5]'));
+		assert(script.includes("for (const effect of fieldState.globalEffects || [])"));
+		assert(script.includes("rpgRuntimeHUDEffectStack(ownSideEffects, 'rpg-hud-side-own')"));
+		assert(script.includes("rpgRuntimeHUDEffectStack(foeSideEffects, 'rpg-hud-side-foe')"));
 		assert.equal(fs.readFileSync(hudSpritePath).subarray(0, 8).toString('hex'), '89504e470d0a1a0a');
 	});
 

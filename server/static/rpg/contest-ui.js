@@ -32,6 +32,14 @@ window.RPGContestUI = (() => {
 		Gentle:['spd','def'], Hasty:['spe','def'], Impish:['def','spa'], Jolly:['spe','spa'], Lax:['def','spd'], Lonely:['atk','def'],
 		Mild:['spa','def'], Modest:['spa','atk'], Naive:['spe','spd'], Naughty:['atk','spd'], Quiet:['spa','spe'], Rash:['spa','spd'],
 		Relaxed:['def','spe'], Sassy:['spd','spe'], Timid:['spe','atk']};
+	const natureMatrix = [
+		['Hardy', 'Bold', 'Modest', 'Calm', 'Timid'],
+		['Lonely', 'Docile', 'Mild', 'Gentle', 'Hasty'],
+		['Adamant', 'Impish', 'Bashful', 'Careful', 'Jolly'],
+		['Naughty', 'Lax', 'Rash', 'Quirky', 'Naive'],
+		['Brave', 'Relaxed', 'Quiet', 'Sassy', 'Serious'],
+	];
+	const natureStatLabels = [['atk', 'Attack'], ['def', 'Defense'], ['spa', 'Sp. Attack'], ['spd', 'Sp. Defense'], ['spe', 'Speed']];
 	const el = (tag, className, text) => {
 		const node = document.createElement(tag);
 		if (className) node.className = className;
@@ -614,6 +622,7 @@ window.RPGContestUI = (() => {
 		const creator = el('section', 'panel team-builder-showdown-card contest-npc-creator hidden'); const cards = el('div', 'contest-temporary-list');
 		const participants = (initialParticipants || []).filter(item => item.kind === 'npc').map(item => structuredClone(item));
 		let pendingNpcBuild = null;
+		const randomConfiguration = el('section', 'panel contest-random-npc-config hidden');
 		async function loadTemporaryCatalogs() {
 			if (pokemonCatalog && moveCatalog && itemCatalog && avatarCatalog) return;
 			const [pokemonData, moveData, itemData, avatarData] = await Promise.all([
@@ -626,18 +635,33 @@ window.RPGContestUI = (() => {
 			pokemonCatalog = pokemonData.pokemon || []; moveCatalog = moveData.moves || []; itemCatalog = itemData.items || [];
 			avatarCatalog = avatarData.avatars || [];
 		}
-		if (profile.scope === 'contest') {
-			const randomButton = actionButton('✦ Criar NPC aleatório', () => void generateRandomNPC());
-			randomButton.classList.add('contest-random-npc-button');
-			headingActions.append(randomButton);
-		}
+		const randomButton = actionButton('✦ Criar NPC aleatório', () => {
+			if (profile.scope === 'contest') void generateRandomNPC();
+			else randomConfiguration.classList.toggle('hidden');
+		});
+		randomButton.classList.add('contest-random-npc-button');
+		headingActions.append(randomButton);
 		heading.append(headingActions); root.append(heading);
+		if (profile.scope === 'battle') {
+			const levelRange = select([
+				['1-20', '1 - 20'], ['21-40', '21 - 40'], ['41-60', '41 - 60'], ['61-80', '61 - 80'], ['81-100', '81 - 100'],
+			], '41-60');
+			const difficulty = select([
+				['normal', 'Normal'], ['great', 'Great'], ['super', 'Super'], ['hyper', 'Hyper'], ['master', 'Master'],
+			], 'normal');
+			const controls = el('div', 'contest-random-npc-fields');
+			controls.append(field('Faixa de level', levelRange), field('Rank', difficulty));
+			const actions = el('div', 'contest-random-npc-actions');
+			actions.append(actionButton('Cancelar', () => randomConfiguration.classList.add('hidden')),
+				actionButton('Criar NPC aleatório', () => void generateRandomBattleNPC(levelRange.value, difficulty.value), true));
+			randomConfiguration.append(el('h4', '', 'Configurar NPC aleatório'), controls, actions); root.append(randomConfiguration);
+		}
 		function renderCards() {
 			cards.replaceChildren();
 			for (const participant of participants) {
 				const card = el('article', 'contest-temporary-card');
 				const pokemonTeam = participant.pokemonTeam?.length ? participant.pokemonTeam : [participant.pokemon];
-				if (profile.scope === 'contest' && participant.avatar) {
+				if (participant.avatar) {
 					const trainer = el('img', 'contest-temporary-trainer-sprite');
 					trainer.src = RPGAssets.url(`sprites/trainers/${participant.avatar}.png`);
 					trainer.alt = `Treinador ${participant.displayName}`; trainer.loading = 'lazy'; card.append(trainer);
@@ -646,12 +670,14 @@ window.RPGContestUI = (() => {
 				for (const selection of pokemonTeam) teamSprites.append(pokemonSprite(selection.set));
 				card.append(teamSprites); const info = el('div');
 				info.append(el('strong', '', participant.displayName));
-				for (const selection of pokemonTeam) {
+				if (profile.scope === 'battle') info.append(el('small', '', pokemonTeam.map(selection => selection.set.name || selection.set.species).join(' · ')));
+				else for (const selection of pokemonTeam) {
 					const set = selection.set;
 					info.append(el('small', '', `${set.name || set.species} · Nv. ${set.level}`), el('small', '', set.moves.join(' · ')));
 				}
-				if (profile.scope === 'contest' && participant.randomRank) {
-					info.append(el('small', 'contest-random-npc-rank', `NPC aleatório · ${labels[participant.randomRank]}`));
+				if (participant.randomRank) {
+					const range = participant.randomLevelRange ? ` · Lv. ${participant.randomLevelRange}` : '';
+					info.append(el('small', 'contest-random-npc-rank', `NPC aleatório · ${labels[participant.randomRank]}${range}`));
 				}
 				card.append(info, actionButton('Remover', () => { participants.splice(participants.indexOf(participant), 1); renderCards(); })); cards.append(card);
 			}
@@ -719,11 +745,103 @@ window.RPGContestUI = (() => {
 				if (randomButton) randomButton.disabled = false;
 			}
 		}
+		function randomInteger(minimum, maximum) {
+			return minimum + Math.floor(Math.random() * (maximum - minimum + 1));
+		}
+		function randomBattleEVs(pokemon, rankIndex, movePool) {
+			const totals = [64, 160, 280, 400, 508];
+			const result = {hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0};
+			const physical = movePool.filter(move => move.battleCategory === 'Physical').length;
+			const special = movePool.filter(move => move.battleCategory === 'Special').length;
+			const offense = physical >= special ? 'atk' : 'spa';
+			const priorities = rankIndex >= 2 ? [offense, 'spe', 'hp', offense === 'atk' ? 'def' : 'spd', 'spd', 'def'] :
+				Object.keys(result).sort(() => Math.random() - .5);
+			let remaining = totals[rankIndex];
+			while (remaining > 0) {
+				const available = priorities.filter(stat => result[stat] < 252);
+				const preferred = rankIndex >= 2 ? available[0] : available[Math.floor(Math.random() * available.length)];
+				const amount = Math.min(4, remaining, 252 - result[preferred]);
+				result[preferred] += amount; remaining -= amount;
+				if (rankIndex >= 2 && result[preferred] >= 252) priorities.splice(priorities.indexOf(preferred), 1);
+			}
+			return result;
+		}
+		function battleMoveQuality(move, pokemon) {
+			const stab = pokemon.types?.includes(move.type) ? 24 : 0;
+			const power = move.basePower || (move.battleCategory === 'Status' ? 45 : 0);
+			const accuracy = move.alwaysHits || move.accuracy === null ? 100 : move.accuracy;
+			return power + stab + accuracy / 5 + (move.flags?.length || 0);
+		}
+		async function generateRandomBattleNPC(levelRangeValue, rankId) {
+			const rankDefinitions = {
+				normal: {index: 0, iv: [0, 10]}, great: {index: 1, iv: [8, 18]}, super: {index: 2, iv: [15, 24]},
+				hyper: {index: 3, iv: [22, 29]}, master: {index: 4, iv: [28, 31]},
+			};
+			const rank = rankDefinitions[rankId]; if (!rank) return;
+			const [minimumLevel, maximumLevel] = levelRangeValue.split('-').map(Number);
+			const generate = randomConfiguration.querySelector('.primary');
+			if (generate) generate.disabled = true;
+			try {
+				await loadTemporaryCatalogs();
+				const eligiblePokemon = pokemonCatalog.filter(entry => !entry.legendary);
+				const heldItems = itemCatalog.filter(entry => (entry.category === 'held' || entry.tags?.includes('held')) &&
+					!entry.tags?.some(tag => ['breeding', 'contestonly', 'primalorb', 'megastone', 'berry'].includes(tag)));
+				const avatar = avatarCatalog[Math.floor(Math.random() * avatarCatalog.length)] || {id: 'lucas', name: 'Lucas'};
+				const index = participants.length + 1; const id = `npc-random-battle-${index}-${avatar.id}`;
+				const teamSize = Math.max(1, Math.min(6, Number(profile.battleTeamSize?.()) || 1));
+				const pokemonTeam = [];
+				for (let slot = 0; slot < teamSize; slot++) {
+					let pokemon = null; let legalMoves = []; const level = randomInteger(minimumLevel, maximumLevel);
+					for (let attempt = 0; attempt < 30 && legalMoves.length < 4; attempt++) {
+						pokemon = eligiblePokemon[Math.floor(Math.random() * eligiblePokemon.length)];
+						const data = await context.api('/contest-pokemon-moves?' + new URLSearchParams({species: pokemon.name, level: String(level)}));
+						legalMoves = data.moves || [];
+					}
+					if (!pokemon || !legalMoves.length) throw new Error('Não foi possível montar um NPC aleatório.');
+					const rankedMoves = legalMoves.map(move => ({move, quality: battleMoveQuality(move, pokemon)}))
+						.sort((left, right) => left.quality - right.quality);
+					const poolStart = Math.floor(Math.max(0, rankedMoves.length - 12) * rank.index / 4);
+					const candidates = rankedMoves.slice(poolStart); const selectedMoves = [];
+					while (selectedMoves.length < Math.min(4, candidates.length)) {
+						const bias = rank.index >= 3 ? Math.max(0, candidates.length - 1 - randomInteger(0, Math.min(3, candidates.length - 1))) :
+							Math.floor(Math.random() * candidates.length);
+						selectedMoves.push(candidates.splice(bias, 1)[0].move);
+					}
+					const evs = randomBattleEVs(pokemon, rank.index, selectedMoves);
+					const ivs = Object.fromEntries(contestStats.map(([stat]) => [stat, randomInteger(rank.iv[0], rank.iv[1])]));
+					if (rank.index === 4) {
+						const physical = selectedMoves.filter(move => move.battleCategory === 'Physical').length;
+						ivs[physical >= selectedMoves.length / 2 ? 'atk' : 'spa'] = 31; ivs.spe = 31;
+					}
+					const abilityDetails = pokemon.abilityDetails || pokemon.abilities?.map(name => ({name})) || [];
+					const abilityPool = rank.index >= 3 ? abilityDetails : abilityDetails.filter(entry => !entry.hidden);
+					const availableAbilities = abilityPool.length ? abilityPool : abilityDetails;
+					const selectedAbility = availableAbilities[Math.floor(Math.random() * Math.max(1, availableAbilities.length))];
+					const heldItem = rank.index >= 2 ? heldItems[Math.floor(Math.random() * heldItems.length)] : null;
+					const allowedGenders = pokemon.genders || ['M', 'F']; const gender = allowedGenders[Math.floor(Math.random() * allowedGenders.length)] || '';
+					const hpBase = pokemon.baseStats?.hp || 50;
+					const maximumHP = pokemon.id === 'shedinja' ? 1 : Math.floor((2 * hpBase + ivs.hp + Math.floor(evs.hp / 4)) * level / 100) + level + 10;
+					pokemonTeam.push({set: {name: pokemon.name, species: pokemon.name, level, moves: selectedMoves.map(move => move.moveId),
+						ability: selectedAbility?.name || pokemon.abilities?.[0] || '', item: heldItem?.id || '', nature: contestNatures[Math.floor(Math.random() * contestNatures.length)],
+						gender, shiny: false, evs, ivs, rpg: {hp: maximumHP, pp: selectedMoves.map(move => move.pp), status: '', friendship: 100,
+							contestPerformance: 0, contestPerformanceTrainerId: id}}});
+				}
+				participants.push({id, kind: 'npc', displayName: avatar.name, avatar: avatar.id, randomRank: rankId,
+					randomLevelRange: levelRangeValue, pokemon: pokemonTeam[0], pokemonTeam});
+				renderCards(); randomConfiguration.classList.add('hidden');
+			} catch (error) {
+				window.alert(error.message);
+			} finally {
+				if (generate) generate.disabled = false;
+			}
+		}
 		function renderCreator() {
 			creator.replaceChildren(); const title = el('div', 'contest-npc-coordinator-bar');
-			const requiredPokemon = profile.scope === 'contest' ? (profile.contestMode?.() === 'trio' ? 3 : profile.contestMode?.() === 'duo' ? 2 : 1) : 1;
+			const requiredPokemon = profile.scope === 'contest' ? (profile.contestMode?.() === 'trio' ? 3 : profile.contestMode?.() === 'duo' ? 2 : 1) : 6;
 			const nextPokemonNumber = (pendingNpcBuild?.pokemonTeam.length || 0) + 1;
-			title.append(el('h4', '', requiredPokemon > 1 ? `Criar NPC temporário · Pokémon ${nextPokemonNumber} de ${requiredPokemon}` : 'Criar NPC temporário'), actionButton('Cancelar', closeCreator)); creator.append(title);
+			const creatorTitle = profile.scope === 'battle' ? `Criar NPC temporário · Pokémon ${nextPokemonNumber} de até 6` :
+				(requiredPokemon > 1 ? `Criar NPC temporário · Pokémon ${nextPokemonNumber} de ${requiredPokemon}` : 'Criar NPC temporário');
+			title.append(el('h4', '', creatorTitle), actionButton('Cancelar', closeCreator)); creator.append(title);
 			const npcName = el('input'); npcName.placeholder = 'Nome do coordenador'; npcName.maxLength = 60; npcName.value = pendingNpcBuild?.displayName || '';
 			let selectedAvatar = avatarCatalog.find(avatar => avatar.id === pendingNpcBuild?.avatar) || avatarCatalog[0] || {id: 'lucas', name: 'Lucas'};
 			const avatarPicker = el('div', 'contest-npc-avatar-picker');
@@ -957,9 +1075,21 @@ window.RPGContestUI = (() => {
 			itemContestProperty.append(el('span', 'contest-npc-property-label', 'Categoria e pontuação'),
 				itemContestCategory, itemContestPoints);
 			const categoryOrder = ['beauty', 'cute', 'cool', 'smart', 'tough'];
+			const itemDivisionDefinitions = [
+				['held', 'Held Items'], ['mega', 'Mega Stones'], ['berries', 'Berries'],
+				['terastalization', 'Teralização'],
+			];
+			function battleItemDivision(entry) {
+				const tags = new Set(entry.tags || []);
+				if (tags.has('megastone')) return 'mega';
+				if (tags.has('berry')) return 'berries';
+				if (tags.has('contestterastalization')) return 'terastalization';
+				return 'held';
+			}
 			const heldItems = itemCatalog
 				.filter(entry => entry.category === 'held' || entry.tags?.includes('held'))
-				.filter(entry => profile.scope === 'contest' || !entry.tags?.includes('contestonly'))
+				.filter(entry => !entry.tags?.includes('breeding'))
+				.filter(entry => profile.scope === 'contest' || !entry.tags?.includes('primalorb'))
 				.filter(entry => profile.scope !== 'contest' || entry.contest?.canScore)
 				.sort((left, right) => profile.scope === 'contest' ?
 					(left.contest.scoringMode === 'tera-matching-moves' ? 5 : categoryOrder.indexOf(left.contest.category)) -
@@ -967,7 +1097,16 @@ window.RPGContestUI = (() => {
 					left.contest.points - right.contest.points || left.name.localeCompare(right.name, 'pt-BR') :
 					left.name.localeCompare(right.name, 'pt-BR'));
 			const itemOptions = el('section', 'panel contest-item-dropdown hidden');
-			const itemResults = el('div', 'contest-item-results'); itemOptions.append(itemResults); itemProperty.append(itemOptions);
+			const itemResults = el('div', 'contest-item-results');
+			let itemDivision = null;
+			if (profile.scope !== 'contest') {
+				const availableDivisions = new Set(heldItems.map(battleItemDivision));
+				itemDivision = select(itemDivisionDefinitions.filter(([id]) => availableDivisions.has(id)), 'held');
+				itemDivision.className = 'contest-item-division-select';
+				const divisionToolbar = el('div', 'contest-item-division-toolbar');
+				divisionToolbar.append(el('span', '', 'Mostrar'), itemDivision); itemOptions.append(divisionToolbar);
+			}
+			itemOptions.append(itemResults); itemProperty.append(itemOptions);
 			let itemOutsideHandler = null;
 			function closeItemPicker() {
 				itemOptions.classList.add('hidden');
@@ -996,7 +1135,9 @@ window.RPGContestUI = (() => {
 				noneText.append(el('strong', '', 'Sem item'), el('small', '', 'O Pokémon não carregará nenhum item.'));
 				none.append(noneIcon, noneText); itemResults.append(none);
 				let visibleCategory = null;
-				for (const entry of heldItems.filter(entry => !query || entry.name.toLowerCase().includes(query) || entry.id.includes(query))) {
+				const visibleItems = heldItems.filter(entry => (profile.scope === 'contest' || battleItemDivision(entry) === itemDivision.value) &&
+					(!query || entry.name.toLowerCase().includes(query) || entry.id.includes(query)));
+				for (const entry of visibleItems) {
 					const group = entry.contest.scoringMode === 'tera-matching-moves' ? 'terastalization' : entry.contest.category;
 					if (profile.scope === 'contest' && group !== visibleCategory) {
 						visibleCategory = group;
@@ -1022,7 +1163,9 @@ window.RPGContestUI = (() => {
 					option.append(iconHost, text);
 					itemResults.append(option);
 				}
+				if (!visibleItems.length) itemResults.append(el('p', 'empty-state contest-item-empty', 'Nenhum item encontrado nesta divisão.'));
 			}
+			itemDivision?.addEventListener('change', renderItemResults);
 			function openItemPicker() {
 				itemOptions.classList.remove('hidden'); renderItemResults(); itemSearch.focus();
 				if (!itemOutsideHandler) {
@@ -1035,13 +1178,71 @@ window.RPGContestUI = (() => {
 				item.value = ''; itemContestCategory.textContent = 'Sem categoria'; itemContestPoints.textContent = '0 pontos';
 				renderItemResults();
 			});
-			const abilityProperty = el('div', 'team-builder-main-property team-builder-main-ability'); abilityProperty.append(el('span', 'contest-npc-property-label', 'Habilidade'), ability);
+			const abilityProperty = el('div', 'team-builder-main-property team-builder-main-ability contest-ability-property');
+			ability.classList.add('hidden');
+			const abilityButton = actionButton(''); abilityButton.className = 'contest-ability-button';
+			const abilityButtonName = el('strong', '', 'Selecione o Pokémon');
+			const abilityButtonDescription = el('small', '', 'Escolha um Pokémon para visualizar suas habilidades.');
+			abilityButton.append(abilityButtonName, abilityButtonDescription);
+			const abilityOptions = el('section', 'panel contest-ability-dropdown hidden');
+			const abilityResults = el('div', 'contest-ability-results'); abilityOptions.append(abilityResults);
+			let abilityOutsideHandler = null;
+			function pokemonAbilityDetails() {
+				const details = Array.isArray(selectedPokemon?.abilityDetails) ? selectedPokemon.abilityDetails : [];
+				const byName = new Map(details.filter(entry => entry?.name).map(entry => [entry.name, entry]));
+				for (const name of selectedPokemon?.abilities || []) {
+					if (!byName.has(name)) byName.set(name, {id: '', name, description: 'Descrição indisponível.', hidden: false});
+				}
+				return [...byName.values()];
+			}
+			function closeAbilityPicker() {
+				abilityOptions.classList.add('hidden');
+				if (abilityOutsideHandler) document.removeEventListener('pointerdown', abilityOutsideHandler);
+				abilityOutsideHandler = null;
+			}
+			function selectedAbilityDetail() {
+				return pokemonAbilityDetails().find(entry => entry.name === ability.value) || null;
+			}
+			function renderAbilitySelection() {
+				const selected = selectedAbilityDetail();
+				abilityButtonName.textContent = selected?.name || ability.value || 'Selecione o Pokémon';
+				abilityButtonDescription.textContent = selected?.description || (selectedPokemon ? 'Descrição indisponível.' : 'Escolha um Pokémon para visualizar suas habilidades.');
+				abilityButton.disabled = !selectedPokemon;
+			}
+			function selectAbility(entry) {
+				ability.value = entry.name; renderAbilitySelection(); closeAbilityPicker();
+			}
+			function renderAbilityResults() {
+				abilityResults.replaceChildren();
+				for (const entry of pokemonAbilityDetails()) {
+					const option = actionButton('', () => selectAbility(entry));
+					option.className = `contest-ability-option${entry.name === ability.value ? ' selected' : ''}`;
+					option.append(el('strong', '', entry.name), el('small', '', entry.description));
+					if (entry.hidden) option.append(el('span', 'contest-ability-hidden-label', 'Habilidade Oculta'));
+					abilityResults.append(option);
+				}
+				if (!abilityResults.childElementCount) abilityResults.append(el('p', 'empty-state', 'Nenhuma habilidade disponível.'));
+			}
+			function openAbilityPicker() {
+				if (!selectedPokemon) return;
+				abilityOptions.classList.remove('hidden'); renderAbilityResults();
+				if (!abilityOutsideHandler) {
+					abilityOutsideHandler = event => { if (!abilityProperty.contains(event.target)) closeAbilityPicker(); };
+					setTimeout(() => document.addEventListener('pointerdown', abilityOutsideHandler), 0);
+				}
+			}
+			abilityButton.addEventListener('click', () => abilityOptions.classList.contains('hidden') ? openAbilityPicker() : closeAbilityPicker());
+			abilityProperty.append(el('span', 'contest-npc-property-label', 'Habilidade'), ability, abilityButton, abilityOptions);
+			renderAbilitySelection();
 			const properties = el('div', 'team-builder-property-grid');
 			properties.append(itemProperty, profile.scope === 'contest' ? itemContestProperty : abilityProperty);
 			details.append(typeStatus, hpPanel, properties);
 			const evs = Object.fromEntries(contestStats.map(([id]) => [id, 0]));
-			const ivs = Object.fromEntries(contestStats.map(([id]) => [id, 31]));
-			const statsPanel = el('div', 'team-builder-summary-stats contest-npc-stats');
+			const ivs = Object.fromEntries(contestStats.map(([id]) => [id, 0]));
+			const statsPanel = el('div', `team-builder-summary-stats contest-npc-stats${profile.scope !== 'contest' ? ' without-bars' : ''}`);
+			const battleStatsHost = el('div', 'contest-battle-stats-host');
+			let statsTrigger = null;
+			if (profile.scope !== 'contest') battleStatsHost.append(statsPanel);
 			function calculatedStat(id) {
 				if (!selectedPokemon) return 0;
 				const base = selectedPokemon.baseStats[id]; const iv = Number(ivs[id]); const ev = Number(evs[id]); const lvl = Number(level.value);
@@ -1055,9 +1256,12 @@ window.RPGContestUI = (() => {
 				for (const [id, label] of contestStats) {
 					const row = el('div', 'team-builder-summary-stat'); const track = el('span', 'team-builder-summary-track nature-neutral');
 					const fill = el('span'); const total = calculatedStat(id); fill.style.width = `${Math.min(100, total / 330 * 100)}%`; track.append(fill);
-					row.append(el('span', '', label), track, el('small', '', String(evs[id])), el('small', '', String(ivs[id])), el('strong', '', String(total))); statsPanel.append(row);
+					row.append(el('span', '', label));
+					if (profile.scope === 'contest') row.append(track);
+					row.append(el('small', '', String(evs[id])), el('small', '', String(ivs[id])), el('strong', '', String(total))); statsPanel.append(row);
 				}
-				const footer = el('div', 'team-builder-summary-nature'); footer.append(el('span', '', `Natureza: ${nature.value}`), actionButton('Editar atributos', openStatsEditor)); statsPanel.append(footer);
+				const footer = el('div', 'team-builder-summary-nature'); statsTrigger = actionButton('Editar atributos', openStatsEditor);
+				footer.append(el('span', '', `Natureza: ${nature.value}`), statsTrigger); statsPanel.append(footer);
 			}
 
 			const speciesGrid = el('div', 'contest-species-grid');
@@ -1078,8 +1282,9 @@ window.RPGContestUI = (() => {
 					const option = el('option', '', label); option.value = value; return option;
 				}));
 				gender.value = allowedGenders.length === 1 ? allowedGenders[0] : '';
-				ability.replaceChildren(...(selectedPokemon.abilities || []).map(name => { const option = el('option', '', name); option.value = name; return option; }));
-				ability.value = selectedPokemon.abilities?.[0] || ''; syncDetailedStats(); syncHP(true);
+				const abilityDetails = pokemonAbilityDetails();
+				ability.replaceChildren(...abilityDetails.map(entry => { const option = el('option', '', entry.name); option.value = entry.name; return option; }));
+				ability.value = abilityDetails[0]?.name || ''; renderAbilitySelection(); closeAbilityPicker(); syncDetailedStats(); syncHP(true);
 			}
 			function renderSpecies() {
 				const query = speciesSearch.value.trim().toLowerCase(); speciesGrid.replaceChildren();
@@ -1130,38 +1335,113 @@ window.RPGContestUI = (() => {
 			contestMovePicker.append(moveSearch, moveResults);
 			contestMovePanel.append(moveChips, contestMovePicker);
 			const builderBody = el('div', 'team-builder-showdown-body contest-npc-showdown-body');
-			builderBody.append(portrait, details, profile.scope === 'contest' ? contestMovePanel : statsPanel); creator.append(builderBody);
+			builderBody.append(portrait, details, profile.scope === 'contest' ? contestMovePanel : battleStatsHost); creator.append(builderBody);
 
-			const statsEditor = el('section', 'panel team-builder-browser team-builder-stats-browser hidden');
-			function openStatsEditor() { statsEditor.classList.toggle('hidden'); }
+			const statsEditor = el('section', 'panel team-builder-browser team-builder-stats-browser contest-battle-stats-editor hidden');
+			let statsOutsideHandler = null;
+			function closeStatsEditor() {
+				statsEditor.classList.add('hidden');
+				statsEditor.querySelector('.contest-nature-panel')?.classList.add('hidden');
+				if (statsOutsideHandler) document.removeEventListener('pointerdown', statsOutsideHandler);
+				statsOutsideHandler = null;
+			}
+			function openStatsEditor() {
+				if (!statsEditor.classList.contains('hidden')) return closeStatsEditor();
+				statsEditor.classList.remove('hidden');
+				statsOutsideHandler = event => {
+					if (statsEditor.contains(event.target) || statsTrigger?.contains(event.target)) return;
+					closeStatsEditor();
+				};
+				setTimeout(() => document.addEventListener('pointerdown', statsOutsideHandler), 0);
+			}
 			const statsHeading = el('div', 'team-builder-section-heading'); statsHeading.append(el('h2', '', 'Atributos'), actionButton('Fechar', openStatsEditor));
 			statsEditor.append(statsHeading);
 			const statsHeader = el('div', 'team-builder-stats-header'); statsHeader.append(el('span'), el('strong', '', 'Base'), el('strong', '', 'EVs'), el('strong', '', 'IVs'), el('strong', '', 'Total')); statsEditor.append(statsHeader);
 			const totalEV = el('small');
+			const evControls = {};
+			function availableEVMaximum(id) {
+				const usedByOthers = contestStats.reduce((sum, [stat]) => sum + (stat === id ? 0 : Number(evs[stat] || 0)), 0);
+				return Math.max(0, Math.min(252, Math.floor((508 - usedByOthers) / 4) * 4));
+			}
 			function syncDetailedStats() {
 				let sum = 0;
 				for (const [id] of contestStats) {
-					const evInput = statsEditor.querySelector(`[data-ev="${id}"]`); const ivInput = statsEditor.querySelector(`[data-iv="${id}"]`); const output = statsEditor.querySelector(`[data-total="${id}"]`); const baseOutput = statsEditor.querySelector(`[data-base="${id}"]`);
-					if (!evInput) continue; evs[id] = Math.max(0, Math.min(252, Math.round(Number(evInput.value) / 4) * 4)); ivs[id] = Math.max(0, Math.min(31, Math.round(Number(ivInput.value) || 0)));
-					evInput.value = String(evs[id]); ivInput.value = String(ivs[id]); baseOutput.textContent = String(selectedPokemon?.baseStats?.[id] ?? '—'); output.textContent = String(calculatedStat(id)); sum += evs[id];
+					const ivInput = statsEditor.querySelector(`[data-iv="${id}"]`); const output = statsEditor.querySelector(`[data-total="${id}"]`); const baseOutput = statsEditor.querySelector(`[data-base="${id}"]`);
+					if (!evControls[id]) continue; ivs[id] = Math.max(0, Math.min(31, Math.round(Number(ivInput.value) || 0)));
+					const maximum = availableEVMaximum(id);
+					evControls[id].number.max = String(maximum); evControls[id].number.value = String(evs[id]);
+					evControls[id].slider.value = String(evs[id]);
+					evControls[id].slider.style.setProperty('--ev-fill', `${Number(evs[id]) / 252 * 100}%`);
+					ivInput.value = String(ivs[id]); baseOutput.textContent = String(selectedPokemon?.baseStats?.[id] ?? '—'); output.textContent = String(calculatedStat(id)); sum += evs[id];
 				}
 				totalEV.textContent = `EVs: ${sum} / 508`; renderStats(); syncHP();
 			}
+			function setDetailedEV(id, raw) {
+				const maximum = availableEVMaximum(id);
+				evs[id] = Math.max(0, Math.min(maximum, Math.round((Number(raw) || 0) / 4) * 4));
+				syncDetailedStats();
+			}
+			function completeBattleEVs() {
+				if (profile.scope === 'contest' || !selectedPokemon) return;
+				let remaining = 508 - contestStats.reduce((sum, [id]) => sum + Number(evs[id] || 0), 0);
+				while (remaining >= 4) {
+					const available = contestStats.map(([id]) => id).filter(id => Number(evs[id] || 0) <= 248);
+					if (!available.length) break;
+					const id = available[Math.floor(Math.random() * available.length)];
+					evs[id] += 4; remaining -= 4;
+				}
+				syncDetailedStats();
+			}
 			for (const [id, label] of contestStats) {
 				const row = el('div', 'team-builder-detailed-stat nature-neutral'); const base = el('strong', '', '—'); base.dataset.base = id; row.append(el('strong', 'team-builder-stat-name', label), base);
-				const ev = el('input'); ev.type = 'number'; ev.min = '0'; ev.max = '252'; ev.step = '4'; ev.value = String(evs[id]); ev.dataset.ev = id;
+				const ev = el('div', 'team-builder-ev-control');
+				const evNumber = el('input', 'team-builder-ev-value'); evNumber.type = 'number'; evNumber.min = '0'; evNumber.max = '252'; evNumber.step = '4'; evNumber.value = String(evs[id]); evNumber.dataset.ev = id;
+				const evSlider = el('input', 'team-builder-ev-slider'); evSlider.type = 'range'; evSlider.min = '0'; evSlider.max = '252'; evSlider.step = '4'; evSlider.value = String(evs[id]); evSlider.setAttribute('aria-label', `${label}: EVs`);
+				ev.append(evNumber, evSlider); evControls[id] = {number: evNumber, slider: evSlider};
 				const iv = el('input'); iv.type = 'number'; iv.min = '0'; iv.max = '31'; iv.value = String(ivs[id]); iv.dataset.iv = id;
 				const total = el('strong', 'team-builder-stat-total', '0'); total.dataset.total = id; row.append(ev, iv, total); statsEditor.append(row);
-				ev.addEventListener('change', syncDetailedStats); iv.addEventListener('change', syncDetailedStats);
+				evSlider.addEventListener('input', () => setDetailedEV(id, evSlider.value)); evNumber.addEventListener('input', () => setDetailedEV(id, evNumber.value)); iv.addEventListener('input', syncDetailedStats);
 			}
-			const statsMeta = el('div', 'contest-npc-stats-meta'); statsMeta.append(field('Natureza', nature), totalEV, field('Amizade', friendship), field('Performance', performance)); statsEditor.append(statsMeta);
+			const statsMeta = el('div', 'contest-npc-stats-meta');
+			const naturePicker = el('div', 'contest-nature-picker');
+			const natureButton = actionButton(''); natureButton.classList.add('contest-nature-button');
+			const natureButtonLabel = el('span', '', 'Natureza'); const natureButtonValue = el('strong', '', nature.value);
+			natureButton.append(natureButtonLabel, natureButtonValue);
+			const naturePanel = el('div', 'contest-nature-panel hidden');
+			const natureGrid = el('div', 'contest-nature-grid');
+			const natureCorner = el('div', 'contest-nature-corner'); natureCorner.append(el('span', '', '−'), el('strong', '', '+'));
+			natureGrid.append(natureCorner);
+			for (const [, label] of natureStatLabels) natureGrid.append(el('strong', 'contest-nature-axis increase', `+ ${label}`));
+			for (let rowIndex = 0; rowIndex < natureMatrix.length; rowIndex++) {
+				natureGrid.append(el('strong', 'contest-nature-axis decrease', `− ${natureStatLabels[rowIndex][1]}`));
+				for (let columnIndex = 0; columnIndex < natureMatrix[rowIndex].length; columnIndex++) {
+					const natureName = natureMatrix[rowIndex][columnIndex];
+					const neutral = rowIndex === columnIndex;
+					const option = actionButton('', () => {
+						nature.value = natureName; natureButtonValue.textContent = natureName; naturePanel.classList.add('hidden');
+						natureGrid.querySelectorAll('.contest-nature-option').forEach(node => node.classList.toggle('selected', node.dataset.nature === natureName));
+						syncDetailedStats();
+					});
+					option.className = `contest-nature-option${neutral ? ' neutral' : ''}`; option.dataset.nature = natureName;
+					option.append(el('strong', '', natureName));
+					if (neutral) option.append(el('small', 'contest-nature-neutral-label', 'Neutro'));
+					else option.append(el('small', 'contest-nature-increase', `+ ${natureStatLabels[columnIndex][1]}`),
+						el('small', 'contest-nature-decrease', `− ${natureStatLabels[rowIndex][1]}`));
+					if (natureName === nature.value) option.classList.add('selected');
+					natureGrid.append(option);
+				}
+			}
+			naturePanel.append(natureGrid);
+			natureButton.addEventListener('click', () => naturePanel.classList.toggle('hidden'));
+			naturePicker.append(nature, natureButton, naturePanel);
+			statsMeta.append(naturePicker, totalEV); statsEditor.append(statsMeta);
 			nature.addEventListener('change', syncDetailedStats);
 			level.addEventListener('change', () => { syncDetailedStats(); syncHP(true); void loadPokemonMoves(); });
-			if (profile.scope !== 'contest') creator.append(statsEditor);
+			if (profile.scope !== 'contest') battleStatsHost.append(statsEditor);
 			renderStats(); syncDetailedStats();
 
 			async function loadPokemonMoves() {
-				if (profile.scope !== 'contest' || !selectedPokemon) return;
+				if (!selectedPokemon) return;
 				const request = ++moveCatalogRequest;
 				const query = new URLSearchParams({species: selectedPokemon.name, level: level.value});
 				const data = await context.api('/contest-pokemon-moves?' + query);
@@ -1183,6 +1463,40 @@ window.RPGContestUI = (() => {
 					el('small', '', move.description || 'Sem efeito adicional.'));
 				return row;
 			}
+			function temporaryMoveCard(move, handler) {
+				const type = String(move?.type || 'normal').toLowerCase();
+				const card = actionButton('', handler); card.className = `team-builder-move-card rpg-move-button type-${type}`;
+				const title = el('div', 'rpg-move-title'); title.append(el('strong', '', move.name));
+				const category = el('i', `rpg-category-icon category-${move.battleCategory.toLowerCase()}`);
+				category.setAttribute('aria-label', move.battleCategory);
+				const identity = el('div', 'rpg-move-identity');
+				identity.append(category, el('span', `rpg-type-badge type-${type}`, move.type.toUpperCase()));
+				const technical = el('div', 'rpg-move-technical');
+				technical.append(el('span', '', move.basePower === null ? 'Power —' : `Power ${move.basePower}`),
+					el('span', '', move.alwaysHits || move.accuracy === null ? 'Accuracy —' : `Accuracy ${move.accuracy}%`));
+				const range = el('div', 'rpg-move-range', move.targetLabel || move.target || '');
+				const flags = el('div', 'rpg-move-compact-flags');
+				for (const flag of (move.flags || []).filter(entry =>
+					['contact', 'sound', 'bullet', 'bite', 'punch', 'reflectable'].includes(entry.id)).slice(0, 2)) {
+					flags.append(el('span', '', `(${String(flag.label || flag.id).toLowerCase()})`));
+				}
+				const summary = el('div', 'rpg-move-summary'); summary.append(identity, technical, range, flags);
+				const explanation = el('div', 'rpg-move-explanation');
+				explanation.append(el('p', 'rpg-move-button-description', move.description || 'Sem efeito adicional.'),
+					el('b', 'rpg-move-pp', `PP ${move.currentPP ?? move.pp}/${move.pp}`));
+				const body = el('div', 'rpg-move-button-body'); body.append(summary, explanation); card.append(title, body);
+				return card;
+			}
+			function contestTemporaryMoveCard(move, handler) {
+				const card = actionButton('', handler);
+				card.className = `team-builder-move-card rpg-move-button type-${String(move.type).toLowerCase()}`;
+				const top = el('div', 'team-builder-move-top'); top.append(el('strong', '', move.name), el('span', 'team-builder-type', move.type));
+				const body = el('div', 'rpg-move-button-body'); const summary = el('div', 'rpg-move-button-summary');
+				summary.append(el('strong', '', `Power ${move.basePower ?? '—'}`),
+					el('strong', '', `Accuracy ${move.accuracy === null ? '—' : move.accuracy + '%'}`), el('small', '', move.battleCategory));
+				body.append(summary, el('small', '', move.description || `${labels[move.category]} · ${move.baseScore} pontos`)); card.append(top, body);
+				return card;
+			}
 			let moveOutsideHandler = null;
 			function closeMovePicker() {
 				contestMovePicker.classList.add('hidden');
@@ -1190,11 +1504,10 @@ window.RPGContestUI = (() => {
 				moveOutsideHandler = null;
 			}
 			function openMovePicker() {
-				if (profile.scope !== 'contest') return moveSearch.focus();
 				contestMovePicker.classList.remove('hidden'); renderMoves(); moveSearch.focus();
 				if (!moveOutsideHandler) {
 					moveOutsideHandler = event => {
-						if (!contestMovePanel.contains(event.target)) closeMovePicker();
+						if (!(profile.scope === 'contest' ? contestMovePanel : moveSection).contains(event.target)) closeMovePicker();
 					};
 					setTimeout(() => document.addEventListener('pointerdown', moveOutsideHandler), 0);
 				}
@@ -1209,18 +1522,12 @@ window.RPGContestUI = (() => {
 						continue;
 					}
 					const wrapper = el('div', 'team-builder-move-slot');
-					const card = actionButton('', () => { selectedMoves.splice(slot, 1); renderMoves(); });
-					card.className = `team-builder-move-card rpg-move-button type-${String(move.type).toLowerCase()}`;
-					const top = el('div', 'team-builder-move-top'); top.append(el('strong', '', move.name), el('span', 'team-builder-type', move.type));
-					const body = el('div', 'rpg-move-button-body'); const summary = el('div', 'rpg-move-button-summary');
-					summary.append(el('strong', '', `Power ${move.basePower ?? '—'}`), el('strong', '', `Accuracy ${move.accuracy === null ? '—' : move.accuracy + '%'}`), el('small', '', move.battleCategory));
-					body.append(summary, el('small', '', move.description || `${labels[move.category]} · ${move.baseScore} pontos`)); card.append(top, body);
-					const pp = el('div', 'team-builder-master-pp-control'); const down = actionButton('▼', () => { move.currentPP = Math.max(0, (move.currentPP ?? move.pp) - 1); renderMoves(); });
-					const up = actionButton('▲', () => { move.currentPP = Math.min(move.pp, (move.currentPP ?? move.pp) + 1); renderMoves(); });
-					pp.append(up, el('span', 'team-builder-master-pp-value', `PP ${move.currentPP ?? move.pp}/${move.pp}`), down); wrapper.append(card, pp); moveChips.append(wrapper);
+					const removeMove = () => { selectedMoves.splice(slot, 1); renderMoves(); };
+					const card = profile.scope === 'contest' ? contestTemporaryMoveCard(move, removeMove) : temporaryMoveCard(move, removeMove);
+					wrapper.append(card); moveChips.append(wrapper);
 				}
 				const query = moveSearch.value.trim().toLowerCase(); moveResults.replaceChildren();
-				const availableMoves = profile.scope === 'contest' ? pokemonMoveCatalog : moveCatalog;
+				const availableMoves = pokemonMoveCatalog;
 				const moveTypeOrder = {
 					Normal: 0, Grass: 1, Fire: 2, Water: 3, Electric: 4, Bug: 5,
 					Flying: 6, Poison: 7, Rock: 8, Ground: 9, Ice: 10, Fighting: 11,
@@ -1237,15 +1544,11 @@ window.RPGContestUI = (() => {
 				for (const move of filteredMoves) {
 					const choose = () => {
 						if (selectedMoves.length < 4) selectedMoves.push({...move, currentPP: move.pp});
-						renderMoves(); if (profile.scope === 'contest') closeMovePicker();
+						renderMoves(); closeMovePicker();
 					};
-					if (profile.scope === 'contest') moveResults.append(simpleContestMoveRow(move, choose));
-					else {
-						const option = actionButton(move.name, choose); option.className = 'contest-move-option';
-						option.append(el('small', '', `${labels[move.category]} · ${move.baseScore} pts`)); moveResults.append(option);
-					}
+					moveResults.append(simpleContestMoveRow(move, choose));
 				}
-				if (profile.scope === 'contest' && !filteredMoves.length) {
+				if (!filteredMoves.length) {
 					moveResults.append(el('p', 'empty-state', selectedPokemon ? 'Nenhum move encontrado.' : 'Selecione um Pokémon primeiro.'));
 				}
 			}
@@ -1253,18 +1556,18 @@ window.RPGContestUI = (() => {
 			const moveSection = el('section', 'team-builder-selected-moves contest-catalog-section');
 			const moveHeading = el('div', 'team-builder-section-heading'); moveHeading.append(el('h2', '', 'Golpes'));
 			if (profile.scope !== 'contest') {
-				moveSection.append(moveHeading, moveChips, moveSearch, moveResults); creator.append(moveSection);
+				moveSection.classList.add('contest-battle-move-section');
+				moveSection.append(moveHeading, moveChips, contestMovePicker); creator.append(moveSection);
 			}
-			const finishLabel = requiredPokemon > 1 && nextPokemonNumber < requiredPokemon ? `Adicionar Pokémon ${nextPokemonNumber}` : profile.finishLabel;
-			const error = el('p', 'form-error hidden'); const finish = actionButton(finishLabel, () => {
-				try {
+			const finishLabel = profile.scope === 'contest' && requiredPokemon > 1 && nextPokemonNumber < requiredPokemon ? `Adicionar Pokémon ${nextPokemonNumber}` : profile.finishLabel;
+			const error = el('p', 'form-error hidden');
+			function saveCurrentPokemon() {
+				error.classList.add('hidden');
 					if (!npcName.value.trim()) throw new Error('Informe o nome do NPC.');
 					if (!selectedPokemon) throw new Error('Selecione um Pokémon.');
 					if (!selectedMoves.length) throw new Error('Selecione pelo menos um golpe.');
 					if (![level, friendship, performance, hp].every(input => input.checkValidity())) throw new Error('Revise os valores numéricos do NPC.');
-					if (profile.scope !== 'contest' && Object.values(evs).reduce((sum, value) => sum + value, 0) !== 508) {
-						throw new Error('Os EVs devem totalizar 508.');
-					}
+					completeBattleEVs();
 					const index = participants.length + 1; const id = `npc-${index}-${npcName.value}`.toLowerCase().replace(/[^a-z0-9]+/g, '');
 					const rpgState = {hp: Number(hp.value), pp: selectedMoves.map(move => move.currentPP ?? move.pp), status: status.value, friendship: Number(friendship.value),
 						contestPerformance: Number(performance.value), contestPerformanceTrainerId: id};
@@ -1276,16 +1579,27 @@ window.RPGContestUI = (() => {
 					}};
 					if (!pendingNpcBuild) pendingNpcBuild = {id, displayName: npcName.value.trim(), avatar: selectedAvatar.id, pokemonTeam: []};
 					pendingNpcBuild.pokemonTeam.push(selection);
-					if (pendingNpcBuild.pokemonTeam.length < requiredPokemon) {
-						renderCreator();
-						return;
-					}
+			}
+			function finishNPC() {
 					participants.push({id: pendingNpcBuild.id, kind: 'npc', displayName: pendingNpcBuild.displayName,
 						avatar: pendingNpcBuild.avatar, pokemon: pendingNpcBuild.pokemonTeam[0], pokemonTeam: pendingNpcBuild.pokemonTeam});
 					pendingNpcBuild = null; renderCards(); closeCreator();
+			}
+			const finish = actionButton(finishLabel, () => {
+				try {
+					saveCurrentPokemon();
+					if (profile.scope === 'contest' && pendingNpcBuild.pokemonTeam.length < requiredPokemon) return renderCreator();
+					finishNPC();
 				} catch (caught) { error.textContent = caught.message; error.classList.remove('hidden'); }
 			}, true);
-			creator.append(error, finish);
+			const creatorActions = el('div', 'contest-npc-creator-actions'); creatorActions.append(finish);
+			if (profile.scope === 'battle' && nextPokemonNumber < requiredPokemon) {
+				creatorActions.append(actionButton('Adicionar Pokemon', () => {
+					try { saveCurrentPokemon(); renderCreator(); }
+					catch (caught) { error.textContent = caught.message; error.classList.remove('hidden'); }
+				}));
+			}
+			creator.append(error, creatorActions);
 		}
 		function closeCreator() { pendingNpcBuild = null; creator.classList.add('hidden'); creator.replaceChildren(); create.classList.remove('hidden'); }
 		renderCards(); root.append(creator, cards); return {root, participants: () => structuredClone(participants)};
@@ -1293,8 +1607,8 @@ window.RPGContestUI = (() => {
 	function contestTemporaryNPCEditor(context, initialParticipants, contestCategory, contestRank, contestMode) {
 		return buildTemporaryNPCEditor(context, initialParticipants, {...temporaryNPCProfiles.contest, contestCategory, contestRank, contestMode});
 	}
-	function battleTemporaryNPCEditor(context, initialParticipants) {
-		return buildTemporaryNPCEditor(context, initialParticipants, temporaryNPCProfiles.battle);
+	function battleTemporaryNPCEditor(context, initialParticipants, battleTeamSize) {
+		return buildTemporaryNPCEditor(context, initialParticipants, {...temporaryNPCProfiles.battle, battleTeamSize});
 	}
 	function contestEditor(context, existing, onClose) {
 		const form = el('form', 'panel battle-editor contest-editor');

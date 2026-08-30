@@ -78,6 +78,31 @@ export interface RPGInitialHazards {
 	B: RPGInitialHazardSide;
 }
 
+export interface RPGInitialBuffSide {
+	tailwind: boolean;
+	reflect: boolean;
+	lightScreen: boolean;
+	auroraVeil: boolean;
+	safeguard: boolean;
+	mist: boolean;
+}
+
+export interface RPGInitialBuffs {
+	A: RPGInitialBuffSide;
+	B: RPGInitialBuffSide;
+}
+
+export interface RPGInitialGlobalEffects {
+	trickRoom: boolean;
+	magicRoom: boolean;
+	wonderRoom: boolean;
+	gravity: boolean;
+	mudSport: boolean;
+	waterSport: boolean;
+	fairyLock: boolean;
+	ionDeluge: boolean;
+}
+
 export interface RPGBattlePreparationConditions {
 	sceneId: string;
 	weather: RPGBattleFieldCondition;
@@ -87,6 +112,8 @@ export interface RPGBattlePreparationConditions {
 	isCave: boolean;
 	isInWater: boolean;
 	initialHazards: RPGInitialHazards;
+	initialBuffs: RPGInitialBuffs;
+	initialGlobalEffects: RPGInitialGlobalEffects;
 }
 
 export interface RPGBattlePreparationRules {
@@ -156,6 +183,8 @@ export interface RPGUpdateBattleSessionRequest {
 		weather?: Partial<RPGBattleFieldCondition>;
 		terrain?: Partial<RPGBattleFieldCondition>;
 		initialHazards?: Partial<Record<RPGBattleTeam, Partial<RPGInitialHazardSide>>>;
+		initialBuffs?: Partial<Record<RPGBattleTeam, Partial<RPGInitialBuffSide>>>;
+		initialGlobalEffects?: Partial<RPGInitialGlobalEffects>;
 	};
 	rules?: Partial<RPGBattlePreparationRules>;
 }
@@ -180,6 +209,8 @@ export interface RPGBattleLaunchRequest {
 	};
 	allowSwitching: boolean;
 	initialHazards: RPGInitialHazards;
+	initialBuffs: RPGInitialBuffs;
+	initialGlobalEffects: RPGInitialGlobalEffects;
 }
 
 export interface RPGBattleSessionRepository {
@@ -253,6 +284,14 @@ export class RPGBattleSessionService {
 				initialHazards: {
 					A: { spikes: 0, stealthRock: false, toxicSpikes: 0 },
 					B: { spikes: 0, stealthRock: false, toxicSpikes: 0 },
+				},
+				initialBuffs: {
+					A: { tailwind: false, reflect: false, lightScreen: false, auroraVeil: false, safeguard: false, mist: false },
+					B: { tailwind: false, reflect: false, lightScreen: false, auroraVeil: false, safeguard: false, mist: false },
+				},
+				initialGlobalEffects: {
+					trickRoom: false, magicRoom: false, wonderRoom: false, gravity: false,
+					mudSport: false, waterSport: false, fairyLock: false, ionDeluge: false,
 				},
 			},
 			rules: {
@@ -457,19 +496,22 @@ export class RPGBattleSessionService {
 			},
 			allowSwitching: session.rules.allowSwitching,
 			initialHazards: structuredClone(session.conditions.initialHazards),
+			initialBuffs: structuredClone(session.conditions.initialBuffs),
+			initialGlobalEffects: structuredClone(session.conditions.initialGlobalEffects),
 		};
 	}
 
 	private validateReadyConfiguration(session: RPGBattleSession): void {
 		if (!session.format) throw new Error('RPG battle format is required');
 		if (!session.opponentType) throw new Error('RPG battle opponent type is required');
-		const controlledIV = session.format === 'raid' || session.format === 'boss' ? 31 : 0;
 		for (const participant of session.participants.filter(entry => entry.kind !== 'player')) {
 			for (const choice of participant.pokemon) {
-				if (choice.set) choice.set.ivs = {
-					hp: controlledIV, atk: controlledIV, def: controlledIV,
-					spa: controlledIV, spd: controlledIV, spe: controlledIV,
-				};
+				if (!choice.set) continue;
+				if (session.format === 'raid' || session.format === 'boss') {
+					choice.set.ivs = {hp: 31, atk: 31, def: 31, spa: 31, spd: 31, spe: 31};
+				} else {
+					choice.set.ivs ||= {hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0};
+				}
 			}
 		}
 		for (const team of ['A', 'B'] as const) {
@@ -754,6 +796,14 @@ export class RPGBattleSessionService {
 			A: { spikes: 0, stealthRock: false, toxicSpikes: 0 },
 			B: { spikes: 0, stealthRock: false, toxicSpikes: 0 },
 		};
+		next.initialBuffs ||= {
+			A: { tailwind: false, reflect: false, lightScreen: false, auroraVeil: false, safeguard: false, mist: false },
+			B: { tailwind: false, reflect: false, lightScreen: false, auroraVeil: false, safeguard: false, mist: false },
+		};
+		next.initialGlobalEffects ||= {
+			trickRoom: false, magicRoom: false, wonderRoom: false, gravity: false,
+			mudSport: false, waterSport: false, fairyLock: false, ionDeluge: false,
+		};
 		if (!input) return next;
 		if (input.sceneId !== undefined) {
 			const sceneId = this.requireId(input.sceneId);
@@ -772,6 +822,25 @@ export class RPGBattleSessionService {
 				if (hazards.spikes !== undefined) next.initialHazards[team].spikes = this.integer(hazards.spikes, 0, 3, `${team} Spikes`);
 				if (hazards.stealthRock !== undefined) next.initialHazards[team].stealthRock = this.boolean(hazards.stealthRock, `${team} Stealth Rock`);
 				if (hazards.toxicSpikes !== undefined) next.initialHazards[team].toxicSpikes = this.integer(hazards.toxicSpikes, 0, 2, `${team} Toxic Spikes`);
+			}
+		}
+		if (input.initialBuffs) {
+			for (const team of ['A', 'B'] as const) {
+				const buffs = input.initialBuffs[team];
+				if (!buffs) continue;
+				for (const key of ['tailwind', 'reflect', 'lightScreen', 'auroraVeil', 'safeguard', 'mist'] as const) {
+					if (buffs[key] !== undefined) next.initialBuffs[team][key] = this.boolean(buffs[key], `${team} initial ${key}`);
+				}
+			}
+		}
+		if (input.initialGlobalEffects) {
+			for (const key of [
+				'trickRoom', 'magicRoom', 'wonderRoom', 'gravity',
+				'mudSport', 'waterSport', 'fairyLock', 'ionDeluge',
+			] as const) {
+				if (input.initialGlobalEffects[key] !== undefined) {
+					next.initialGlobalEffects[key] = this.boolean(input.initialGlobalEffects[key], `initial ${key}`);
+				}
 			}
 		}
 		if (input.startingTurn !== undefined) next.startingTurn = this.integer(input.startingTurn, 1, 999999, 'starting turn');

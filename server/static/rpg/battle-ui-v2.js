@@ -5,6 +5,33 @@
 
 let RPG_BATTLE_POKEMON = [];
 let RPG_BATTLE_SCENES = [];
+let RPG_BATTLE_CONDITION_HELP = null;
+
+function rpgCloseBattleConditionHelp() {
+	RPG_BATTLE_CONDITION_HELP?.remove();
+	RPG_BATTLE_CONDITION_HELP = null;
+}
+
+function rpgBattleConditionHelp(target, title, description) {
+	target.classList.add('battle-condition-help-target');
+	target.setAttribute('aria-description', 'Clique com o bot\u00e3o direito para ver o efeito.');
+	target.addEventListener('contextmenu', event => {
+		event.preventDefault();
+		rpgCloseBattleConditionHelp();
+		const panel = createElement('aside', 'battle-condition-help');
+		panel.setAttribute('role', 'tooltip');
+		panel.append(
+			createElement('strong', '', typeof title === 'function' ? title() : title),
+			createElement('p', '', typeof description === 'function' ? description() : description)
+		);
+		document.body.append(panel);
+		const rect = panel.getBoundingClientRect();
+		panel.style.left = Math.max(8, Math.min(event.clientX + 10, window.innerWidth - rect.width - 8)) + 'px';
+		panel.style.top = Math.max(8, Math.min(event.clientY + 10, window.innerHeight - rect.height - 8)) + 'px';
+		RPG_BATTLE_CONDITION_HELP = panel;
+		setTimeout(() => document.addEventListener('pointerdown', rpgCloseBattleConditionHelp, {once: true}), 0);
+	});
+}
 
 async function rpgLoadBattleScenes() {
 	if (RPG_BATTLE_SCENES.length) return RPG_BATTLE_SCENES;
@@ -232,7 +259,7 @@ function rpgBattleEditor(characters, existing, onClose) {
 	basic.body.append(basicGrid, formatHelp);
 	form.append(basic.step);
 
-	const participantsStep = rpgBattleStep(2, 'Participantes', 'O Mestre escolhe os participantes; cada treinador escolhe quais Pok\u00e9mon levar.');
+	const participantsStep = rpgBattleStep(3, 'Participantes', 'O Mestre escolhe os participantes; cada treinador escolhe quais Pok\u00e9mon levar.');
 	const columns = createElement('div', 'participant-columns');
 	const playerInputs = new Map();
 	for (const teamId of ['A', 'B']) {
@@ -262,13 +289,12 @@ function rpgBattleEditor(characters, existing, onClose) {
 			displayName: participant.displayName, pokemon,
 		})));
 	const temporaryNPCs = window.RPGContestUI.battleTemporaryNPCEditor(
-		{api}, initialTemporaryNPCs
+		{api}, initialTemporaryNPCs, () => Number(teamLimit.value)
 	);
 	npcPanel.append(temporaryNPCs.root);
 	participantsStep.body.append(npcPanel);
-	form.append(participantsStep.step);
 
-	const pokemonStep = rpgBattleStep(3, 'Sele\u00e7\u00e3o dos Pok\u00e9mon', 'O Mestre define apenas a quantidade permitida. Players e NPCs escolhem suas equipes.');
+	const pokemonStep = rpgBattleStep(2, 'Sele\u00e7\u00e3o dos Pok\u00e9mon', 'O Mestre define a quantidade usada pelos participantes e pelos NPCs aleat\u00f3rios.');
 	const teamLimit = rpgBattleSelect(Array.from({ length: 6 }, (_, index) => [String(index + 1), String(index + 1)]), '1');
 	const existingPlayer = existing?.participants.find(item => item.kind === 'player');
 	teamLimit.value = String(existingPlayer?.selectionLimit || 1);
@@ -276,7 +302,7 @@ function rpgBattleEditor(characters, existing, onClose) {
 	limitRow.append(rpgBattleField('Quantidade m\u00e1xima por treinador', teamLimit), createElement('p', '', 'Cada treinador far\u00e1 a pr\u00f3pria sele\u00e7\u00e3o ao receber o convite.'));
 	const wildArea = createElement('div', 'wild-selection-area');
 	pokemonStep.body.append(limitRow, wildArea);
-	form.append(pokemonStep.step);
+	form.append(pokemonStep.step, participantsStep.step);
 
 	const conditions = rpgBattleStep(4, 'Condi\u00e7\u00f5es iniciais', 'Configure o ambiente e o ponto inicial do confronto.');
 	const weather = rpgBattleSelect([['', 'Nenhum'], ['sunnyday', 'Sunny'], ['raindance', 'Rain'], ['sandstorm', 'Sand'], ['snow', 'Snow']], existing?.conditions.weather.id || '');
@@ -286,10 +312,21 @@ function rpgBattleEditor(characters, existing, onClose) {
 	const terrainDuration = rpgBattleSelect([['temporary', '5 turnos'], ['permanent', 'Permanente']], existing?.conditions.terrain.duration || 'temporary');
 	const timeOfDay = rpgBattleSelect([['day', 'Dia'], ['night', 'Noite']], existing?.conditions.timeOfDay || 'day');
 	const conditionsGrid = createElement('div', 'battle-form-grid');
-	conditionsGrid.append(
-		rpgBattleField('Clima', weather), rpgBattleField('Terreno', terrain), rpgBattleField('Come\u00e7ar no turno', startingTurn),
-		rpgBattleField('Dura\u00e7\u00e3o do clima', weatherDuration), rpgBattleField('Dura\u00e7\u00e3o do terreno', terrainDuration), rpgBattleField('Per\u00edodo', timeOfDay)
-	);
+	conditionsGrid.append(rpgBattleField('Come\u00e7ar no turno', startingTurn), rpgBattleField('Per\u00edodo', timeOfDay));
+	const weatherDescriptions = {
+		'': 'Nenhum clima estar\u00e1 ativo no in\u00edcio da batalha.',
+		sunnyday: 'Fortalece moves Fire, enfraquece moves Water e permite efeitos que dependem de sol forte.',
+		raindance: 'Fortalece moves Water, enfraquece moves Fire e permite efeitos que dependem de chuva.',
+		sandstorm: 'Causa dano residual em Pok\u00e9mon vulner\u00e1veis e aumenta a Sp. Defense de Pok\u00e9mon Rock.',
+		snow: 'Ativa neve e aumenta a Defense de Pok\u00e9mon Ice.',
+	};
+	const terrainDescriptions = {
+		'': 'Nenhum terreno estar\u00e1 ativo no in\u00edcio da batalha.',
+		electricterrain: 'Pok\u00e9mon no ch\u00e3o n\u00e3o adormecem e moves Electric usados por eles ficam mais fortes.',
+		grassyterrain: 'Pok\u00e9mon no ch\u00e3o recuperam HP e moves Grass usados por eles ficam mais fortes.',
+		psychicterrain: 'Moves Psychic de Pok\u00e9mon no ch\u00e3o ficam mais fortes e moves priorit\u00e1rios n\u00e3o os atingem.',
+		mistyterrain: 'Pok\u00e9mon no ch\u00e3o n\u00e3o recebem status e sofrem menos dano de moves Dragon.',
+	};
 	const initialHazards = existing?.conditions.initialHazards || {};
 	const hazardEditor = (team, label) => {
 		const saved = initialHazards[team] || {};
@@ -297,16 +334,78 @@ function rpgBattleEditor(characters, existing, onClose) {
 		const stealthRock = rpgBattleCheck('Stealth Rock', saved.stealthRock || false);
 		const toxicSpikes = rpgBattleSelect([['0', 'Nenhum'], ['1', '1 camada'], ['2', '2 camadas']], String(saved.toxicSpikes || 0));
 		const group = createElement('fieldset', 'battle-hazard-side');
-		group.append(createElement('legend', '', label), rpgBattleField('Spikes', spikes), stealthRock.wrapper, rpgBattleField('Toxic Spikes', toxicSpikes));
+		const spikesField = rpgBattleField('Spikes', spikes);
+		const toxicSpikesField = rpgBattleField('Toxic Spikes', toxicSpikes);
+		group.append(createElement('legend', '', label), spikesField, stealthRock.wrapper, toxicSpikesField);
+		rpgBattleConditionHelp(spikesField, 'Spikes', 'Causa dano ao Pok\u00e9mon que entrar neste lado do campo. O dano aumenta com at\u00e9 3 camadas. Pok\u00e9mon fora do ch\u00e3o n\u00e3o s\u00e3o atingidos.');
+		rpgBattleConditionHelp(stealthRock.wrapper, 'Stealth Rock', 'Causa dano ao Pok\u00e9mon que entrar neste lado do campo, calculado pela fraqueza ou resist\u00eancia dele ao tipo Rock.');
+		rpgBattleConditionHelp(toxicSpikesField, 'Toxic Spikes', 'Envenena Pok\u00e9mon no ch\u00e3o ao entrarem neste lado. Com 2 camadas, causa Toxic. Pok\u00e9mon Poison no ch\u00e3o removem as camadas.');
 		return { group, spikes, stealthRock: stealthRock.input, toxicSpikes };
 	};
 	const hazardsA = hazardEditor('A', 'No campo da Equipe A');
 	const hazardsB = hazardEditor('B', 'No campo da Equipe B');
 	const hazardsPanel = createElement('div', 'battle-hazards-panel');
-	hazardsPanel.append(createElement('h3', '', 'Hazards iniciais'), createElement('p', 'battle-help', 'Entram ativos antes do primeiro turno.'), hazardsA.group, hazardsB.group);
+	hazardsPanel.append(createElement('h3', '', 'Hazards iniciais'), hazardsA.group, hazardsB.group);
+	const initialBuffs = existing?.conditions.initialBuffs || {};
+	const buffDefinitions = [
+		['tailwind', 'Tailwind', 'Dobra a Speed da equipe durante 4 turnos.'],
+		['reflect', 'Reflect', 'Reduz o dano de ataques f\u00edsicos recebido pela equipe durante 5 turnos.'],
+		['lightScreen', 'Light Screen', 'Reduz o dano de ataques especiais recebido pela equipe durante 5 turnos.'],
+		['auroraVeil', 'Aurora Veil', 'Reduz o dano de ataques f\u00edsicos e especiais recebido pela equipe durante 5 turnos.'],
+		['safeguard', 'Safeguard', 'Protege a equipe contra novos problemas de status durante 5 turnos.'],
+		['mist', 'Mist', 'Impede que advers\u00e1rios reduzam os atributos da equipe durante 5 turnos.'],
+	];
+	const buffEditor = (team, label) => {
+		const saved = initialBuffs[team] || {}; const inputs = {};
+		const group = createElement('fieldset', 'battle-hazard-side battle-buff-side');
+		group.append(createElement('legend', '', label));
+		for (const [id, name, effect] of buffDefinitions) {
+			const choice = rpgBattleCheck(name, saved[id] || false); inputs[id] = choice.input; group.append(choice.wrapper);
+			rpgBattleConditionHelp(choice.wrapper, name, effect);
+		}
+		return {group, inputs};
+	};
+	const buffsA = buffEditor('A', 'Na Equipe A');
+	const buffsB = buffEditor('B', 'Na Equipe B');
+	const buffsPanel = createElement('div', 'battle-hazards-panel battle-buffs-panel');
+	buffsPanel.append(createElement('h3', '', 'Buffs iniciais'), buffsA.group, buffsB.group);
+	const globalEffects = existing?.conditions.initialGlobalEffects || {};
+	const globalDefinitions = [
+		['trickRoom', 'Trick Room', 'Durante 5 turnos, Pok\u00e9mon mais lentos agem antes dos mais r\u00e1pidos dentro da mesma prioridade.'],
+		['magicRoom', 'Magic Room', 'Durante 5 turnos, os efeitos dos itens equipados s\u00e3o anulados para todos os Pok\u00e9mon.'],
+		['wonderRoom', 'Wonder Room', 'Durante 5 turnos, Defense e Sp. Defense de todos os Pok\u00e9mon s\u00e3o trocadas.'],
+		['gravity', 'Gravity', 'Durante 5 turnos, aumenta a Accuracy, impede voo e faz Pok\u00e9mon ficarem sujeitos a efeitos do ch\u00e3o.'],
+		['mudSport', 'Mud Sport', 'Durante 5 turnos, reduz o poder dos moves Electric usados no campo.'],
+		['waterSport', 'Water Sport', 'Durante 5 turnos, reduz o poder dos moves Fire usados no campo.'],
+		['fairyLock', 'Fairy Lock', 'Impede que todos os Pok\u00e9mon troquem ou fujam durante o pr\u00f3ximo turno.'],
+		['ionDeluge', 'Ion Deluge', 'Durante este turno, transforma moves Normal em moves Electric.'],
+	];
+	const globalInputs = {};
+	const globalChoices = createElement('fieldset', 'battle-hazard-side battle-global-effect-side');
+	globalChoices.append(createElement('legend', '', 'Efeitos dos moves'));
+	for (const [id, name, effect] of globalDefinitions) {
+		const choice = rpgBattleCheck(name, globalEffects[id] || false);
+		globalInputs[id] = choice.input; globalChoices.append(choice.wrapper);
+		rpgBattleConditionHelp(choice.wrapper, name, effect);
+	}
+	const globalEnvironment = createElement('fieldset', 'battle-hazard-side battle-global-environment');
+	const weatherField = rpgBattleField('Clima', weather);
+	const weatherDurationField = rpgBattleField('Dura\u00e7\u00e3o do clima', weatherDuration);
+	const terrainField = rpgBattleField('Terreno', terrain);
+	const terrainDurationField = rpgBattleField('Dura\u00e7\u00e3o do terreno', terrainDuration);
+	globalEnvironment.append(
+		createElement('legend', '', 'Clima e terreno'),
+		weatherField, weatherDurationField, terrainField, terrainDurationField
+	);
+	rpgBattleConditionHelp(weatherField, () => weather.selectedOptions[0]?.textContent || 'Clima', () => weatherDescriptions[weather.value]);
+	rpgBattleConditionHelp(weatherDurationField, 'Dura\u00e7\u00e3o do clima', () => weatherDuration.value === 'permanent' ? 'O clima permanecer\u00e1 ativo at\u00e9 ser substitu\u00eddo ou removido.' : 'O clima come\u00e7ar\u00e1 com dura\u00e7\u00e3o de 5 turnos.');
+	rpgBattleConditionHelp(terrainField, () => terrain.selectedOptions[0]?.textContent || 'Terreno', () => terrainDescriptions[terrain.value]);
+	rpgBattleConditionHelp(terrainDurationField, 'Dura\u00e7\u00e3o do terreno', () => terrainDuration.value === 'permanent' ? 'O terreno permanecer\u00e1 ativo at\u00e9 ser substitu\u00eddo ou removido.' : 'O terreno come\u00e7ar\u00e1 com dura\u00e7\u00e3o de 5 turnos.');
+	const globalsPanel = createElement('div', 'battle-hazards-panel battle-global-effects-panel');
+	globalsPanel.append(createElement('h3', '', 'Efeitos globais iniciais'), globalEnvironment, globalChoices);
 	const scene = rpgScenePicker(existing?.conditions.sceneId || 'meadow');	const sceneField = rpgBattleField('Cen\u00e1rio da batalha', scene.picker);
 	sceneField.classList.add('battle-scene-field');
-	conditions.body.append(conditionsGrid, hazardsPanel, sceneField);
+	conditions.body.append(conditionsGrid, globalsPanel, hazardsPanel, buffsPanel, sceneField);
 	void rpgLoadBattleScenes().then(catalog => scene.setCatalog(catalog)).catch(error => {
 		scene.picker.append(createElement('p', 'form-error', error.message));
 	});
@@ -474,6 +573,13 @@ function rpgBattleEditor(characters, existing, onClose) {
 						A: { spikes: Number(hazardsA.spikes.value), stealthRock: hazardsA.stealthRock.checked, toxicSpikes: Number(hazardsA.toxicSpikes.value) },
 						B: { spikes: Number(hazardsB.spikes.value), stealthRock: hazardsB.stealthRock.checked, toxicSpikes: Number(hazardsB.toxicSpikes.value) },
 					},
+					initialBuffs: {
+						A: Object.fromEntries(Object.entries(buffsA.inputs).map(([id, input]) => [id, input.checked])),
+						B: Object.fromEntries(Object.entries(buffsB.inputs).map(([id, input]) => [id, input.checked])),
+					},
+					initialGlobalEffects: Object.fromEntries(
+						Object.entries(globalInputs).map(([id, input]) => [id, input.checked])
+					),
 				},
 				rules: {
 					canFlee: canFlee.input.checked, grantsExperience: experience.input.checked,

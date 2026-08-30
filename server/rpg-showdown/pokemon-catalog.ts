@@ -1,5 +1,6 @@
 import { Dex } from '../../sim/dex';
 import {getRPGAllowedSexes} from '../../sim/rpg-showdown';
+import {getRPGAbilityDescriptionPTBR} from './ability-descriptions-pt-br';
 
 export interface RPGBattlePokemonCatalogEntry {
 	id: string;
@@ -9,6 +10,7 @@ export interface RPGBattlePokemonCatalogEntry {
 	baseSpriteId: string;
 	types: string[];
 	abilities: string[];
+	abilityDetails: {id: string, name: string, description: string, hidden: boolean}[];
 	genders: string[];
 	baseStats: {hp: number, atk: number, def: number, spa: number, spd: number, spe: number};
 	legendary: boolean;
@@ -52,11 +54,17 @@ export function getRPGBattlePokemonCatalog(): RPGBattlePokemonCatalogEntry[] {
 				tag === 'Restricted Legendary' || tag === 'Sub-Legendary' || tag === 'Mythical'
 			);
 			const pseudoLegendary = PSEUDO_LEGENDARIES.has(species.id);
+			const abilityDetails = Object.entries(species.abilities).filter((entry): entry is [string, string] => !!entry[1])
+				.map(([slot, name]) => {
+					const ability = dex.abilities.get(name);
+					return {id: ability.id, name: ability.name, description: getRPGAbilityDescriptionPTBR(ability.id), hidden: slot === 'H'};
+				});
 			return {
 				id: species.id,
 				name: species.name,
 				types: [...species.types],
-				abilities: [...new Set(Object.values(species.abilities).filter((ability): ability is string => !!ability))],
+				abilities: [...new Set(abilityDetails.map(ability => ability.name))],
+				abilityDetails,
 				genders: [...getRPGAllowedSexes(species.name)],
 				baseStats: {...species.baseStats},
 				num: species.num,

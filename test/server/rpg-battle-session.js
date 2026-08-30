@@ -54,6 +54,14 @@ function configuration(samuel, marina) {
 				A: { spikes: 1, stealthRock: false, toxicSpikes: 2 },
 				B: { spikes: 3, stealthRock: true, toxicSpikes: 0 },
 			},
+			initialBuffs: {
+				A: { tailwind: true, reflect: false, lightScreen: true, auroraVeil: false, safeguard: false, mist: true },
+				B: { tailwind: false, reflect: true, lightScreen: false, auroraVeil: true, safeguard: true, mist: false },
+			},
+			initialGlobalEffects: {
+				trickRoom: true, magicRoom: false, wonderRoom: true, gravity: false,
+				mudSport: false, waterSport: true, fairyLock: false, ionDeluge: false,
+			},
 		},
 		rules: {
 			canFlee: false,
@@ -117,6 +125,14 @@ describe('RPG battle preparation sessions', () => {
 		assert.deepEqual(result.launch.initialHazards, {
 			A: { spikes: 1, stealthRock: false, toxicSpikes: 2 },
 			B: { spikes: 3, stealthRock: true, toxicSpikes: 0 },
+		});
+		assert.deepEqual(result.launch.initialBuffs, {
+			A: { tailwind: true, reflect: false, lightScreen: true, auroraVeil: false, safeguard: false, mist: true },
+			B: { tailwind: false, reflect: true, lightScreen: false, auroraVeil: true, safeguard: true, mist: false },
+		});
+		assert.deepEqual(result.launch.initialGlobalEffects, {
+			trickRoom: true, magicRoom: false, wonderRoom: true, gravity: false,
+			mudSport: false, waterSport: true, fairyLock: false, ionDeluge: false,
 		});
 		assert.equal(result.session.wager.status, 'reserved');
 		assert.equal(result.session.wager.stakes.length, 2);

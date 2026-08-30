@@ -59,9 +59,34 @@ describe('RPG contest UI', () => {
 		assert.ok(ui.includes("'contest-npc-property-label', 'Categoria e pontuação'"));
 		assert.ok(ui.includes("profile.scope === 'contest' ? itemContestProperty : abilityProperty"));
 		assert.ok(css.includes('.contest-item-build-summary'));
-		assert.ok(ui.includes("profile.scope === 'contest' ? contestMovePanel : statsPanel"));
-		assert.ok(ui.includes("moveSection.append(moveHeading, moveChips, moveSearch, moveResults)"));
-		assert.ok(ui.includes("if (profile.scope !== 'contest') creator.append(statsEditor)"));
+		assert.ok(ui.includes("profile.scope === 'contest' ? contestMovePanel : battleStatsHost"));
+		assert.ok(ui.includes('moveSection.append(moveHeading, moveChips, contestMovePicker)'));
+		assert.ok(ui.includes("if (profile.scope !== 'contest') battleStatsHost.append(statsEditor)"));
+		assert.ok(ui.includes("const ev = el('div', 'team-builder-ev-control')"));
+		assert.ok(ui.includes("const evSlider = el('input', 'team-builder-ev-slider')"));
+		assert.ok(ui.includes('function availableEVMaximum(id)'));
+		assert.ok(ui.includes("const natureGrid = el('div', 'contest-nature-grid')"));
+		assert.ok(ui.includes("statsMeta.append(naturePicker, totalEV)"));
+		assert.ok(ui.includes("document.addEventListener('pointerdown', statsOutsideHandler)"));
+		assert.ok(ui.includes('function closeStatsEditor()'));
+		assert.ok(css.includes('.contest-nature-option.selected'));
+		assert.ok(ui.includes("'contest-nature-increase'"));
+		assert.ok(ui.includes("'contest-nature-decrease'"));
+		assert.ok(ui.includes("'contest-nature-neutral-label', 'Neutro'"));
+		assert.ok(!ui.includes('A coluna mostra o atributo aumentado'));
+		assert.ok(ui.includes("if (profile.scope === 'contest') row.append(track)"));
+		assert.ok(css.includes('.contest-battle-stats-editor'));
+		assert.ok(ui.includes("moveSection.classList.add('contest-battle-move-section')"));
+		assert.ok(ui.includes('moveSection.append(moveHeading, moveChips, contestMovePicker)'));
+		assert.ok(ui.includes('const availableMoves = pokemonMoveCatalog'));
+		assert.ok(css.includes('.contest-battle-move-section .contest-move-dropdown'));
+		assert.ok(css.includes('.contest-battle-move-section .contest-selected-moves { grid-template-columns: repeat(4'));
+		assert.ok(ui.includes('function temporaryMoveCard(move, handler)'));
+		assert.ok(ui.includes("el('b', 'rpg-move-pp'"));
+		assert.ok(!ui.includes("const pp = el('div', 'team-builder-master-pp-control')"));
+		for (const marker of ['rpg-move-identity', 'rpg-move-technical', 'rpg-move-range', 'rpg-move-explanation']) {
+			assert.ok(ui.includes(marker), marker);
+		}
 		assert.ok(css.includes('.contest-side-moves .contest-selected-moves'));
 		for (const marker of ['contest-moves-toolbar-title', "'Moves'", 'contest-move-dropdown hidden',
 			'function openMovePicker()', 'function closeMovePicker()', "actionButton('Espaço de golpe', openMovePicker)"]) {
@@ -83,13 +108,33 @@ describe('RPG contest UI', () => {
 		assert.ok(http.includes("'/api/rpg/contest-pokemon-moves'"));
 		const moves = fs.readFileSync(path.resolve(__dirname, '../../server/rpg-showdown/contest-move-catalog.ts'), 'utf8');
 		assert.ok(moves.includes('dex.species.getFullLearnset(species.id)'));
-		assert.ok(moves.includes("source.startsWith('9M') || source.startsWith('9E')"));
+		assert.ok(moves.includes('const generation = Math.max(...availableGenerations, 1)'));
+		assert.ok(moves.includes('source.startsWith(`${generation}M`)'));
+		assert.ok(moves.includes('source.startsWith(`${generation}E`)'));
 		assert.ok(moves.includes('description: metadata.description'));
 		assert.ok(moves.includes("import {getRPGMoveMetadata} from './battle-move-analysis'"));
 		assert.match(css, /\.contest-side-moves \.team-builder-four-moves \.team-builder-move-card\.rpg-move-button[^}]*height: 50px[^}]*min-height: 50px[^}]*max-height: 50px/);
 		assert.ok(css.includes('[data-temporary-npc-build="contest"] .team-builder-main-property .contest-npc-property-label'));
 		for (const marker of ['contest-item-search', 'contest-item-dropdown', 'contest-item-results',
 			"'Sem item'", 'entry.description', 'itemOutsideHandler']) assert.ok(ui.includes(marker), marker);
+		for (const marker of ['itemDivisionDefinitions', 'battleItemDivision(entry)', 'contest-item-division-select',
+			"!entry.tags?.includes('breeding')", "'Held Items'", "'Mega Stones'", "'Berries'", "'Teralização'"]) {
+			assert.ok(ui.includes(marker), marker);
+		}
+		assert.ok(ui.includes("!entry.tags?.includes('primalorb')"));
+		assert.ok(ui.includes("profile.scope === 'battle' ? `Criar NPC temporário · Pokémon ${nextPokemonNumber} de até 6`"));
+		assert.ok(ui.includes("actionButton('Adicionar Pokemon'"));
+		assert.ok(ui.includes('function saveCurrentPokemon()'));
+		assert.ok(ui.includes('function completeBattleEVs()'));
+		assert.ok(ui.includes('Math.floor(Math.random() * available.length)'));
+		assert.ok(ui.includes('const ivs = Object.fromEntries(contestStats.map(([id]) => [id, 0]))'));
+		assert.ok(!ui.includes("throw new Error('Os EVs devem totalizar 508.')"));
+		assert.ok(css.includes('.contest-npc-creator-actions'));
+		for (const marker of ['contest-ability-dropdown', 'pokemonAbilityDetails()', 'renderAbilityResults()',
+			"'Habilidade Oculta'", 'entry.description']) assert.ok(ui.includes(marker), marker);
+		assert.ok(ui.includes("'Nenhuma habilidade disponível.'"));
+		assert.ok(css.includes('.contest-temporary-card > .contest-temporary-team-sprites'));
+		assert.ok(css.includes('flex-flow: row nowrap'));
 		for (const marker of ["['beauty', 'cute', 'cool', 'smart', 'tough']", 'entry.contest?.canScore',
 			'left.contest.points - right.contest.points', 'contest-item-category-heading', "' por estar equipado'"]) {
 			assert.ok(ui.includes(marker), marker);
@@ -148,7 +193,7 @@ describe('RPG contest UI', () => {
 
 	it('shows contest-only Terastallization items with their type condition', () => {
 		const ui = fs.readFileSync(path.join(root, 'contest-ui.js'), 'utf8');
-		for (const marker of ["'tera-matching-moves'", "!entry.tags?.includes('contestonly')",
+		for (const marker of ["'tera-matching-moves'", "tags.has('contestterastalization')", "['terastalization', 'Teralização']",
 			"group === 'terastalization' ? 'Teralização'", '+5 pontos ao usar pelo menos 2 moves']) {
 			assert.ok(ui.includes(marker), marker);
 		}
@@ -161,7 +206,7 @@ describe('RPG contest UI', () => {
 		assert(ui.includes("avatar: selectedAvatar.id"));
 		assert(ui.includes("title.insertBefore(avatarPicker, title.lastChild)"));
 		assert(ui.includes('selectedAvatar = avatar; npcName.value = avatar.name'));
-		assert(ui.includes("profile.scope === 'contest' && participant.avatar"));
+		assert(ui.includes('if (participant.avatar)'));
 		assert(css.includes('.contest-temporary-trainer-sprite'));
 		assert(css.includes('.contest-npc-avatar-dropdown'));
 		assert(css.includes('.contest-npc-avatar-option'));
@@ -175,6 +220,27 @@ describe('RPG contest UI', () => {
 			"beauty: 'cool', cool: 'beauty', cute: 'tough', tough: 'cute'", 'Math.min(10, baseScore + 2)',
 			'Math.min(2, Math.floor(baseScore / 2))']) assert.ok(ui.includes(marker), marker);
 		assert.ok(ui.includes("if (profile.scope === 'contest')"));
+	});
+
+	it('generates ranked temporary battle NPCs in a selected level range', () => {
+		const ui = fs.readFileSync(path.join(root, 'contest-ui.js'), 'utf8');
+		const css = fs.readFileSync(path.join(root, 'contest-ui.css'), 'utf8');
+		const battle = fs.readFileSync(path.join(root, 'battle-ui-v2.js'), 'utf8');
+		for (const marker of ["['1-20', '1 - 20']", "['81-100', '81 - 100']", "['master', 'Master']",
+			'generateRandomBattleNPC(levelRange.value, difficulty.value)', 'function randomBattleEVs(',
+			'normal: {index: 0, iv: [0, 10]}', 'master: {index: 4, iv: [28, 31]}',
+			'const totals = [64, 160, 280, 400, 508]', 'randomLevelRange: levelRangeValue']) {
+			assert.ok(ui.includes(marker), marker);
+		}
+		assert.ok(css.includes('.contest-random-npc-config'));
+		assert.ok(css.includes('.contest-random-npc-fields'));
+		assert.ok(ui.includes('const teamSize = Math.max(1, Math.min(6, Number(profile.battleTeamSize?.()) || 1))'));
+		assert.ok(ui.includes('for (let slot = 0; slot < teamSize; slot++)'));
+		assert.ok(ui.includes('pokemon: pokemonTeam[0], pokemonTeam'));
+		assert.ok(battle.includes("rpgBattleStep(2, 'Sele\\u00e7\\u00e3o dos Pok\\u00e9mon'"));
+		assert.ok(battle.includes("rpgBattleStep(3, 'Participantes'"));
+		assert.ok(battle.includes('initialTemporaryNPCs, () => Number(teamLimit.value)'));
+		assert.ok(battle.includes('form.append(pokemonStep.step, participantsStep.step)'));
 	});
 
 	it('lets the master choose a persistent contest background', () => {

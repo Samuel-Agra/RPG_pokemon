@@ -1207,4 +1207,76 @@ describe('RPG residual damage animations', () => {
 		assert.equal(foe.has('stealthrock'), false);
 		assert.equal(foe.get('toxicspikes').layers, 1);
 	});
+	it('starts with the configured native side buffs on each team', () => {
+		const { session, launch, character } = setup();
+		session.id = 'runtime-initial-buffs';
+		launch.sessionId = session.id;
+		launch.initialBuffs = {
+			A: { tailwind: true, reflect: true, lightScreen: false, auroraVeil: false, safeguard: false, mist: true },
+			B: { tailwind: false, reflect: false, lightScreen: true, auroraVeil: true, safeguard: true, mist: false },
+		};
+		const state = new RPGBattleRuntimeManager().start(session, launch, () => character);
+		const own = new Set(state.sides[0].effects.buffs.map(effect => effect.id));
+		const foe = new Set(state.sides[1].effects.buffs.map(effect => effect.id));
+		assert.deepEqual([...own].sort(), ['mist', 'reflect', 'tailwind']);
+		assert.deepEqual([...foe].sort(), ['auroraveil', 'lightscreen', 'safeguard']);
+	});
+	it('starts with configured global move effects and their native durations', () => {
+		const { session, launch, character } = setup();
+		session.id = 'runtime-initial-global-effects';
+		launch.sessionId = session.id;
+		launch.initialGlobalEffects = {
+			trickRoom: true, magicRoom: false, wonderRoom: true, gravity: true,
+			mudSport: false, waterSport: true, fairyLock: false, ionDeluge: false,
+		};
+		const state = new RPGBattleRuntimeManager().start(session, launch, () => character);
+		const effects = new Map(state.field.globalEffects.map(effect => [effect.id, effect]));
+		assert.deepEqual([...effects.keys()].sort(), ['gravity', 'trickroom', 'watersport', 'wonderroom']);
+		assert.equal(effects.get('trickroom').duration, 5);
+		assert.equal(effects.get('gravity').duration, 5);
+		assert.equal(effects.get('watersport').duration, 5);
+		assert.equal(effects.get('wonderroom').duration, 5);
+	});
+	it('exposes every configured initial condition in the battle HUD state', () => {
+		const { session, launch, character } = setup();
+		session.id = 'runtime-all-initial-conditions';
+		launch.sessionId = session.id;
+		launch.rpg.weather = 'raindance';
+		launch.rpg.weatherDuration = 5;
+		launch.rpg.terrain = 'electricterrain';
+		launch.rpg.terrainDuration = undefined;
+		launch.initialHazards = {
+			A: { spikes: 3, stealthRock: true, toxicSpikes: 2 },
+			B: { spikes: 3, stealthRock: true, toxicSpikes: 2 },
+		};
+		launch.initialBuffs = {
+			A: { tailwind: true, reflect: true, lightScreen: true, auroraVeil: true, safeguard: true, mist: true },
+			B: { tailwind: true, reflect: true, lightScreen: true, auroraVeil: true, safeguard: true, mist: true },
+		};
+		launch.initialGlobalEffects = {
+			trickRoom: true, magicRoom: true, wonderRoom: true, gravity: true,
+			mudSport: true, waterSport: true, fairyLock: true, ionDeluge: true,
+		};
+		const state = new RPGBattleRuntimeManager().start(session, launch, () => character);
+		assert.equal(state.field.weatherDetails.id, 'raindance');
+		assert.equal(state.field.weatherDetails.duration, 5);
+		assert.equal(state.field.terrainDetails.id, 'electricterrain');
+		assert.equal(state.field.terrainDetails.permanent, true);
+		assert.deepEqual(
+			state.field.globalEffects.map(effect => effect.id).sort(),
+			['fairylock', 'gravity', 'iondeluge', 'magicroom', 'mudsport', 'trickroom', 'watersport', 'wonderroom']
+		);
+		assert.equal(state.field.globalEffects.find(effect => effect.id === 'fairylock').icon, 'lock');
+		assert.equal(state.field.globalEffects.find(effect => effect.id === 'iondeluge').icon, 'electric');
+		for (const side of state.sides) {
+			assert.deepEqual(
+				side.effects.hazards.map(effect => effect.id).sort(),
+				['spikes', 'stealthrock', 'toxicspikes']
+			);
+			assert.deepEqual(
+				side.effects.buffs.map(effect => effect.id).sort(),
+				['auroraveil', 'lightscreen', 'mist', 'reflect', 'safeguard', 'tailwind']
+			);
+		}
+	});
 });
