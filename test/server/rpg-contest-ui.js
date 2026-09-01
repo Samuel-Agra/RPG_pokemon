@@ -305,6 +305,10 @@ describe('RPG contest UI', () => {
 		assert.ok(css.includes('@keyframes contest-trainer-idle'));
 		assert.ok(!css.includes('@keyframes contest-move'));
 	});
+	it('shows a PP-depleted contest attempt as a lost action', () => {
+		const ui = fs.readFileSync(path.join(root, 'contest-ui.js'), 'utf8');
+		assert.ok(ui.includes("moveId === 'contestnopp' ? 'Ação perdida (sem PP)'"));
+	});
 
 	it('keeps only compact type-colored move controls below the active stage', () => {
 		const ui = fs.readFileSync(path.join(root, 'contest-ui.js'), 'utf8');

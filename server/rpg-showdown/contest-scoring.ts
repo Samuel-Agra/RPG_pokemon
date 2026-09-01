@@ -1,5 +1,5 @@
 import {toID} from '../../sim/dex-data';
-import {getRPGContestMove, type RPGContestMoveDefinition} from './contest-move-catalog';
+import {getRPGContestMove, RPG_CONTEST_NO_PP_ACTION, type RPGContestMoveDefinition} from './contest-move-catalog';
 import type {RPGContestCategory} from './contest-session';
 
 export interface RPGContestComboDefinition {
@@ -40,7 +40,10 @@ export function applyRPGContestWithinRoundRepetition(
 	score: RPGContestRoundMechanicalScore
 ): RPGContestRoundMechanicalScore {
 	const counts = new Map<string, number>();
-	for (const move of score.moves) counts.set(move, (counts.get(move) || 0) + 1);
+	for (const move of score.moves) {
+		if (move !== RPG_CONTEST_NO_PP_ACTION) counts.set(move, (counts.get(move) || 0) + 1);
+	}
+	if (!counts.size) return score;
 	const maximumUses = Math.max(...counts.values());
 	const repetitionPenaltyRate = maximumUses >= 3 ? 1 : maximumUses === 2 ? 0.4 : 0;
 	if (!repetitionPenaltyRate) return score;
@@ -55,8 +58,10 @@ export function applyRPGContestSecondRoundCreativity(
 	if (firstRound.length !== 3) throw new Error('RPG contest first round requires exactly three moves');
 	const first: string[] = firstRound.map(move => toID(move));
 	const second = score.moves;
-	const repeated = second.filter(move => first.includes(move)).length;
-	const samePositions = second.filter((move, index) => move === first[index]).length;
+	const hasLostAction = second.includes(RPG_CONTEST_NO_PP_ACTION);
+	const repeated = second.filter(move => move !== RPG_CONTEST_NO_PP_ACTION && first.includes(move)).length;
+	const samePositions = second.filter((move, index) =>
+		move !== RPG_CONTEST_NO_PP_ACTION && move === first[index]).length;
 	const exactSequence = samePositions === 3;
 	const sameMoveSet = !exactSequence && [...second].sort().join(',') === [...first].sort().join(',');
 	let repetitionPenaltyRate = 0;
@@ -64,8 +69,9 @@ export function applyRPGContestSecondRoundCreativity(
 	else if (sameMoveSet) repetitionPenaltyRate = 0.5;
 	else if (repeated >= 2 && samePositions >= 2) repetitionPenaltyRate = 0.25;
 	else if (repeated >= 2) repetitionPenaltyRate = 0.15;
-	const novelMoveBonus = repeated < 3 ? 4 : 0;
-	const originalityScore = repeated === 0 ? 4 : repeated === 1 ? 3 : repeated === 2 ? 2 : exactSequence ? 0 : 1;
+	const novelMoveBonus = !hasLostAction && repeated < 3 ? 4 : 0;
+	const originalityScore = hasLostAction ? 0 :
+		repeated === 0 ? 4 : repeated === 1 ? 3 : repeated === 2 ? 2 : exactSequence ? 0 : 1;
 	const inventiveInteractionScore = Math.min(4, score.discoveredInteractions.length * 2);
 	const creativityScore = novelMoveBonus + originalityScore + inventiveInteractionScore;
 	const beforeRepetition = score.total + creativityScore;

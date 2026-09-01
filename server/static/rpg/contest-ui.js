@@ -481,7 +481,8 @@ window.RPGContestUI = (() => {
 			return !result?.disqualified && Number(result?.place) >= 1 && Number(result?.place) <= 3;
 		});
 		const moveName = (participant, moveId) => (participant.pokemonTeam || [participant.pokemon])
-			.flatMap(pokemon => pokemon.moves).find(move => move.id === moveId)?.name || moveId;
+			.flatMap(pokemon => pokemon.moves).find(move => move.id === moveId)?.name ||
+			(moveId === 'contestnopp' ? 'Ação perdida (sem PP)' : moveId);
 		const ceremony = el('section', `contest-stage contest-final-ceremony category-${contest.category}`);
 		const backgroundId = contest.scenario?.backgroundId || session.scenario?.backgroundId;
 		if (backgroundId) {

@@ -25,6 +25,15 @@ export interface RPGContestMoveDefinition {
 	description: string;
 }
 
+/** Internal zero-point action used when a contestant attempts a move without PP. */
+export const RPG_CONTEST_NO_PP_ACTION = 'contestnopp';
+const RPG_CONTEST_NO_PP_DEFINITION: RPGContestMoveDefinition = Object.freeze({
+	moveId: RPG_CONTEST_NO_PP_ACTION, name: 'Ação perdida (sem PP)', category: 'smart', baseScore: 0,
+	tags: [], changesField: false, penalties: [], type: 'Normal', battleCategory: 'Status', basePower: null,
+	battleStatus: '', accuracy: null, alwaysHits: true, target: 'self', targetLabel: 'Usuário', flags: [], pp: 0,
+	description: 'O Pokémon tentou agir sem PP e perdeu esta ação.',
+});
+
 interface RPGContestMoveOverride {
 	baseScore?: number;
 	category?: RPGContestCategory;
@@ -219,6 +228,7 @@ export function getRPGContestPokemonMoveCatalog(speciesName: string, level = 100
 
 export function getRPGContestMove(moveId: string): RPGContestMoveDefinition {
 	const id = toID(moveId);
+	if (id === RPG_CONTEST_NO_PP_ACTION) return structuredClone(RPG_CONTEST_NO_PP_DEFINITION);
 	const move = getRPGContestMoveCatalog().find(entry => entry.moveId === id);
 	if (!move) throw new Error('Unknown RPG contest move');
 	return move;

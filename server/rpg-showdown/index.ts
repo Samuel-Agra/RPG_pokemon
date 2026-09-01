@@ -3200,6 +3200,25 @@ export class RPGLoginService {
 		return this.contestSessions.complete(contestSessionId);
 	}
 
+	consumeContestMovePP(characterId: string, teamIndex: number, moveId: string): boolean {
+		const record = this.repository.get(characterId);
+		const set = record?.state.team[teamIndex];
+		if (!record || !set) return false;
+		const moveIndex = (set.moves || []).findIndex(move => toID(move) === toID(moveId));
+		if (moveIndex < 0) return false;
+		const maximum = Dex.mod('gen9').moves.get(moveId).pp || 1;
+		set.rpg ||= {};
+		set.rpg.pp ||= (set.moves || []).map(move => Dex.mod('gen9').moves.get(move).pp || 1);
+		const current = Math.max(0, Math.min(maximum, Number(set.rpg.pp[moveIndex] ?? maximum)));
+		if (current <= 0) return false;
+		set.rpg.pp[moveIndex] = current - 1;
+		const stored = record.state.box.party[teamIndex];
+		if (stored) stored.pokemon.rpg.pp = [...set.rpg.pp];
+		record.state.updatedAt = this.now();
+		this.repository.set(record);
+		return true;
+	}
+
 	applyContestResults(session: RPGContestSession, results: readonly RPGContestPlacement[]): void {
 		const resultById = new Map(results.map(result => [result.participantId, result]));
 		for (const participant of session.participants) {

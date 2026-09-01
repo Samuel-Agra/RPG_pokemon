@@ -36,6 +36,36 @@ function judging(overrides = {}) {
 }
 
 describe('RPG contest runtime', () => {
+	it('spends persistent PP and turns an attempt without PP into a zero-point action', () => {
+		const set = pokemon('Milotic', ['surf']);
+		set.rpg.pp = [1];
+		const teams = new Map([['may', [set]]]);
+		const spent = [];
+		const runtime = new RPGContestRuntimeManager({
+			getCharacterTeam: id => teams.get(id),
+			onMovePPSpent: (characterId, teamIndex, moveId) => {
+				spent.push({characterId, teamIndex, moveId});
+				const source = teams.get(characterId)[teamIndex];
+				if (source.rpg.pp[0] <= 0) return false;
+				source.rpg.pp[0]--;
+				return true;
+			},
+		});
+		runtime.start(startedSession());
+		for (let index = 0; index < 3; index++) {
+			runtime.action('contest-runtime', {type: 'select-move', moveId: 'surf'}, {characterId: 'may'});
+		}
+		const view = runtime.snapshot('contest-runtime', {master: true});
+		const participant = view.participants[0];
+		assert.deepEqual(participant.rounds[0], ['surf', 'contestnopp', 'contestnopp']);
+		assert.equal(participant.pokemon.moves[0].pp, 0);
+		assert.equal(participant.roundScores[0].moveBaseScore, 8);
+		assert.equal(spent.length, 1);
+		const failures = view.events.filter(event => event.failedReason === 'no-pp');
+		assert.equal(failures.length, 2);
+		assert(failures.every(event => event.moveName === 'Ação perdida (sem PP)'));
+	});
+
 	it('runs visible three-move presentations across two rounds and emits ordered events', () => {
 		const teams = new Map([['may', [pokemon('Milotic', ['surf', 'icebeam', 'recover', 'raindance'])]]]);
 		let now = 10;
