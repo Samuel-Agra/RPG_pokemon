@@ -50,10 +50,15 @@ describe('RPG commerce frontend', () => {
 		assert.match(ui, /enable-buy/);
 		assert.match(ui, /disable-buy/);
 		assert.match(ui, /increase-prices/);
+		assert.match(ui, /increase-stock/);
+		assert.match(ui, /decrease-stock/);
 		assert.match(ui, /master-bulk/);
 		assert.match(ui, /watchShop/);
 		assert.match(css, /shop-master-bulk/);
 		assert.match(css, /shop-stock-row/);
+		assert.match(ui, /\['\+', 'increase-stock'/);
+		assert.match(ui, /\['−', 'decrease-stock'/);
+		assert.doesNotMatch(css, /shop-stock-quantity-heading/);
 		assert.match(css, /shop-toggle-name\.enabled/);
 		assert.match(css, /shop-toggle-name\.disabled/);
 		assert.doesNotMatch(css, /shop-master-stock\{[^}]*overflow-y:auto/);

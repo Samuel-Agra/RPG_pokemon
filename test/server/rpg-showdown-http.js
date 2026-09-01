@@ -157,6 +157,18 @@ describe('RPG HTTP frontend API', () => {
 		});
 		assert.equal(result.response.status, 200);
 		assert(result.data.offers.length > 1);
+		result = await request('/shops/poke-mart-central/master-bulk', {
+			method: 'POST', headers: masterHeaders,
+			body: {action: 'increase-stock', expectedRevision: result.data.shop.revision},
+		});
+		assert.equal(result.response.status, 200);
+		assert.equal(result.data.offers.find(item => item.itemId === 'pokeball').stock, 3);
+		result = await request('/shops/poke-mart-central/master-bulk', {
+			method: 'POST', headers: masterHeaders,
+			body: {action: 'decrease-stock', expectedRevision: result.data.shop.revision},
+		});
+		assert.equal(result.response.status, 200);
+		assert.equal(result.data.offers.find(item => item.itemId === 'pokeball').stock, 2);
 		result = await request('/session/player', {
 			method: 'POST', body: { characterId: 'samuel', password: 'senha-rpg' },
 		});

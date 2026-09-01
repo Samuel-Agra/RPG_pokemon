@@ -346,6 +346,10 @@
 		const bulk = el('div', 'shop-master-bulk');
 		const bulkGroups = [
 			[
+				['+', 'increase-stock', 'success', 'Adicionar uma unidade aos itens disponíveis para venda'],
+				['−', 'decrease-stock', 'danger', 'Remover uma unidade dos itens disponíveis para venda'],
+			],
+			[
 				['Vender', 'enable-buy', 'success', 'Habilitar a venda de todos os itens'],
 				['Vender', 'disable-buy', 'danger', 'Desabilitar a venda de todos os itens'],
 			],

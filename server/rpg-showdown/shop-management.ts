@@ -73,7 +73,7 @@ export interface RPGCommerceOfferInput {
 }
 
 export type RPGCommerceBulkAction = 'enable-buy' | 'disable-buy' | 'enable-sell' | 'disable-sell' |
-	'increase-prices' | 'decrease-prices' | 'reset-prices';
+	'increase-prices' | 'decrease-prices' | 'reset-prices' | 'increase-stock' | 'decrease-stock';
 
 export interface RPGCommerceBulkInput {
 	action: RPGCommerceBulkAction;
@@ -422,7 +422,7 @@ export class RPGCommerceManagement {
 		if (input.expectedRevision !== shop.revision) throw new Error('RPG commerce revision conflict');
 		const allowed: RPGCommerceBulkAction[] = [
 			'enable-buy', 'disable-buy', 'enable-sell', 'disable-sell',
-			'increase-prices', 'decrease-prices', 'reset-prices',
+			'increase-prices', 'decrease-prices', 'reset-prices', 'increase-stock', 'decrease-stock',
 		];
 		if (!allowed.includes(input.action)) throw new Error('Ação em massa inválida');
 		shop.offers = this.materializeOffers(shop).map(offer => {
@@ -433,6 +433,12 @@ export class RPGCommerceManagement {
 			if (input.action === 'enable-sell') return {...offer, sellEnabled: true};
 			if (input.action === 'disable-sell') return {...offer, sellEnabled: false};
 			if (input.action === 'reset-prices') return {...offer, buyPrice: base.buy, sellPrice: base.sell};
+			if (input.action === 'increase-stock') {
+				return offer.buyEnabled ? {...offer, stock: offer.stock + 1} : offer;
+			}
+			if (input.action === 'decrease-stock') {
+				return offer.buyEnabled ? {...offer, stock: Math.max(0, offer.stock - 1)} : offer;
+			}
 			const multiplier = input.action === 'increase-prices' ? 1.1 : 0.9;
 			return {
 				...offer,
