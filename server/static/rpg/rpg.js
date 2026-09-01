@@ -203,31 +203,62 @@ function initials(value) {
 	return String(value || 'R').trim().slice(0, 2).toUpperCase();
 }
 
-function spriteUrl(pokemonOrSpecies, shiny = false) {
+const rpgPokemonSpriteRegistry = new Map();
+
+function rpgSpriteKey(value) {
+	return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+		.toLowerCase().replace(/[^a-z0-9]+/g, '');
+}
+
+function rpgRegisterPokemonSprites(catalog) {
+	for (const pokemon of catalog || []) {
+		const data = {spriteId: pokemon.spriteId, baseSpriteId: pokemon.baseSpriteId || pokemon.spriteId};
+		for (const value of [pokemon.id, pokemon.name, pokemon.spriteId]) {
+			const key = rpgSpriteKey(value);
+			if (key) rpgPokemonSpriteRegistry.set(key, data);
+		}
+	}
+}
+window.rpgRegisterPokemonSprites = rpgRegisterPokemonSprites;
+
+function rpgPokemonSpriteData(pokemonOrSpecies, shiny = false) {
 	const pokemon = typeof pokemonOrSpecies === 'object' && pokemonOrSpecies ? pokemonOrSpecies : null;
 	const species = pokemon ? pokemon.species || pokemon.name || 'Pokemon' : String(pokemonOrSpecies || 'Pokemon');
-	const spriteId = species.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
-		.toLowerCase().replace(/[^a-z0-9]+/g, '');
+	const registered = rpgPokemonSpriteRegistry.get(rpgSpriteKey(species));
+	const spriteId = String(pokemon?.spriteId || registered?.spriteId || rpgSpriteKey(species));
+	const baseSpriteId = String(pokemon?.baseSpriteId || registered?.baseSpriteId || spriteId);
 	const shinySprite = pokemon ? !!pokemon.shiny : !!shiny;
-	return RPGAssets.url('sprites/' + (shinySprite ? 'gen5-shiny/' : 'gen5/') + spriteId + '.png');
+	return {species, spriteId, baseSpriteId, shiny: shinySprite};
+}
+
+function spriteUrl(pokemonOrSpecies, shiny = false) {
+	const data = rpgPokemonSpriteData(pokemonOrSpecies, shiny);
+	return RPGAssets.url('sprites/' + (data.shiny ? 'gen5-shiny/' : 'gen5/') + data.spriteId + '.png');
 }
 
 function spriteImage(pokemonOrSpecies, shiny = false) {
-	const pokemon = typeof pokemonOrSpecies === 'object' && pokemonOrSpecies ? pokemonOrSpecies : null;
-	const species = pokemon ? pokemon.species || pokemon.name || 'Pokemon' : String(pokemonOrSpecies || 'Pokemon');
+	const data = rpgPokemonSpriteData(pokemonOrSpecies, shiny);
 	const image = createElement('img');
-	const shinySprite = pokemon ? !!pokemon.shiny : !!shiny;
-	image.src = spriteUrl(pokemonOrSpecies, shiny);
-	image.alt = species + (shinySprite ? ' shiny' : '') + ' em pixel art';
-	image.loading = 'lazy';
-	if (shinySprite) {
-		const regularFallback = spriteUrl(species, false);
-		image.addEventListener('error', event => {
-			if (image.src === regularFallback) return;
-			event.stopImmediatePropagation();
-			image.src = regularFallback;
-		});
+	const candidates = [];
+	const add = path => { if (!candidates.includes(path)) candidates.push(path); };
+	if (data.shiny) add(RPGAssets.url('sprites/gen5-shiny/' + data.spriteId + '.png'));
+	add(RPGAssets.url('sprites/gen5/' + data.spriteId + '.png'));
+	add(RPGAssets.url('sprites/ani/' + data.spriteId + '.gif'));
+	if (data.baseSpriteId !== data.spriteId) {
+		if (data.shiny) add(RPGAssets.url('sprites/gen5-shiny/' + data.baseSpriteId + '.png'));
+		add(RPGAssets.url('sprites/gen5/' + data.baseSpriteId + '.png'));
+		add(RPGAssets.url('sprites/ani/' + data.baseSpriteId + '.gif'));
 	}
+	let candidateIndex = 0;
+	image.src = candidates[candidateIndex];
+	image.alt = data.species + (data.shiny ? ' shiny' : '') + ' em pixel art';
+	image.loading = 'lazy';
+	image.addEventListener('error', event => {
+		if (candidateIndex + 1 < candidates.length) {
+			event.stopImmediatePropagation();
+			image.src = candidates[++candidateIndex];
+		}
+	});
 	return image;
 }
 
@@ -1047,6 +1078,40 @@ function editableTrainerTagline(character) {
 	return quote;
 }
 
+const RPG_POKEDEX_REGIONS = [
+	{name: 'Kanto', minimum: 1, maximum: 151}, {name: 'Johto', minimum: 152, maximum: 251},
+	{name: 'Hoenn', minimum: 252, maximum: 386}, {name: 'Sinnoh', minimum: 387, maximum: 493},
+	{name: 'Unova', minimum: 494, maximum: 649}, {name: 'Kalos', minimum: 650, maximum: 721},
+	{name: 'Alola', minimum: 722, maximum: 809, regionalForm: 'Alola'},
+	{name: 'Galar', minimum: 810, maximum: 898, regionalForm: 'Galar'},
+	{name: 'Hisui', minimum: 899, maximum: 905, regionalForm: 'Hisui'},
+	{name: 'Paldea', minimum: 906, maximum: Infinity, regionalForm: 'Paldea'},
+];
+
+function rpgPokedexEntries(catalog) {
+	const available = (catalog || []).filter(pokemon =>
+		Number(pokemon.num || 0) > 0 && !/-Totem(?:-|$)/i.test(String(pokemon.name || '')));
+	const isRegionalForm = pokemon => RPG_POKEDEX_REGIONS.some(region => region.regionalForm &&
+		new RegExp(`-${region.regionalForm}(?:-|$)`, 'i').test(String(pokemon.name || '')));
+	const entries = [];
+	for (const region of RPG_POKEDEX_REGIONS) {
+		const nativeByNumber = new Map();
+		for (const pokemon of [...available].sort((a, b) => Number(a.num) - Number(b.num) || a.name.localeCompare(b.name))) {
+			const number = Number(pokemon.num);
+			if (number < region.minimum || number > region.maximum || isRegionalForm(pokemon)) continue;
+			if (!nativeByNumber.has(number)) nativeByNumber.set(number, pokemon);
+		}
+		for (const pokemon of nativeByNumber.values()) entries.push({...pokemon, dexRegion: region.name});
+		if (region.regionalForm) {
+			const pattern = new RegExp(`-${region.regionalForm}(?:-|$)`, 'i');
+			const regional = available.filter(pokemon => pattern.test(String(pokemon.name || '')))
+				.sort((a, b) => Number(a.num) - Number(b.num) || a.name.localeCompare(b.name));
+			for (const pokemon of regional) entries.push({...pokemon, dexRegion: region.name});
+		}
+	}
+	return entries.map((pokemon, index) => ({...pokemon, dexNumber: index + 1}));
+}
+
 function openPokedexSummary(character, catalog) {
 	const profile = character.profile || {};
 	const seen = new Set(profile.pokedex?.seen || []);
@@ -1086,8 +1151,7 @@ function openPokedexSummary(character, catalog) {
 	const rightScreen = createElement('div', 'overview-pokedex-right-screen');
 	const regions = createElement('header', 'overview-pokedex-regions');
 	const grid = createElement('div', 'overview-pokedex-grid');
-	const national = [...new Map([...catalog].sort((a, b) => Number(a.num || 0) - Number(b.num || 0))
-		.filter(pokemon => pokemon.num > 0).map(pokemon => [pokemon.num, pokemon])).values()];
+	const national = rpgPokedexEntries(catalog);
 	const nationalById = new Map(national.map(pokemon => [String(pokemon.id || '').toLowerCase(), pokemon]));
 	const masterViewingPlayer = state.session?.role === 'master' && state.session?.mode === 'player' &&
 		String(state.session.viewAsCharacterId || '') === String(character.id || '');
@@ -1120,11 +1184,8 @@ function openPokedexSummary(character, catalog) {
 		visit(root);
 		return result;
 	};
-	const regionRanges = [
-		['Todas', 1, Infinity], ['Kanto', 1, 151], ['Johto', 152, 251], ['Hoenn', 252, 386],
-		['Sinnoh', 387, 493], ['Unova', 494, 649], ['Kalos', 650, 721], ['Alola', 722, 809],
-		['Galar', 810, 898], ['Hisui', 899, 905], ['Paldea', 906, Infinity],
-	];
+	const regionNames = ['Todas', ...RPG_POKEDEX_REGIONS.map(region => region.name)];
+	let activeRegion = 'Todas';
 	const renderDetails = pokemon => {
 		selectedPokemon = pokemon;
 		rightScreenMode = 'details';
@@ -1144,11 +1205,11 @@ function openPokedexSummary(character, catalog) {
 		const types = createElement('div', 'overview-pokedex-detail-types');
 		for (const type of pokemon.types || []) types.append(createElement('span', 'type-' + String(type).toLowerCase(), type));
 		title.append(types);
-		heading.append(title, createElement('small', '', '#' + String(pokemon.num).padStart(4, '0')));
+		heading.append(title, createElement('small', '', '#' + String(pokemon.dexNumber).padStart(4, '0')));
 		const special = pokemon.mythical ? 'Mítico' : (pokemon.pseudoLegendary ? 'Pseudo-lendário' : (pokemon.legendary ? 'Lendário' : ''));
 		const content = createElement('div', 'overview-pokedex-detail-content');
 		const identity = createElement('div', 'overview-pokedex-detail-identity');
-		const visual = pokemonSprite({species: pokemon.name});
+		const visual = pokemonSprite({species: pokemon.name, spriteId: pokemon.spriteId, baseSpriteId: pokemon.baseSpriteId});
 		identity.append(visual);
 		const stats = createElement('dl', 'overview-pokedex-detail-stats');
 		for (const [label, key] of [['HP', 'hp'], ['Ataque', 'atk'], ['Defesa', 'def'], ['At. Esp.', 'spa'], ['Def. Esp.', 'spd'], ['Velocidade', 'spe']]) {
@@ -1173,7 +1234,7 @@ function openPokedexSummary(character, catalog) {
 				const memberId = String(member.id || '').toLowerCase();
 				const known = seen.has(memberId) || caught.has(memberId);
 				const entry = createElement('div', known ? '' : 'unseen');
-				entry.append(pokemonSprite({species: member.name}), createElement('span', '', known ? member.name : '???'));
+				entry.append(pokemonSprite({species: member.name, spriteId: member.spriteId, baseSpriteId: member.baseSpriteId}), createElement('span', '', known ? member.name : '???'));
 				evolutionList.append(entry);
 			}
 			evolution.append(evolutionList); extra.append(evolution);
@@ -1229,11 +1290,11 @@ function openPokedexSummary(character, catalog) {
 			if (rightScreenMode === 'moves') rightScreen.replaceChildren(createElement('p', 'overview-pokedex-detail-empty', error.message));
 		}
 	};
-	const renderEntries = (minimum, maximum) => {
+	const renderEntries = (regionName = 'Todas') => {
 		grid.replaceChildren();
 		for (const pokemon of national) {
-			const number = Number(pokemon.num || 0);
-			if (number < minimum || number > maximum) continue;
+			if (regionName !== 'Todas' && pokemon.dexRegion !== regionName) continue;
+			const number = Number(pokemon.dexNumber || 0);
 			const id = String(pokemon.id || '').toLowerCase();
 			const isSeen = seen.has(id) || caught.has(id);
 			const isCaught = caught.has(id);
@@ -1244,7 +1305,7 @@ function openPokedexSummary(character, catalog) {
 			card.setAttribute('role', 'button');
 			card.setAttribute('aria-label', isSeen ? `Ver dados de ${pokemon.name}` : 'Pokémon ainda não registrado');
 			card.append(createElement('small', '', '#' + String(number).padStart(4, '0')));
-			const visual = pokemonSprite({species: pokemon.name});
+			const visual = pokemonSprite({species: pokemon.name, spriteId: pokemon.spriteId, baseSpriteId: pokemon.baseSpriteId});
 			card.append(visual, createElement('strong', '', isSeen ? pokemon.name : '???'));
 			if (isCaught) card.append(createElement('span', 'overview-pokedex-caught', 'Capturado'));
 			const select = () => {
@@ -1267,6 +1328,12 @@ function openPokedexSummary(character, catalog) {
 		if (current < 0) return;
 		const target = national[Math.max(0, Math.min(national.length - 1, current + offset))];
 		if (!target || target === selectedPokemon) return;
+		if (activeRegion !== 'Todas' && activeRegion !== target.dexRegion) {
+			activeRegion = target.dexRegion;
+			regions.querySelectorAll('.overview-pokedex-region').forEach(item =>
+				item.classList.toggle('active', item.dataset.region === activeRegion));
+			renderEntries(activeRegion);
+		}
 		grid.querySelectorAll('.overview-pokedex-entry.selected').forEach(entry => entry.classList.remove('selected'));
 		const card = grid.querySelector(`[data-pokemon-id="${String(target.id || '').toLowerCase()}"]`);
 		if (card) {
@@ -1275,11 +1342,13 @@ function openPokedexSummary(character, catalog) {
 		}
 		renderDetails(target);
 	};
-	for (const [name, minimum, maximum] of regionRanges) {
+	for (const name of regionNames) {
 		const region = button(name, 'overview-pokedex-region' + (name === 'Todas' ? ' active' : ''));
+		region.dataset.region = name;
 		region.addEventListener('click', () => {
+			activeRegion = name;
 			regions.querySelectorAll('.overview-pokedex-region').forEach(item => item.classList.toggle('active', item === region));
-			renderEntries(minimum, maximum);
+			renderEntries(name);
 		});
 		regions.append(region);
 	}
@@ -1287,7 +1356,7 @@ function openPokedexSummary(character, catalog) {
 	rightScreen.append(createElement('p', 'overview-pokedex-detail-empty', 'Selecione um Pokémon.'));
 	dialog.append(deviceHitbox, dpadImage, close, discover, movesToggle, dpad, leftScreen, rightScreen);
 	layer.append(dialog); document.body.append(layer);
-	renderEntries(1, Infinity);
+	renderEntries();
 	const keyboardControls = event => {
 		if (event.key === 'Escape') {
 			event.preventDefault();
@@ -1426,7 +1495,7 @@ async function renderPlayerBody(character) {
 	pokedex.panel.classList.add('overview-pokedex-panel');
 	let catalog = [];
 	try { catalog = await rpgLoadBattlePokemon(); } catch {}
-	const dexTotal = Math.max(1, new Set(catalog.filter(pokemon => pokemon.num > 0).map(pokemon => pokemon.num)).size || 1025);
+	const dexTotal = Math.max(1, rpgPokedexEntries(catalog).length || 1025);
 	const dexGrid = createElement('div', 'overview-pokedex-summary');
 	dexGrid.append(profileMetric('Vistos', seen), profileMetric('Capturados', caught),
 		profileMetric('Completude', Math.min(100, Math.round(caught / dexTotal * 100)) + '%'));
@@ -2174,6 +2243,10 @@ async function renderPokemonCenter(character) {
 		const progress = createElement('div', 'pokemon-center-progress'); progress.append(createElement('span'));
 		animation.append(progress);
 		appendCenterContent(animation);
+		const lastBallIndex = Math.max(0, ...sceneBalls.map(pokemon =>
+			healingSlotOrder.indexOf(Number(pokemon.location?.position) + 1)).filter(index => index >= 0));
+		const healingAudioTimer = window.setTimeout(() =>
+			window.RPGBattleAudio?.playEffect('pokemonCenterHeal'), 620 + lastBallIndex * 110);
 		try {
 			const result = await api('/pokemon-center/recover', {
 				method: 'POST', body: { characterId: character.id, action, pokemonId, expectedRevision: center.revision },
@@ -2182,6 +2255,7 @@ async function renderPokemonCenter(character) {
 			center = result.center;
 			drawResult(result);
 		} catch (error) {
+			window.clearTimeout(healingAudioTimer);
 			showToast(error.message, true);
 			drawMenu();
 		}
@@ -2509,7 +2583,7 @@ async function renderDashboard() {
 			$('#dashboard-eyebrow').textContent = '';
 			$('#dashboard-eyebrow').classList.add('hidden');
 			$('#dashboard-title').textContent = state.dashboardView === 'battles' ? 'Convites de batalha' : state.dashboardView === 'contests' ? 'Concursos Pok\u00e9mon' : 'Ol\u00e1, ' + character.characterName;
-			$('#dashboard-description').textContent = state.dashboardView === 'battles' ? 'Aceite, recuse ou escolha seus Pok\u00e9mon quando o Mestre permitir.' : 'Sua equipe e seus recursos persistentes.';
+			$('#dashboard-description').textContent = state.dashboardView === 'battles' ? 'Participe dos seus combates ou assista aos combates em andamento.' : 'Sua equipe e seus recursos persistentes.';
 			const viewing = state.session.role === 'master';
 			$('#logout-button').textContent = viewing ? 'Voltar como Mestre' : 'Sair da sess\u00e3o';
 			$('#logout-button').classList.toggle('danger', !viewing);

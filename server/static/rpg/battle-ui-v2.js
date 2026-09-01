@@ -129,9 +129,13 @@ function rpgScenePicker(selectedId = 'meadow') {
 }
 
 async function rpgLoadBattlePokemon() {
-	if (RPG_BATTLE_POKEMON.length) return RPG_BATTLE_POKEMON;
+	if (RPG_BATTLE_POKEMON.length) {
+		window.rpgRegisterPokemonSprites?.(RPG_BATTLE_POKEMON);
+		return RPG_BATTLE_POKEMON;
+	}
 	const data = await api('/battle-pokemon');
 	RPG_BATTLE_POKEMON = data.pokemon;
+	window.rpgRegisterPokemonSprites?.(RPG_BATTLE_POKEMON);
 	return RPG_BATTLE_POKEMON;
 }
 
@@ -675,8 +679,20 @@ async function renderMasterBattles(characters) {
 	create.addEventListener('click', () => openEditor());
 	const data = await api('/battle-sessions'); state.battleSessions = data.battleSessions;
 	const activeSessions = state.battleSessions.filter(item => item.status === 'started');
-	for (const session of activeSessions) root.append(await rpgBattleRoom(session, null, characters, true));
 	const list = createElement('div', 'battle-session-list');
+	for (const session of activeSessions) {
+		const card = rpgBattleCard(session, characters);
+		const actions = createElement('div', 'battle-session-actions');
+		const enter = button('Entrar na batalha', 'button primary');
+		enter.addEventListener('click', async () => {
+			enter.disabled = true;
+			try {
+				const room = await rpgBattleRoom(session, null, characters, true);
+				document.getElementById('dashboard-body').replaceChildren(room);
+			} catch (error) { showToast(error.message, true); enter.disabled = false; }
+		});
+		actions.append(enter); card.append(actions); list.append(card);
+	}
 	for (const session of state.battleSessions.filter(item => !['cancelled', 'started', 'ended'].includes(item.status))) {
 		const card = rpgBattleCard(session, characters);
 		const actions = createElement('div', 'battle-session-actions');

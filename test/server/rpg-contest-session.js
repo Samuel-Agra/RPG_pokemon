@@ -19,6 +19,19 @@ function participant(id, characterId) {
 }
 
 describe('RPG contest preparation sessions', () => {
+	it('allows concurrent contests and exposes active contests to spectators', () => {
+		let sequence = 0;
+		const service = new RPGContestSessionService({createId: () => `contest-${++sequence}`});
+		const npc = id => ({id, kind: 'npc', displayName: id, pokemon: {set: pokemon('Eevee')}});
+		for (let index = 0; index < 2; index++) {
+			const contest = service.create();
+			service.update(contest.id, {participants: [npc(`a-${index}`), npc(`b-${index}`)]});
+			service.invite(contest.id);
+			assert.equal(service.start(contest.id).status, 'started');
+		}
+		assert.equal(service.list('spectator').filter(contest => contest.status === 'started').length, 2);
+	});
+
 	it('prepares a solo contest, collects one Pokemon per Player and defines presentation order', () => {
 		let now = 100;
 		const teams = new Map([
@@ -44,7 +57,7 @@ describe('RPG contest preparation sessions', () => {
 		contest = service.invite(contest.id);
 		assert.equal(contest.status, 'inviting');
 		assert.deepEqual(contest.invitations.map(entry => entry.characterId), ['may', 'dawn']);
-		assert.throws(() => service.respond(contest.id, 'may', 'accepted'), /select one Pokemon/);
+		assert.throws(() => service.respond(contest.id, 'may', 'accepted'), /select 1 Pokemon/);
 		service.selectPokemon(contest.id, 'may', 0);
 		service.respond(contest.id, 'may', 'accepted');
 		service.selectPokemon(contest.id, 'dawn', 0);

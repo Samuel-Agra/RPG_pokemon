@@ -2906,8 +2906,8 @@ export class RPGLoginService {
 		const battleSession = this.battleSessions.get(battleSessionId);
 		if (session.mode === 'master') return battleSession;
 		const characterId = session.characterId || session.viewAsCharacterId;
-		if (battleSession.status === 'draft' ||
-			!battleSession.participants.some(participant => participant.characterId === characterId)) {
+		if (battleSession.status !== 'started' && (battleSession.status === 'draft' ||
+			!battleSession.participants.some(participant => participant.characterId === characterId))) {
 			throw new Error('RPG player session cannot access another battle session');
 		}
 		return battleSession;
@@ -3022,8 +3022,12 @@ export class RPGLoginService {
 		}
 		const record = this.requireCharacter(owner.characterId);
 		const set = record.state.team[choice.teamIndex];
+		const stored = record.state.box.party[choice.teamIndex] as RPGManagedStoredPokemon | undefined;
 		if (!set || toID(set.species) !== toID(candidate.fromSpecies)) {
 			throw new Error('O Pokémon já mudou ou não corresponde à evolução pendente');
+		}
+		if (!stored || toID(stored.pokemon.species) !== toID(candidate.fromSpecies)) {
+			throw new Error('O Pokémon armazenado já mudou ou não corresponde à evolução pendente');
 		}
 		const dex = Dex.mod('gen9');
 		const source = dex.species.get(set.species);
@@ -3041,7 +3045,13 @@ export class RPGLoginService {
 		} else if (!Object.values(target.abilities).some(ability => toID(ability) === toID(set.ability))) {
 			set.ability = target.abilities[0];
 		}
-		this.trainerProfile(record.state).stats.evolutions++;
+		stored.pokemon = this.toCapturedPokemon(set);
+		stored.metadata = {...(stored.metadata || {}), lastBattleAt: this.now()};
+		record.state.box.revision++;
+		const profile = this.trainerProfile(record.state);
+		profile.stats.evolutions++;
+		this.addPokedexSpecies(profile, 'seen', target.name);
+		this.addPokedexSpecies(profile, 'caught', target.name);
 		record.state.updatedAt = this.now();
 		this.repository.set(record);
 		return {
@@ -3158,7 +3168,8 @@ export class RPGLoginService {
 		const contest = this.contestSessions.get(contestSessionId);
 		if (account.role === 'master') return contest;
 		const characterId = account.characterId || account.viewAsCharacterId;
-		if (contest.status === 'draft' || !contest.participants.some(entry => entry.characterId === characterId)) {
+		if (contest.status !== 'started' &&
+			(contest.status === 'draft' || !contest.participants.some(entry => entry.characterId === characterId))) {
 			throw new Error('RPG player session cannot access another contest session');
 		}
 		return contest;

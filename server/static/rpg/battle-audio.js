@@ -6,7 +6,7 @@
 	const DEFAULT_EFFECT_VOLUME = 0.35;
 	const VOLUME_STEPS = [0, 0.1, 0.18, 0.25, 0.35, 0.5];
 	const LOCAL_AUDIO_ROOT = './assets/audio/';
-	const LOCAL_AUDIO_VERSION = '20260829-14';
+	const LOCAL_AUDIO_VERSION = '20260901-17';
 	const localAudioUrl = file => LOCAL_AUDIO_ROOT + file + '?v=' + LOCAL_AUDIO_VERSION;
 	const EFFECTS = Object.freeze({
 		click: {file: 'ui-click.wav', gain: .55}, impact: {file: 'impact.wav', gain: 1.1},
@@ -30,6 +30,7 @@
 		berryBite: {file: 'berry-bite.wav', gain: .72},
 		heldItemActivate: {file: 'held-item-activate.wav', gain: .72},
 		levelUp: {file: 'level-up.wav', gain: .9},
+		pokemonCenterHeal: {file: 'pokemon-center-heal.wav', gain: .78},
 		shinySparkle: {file: 'shiny-sparkle.wav', gain: .62},
 		contestAudience1: {file: 'contest-audience-1.wav', gain: .55},
 		contestAudience2: {file: 'contest-audience-2.wav', gain: .62},

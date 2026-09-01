@@ -159,7 +159,8 @@ export class RPGContestSessionService {
 	list(characterId?: string): RPGContestSession[] {
 		const id = characterId && toID(characterId);
 		return this.repository.list().filter(session => !id || (
-			session.status !== 'draft' && session.participants.some(participant => participant.characterId === id)
+			session.status === 'started' || (session.status !== 'draft' &&
+				session.participants.some(participant => participant.characterId === id))
 		)).sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id));
 	}
 
@@ -249,8 +250,6 @@ export class RPGContestSessionService {
 	start(id: string): RPGContestSession {
 		const session = this.get(id);
 		if (session.status !== 'ready') throw new Error('RPG contest is not ready to start');
-		const active = this.repository.list().find(entry => entry.id !== session.id && entry.status === 'started');
-		if (active) throw new Error('Another RPG contest is already active');
 		this.validateConfiguration(session, true);
 		const order = session.participants.map(participant => participant.id);
 		for (let index = order.length - 1; index > 0; index--) {

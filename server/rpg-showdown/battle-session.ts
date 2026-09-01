@@ -320,8 +320,8 @@ export class RPGBattleSessionService {
 		const id = characterId && toID(characterId);
 		return this.repository.list()
 			.filter(session => !id || (
-				session.status !== 'draft' &&
-				session.participants.some(participant => participant.characterId === id)
+				session.status === 'started' || (session.status !== 'draft' &&
+					session.participants.some(participant => participant.characterId === id))
 			))
 			.sort((a, b) => b.updatedAt - a.updatedAt || a.id.localeCompare(b.id));
 	}
@@ -413,8 +413,6 @@ export class RPGBattleSessionService {
 	start(id: string): { session: RPGBattleSession, launch: RPGBattleLaunchRequest } {
 		const session = this.get(id);
 		if (session.status !== 'ready') throw new Error('RPG battle session is not ready to start');
-		const active = this.repository.list().find(entry => entry.id !== session.id && entry.status === 'started');
-		if (active) throw new Error('Another RPG battle is already active');
 		this.validateReadyConfiguration(session);
 		const now = this.now();
 		session.status = 'started';

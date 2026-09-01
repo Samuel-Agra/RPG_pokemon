@@ -529,8 +529,26 @@ async function renderPlayerBattles(character) {
 	const data = await api('/battle-sessions');
 	state.battleSessions = data.battleSessions;
 	const activeSessions = state.battleSessions.filter(item => item.status === 'started');
-	for (const session of activeSessions) root.append(await rpgBattleRoom(session, character, [character], false));
+	const participating = activeSessions.find(session =>
+		session.participants.some(participant => participant.characterId === character.id));
+	if (participating) {
+		root.append(await rpgBattleRoom(participating, character, [character], false));
+		return root;
+	}
 	const list = createElement('div', 'battle-session-list');
+	for (const session of activeSessions) {
+		const card = rpgBattleCard(session, [character]);
+		const actions = createElement('div', 'battle-session-actions');
+		const watch = button('Assistir', 'button primary');
+		watch.addEventListener('click', async () => {
+			watch.disabled = true;
+			try {
+				const room = await rpgBattleRoom(session, character, [character], false);
+				document.getElementById('dashboard-body').replaceChildren(room);
+			} catch (error) { showToast(error.message, true); watch.disabled = false; }
+		});
+		actions.append(watch); card.append(actions); list.append(card);
+	}
 	for (const session of state.battleSessions.filter(item => !['cancelled', 'started', 'ended'].includes(item.status))) {
 		const card = rpgBattleCard(session, [character]);
 		const invitation = session.invitations.find(item => item.characterId === character.id);

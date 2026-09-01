@@ -919,13 +919,8 @@ function rpgBattleBagItemDescription(item) {
 	return item.usableInBattle ? 'pode ser usado em batalha' : 'n\u00e3o pode ser usado em combate';
 }
 function rpgRuntimeCommands(session, side, foe, submit, observer, moveDetails, requestTarget, controllerParticipant, isMaster, loadBattleBag, battleTurn) {
+	if (observer || !side) return null;
 	const panel = createElement('section', 'rpg-command-panel');
-	if (observer || !side) {
-		panel.append(createElement('div', 'rpg-observer-message',
-			'Modo de observacao: o Mestre nao controla lados formados apenas por Players.'
-		));
-		return panel;
-	}
 	const tabs = createElement('div', 'rpg-command-tabs');
 	const content = createElement('div', 'rpg-command-content');
 	const waiting = side.waiting || !side.requestState;
@@ -1357,7 +1352,7 @@ async function rpgBattleRoom(session, character, characters = [], isMaster = fal
 	const masterParticipant = isMaster ? session.participants.find(entry => entry.kind !== 'player') : null;
 	const controlledTeam = viewerParticipant?.team || masterParticipant?.team || 'A';
 	const viewTeam = viewerParticipant?.team || 'A';
-	const observer = isMaster && !masterParticipant;
+	const observer = !viewerParticipant && (!isMaster || !masterParticipant);
 
 	const engine = createElement('span', 'rpg-engine-state rpg-engine-state-hidden', 'Conectando ao simulador...');
 	engine.setAttribute('role', 'status');
@@ -2478,7 +2473,10 @@ async function rpgBattleRoom(session, character, characters = [], isMaster = fal
 		const switchesToAnimate = switchedIn.filter(element =>
 			!animatingSwitchInKeys.has(element.dataset.runtimeSide + ':' + element.dataset.teamPosition));
 		center.append(field);
-		if (snapshot.status === 'active') center.append(rpgRuntimeCommands(session, commandSide, commandFoe, submit, observer, moveDetails, requestFieldTarget, viewerParticipant || masterParticipant, isMaster, battleCharacter ? loadBattleBag : null, snapshot.turn));
+		if (snapshot.status === 'active') {
+			const commands = rpgRuntimeCommands(session, commandSide, commandFoe, submit, observer, moveDetails, requestFieldTarget, viewerParticipant || masterParticipant, isMaster, battleCharacter ? loadBattleBag : null, snapshot.turn);
+			if (commands) center.append(commands);
+		}
 		layout.append(center, createElement('aside', 'rpg-battle-bag'));
 		if (cancelTargetSelection) cancelTargetSelection();
 		live.replaceChildren(layout);

@@ -750,6 +750,24 @@ describe('RPG Showdown', () => {
 		assert.equal(second.escapeValue, 92);
 		assert(second.probability > first.probability);
 		assert.equal(FleeSystem.calculate(100, 100, 1).probability, 1);
+		assert.deepEqual(FleeSystem.calculate(25, 100, 8), { escapeValue: 256, probability: 1 });
+		assert.deepEqual(FleeSystem.calculate(25, 100, 20), { escapeValue: 256, probability: 1 });
+	});
+
+	it('should not guarantee an allowed escape merely because the battle is not wild', () => {
+		const battle = common.createBattle({
+			rpg: { battleType: 'trainer', modeRules: { trainer: { allowFlee: true } } },
+			seed: [1, 2, 3, 4],
+		}, [
+			[{ species: 'Shuckle', level: 5, ability: 'Sturdy', moves: ['Tackle'], rpg: {} }],
+			[{ species: 'Regieleki', level: 100, ability: 'Transistor', moves: ['Tackle'], rpg: {} }],
+		]);
+		const result = FleeSystem.attempt(battle.p1.active[0]);
+		assert.equal(result.allowed, true);
+		assert.equal(result.success, false);
+		assert.equal(result.guaranteedBy, undefined);
+		assert(result.probability > 0 && result.probability < 1);
+		assert.equal(battle.ended, false);
 	});
 
 	it('should block forbidden fleeing and keep the battle running after failure', () => {

@@ -17,6 +17,22 @@ describe('RPG contest UI', () => {
 		assert.match(baseCSS, /\.topbar[\s\S]*?z-index: 80/);
 	});
 
+	it('keeps participants inside their room while masters and spectators choose active rooms', () => {
+		const contest = fs.readFileSync(path.join(root, 'contest-ui.js'), 'utf8');
+		const battle = fs.readFileSync(path.join(root, 'battle-ui-v2.js'), 'utf8');
+		const playerBattle = fs.readFileSync(path.join(root, 'battle-ui.js'), 'utf8');
+		const room = fs.readFileSync(path.join(root, 'battle-room.js'), 'utf8');
+		assert.ok(contest.includes("actionButton('Assistir'"));
+		assert.ok(contest.includes('const active = !context.master'));
+		assert.ok(contest.includes("!['cancelled', 'ended'].includes(session.status)"));
+		assert.ok(battle.includes("button('Entrar na batalha'"));
+		assert.ok(playerBattle.includes("button('Assistir'"));
+		assert.ok(playerBattle.includes('const participating = activeSessions.find'));
+		assert.ok(room.includes('const observer = !viewerParticipant'));
+		assert.ok(room.includes('if (observer || !side) return null;'));
+		assert.ok(!room.includes('Modo de observacao: o Mestre nao controla lados formados apenas por Players.'));
+	});
+
 	it('provides move selection, judging, reactions, results and an event-ready stage', () => {
 		const ui = fs.readFileSync(path.join(root, 'contest-ui.js'), 'utf8');
 		const css = fs.readFileSync(path.join(root, 'contest-ui.css'), 'utf8');
@@ -263,7 +279,7 @@ describe('RPG contest UI', () => {
 		const runtime = fs.readFileSync(path.resolve(__dirname, '../../server/rpg-showdown/contest-runtime.ts'), 'utf8');
 		assert.ok(ui.includes('Cancelar concurso'));
 		assert.ok(ui.includes("method: 'DELETE'"));
-		assert.ok(ui.includes("sessions.filter(session => !['cancelled', 'started', 'ended'].includes(session.status))"));
+		assert.ok(ui.includes("sessions.filter(session => !['cancelled', 'ended'].includes(session.status))"));
 		assert.ok(!ui.includes("session.status === 'started' || session.status === 'ended'"));
 		assert.ok(runtime.includes('ENDED_RUNTIME_TTL = 60 * 60 * 1000'));
 		assert.ok(runtime.includes('MAX_ENDED_RUNTIMES = 50'));

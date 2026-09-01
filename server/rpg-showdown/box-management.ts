@@ -130,6 +130,7 @@ export interface RPGBoxPokemonView {
 	pokedexNumber: number;
 	types: string[];
 	spriteId: string;
+	baseSpriteId: string;
 	level: number;
 	experience: number;
 	hp: number;
@@ -1016,7 +1017,8 @@ export class RPGBoxManagement {
 		return {
 			pokemonId: stored.entry.pokemonId, location: structuredClone(stored.location),
 			name: pokemon.name || species.name, species: species.name, speciesId: species.id,
-			pokedexNumber: species.num, types: [...species.types], spriteId: species.id,
+			pokedexNumber: species.num, types: [...species.types], spriteId: species.spriteid,
+			baseSpriteId: dex.species.get(species.baseSpecies).spriteid || species.spriteid,
 			level, experience: pokemon.rpg.experience ?? 0, hp, maxHP, status, fainted: hp <= 0,
 			item: pokemon.item || '', nature: pokemon.nature, ability: pokemon.ability,
 			gender: pokemon.gender, shiny: pokemon.shiny, moves,

@@ -370,6 +370,10 @@ describe('RPG login', () => {
 		const evolved = service.evolveBattlePokemon(player.token, 'evolutiontest', 0, 'Wartortle');
 		assert.equal(evolved.character.team[0].species, 'Wartortle');
 		assert.equal(evolved.character.team[0].name, 'Tarta');
+		assert.equal(evolved.character.box.party[0].pokemon.species, 'Wartortle');
+		assert.equal(evolved.character.box.party[0].pokemon.name, 'Tarta');
+		assert(evolved.character.profile.pokedex.seen.includes('wartortle'));
+		assert(evolved.character.profile.pokedex.caught.includes('wartortle'));
 		assert.throws(() => service.evolveBattlePokemon(player.token, 'evolutiontest', 0, 'Wartortle'),
 			/already changed|já mudou/i);
 	});	it('validates, replaces, and idempotently persists a post-battle level-up move', () => {

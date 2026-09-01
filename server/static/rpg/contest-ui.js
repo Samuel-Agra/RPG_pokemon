@@ -1792,7 +1792,18 @@ window.RPGContestUI = (() => {
 		return card;
 	}
 	function sessionCard(context, session, openEditor) {
-		if (!context.master) return playerContestCard(context, session);
+		if (!context.master) {
+			const card = playerContestCard(context, session);
+			if (session.status === 'started') {
+				const actions = el('div', 'contest-actions');
+				actions.append(actionButton('Assistir', async () => {
+					const root = document.getElementById('dashboard-body');
+					root.replaceChildren(await runtime(context, session));
+				}, true));
+				card.append(actions);
+			}
+			return card;
+		}
 		const card = el('article', 'panel contest-card'); const header = el('div', 'contest-card-header');
 		const title = el('div'); title.append(el('h3', '', session.name)); title.append(badges(session)); header.append(title);
 		const actions = el('div', 'contest-actions');
@@ -1815,7 +1826,9 @@ window.RPGContestUI = (() => {
 		if (refreshTimer) window.clearTimeout(refreshTimer);
 		context.master = context.master || context.state.session?.role === 'master';
 		const data = await context.api('/contest-sessions'); const sessions = data.contestSessions || [];
-		const active = sessions.find(session => session.status === 'started');
+		const characterId = context.character?.id;
+		const active = !context.master && sessions.find(session => session.status === 'started' &&
+			session.participants.some(participant => participant.characterId === characterId));
 		if (active) {
 			const runtimeData = await context.api(`/contest-sessions/${encodeURIComponent(active.id)}/runtime`);
 			initializeContestAnimationCursor(runtimeData.contest, true);
@@ -1843,7 +1856,7 @@ window.RPGContestUI = (() => {
 		};
 		if (context.master) toolbar.append(actionButton('＋ Novo concurso', () => openEditor(), true));
 		page.append(toolbar, editorHost); const list = el('div', 'contest-list');
-		const visibleSessions = sessions.filter(session => !['cancelled', 'started', 'ended'].includes(session.status));
+		const visibleSessions = sessions.filter(session => !['cancelled', 'ended'].includes(session.status));
 		for (const session of visibleSessions) list.append(sessionCard(context, session, openEditor));
 		if (!visibleSessions.length) list.append(el('div', 'panel empty-state', 'Nenhum concurso em preparação.'));
 		page.append(list);

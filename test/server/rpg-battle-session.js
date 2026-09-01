@@ -79,9 +79,11 @@ describe('RPG battle preparation sessions', () => {
 		const login = service();
 		const samuel = character(login, 'Samuel', 'senha-samuel');
 		const marina = character(login, 'Marina', 'senha-marina');
+		const spectator = character(login, 'Espectador', 'senha-espectador');
 		const master = login.loginMaster('14081998');
 		const samuelSession = login.loginPlayer(samuel.id, 'senha-samuel');
 		const marinaSession = login.loginPlayer(marina.id, 'senha-marina');
+		const spectatorSession = login.loginPlayer(spectator.id, 'senha-espectador');
 
 		let battle = login.createBattleSession(master.token, { name: 'Rota 1' });
 		assert.equal(battle.status, 'draft');
@@ -105,6 +107,8 @@ describe('RPG battle preparation sessions', () => {
 
 		const result = login.startBattleSession(master.token, battle.id);
 		assert.equal(result.session.status, 'started');
+		assert.deepEqual(login.listBattleSessions(spectatorSession.token).map(session => session.id), [battle.id]);
+		assert.equal(login.getBattleSession(spectatorSession.token, battle.id).id, battle.id);
 		assert.equal(result.launch.format, 'doubles');
 		assert.deepEqual(result.launch.controllers, [
 			{ participantId: 'samuel', controller: 'player', characterId: samuel.id },
@@ -144,7 +148,7 @@ describe('RPG battle preparation sessions', () => {
 		delete second.startedAt;
 		delete second.wager;
 		login.battleSessions.repository.create(second);
-		assert.throws(() => login.startBattleSession(master.token, second.id), /already active/);
+		assert.equal(login.startBattleSession(master.token, second.id).session.status, 'started');
 	});
 
 	it('assigns every non-player participant to the master controller', () => {

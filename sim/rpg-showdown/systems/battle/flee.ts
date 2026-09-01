@@ -56,7 +56,10 @@ export class FleeSystem {
 		const player = Math.max(1, Math.trunc(playerSpeed));
 		const opponent = Math.max(1, Math.trunc(opponentSpeed));
 		if (player >= opponent) return { escapeValue: 256, probability: 1 };
-		const escapeValue = (Math.floor(player * 128 / opponent) + 30 * Math.max(1, Math.trunc(attempts))) % 256;
+		const escapeValue = Math.min(
+			256,
+			Math.floor(player * 128 / opponent) + 30 * Math.max(1, Math.trunc(attempts))
+		);
 		return { escapeValue, probability: escapeValue / 256 };
 	}
 
@@ -93,7 +96,6 @@ export class FleeSystem {
 		options: RPGFleeOptions
 	): RPGFleeResult['guaranteedBy'] | undefined {
 		if (options.guaranteed) return 'external';
-		if (pokemon.battle.rpg?.battleType !== 'wild') return 'battle-rule';
 		if (pokemon.getAbility().id === 'runaway') return 'run-away';
 		if (pokemon.item === 'smokeball') return 'smoke-ball';
 		if (pokemon.hasType('Ghost')) return 'ghost-type';
