@@ -73,6 +73,19 @@ describe('RPG HTTP frontend API', () => {
 		assert.equal(result.response.status, 200);
 		assert.equal(result.data.character.team[0].species, 'Squirtle');
 		assert.equal(result.data.character.money, 3000);
+
+		result = await request('/bank', {headers: {Authorization: 'Bearer ' + token}});
+		assert.deepEqual(result.data.bank, {version: 1, balance: 0, revision: 0, money: 3000});
+		result = await request('/bank/deposit', {
+			method: 'POST', headers: {Authorization: 'Bearer ' + token},
+			body: {amount: 500, expectedRevision: 0},
+		});
+		assert.deepEqual(result.data.bank, {version: 1, balance: 500, revision: 1, money: 2500});
+		result = await request('/bank/redeem', {
+			method: 'POST', headers: {Authorization: 'Bearer ' + token},
+			body: {amount: 500, expectedRevision: 1},
+		});
+		assert.deepEqual(result.data.bank, {version: 1, balance: 0, revision: 2, money: 3000});
 	});
 
 	it('returns safe HTTP errors and supports the master dashboard', async () => {

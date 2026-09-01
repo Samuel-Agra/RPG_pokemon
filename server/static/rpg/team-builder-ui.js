@@ -419,7 +419,8 @@
 				nature: pokemon.nature,
 				item: pokemon.item,
 				ability: draftAbility,
-				moves: draftMoves.map(id => choiceById(id)?.name || id),
+				moves: data.permissions.master ? draftMoves.map(id => choiceById(id)?.name || id) :
+					pokemon.moves.map(move => move.name),
 				evs: { ...draftEVs },
 				ivs: { ...draftIVs },
 			};
@@ -446,6 +447,17 @@
 					pokemon: candidate(),
 				},
 			}), 'Alterações salvas.');
+		}
+		function saveNickname() {
+			if (isReadOnly() || !data.permissions.nickname) return;
+			void run(() => deps.api('/team-builder/' + encodeURIComponent(deps.pokemonId) + '/nickname', {
+				method: 'POST',
+				body: {
+					characterId: deps.characterId,
+					expectedRevision: data.boxRevision,
+					nickname: draftNickname.trim() || data.pokemon.species,
+				},
+			}), 'Apelido atualizado.');
 		}
 		function teachTM(choice, slot) {
 			const forgottenMoveId = draftMoves.length >= 4 ? draftMoves[slot] : undefined;
@@ -719,7 +731,7 @@
 			nickname.setAttribute('aria-label', 'Apelido');
 			if (!isReadOnly()) {
 				nickname.addEventListener('input', () => { draftNickname = nickname.value; });
-				nickname.addEventListener('change', saveGeneral);
+				nickname.addEventListener('change', saveNickname);
 			}
 			nicknameBox.append(nickname);
 			const detailGrid = el('div', 'team-builder-detail-grid');
@@ -997,16 +1009,21 @@
 			if (!data.permissions.master) pane.append(el('p', 'team-builder-readonly-note', 'As habilidades são apenas para consulta.'));
 			return pane;
 		}
-		function simpleMoveRow(choice, selectable, selected = false) {
+		function simpleMoveRow(choice, selectable, selected = false, showLearnedAt = false) {
 			const row = button('', 'team-builder-simple-move' + (selected ? ' selected' : ''));
 			const name = el('strong', '', choice.name);
 			const type = typeBadge(choice.type);
+			const typeInfo = el('span', 'team-builder-move-type-info');
+			if (showLearnedAt && choice.learnedAt !== undefined) {
+				typeInfo.append(el('small', 'team-builder-move-level', `Nv. ${choice.learnedAt}`));
+			}
+			typeInfo.append(type);
 			const category = el('i', 'rpg-category-icon category-' + choice.category.toLowerCase());
 			category.setAttribute('aria-label', choice.category);
 			const power = el('span', '', choice.basePower === null ? '—' : String(choice.basePower));
 			const accuracy = el('span', '', choice.alwaysHits ? '—' : String(choice.accuracy ?? '—') + '%');
 			const pp = el('span', '', String(choice.pp));
-			row.append(name, type, category, power, accuracy, pp, el('small', '', choice.description || 'Sem efeito adicional.'));
+			row.append(name, typeInfo, category, power, accuracy, pp, el('small', '', choice.description || 'Sem efeito adicional.'));
 			row.disabled = !selectable;
 			return row;
 		}
@@ -1043,7 +1060,7 @@
 				first.name.localeCompare(second.name, 'en', { sensitivity: 'base' }));
 			for (const choice of orderedChoices) {
 				const selectable = !isReadOnly() && (data.permissions.master || mode === 'owned-tm');
-				const row = simpleMoveRow(choice, selectable);
+				const row = simpleMoveRow(choice, selectable, false, mode === 'level');
 				if (selectable) row.addEventListener('click', () => chooseMove(choice));
 				list.append(row);
 			}

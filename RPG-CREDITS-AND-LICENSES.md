@@ -27,6 +27,16 @@ As referencias externas sao temporarias, podem ser desativadas em server/static/
 
 O sprite sheet server/static/rpg/assets/hud/battle-effects.png e um recurso original criado para o HUD do RPG com auxilio de geracao de imagens. O conjunto em server/static/rpg/assets/item-icons/ contem 19 sprites originais de medicamentos e itens de recuperacao, tambem criado para o RPG com auxilio de geracao de imagens, sem incorporar arquivos oficiais. O simbolo de Mega Evolucao e carregado, quando permitido pela configuracao, de https://play.pokemonshowdown.com/sprites/misc/mega.png. O arquivo nao e incorporado ao repositorio; quando a referencia externa esta desativada ou falha, a interface usa um fallback original desenhado em CSS.
 
+### Insignias de Liga Pokemon
+
+O arquivo `server/static/rpg/assets/badges-kanto-unova.png` utiliza recriacoes vetoriais de insignias do projeto [pokemon-badges](https://github.com/SteGriff/pokemon-badges), de Stephen Griffiths, Copyright (c) 2011.
+
+O material original e disponibilizado sob a [Creative Commons Attribution 3.0 Unported (CC BY 3.0)](https://creativecommons.org/licenses/by/3.0/). As imagens foram redimensionadas e reunidas em um sprite sheet para uso neste projeto. O aviso especifico tambem e preservado em `server/static/rpg/assets/badges-kanto-unova-LICENSE.txt`.
+
+As 24 interpretacoes visuais das insignias de Kalos, Galar e Paldea foram criadas especificamente para este RPG com geracao de imagens da OpenAI/Codex. Elas seguem os temas de cada ginasio e o estilo visual adotado pelas insignias existentes, sem reutilizar artes oficiais da Nintendo, Game Freak ou The Pokemon Company.
+
+Os desenhos e marcas relacionados a Pokemon continuam sendo propriedade de Nintendo, Creatures Inc., GAME FREAK e de seus respectivos titulares. A atribuicao ao autor das recriacoes nao implica afiliacao ou endosso dessas empresas.
+
 ## Auxilio de desenvolvimento
 
 O desenvolvimento, a organizacao, os testes e a documentacao desta adaptacao receberam auxilio do OpenAI Codex. O Codex foi utilizado como ferramenta de assistencia; as decisoes e a direcao do RPG pertencem ao autor do projeto.
@@ -35,4 +45,6 @@ O desenvolvimento, a organizacao, os testes e a documentacao desta adaptacao rec
 
 - https://github.com/smogon/pokemon-showdown
 - https://github.com/smogon/pokemon-showdown-client
+- https://github.com/SteGriff/pokemon-badges
+- https://creativecommons.org/licenses/by/3.0/
 - https://www.gnu.org/licenses/agpl-3.0.html

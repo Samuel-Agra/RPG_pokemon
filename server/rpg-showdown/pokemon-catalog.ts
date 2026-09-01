@@ -8,15 +8,31 @@ export interface RPGBattlePokemonCatalogEntry {
 	num: number;
 	spriteId: string;
 	baseSpriteId: string;
+	prevo: string | null;
 	types: string[];
 	abilities: string[];
 	abilityDetails: {id: string, name: string, description: string, hidden: boolean}[];
 	genders: string[];
 	baseStats: {hp: number, atk: number, def: number, spa: number, spd: number, spe: number};
 	legendary: boolean;
+	mythical: boolean;
 	pseudoLegendary: boolean;
 	regularWildEligible: boolean;
 	bossEligible: boolean;
+}
+
+export interface RPGPokedexMoveEntry {
+	id: string;
+	name: string;
+	type: string;
+	category: string;
+	level?: number;
+}
+
+export interface RPGPokedexMoves {
+	level: RPGPokedexMoveEntry[];
+	tm: RPGPokedexMoveEntry[];
+	egg: RPGPokedexMoveEntry[];
 }
 
 const PSEUDO_LEGENDARIES = new Set([
@@ -50,6 +66,7 @@ export function getRPGBattlePokemonCatalog(): RPGBattlePokemonCatalogEntry[] {
 		})
 		.map(species => {
 			const family = species.baseSpecies.toLowerCase().replace(/[^a-z0-9]+/g, '');
+			const mythical = species.tags.includes('Mythical');
 			const legendary = species.tags.some(tag =>
 				tag === 'Restricted Legendary' || tag === 'Sub-Legendary' || tag === 'Mythical'
 			);
@@ -70,7 +87,9 @@ export function getRPGBattlePokemonCatalog(): RPGBattlePokemonCatalogEntry[] {
 				num: species.num,
 				spriteId: species.spriteid,
 				baseSpriteId: dex.species.get(species.baseSpecies).spriteid,
+				prevo: species.prevo || null,
 				legendary,
+				mythical,
 				pseudoLegendary,
 				regularWildEligible: !legendary,
 				bossEligible: !BOSS_EXCLUDED_SPECIES.has(species.id) &&
@@ -78,4 +97,51 @@ export function getRPGBattlePokemonCatalog(): RPGBattlePokemonCatalogEntry[] {
 			};
 		})
 		.sort((a, b) => a.num - b.num || a.name.localeCompare(b.name));
+}
+
+export function getRPGPokedexMoves(speciesName: string, includeCapturedMoves: boolean): RPGPokedexMoves {
+	const dex = Dex.mod('gen9');
+	const species = dex.species.get(speciesName);
+	if (!species.exists) throw new Error('Pokémon inválido');
+	const level = new Map<string, RPGPokedexMoveEntry>();
+	const tm = new Map<string, RPGPokedexMoveEntry>();
+	const egg = new Map<string, RPGPokedexMoveEntry>();
+	const typeOrder: Record<string, number> = {
+		Normal: 0, Grass: 1, Fire: 2, Water: 3, Electric: 4, Bug: 5,
+		Flying: 6, Poison: 7, Rock: 8, Ground: 9, Ice: 10, Fighting: 11,
+		Psychic: 12, Ghost: 13, Dragon: 14, Dark: 15, Steel: 16, Fairy: 17,
+	};
+	const categoryOrder: Record<string, number> = {Physical: 0, Special: 1, Status: 2};
+	const order = (a: RPGPokedexMoveEntry, b: RPGPokedexMoveEntry) =>
+		(typeOrder[a.type] ?? 18) - (typeOrder[b.type] ?? 18) ||
+		(categoryOrder[a.category] ?? 3) - (categoryOrder[b.category] ?? 3) ||
+		a.name.localeCompare(b.name, 'en', {sensitivity: 'base'});
+	const entry = (moveId: string): RPGPokedexMoveEntry | null => {
+		const move = dex.moves.get(moveId);
+		if (!move.exists || move.isNonstandard === 'CAP' || move.isNonstandard === 'Future') return null;
+		return {id: move.id, name: move.name, type: move.type, category: move.category};
+	};
+	for (const learnsetData of dex.species.getFullLearnset(species.id)) {
+		for (const [moveId, sources] of Object.entries(learnsetData.learnset)) {
+			const move = entry(moveId);
+			if (!move) continue;
+			const levels = sources.flatMap(source => {
+				const match = /^9L(\d+)/.exec(source);
+				return match ? [Number(match[1])] : [];
+			});
+			if (levels.length) {
+				const learnedAt = Math.min(...levels);
+				const current = level.get(move.id);
+				if (!current || learnedAt < (current.level ?? Infinity)) level.set(move.id, {...move, level: learnedAt});
+			}
+			if (!includeCapturedMoves) continue;
+			if (sources.some(source => source.startsWith('9M'))) tm.set(move.id, move);
+			if (sources.some(source => source.startsWith('9E'))) egg.set(move.id, move);
+		}
+	}
+	return {
+		level: [...level.values()].sort(order),
+		tm: [...tm.values()].sort(order),
+		egg: [...egg.values()].sort(order),
+	};
 }

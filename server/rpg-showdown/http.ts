@@ -15,7 +15,7 @@ import {
 	type RPGUpdateContestSessionRequest,
 	type RPGUpdateBattleSessionRequest,
 } from './index';
-import { getRPGBattlePokemonCatalog } from './pokemon-catalog';
+import { getRPGBattlePokemonCatalog, getRPGPokedexMoves } from './pokemon-catalog';
 import { RPGBattleRuntimeManager, type RPGBattleRuntimeAction } from './battle-runtime';
 import { getRPGBattleSceneCatalog } from './battle-scene';
 import { getRPGContestMoveCatalog, getRPGContestPokemonMoveCatalog } from './contest-move-catalog';
@@ -210,6 +210,45 @@ export class RPGHttpServer {
 			) });
 			return;
 		}
+		if (method === 'GET' && url.pathname === '/api/rpg/bank') {
+			this.json(res, 200, {bank: this.login.getBank(
+				this.token(req), url.searchParams.get('characterId') || undefined
+			)});
+			return;
+		}
+		if (method === 'PATCH' && url.pathname === '/api/rpg/profile/tagline') {
+			const body = await this.body(req);
+			this.json(res, 200, {character: this.login.setTrainerTagline(
+				this.token(req), typeof body.characterId === 'string' ? body.characterId : undefined,
+				this.string(body.tagline)
+			)});
+			return;
+		}
+		if (method === 'PATCH' && url.pathname === '/api/rpg/profile/pokedex/seen') {
+			const body = await this.body(req);
+			this.json(res, 200, {character: this.login.markPokedexSpeciesSeen(
+				this.token(req), this.string(body.characterId), this.string(body.species)
+			)});
+			return;
+		}
+		if (method === 'GET' && url.pathname === '/api/rpg/profile/pokedex/moves') {
+			const token = this.token(req);
+			const character = this.login.getCharacter(token, url.searchParams.get('characterId') || undefined);
+			const species = url.searchParams.get('species') || '';
+			const id = Dex.mod('gen9').species.get(species).id;
+			const caught = new Set(character.profile.pokedex?.caught || []).has(id);
+			this.json(res, 200, {caught, moves: getRPGPokedexMoves(species, caught)});
+			return;
+		}
+		if (method === 'POST' && (url.pathname === '/api/rpg/bank/deposit' || url.pathname === '/api/rpg/bank/redeem')) {
+			const body = await this.body(req);
+			const characterId = typeof body.characterId === 'string' ? body.characterId : undefined;
+			const bank = url.pathname.endsWith('/deposit') ?
+				this.login.depositBank(this.token(req), characterId, Number(body.amount), Number(body.expectedRevision)) :
+				this.login.redeemBank(this.token(req), characterId, Number(body.amount), Number(body.expectedRevision));
+			this.json(res, 200, {bank});
+			return;
+		}
 		if (method === 'PUT' && url.pathname === '/api/rpg/characters/shop-access') {
 			const body = await this.body(req);
 			this.json(res, 200, { character: this.login.setCharacterShopAccess(
@@ -381,6 +420,40 @@ export class RPGHttpServer {
 			});
 			return;
 		}
+		if (method === 'POST' && url.pathname === '/api/rpg/team-presets') {
+			const body = await this.body(req);
+			this.json(res, 201, {character: this.login.createTeamPreset(
+				this.token(req), typeof body.characterId === 'string' ? body.characterId : undefined,
+				{name: this.string(body.name), species: body.species as string[], pokemonIds: body.pokemonIds as Array<string | null>}
+			)});
+			return;
+		}
+		const teamPresetMatch = /^\/api\/rpg\/team-presets\/([^/]+)(?:\/(apply))?$/.exec(url.pathname);
+		if (teamPresetMatch) {
+			const presetId = decodeURIComponent(teamPresetMatch[1]);
+			const action = teamPresetMatch[2];
+			const body = await this.body(req);
+			const characterId = typeof body.characterId === 'string' ? body.characterId : undefined;
+			if (method === 'PATCH' && !action) {
+				this.json(res, 200, {character: this.login.updateTeamPreset(
+					this.token(req), characterId, presetId,
+					{name: this.string(body.name), species: body.species as string[], pokemonIds: body.pokemonIds as Array<string | null>}
+				)});
+				return;
+			}
+			if (method === 'DELETE' && !action) {
+				this.json(res, 200, {character: this.login.deleteTeamPreset(
+					this.token(req), characterId, presetId
+				)});
+				return;
+			}
+			if (method === 'POST' && action === 'apply') {
+				this.json(res, 200, {character: this.login.applyTeamPreset(
+					this.token(req), characterId, presetId, Number(body.expectedRevision)
+				)});
+				return;
+			}
+		}
 		const boxNameMatch = /^\/api\/rpg\/box\/boxes\/(\d+)$/.exec(url.pathname);
 		if (method === 'PATCH' && boxNameMatch) {
 			const body = await this.body(req);
@@ -423,7 +496,7 @@ export class RPGHttpServer {
 			return;
 		}
 
-		const teamBuilderMatch = /^\/api\/rpg\/team-builder\/([^/]+)(?:\/(train-ev|use-vitamin|reorder-moves))?$/.exec(
+		const teamBuilderMatch = /^\/api\/rpg\/team-builder\/([^/]+)(?:\/(train-ev|use-vitamin|reorder-moves|nickname))?$/.exec(
 			url.pathname
 		);
 		if (teamBuilderMatch) {
@@ -478,6 +551,12 @@ export class RPGHttpServer {
 					this.token(req), characterId, pokemonId,
 					Number(body.fromSlot), Number(body.toSlot), Number(body.expectedRevision)
 				) });
+				return;
+			}
+			if (method === 'POST' && action === 'nickname') {
+				this.json(res, 200, {teamBuilder: this.login.renamePokemonFromTeamBuilder(
+					this.token(req), characterId, pokemonId, this.string(body.nickname), Number(body.expectedRevision)
+				)});
 				return;
 			}
 		}

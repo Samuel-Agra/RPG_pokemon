@@ -124,7 +124,7 @@ export * from './pokemon-catalog';
 export * from './fossil-lab';
 export * from './shop-management';
 
-export const RPG_ACCOUNT_VERSION = 4;
+export const RPG_ACCOUNT_VERSION = 5;
 export const RPG_SESSION_VERSION = 1;
 export const RPG_DEFAULT_SESSION_TTL = 24 * 60 * 60 * 1000;
 export const RPG_NURSERY_BREEDING_BASE_FEE = 5_000;
@@ -170,6 +170,15 @@ export interface RPGCharacterPageAccess {
 	shops: boolean;
 }
 
+export interface RPGTeamPreset {
+	id: string;
+	name: string;
+	species: string[];
+	pokemonIds?: Array<string | null>;
+	createdAt: number;
+	updatedAt: number;
+}
+
 export interface RPGCampaignTimeAdvanceResult {
 	hours: 1 | 8;
 	milliseconds: number;
@@ -197,7 +206,10 @@ export interface RPGCharacterState extends RPGCharacterSelection {
 	pageAccess: RPGCharacterPageAccess;
 	shopAccess?: Record<string, boolean>;
 	money: number;
+	bank?: RPGBankAccount;
+	profile?: RPGTrainerProfile;
 	team: PokemonSet[];
+	teamPresets?: RPGTeamPreset[];
 	/** Presentation-only Eggs that reserve party slots; never persisted as battle Pokémon. */
 	teamEggs?: RPGTeamEggView[];
 	portableIncubators?: {id: string, loaded: boolean, eggId?: string, mission?: boolean}[];
@@ -295,7 +307,7 @@ const MASTER_PERMISSIONS = new Set<RPGPermission>([
 ]);
 const PLAYER_PERMISSIONS = new Set<RPGPermission>([
 	'character:read', 'team:read', 'team:edit', 'box:read', 'box:edit', 'bag:read', 'bag:edit',
-	'money:read', 'battle:start',
+	'money:read', 'money:edit', 'battle:start',
 ]);
 
 export interface RPGCharacterRepository {
@@ -393,6 +405,40 @@ export class RPGFileCharacterRepository implements RPGCharacterRepository {
 interface RPGBattleSessionFileData {
 	version: 1;
 	sessions: RPGBattleSession[];
+}
+
+export interface RPGTrainerProfile {
+	version: 1;
+	tagline: string;
+	stats: {
+		wins: number;
+		losses: number;
+		fleeAttempts: number;
+		pokemonCaptured: number;
+		pokemonReleased: number;
+		itemsUsed: number;
+		pokeballsThrown: number;
+		contestsEntered: number;
+		contestsWon: number;
+		pokemonDefeated: number;
+		evolutions: number;
+		eggsHatched: number;
+		fossilsRestored: number;
+		currentWinStreak: number;
+		longestWinStreak: number;
+	};
+	pokedex: {seen: string[]; caught: string[]};
+	badges: Record<string, string[]>;
+}
+
+export interface RPGBankAccount {
+	version: 1;
+	balance: number;
+	revision: number;
+}
+
+export interface RPGBankView extends RPGBankAccount {
+	money: number;
 }
 
 interface RPGContestSessionFileData {
@@ -696,7 +742,8 @@ export class RPGLoginService {
 				bag: true, box: true, training: true, center: true, fossils: true, nursery: true, shops: true,
 			},
 			shopAccess: Object.fromEntries(this.commerce.directory().shops.map(shop => [shop.id, true])),
-			money: request.initialMoney, team: [starter], box, inventory,
+			money: request.initialMoney, bank: {version: 1, balance: 0, revision: 0},
+			profile: this.createTrainerProfile(starter.species), team: [starter], box, inventory,
 			createdAt: now, updatedAt: now,
 		};
 		this.repository.create({ state, credential: this.hashPassword(request.password) });
@@ -1004,6 +1051,141 @@ export class RPGLoginService {
 		return this.characterView(record);
 	}
 
+	getBank(token: string, characterId?: string): RPGBankView {
+		const record = this.requireBankRecord(token, characterId, 'money:read');
+		return {...this.bankAccount(record.state), money: record.state.money};
+	}
+
+	setTrainerTagline(token: string, characterId: string | undefined, tagline: string): RPGCharacterState {
+		const session = this.getSession(token);
+		const target = toID(characterId || session.characterId || session.viewAsCharacterId || '');
+		this.requirePermission(token, session.role === 'master' ? 'character:edit' : 'character:read', target);
+		const record = this.requireCharacter(target);
+		this.trainerProfile(record.state).tagline = this.text(tagline, 'trainer tagline', 120);
+		record.state.updatedAt = this.now();
+		this.repository.set(record);
+		return this.characterView(record);
+	}
+
+	markPokedexSpeciesSeen(token: string, characterId: string, speciesName: string): RPGCharacterState {
+		const session = this.getSession(token);
+		const target = toID(characterId);
+		if (session.role !== 'master' || session.mode !== 'player' ||
+			!session.viewAsCharacterId || toID(session.viewAsCharacterId) !== target) {
+			throw new Error('RPG master must be viewing this player to edit the Pokedex');
+		}
+		const species = Dex.mod('gen9').species.get(speciesName);
+		if (!species.exists || species.num <= 0) throw new Error('Invalid RPG Pokedex species');
+		const record = this.requireCharacter(target);
+		this.addPokedexSpecies(this.trainerProfile(record.state), 'seen', species.id);
+		record.state.updatedAt = this.now();
+		this.repository.set(record);
+		return this.characterView(record);
+	}
+
+	depositBank(token: string, characterId: string | undefined, amount: number, expectedRevision: number): RPGBankView {
+		const record = this.requireBankRecord(token, characterId, 'money:edit');
+		const bank = this.bankAccount(record.state);
+		this.validateBankTransfer(amount, expectedRevision, bank);
+		if (record.state.money < amount) throw new Error('Pokécoins insuficientes na carteira');
+		if (!Number.isSafeInteger(bank.balance + amount)) throw new Error('O depósito tornaria o saldo bancário inválido');
+		record.state.money -= amount;
+		bank.balance += amount;
+		bank.revision++;
+		record.state.updatedAt = this.now();
+		this.repository.set(record);
+		return {...bank, money: record.state.money};
+	}
+
+	redeemBank(token: string, characterId: string | undefined, amount: number, expectedRevision: number): RPGBankView {
+		const record = this.requireBankRecord(token, characterId, 'money:edit');
+		const bank = this.bankAccount(record.state);
+		this.validateBankTransfer(amount, expectedRevision, bank);
+		if (bank.balance < amount) throw new Error('Pokécoins insuficientes no banco');
+		if (!Number.isSafeInteger(record.state.money + amount)) throw new Error('O resgate tornaria o saldo da carteira inválido');
+		bank.balance -= amount;
+		record.state.money += amount;
+		bank.revision++;
+		record.state.updatedAt = this.now();
+		this.repository.set(record);
+		return {...bank, money: record.state.money};
+	}
+
+	createTeamPreset(token: string, characterId: string | undefined, input: {
+		name: string, species: string[], pokemonIds?: Array<string | null>
+	}): RPGCharacterState {
+		const record = this.requireTeamPresetRecord(token, characterId);
+		const presets = record.state.teamPresets ||= [];
+		if (presets.length >= 12) throw new Error('Cada personagem pode salvar no m\u00e1ximo 12 equipes');
+		const now = this.now();
+		const species = this.teamPresetSpecies(input.species);
+		presets.push({
+			id: this.bytes(12).toString('base64url'), name: this.text(input.name, 'team preset name', 30),
+			species, pokemonIds: this.teamPresetPokemonIds(input.pokemonIds, species.length), createdAt: now, updatedAt: now,
+		});
+		record.state.updatedAt = now;
+		this.repository.set(record);
+		return this.characterView(record);
+	}
+
+	updateTeamPreset(
+		token: string, characterId: string | undefined, presetId: string, input: {
+			name: string, species: string[], pokemonIds?: Array<string | null>
+		}
+	): RPGCharacterState {
+		const record = this.requireTeamPresetRecord(token, characterId);
+		const preset = (record.state.teamPresets || []).find(entry => entry.id === presetId);
+		if (!preset) throw new Error('Equipe salva n\u00e3o encontrada');
+		preset.name = this.text(input.name, 'team preset name', 30);
+		preset.species = this.teamPresetSpecies(input.species);
+		preset.pokemonIds = this.teamPresetPokemonIds(input.pokemonIds, preset.species.length);
+		preset.updatedAt = this.now();
+		record.state.updatedAt = preset.updatedAt;
+		this.repository.set(record);
+		return this.characterView(record);
+	}
+
+	deleteTeamPreset(token: string, characterId: string | undefined, presetId: string): RPGCharacterState {
+		const record = this.requireTeamPresetRecord(token, characterId);
+		const presets = record.state.teamPresets || [];
+		const index = presets.findIndex(entry => entry.id === presetId);
+		if (index < 0) throw new Error('Equipe salva n\u00e3o encontrada');
+		presets.splice(index, 1);
+		record.state.updatedAt = this.now();
+		this.repository.set(record);
+		return this.characterView(record);
+	}
+
+	applyTeamPreset(token: string, characterId: string | undefined, presetId: string, expectedRevision: number): RPGCharacterState {
+		const record = this.requireBoxRecord(token, characterId, 'box:edit');
+		const preset = (record.state.teamPresets || []).find(entry => entry.id === presetId);
+		if (!preset) throw new Error('Equipe salva n\u00e3o encontrada');
+		if (this.activeEggs(record).length) throw new Error('A equipe n\u00e3o pode ser trocada enquanto estiver carregando Eggs');
+		if (record.state.box.party.some(entry => this.isPokemonBreeding(record.state.id, entry.pokemonId))) {
+			throw new Error('A equipe n\u00e3o pode ser trocada enquanto houver Pok\u00e9mon em procria\u00e7\u00e3o');
+		}
+		const available = [
+			...record.state.box.party,
+			...record.state.box.boxes.flatMap(box => box.slots.filter(Boolean)),
+		];
+		const used = new Set<string>();
+		const pokemonIds = preset.species.map((speciesName, index) => {
+			const linkedId = preset.pokemonIds?.[index] || '';
+			const match = linkedId ? available.find(entry => entry && !used.has(entry.pokemonId) &&
+				entry.pokemonId === linkedId) : available.find(entry => entry && !used.has(entry.pokemonId) &&
+				toID(entry.pokemon.species) === toID(speciesName));
+			if (!match) throw new Error(`Voc\u00ea n\u00e3o possui um ${speciesName} dispon\u00edvel para esta equipe`);
+			if (linkedId && this.teamPresetEvolutionRoot(match.pokemon.species) !== this.teamPresetEvolutionRoot(speciesName)) {
+				throw new Error(`O Pok\u00e9mon vinculado a ${speciesName} n\u00e3o pertence mais \u00e0 mesma linha evolutiva`);
+			}
+			used.add(match.pokemonId);
+			return match.pokemonId;
+		});
+		RPGBoxManagement.applyParty(record.state, {pokemonIds, expectedRevision});
+		this.persistBoxRecord(record);
+		return this.characterView(record);
+	}
+
 	getFossilLab(token: string, characterId?: string) {
 		const record = this.requireBagRecord(token, characterId, 'bag:read', true);
 		this.requireFossilLabAccess(token, record);
@@ -1064,6 +1246,7 @@ export class RPGLoginService {
 		const record = this.requireBoxRecord(token, characterId, 'box:edit', true);
 		this.requireFossilLabAccess(token, record);
 		const pokemon = RPGFossilLab.receive(record.state, projectId, this.now(), this.random);
+		this.trainerProfile(record.state).stats.fossilsRestored++;
 		record.state.updatedAt = this.now();
 		this.repository.set(record);
 		return { pokemon, fossilLab: RPGFossilLab.view(record.state, this.now(), this.random) };
@@ -1660,6 +1843,7 @@ export class RPGLoginService {
 			pokemon: result.pokemon,
 			metadata: {ot: working.characterName, training: 'none'},
 		});
+		this.trainerProfile(working).stats.eggsHatched++;
 		actor.state = working;
 		this.persistNurseryRecord(actor);
 		return {hatch: result, nursery: this.nurseryView(actor)};
@@ -2199,6 +2383,7 @@ export class RPGLoginService {
 		);
 		const committed = RPGInventorySystem.commit(working.inventory, actionId, working.inventory.bag.revision);
 		working.inventory = committed.inventory;
+		this.trainerProfile(working).stats.evolutions++;
 		record.state = working;
 		this.persistBoxRecord(record);
 		return {
@@ -2393,6 +2578,7 @@ export class RPGLoginService {
 		const record = this.requireBoxRecord(token, challenge.characterId, 'box:edit');
 		this.requirePokemonNotBreeding(record, challenge.pokemonId);
 		RPGBoxManagement.release(record.state, challenge.pokemonId, challenge.expectedRevision);
+		this.trainerProfile(record.state).stats.pokemonReleased++;
 		this.persistBoxRecord(record);
 		return this.managedBoxView(record);
 	}
@@ -2441,6 +2627,23 @@ export class RPGLoginService {
 		}
 		this.persistBoxRecord(record);
 		return this.managedBoxView(record);
+	}
+
+	renamePokemonFromTeamBuilder(
+		token: string, characterId: string | undefined, pokemonId: string,
+		nickname: string, expectedRevision: number
+	): RPGTeamBuilderManagementView {
+		const record = this.requireTeamBuilderRecord(token, characterId, 'box:edit', pokemonId);
+		this.requirePermission(token, 'team:edit', record.state.id);
+		if (this.getSession(token).role === 'master') {
+			throw new Error('O Mestre n\u00e3o pode alterar o apelido dos Pok\u00e9mon dos Players');
+		}
+		if (!RPGBoxManagement.isPartyPokemon(record.state, pokemonId)) {
+			throw new Error('Pok\u00e9mon armazenado na Box est\u00e1 dispon\u00edvel apenas para consulta');
+		}
+		RPGBoxManagement.nickname(record.state, pokemonId, nickname, expectedRevision);
+		this.persistBoxRecord(record);
+		return RPGTeamBuilderManagement.view(record.state, pokemonId, false);
 	}
 
 	getPokemonTeamBuilder(
@@ -2776,6 +2979,7 @@ export class RPGLoginService {
 		this.persistCapture(session, result);
 		this.persistBattleRewards(session, result);
 		this.settleBattleWager(session, result);
+		this.persistBattleProfile(session, result);
 		return this.battleSessions.complete(battleSessionId, result);
 	}
 
@@ -2837,6 +3041,7 @@ export class RPGLoginService {
 		} else if (!Object.values(target.abilities).some(ability => toID(ability) === toID(set.ability))) {
 			set.ability = target.abilities[0];
 		}
+		this.trainerProfile(record.state).stats.evolutions++;
 		record.state.updatedAt = this.now();
 		this.repository.set(record);
 		return {
@@ -3000,11 +3205,20 @@ export class RPGLoginService {
 		for (const participant of session.participants) {
 			if (participant.kind !== 'player' || !participant.characterId) continue;
 			const result = resultById.get(participant.id);
-			if (!result || result.disqualified) continue;
+			if (!result) continue;
 			const record = this.repository.get(participant.characterId);
 			if (!record) continue;
 			const rewarded = record.state.completedContestRewards ||= [];
 			if (rewarded.includes(session.id)) continue;
+			const profile = this.trainerProfile(record.state);
+			profile.stats.contestsEntered++;
+			if (result.place === 1) profile.stats.contestsWon++;
+			if (result.disqualified) {
+				rewarded.push(session.id);
+				record.state.updatedAt = Date.now();
+				this.repository.set(record);
+				continue;
+			}
 			const selections = participant.pokemonTeam || (participant.pokemon ? [participant.pokemon] : []);
 			for (const selection of selections) {
 				if (selection.teamIndex === undefined) continue;
@@ -3119,6 +3333,8 @@ export class RPGLoginService {
 
 	private characterView(record: RPGStoredCharacter): RPGCharacterState {
 		const view = structuredClone(record.state);
+		view.bank = {...this.bankAccount(record.state)};
+		view.profile = structuredClone(this.trainerProfile(record.state));
 		view.shopAccess = this.characterShopAccess(record.state);
 		for (const entry of view.box.party) {
 			if (!this.isPokemonBreeding(record.state.id, entry.pokemonId)) continue;
@@ -3129,6 +3345,66 @@ export class RPGLoginService {
 		}));
 		view.portableIncubators = this.portableIncubatorSlots(record);
 		return view;
+	}
+
+	private createTrainerProfile(starterSpecies = ''): RPGTrainerProfile {
+		const starter = toID(starterSpecies);
+		return {
+			version: 1, tagline: 'A aventura está apenas começando.',
+			stats: {
+				wins: 0, losses: 0, fleeAttempts: 0, pokemonCaptured: 0, pokemonReleased: 0,
+				itemsUsed: 0, pokeballsThrown: 0, contestsEntered: 0, contestsWon: 0,
+				pokemonDefeated: 0, evolutions: 0, eggsHatched: 0, fossilsRestored: 0,
+				currentWinStreak: 0, longestWinStreak: 0,
+			},
+			pokedex: {seen: starter ? [starter] : [], caught: starter ? [starter] : []}, badges: {},
+		};
+	}
+
+	private trainerProfile(character: RPGCharacterState): RPGTrainerProfile {
+		const profile = character.profile;
+		if (profile?.version === 1 && profile.stats && profile.pokedex && profile.badges) {
+			const defaults = this.createTrainerProfile().stats;
+			for (const key of Object.keys(defaults) as (keyof typeof defaults)[]) {
+				if (!Number.isFinite(profile.stats[key])) profile.stats[key] = defaults[key];
+			}
+			return profile;
+		}
+		const ownedSpecies = [
+			...character.box.party,
+			...character.box.boxes.flatMap(box => box.slots.filter(Boolean)),
+		].map(entry => toID(entry!.pokemon.species)).filter(Boolean);
+		const created = this.createTrainerProfile();
+		created.pokedex.seen = [...new Set(ownedSpecies)];
+		created.pokedex.caught = [...created.pokedex.seen];
+		return character.profile = created;
+	}
+
+	private addPokedexSpecies(profile: RPGTrainerProfile, field: 'seen' | 'caught', species: string): void {
+		const id = toID(species);
+		if (id && !profile.pokedex[field].includes(id)) profile.pokedex[field].push(id);
+	}
+
+	private bankAccount(character: RPGCharacterState): RPGBankAccount {
+		const bank = character.bank;
+		if (bank && bank.version === 1 && Number.isSafeInteger(bank.balance) && bank.balance >= 0 &&
+			Number.isSafeInteger(bank.revision) && bank.revision >= 0) return bank;
+		return character.bank = {version: 1, balance: 0, revision: 0};
+	}
+
+	private validateBankTransfer(amount: number, expectedRevision: number, bank: RPGBankAccount): void {
+		if (!Number.isSafeInteger(amount) || amount <= 0) throw new Error('O valor bancário deve ser um inteiro positivo');
+		if (!Number.isSafeInteger(expectedRevision) || expectedRevision !== bank.revision) {
+			throw new Error('A conta bancária foi atualizada; recarregue antes de continuar');
+		}
+	}
+
+	private requireBankRecord(token: string, characterId: string | undefined, permission: 'money:read' | 'money:edit'):
+		RPGStoredCharacter {
+		const session = this.getSession(token);
+		const target = toID(characterId || session.characterId || session.viewAsCharacterId || '');
+		this.requirePermission(token, permission, target);
+		return this.requireCharacter(target);
 	}
 
 	private characterShopAccess(character: RPGCharacterState): Record<string, boolean> {
@@ -3523,6 +3799,48 @@ export class RPGLoginService {
 		return record;
 	}
 
+	private requireTeamPresetRecord(token: string, characterId?: string): RPGStoredCharacter {
+		const session = this.getSession(token);
+		const target = toID(characterId || session.characterId || session.viewAsCharacterId || '');
+		if (!target) throw new Error('Uma equipe salva requer um personagem');
+		this.requirePermission(token, 'team:edit', target);
+		return this.requireCharacter(target);
+	}
+
+	private teamPresetSpecies(input: string[]): string[] {
+		if (!Array.isArray(input) || input.length < 1 || input.length > 6) {
+			throw new Error('A equipe salva deve conter entre 1 e 6 Pok\u00e9mon');
+		}
+		const dex = Dex.mod('gen9');
+		return input.map((value, index) => {
+			const species = dex.species.get(String(value || ''));
+			if (!species.exists || species.id === 'egg') {
+				throw new Error(`Pok\u00e9mon inv\u00e1lido na posi\u00e7\u00e3o ${index + 1}`);
+			}
+			return species.name;
+		});
+	}
+
+	private teamPresetPokemonIds(input: Array<string | null> | undefined, size: number): Array<string | null> {
+		if (input === undefined) return Array(size).fill(null);
+		if (!Array.isArray(input) || input.length > 6) throw new Error('V\u00ednculos inv\u00e1lidos da equipe salva');
+		return Array.from({length: size}, (_, index) => {
+			const value = input[index];
+			return typeof value === 'string' && value.trim() ? value.trim().slice(0, 128) : null;
+		});
+	}
+
+	private teamPresetEvolutionRoot(speciesName: string): string {
+		const dex = Dex.mod('gen9');
+		let species = dex.species.get(speciesName);
+		const visited = new Set<string>();
+		while (species.exists && species.prevo && !visited.has(species.id)) {
+			visited.add(species.id);
+			species = dex.species.get(species.prevo);
+		}
+		return species.id;
+	}
+
 	private requireTeamBuilderRecord(
 		token: string, characterId: string | undefined, permission: 'box:read' | 'box:edit', pokemonId: string
 	): RPGStoredCharacter {
@@ -3739,6 +4057,41 @@ export class RPGLoginService {
 		}
 	}
 
+	private persistBattleProfile(session: RPGBattleSession, result: RPGBattleResult): void {
+		const seenSpecies = result.pokemon.map(pokemon => pokemon.species);
+		const countsCompetitiveResult = session.opponentType === 'npc' || session.opponentType === 'player';
+		for (const participant of session.participants) {
+			if (participant.kind !== 'player' || !participant.characterId) continue;
+			const record = this.requireCharacter(participant.characterId);
+			const profile = this.trainerProfile(record.state);
+			const side = participant.team === 'A' ? 'p1' : 'p2';
+			const sideOutcome = result.sides?.find(entry => entry.side === side)?.outcome;
+			if (countsCompetitiveResult && (sideOutcome === 'winner' || sideOutcome === 'captured')) {
+				profile.stats.wins++;
+				profile.stats.currentWinStreak++;
+				profile.stats.longestWinStreak = Math.max(profile.stats.longestWinStreak, profile.stats.currentWinStreak);
+			}
+			if (countsCompetitiveResult && sideOutcome === 'loser') {
+				profile.stats.losses++;
+				profile.stats.currentWinStreak = 0;
+			}
+			if (sideOutcome === 'fled') {
+				profile.stats.fleeAttempts++;
+				if (countsCompetitiveResult) profile.stats.currentWinStreak = 0;
+			}
+			profile.stats.pokemonDefeated += (result.defeats || [])
+				.filter(defeat => defeat.source?.side === side).length;
+			for (const species of seenSpecies) this.addPokedexSpecies(profile, 'seen', species);
+			const itemEvents = (result.itemEvents || []).filter(event => event.side === side);
+			profile.stats.itemsUsed += itemEvents.reduce((total, event) => total + Math.max(0, event.quantity || 0), 0);
+			profile.stats.pokeballsThrown += itemEvents
+				.filter(event => toID(event.item).endsWith('ball'))
+				.reduce((total, event) => total + Math.max(0, event.quantity || 0), 0);
+			record.state.updatedAt = this.now();
+			this.repository.set(record);
+		}
+	}
+
 	private persistBattlePokemon(session: RPGBattleSession, result: RPGBattleResult): void {
 		for (const [team, side] of [['A', 'p1'], ['B', 'p2']] as const) {
 			const finalPokemon = result.pokemon.filter(pokemon => pokemon.side === side);
@@ -3792,6 +4145,10 @@ export class RPGLoginService {
 		if (placement.placement?.location.destination === 'party' && placement.pokemon) {
 			record.state.team.push(this.capturedToSet(placement.pokemon));
 		}
+		const profile = this.trainerProfile(record.state);
+		profile.stats.pokemonCaptured++;
+		this.addPokedexSpecies(profile, 'seen', result.capture.pokemon.species);
+		this.addPokedexSpecies(profile, 'caught', result.capture.pokemon.species);
 		record.state.updatedAt = this.now();
 		this.repository.set(record);
 	}
@@ -4325,6 +4682,37 @@ function migrateCharacterPageAccess(service: RPGLoginService): void {
 		service.repository.set(record);
 	}
 }
+function migrateCharacterBanks(service: RPGLoginService): void {
+	for (const record of service.repository.list()) {
+		const bank = record.state.bank;
+		if (bank?.version === 1 && Number.isSafeInteger(bank.balance) && bank.balance >= 0 &&
+			Number.isSafeInteger(bank.revision) && bank.revision >= 0) continue;
+		record.state.bank = {version: 1, balance: 0, revision: 0};
+		record.state.version = RPG_ACCOUNT_VERSION;
+		record.state.updatedAt = Date.now();
+		service.repository.set(record);
+	}
+}
+function migrateCharacterProfiles(service: RPGLoginService): void {
+	for (const record of service.repository.list()) {
+		if (record.state.profile?.version === 1) continue;
+		const owned = [
+			...record.state.box.party,
+			...record.state.box.boxes.flatMap(box => box.slots.filter(Boolean)),
+		].map(entry => toID(entry!.pokemon.species)).filter(Boolean);
+		record.state.profile = {
+			version: 1, tagline: 'A aventura está apenas começando.',
+			stats: {wins: 0, losses: 0, fleeAttempts: 0, pokemonCaptured: 0, pokemonReleased: 0,
+				itemsUsed: 0, pokeballsThrown: 0, contestsEntered: 0, contestsWon: 0,
+				pokemonDefeated: 0, evolutions: 0, eggsHatched: 0, fossilsRestored: 0,
+				currentWinStreak: 0, longestWinStreak: 0},
+			pokedex: {seen: [...new Set(owned)], caught: [...new Set(owned)]}, badges: {},
+		};
+		record.state.version = RPG_ACCOUNT_VERSION;
+		record.state.updatedAt = Date.now();
+		service.repository.set(record);
+	}
+}
 function migrateCharacterBags(service: RPGLoginService): void {
 	for (const record of service.repository.list()) {
 		const inventory = RPGInventorySystem.migrate(record.state.inventory);
@@ -4408,6 +4796,8 @@ export function createRPGLoginServiceFromConfig(
 		customItemRepository, commerceRepository,
 	});
 	migrateCharacterPageAccess(service);
+	migrateCharacterBanks(service);
+	migrateCharacterProfiles(service);
 	migrateCharacterBags(service);
 	migrateCharacterBoxes(service);
 	service.recoverInterruptedBattleSessions();

@@ -164,10 +164,39 @@ describe('RPG login', () => {
 		}
 		for (const value of Object.values(starter.ivs)) assert.equal(value, 16);
 		assert.equal(state.money, 3000);
+		assert.deepEqual(state.bank, {version: 1, balance: 0, revision: 0});
 		assert.equal(state.box.party.length, 1);
 		assert.equal(state.box.tier, 'small');
 		assert.equal(state.box.boxes.length, 1);
 		assert.equal(state.inventory.bag.maxSlots, 10);
+	});
+
+	it('keeps deposited money unavailable until the Player redeems it from the bank', () => {
+		const service = createService();
+		const character = createCharacter(service);
+		const player = service.loginPlayer(character.id, 'senha-rpg');
+
+		assert.deepEqual(service.getBank(player.token), {version: 1, balance: 0, revision: 0, money: 3000});
+		assert.deepEqual(service.depositBank(player.token, undefined, 2000, 0), {
+			version: 1, balance: 2000, revision: 1, money: 1000,
+		});
+		assert.throws(() => service.depositBank(player.token, undefined, 1, 0), /recarregue/);
+		assert.throws(() => service.redeemBank(player.token, undefined, 2001, 1), /insuficientes no banco/);
+		assert.deepEqual(service.redeemBank(player.token, undefined, 750, 1), {
+			version: 1, balance: 1250, revision: 2, money: 1750,
+		});
+		assert.equal(service.getCharacter(player.token).money, 1750);
+		assert.equal(service.getCharacter(player.token).bank.balance, 1250);
+	});
+
+	it('lets the Player persist a personalized trainer phrase', () => {
+		const service = createService();
+		const character = createCharacter(service);
+		const player = service.loginPlayer(character.id, 'senha-rpg');
+		assert.equal(service.getCharacter(player.token).profile.tagline, 'A aventura está apenas começando.');
+		const updated = service.setTrainerTagline(player.token, undefined, 'Sempre em busca do próximo desafio.');
+		assert.equal(updated.profile.tagline, 'Sempre em busca do próximo desafio.');
+		assert.throws(() => service.setTrainerTagline(player.token, undefined, '  '), /trainer tagline/);
 	});
 
 	it('uses a one-in-ten shiny chance for the initial Pokemon', () => {

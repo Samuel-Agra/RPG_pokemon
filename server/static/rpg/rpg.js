@@ -408,6 +408,29 @@ function createElement(tag, className, text) {
 	return element;
 }
 
+function removeNativeTitleTooltip(element) {
+	if (!(element instanceof Element) || !element.hasAttribute('title')) return;
+	const label = element.getAttribute('title') || '';
+	if (label && !element.hasAttribute('aria-label') &&
+		element.matches('button, a, input, select, textarea, img, [role]')) {
+		element.setAttribute('aria-label', label);
+	}
+	element.removeAttribute('title');
+}
+
+function suppressNativeTitleTooltips(root = document) {
+	if (root instanceof Element) removeNativeTitleTooltip(root);
+	root.querySelectorAll?.('[title]').forEach(removeNativeTitleTooltip);
+}
+
+suppressNativeTitleTooltips();
+new MutationObserver(mutations => {
+	for (const mutation of mutations) {
+		if (mutation.type === 'attributes') removeNativeTitleTooltip(mutation.target);
+		for (const node of mutation.addedNodes || []) suppressNativeTitleTooltips(node);
+	}
+}).observe(document.documentElement, {subtree: true, childList: true, attributes: true, attributeFilter: ['title']});
+
 function button(text, className = 'button') {
 	const element = createElement('button', className, text);
 	element.type = 'button';
@@ -649,10 +672,815 @@ function formatCampaignDuration(milliseconds) {
 	return remainder + 'min';
 }
 
-function renderPlayerBody(character) {
-	const root = createElement('div');
-	root.append(renderStats(character));
+function teamPresetOwnedEntries(character) {
+	const box = character.box || {};
+	return [
+		...(box.team || box.party || []),
+		...(box.boxes || []).flatMap(storage =>
+			(storage.pokemon || storage.slots || []).filter(Boolean)),
+	];
+}
 
+function teamPresetOwnedSpecies(character) {
+	const counts = new Map();
+	const entries = teamPresetOwnedEntries(character);
+	for (const entry of entries) {
+		const id = String(entry.species || entry.pokemon?.species || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+		if (!id) continue;
+		counts.set(id, (counts.get(id) || 0) + 1);
+	}
+	return counts;
+}
+
+function teamPresetAvailability(character, species) {
+	const owned = teamPresetOwnedSpecies(character);
+	const used = new Map();
+	const missing = [];
+	for (const name of species) {
+		const id = String(name).toLowerCase().replace(/[^a-z0-9]+/g, '');
+		const next = (used.get(id) || 0) + 1;
+		used.set(id, next);
+		if (next > (owned.get(id) || 0)) missing.push(name);
+	}
+	return missing;
+}
+
+async function renderTeamPresetPlanner(character, body) {
+	const toolbar = createElement('div', 'team-preset-toolbar');
+	const intro = createElement('p', '', 'Monte equipes planejadas mesmo antes de possuir todos os Pok\u00e9mon.');
+	const create = button('Criar equipe', 'button primary');
+	toolbar.append(intro, create);
+	const editor = createElement('div', 'team-preset-editor hidden');
+	const list = createElement('div', 'team-preset-list');
+	body.append(toolbar, editor, list);
+	let catalog = [];
+	try {
+		catalog = await rpgLoadBattlePokemon();
+	} catch (error) {
+		list.append(createElement('p', 'form-error', error.message));
+		return;
+	}
+
+	const catalogById = new Map(catalog.map(pokemon => [
+		String(pokemon.id || pokemon.name).toLowerCase().replace(/[^a-z0-9]+/g, ''), pokemon,
+	]));
+	const evolutionRoot = name => {
+		let current = catalogById.get(String(name).toLowerCase().replace(/[^a-z0-9]+/g, ''));
+		const visited = new Set();
+		while (current?.prevo) {
+			const id = String(current.id || current.name).toLowerCase().replace(/[^a-z0-9]+/g, '');
+			if (visited.has(id)) break;
+			visited.add(id);
+			current = catalogById.get(String(current.prevo).toLowerCase().replace(/[^a-z0-9]+/g, '')) || current;
+		}
+		return String(current?.id || current?.name || name).toLowerCase().replace(/[^a-z0-9]+/g, '');
+	};
+	const ownedPreEvolutions = (name, owned) => {
+		const result = [];
+		let current = catalogById.get(String(name).toLowerCase().replace(/[^a-z0-9]+/g, ''));
+		const visited = new Set();
+		while (current?.prevo) {
+			const prevoId = String(current.prevo).toLowerCase().replace(/[^a-z0-9]+/g, '');
+			if (!prevoId || visited.has(prevoId)) break;
+			visited.add(prevoId);
+			const prevo = catalogById.get(prevoId);
+			if ((owned.get(prevoId) || 0) > 0) result.push(prevo?.name || current.prevo);
+			current = prevo;
+		}
+		return result;
+	};
+	const sprite = (name, extraClass = '', note = '') => {
+		const frame = createElement('span', 'team-preset-sprite' + (extraClass ? ' ' + extraClass : ''));
+		frame.append(pokemonSprite({species: name, name}));
+		if (note) frame.append(createElement('small', 'team-preset-owned-prevo', note));
+		return frame;
+	};
+	const closeEditor = () => editor.classList.add('hidden');
+	function openEditor(preset = null) {
+		const selected = [...(preset?.species || [])];
+		const selectedPokemonIds = [...(preset?.pokemonIds || [])];
+		let activeSlot = Math.min(selected.length, 5);
+		editor.classList.remove('hidden');
+		const name = createElement('input'); name.maxLength = 30; name.placeholder = 'Nome da equipe'; name.value = preset?.name || '';
+		const slots = createElement('div', 'team-preset-editor-slots');
+		const search = createElement('input', 'team-preset-search'); search.type = 'search'; search.placeholder = 'Buscar Pok\u00e9mon...';
+		const results = createElement('div', 'team-preset-results');
+		const error = createElement('p', 'form-error hidden');
+		const actions = createElement('div', 'team-preset-editor-actions');
+		const cancel = button('Cancelar', 'button');
+		const save = button('Salvar equipe', 'button primary');
+		actions.append(cancel, save);
+		editor.replaceChildren(createElement('h3', '', preset ? 'Editar equipe' : 'Nova equipe'), name, slots, search, results, error, actions);
+		function renderSlots() {
+			slots.replaceChildren();
+			for (let index = 0; index < 6; index++) {
+				const value = selected[index];
+				const slot = createElement('div', 'team-preset-editor-slot' + (activeSlot === index ? ' active' : '') + (value ? ' filled' : ''));
+				const choose = button('', 'team-preset-slot-choice');
+				if (value) choose.append(sprite(value), createElement('strong', '', value));
+				else choose.append(createElement('span', 'team-preset-slot-number', String(index + 1)), createElement('small', '', 'Escolher'));
+				choose.addEventListener('click', () => { activeSlot = index; renderSlots(); search.focus(); });
+				slot.append(choose);
+				if (value) {
+					const clear = button('\u00d7', 'team-preset-slot-remove');
+					clear.title = 'Remover ' + value;
+					clear.addEventListener('click', () => { selected[index] = undefined; activeSlot = index; renderSlots(); });
+					slot.append(clear);
+				}
+				slots.append(slot);
+			}
+		}
+		function renderResults() {
+			const query = search.value.trim().toLowerCase();
+			const matches = catalog.filter(pokemon => !pokemon.legendary && (
+				!query || pokemon.name.toLowerCase().includes(query)
+			));
+			results.replaceChildren();
+			for (const pokemon of matches) {
+				const choice = button('', 'team-preset-result');
+				choice.append(sprite(pokemon.name), createElement('span', '', pokemon.name));
+				choice.addEventListener('click', () => {
+					selected[activeSlot] = pokemon.name;
+					selectedPokemonIds[activeSlot] = null;
+					activeSlot = Math.min(5, activeSlot + 1);
+					renderSlots();
+				});
+				results.append(choice);
+			}
+		}
+		cancel.addEventListener('click', closeEditor);
+		save.addEventListener('click', async () => {
+			const filled = selected.map((species, index) => ({species, pokemonId: selectedPokemonIds[index] || null}))
+				.filter(slot => !!slot.species);
+			const species = filled.map(slot => slot.species);
+			if (!name.value.trim() || !species.length) {
+				error.textContent = 'Informe o nome e escolha ao menos um Pok\u00e9mon.'; error.classList.remove('hidden'); return;
+			}
+			save.disabled = true;
+			try {
+				await api('/team-presets' + (preset ? '/' + encodeURIComponent(preset.id) : ''), {
+					method: preset ? 'PATCH' : 'POST', body: {
+						characterId: character.id, name: name.value.trim(), species,
+						pokemonIds: filled.map(slot => slot.pokemonId),
+					},
+				});
+				showToast('Equipe salva.'); await renderDashboard();
+			} catch (saveError) {
+				error.textContent = saveError.message; error.classList.remove('hidden'); save.disabled = false;
+			}
+		});
+		search.addEventListener('input', renderResults);
+		renderSlots(); renderResults(); name.focus();
+	}
+	function openLineagePicker(preset, slotIndex) {
+		const plannedSpecies = preset.species[slotIndex];
+		const root = evolutionRoot(plannedSpecies);
+		const candidates = teamPresetOwnedEntries(character).filter(entry =>
+			evolutionRoot(entry.species || entry.pokemon?.species || '') === root);
+		const layer = createElement('div', 'team-preset-lineage-layer');
+		const dialog = createElement('div', 'team-preset-lineage-dialog');
+		const heading = createElement('div', 'team-preset-lineage-heading');
+		heading.append(createElement('div', '', ''), createElement('h3', '', 'Escolher para ' + plannedSpecies));
+		const close = button('\u00d7', 'team-preset-lineage-close');
+		heading.append(close);
+		const choices = createElement('div', 'team-preset-lineage-choices');
+		const automatic = button('Usar automaticamente a esp\u00e9cie exata', 'team-preset-lineage-option automatic');
+		choices.append(automatic);
+		for (const entry of candidates) {
+			const species = entry.species || entry.pokemon?.species || 'Pok\u00e9mon';
+			const name = entry.name || entry.pokemon?.name || species;
+			const pokemonId = entry.pokemonId;
+			const nickname = String(name).toLowerCase().replace(/[^a-z0-9]+/g, '') ===
+				String(species).toLowerCase().replace(/[^a-z0-9]+/g, '') ? '' : name;
+			const details = createElement('span', 'team-preset-lineage-details');
+			const summary = createElement('span', 'team-preset-lineage-summary');
+			summary.append(createElement('strong', '', species));
+			if (nickname) summary.append(createElement('span', 'team-preset-lineage-nickname', nickname));
+			summary.append(createElement('b', 'team-preset-lineage-level', 'Lvl: ' + (entry.level || entry.pokemon?.level || 1)));
+			const moves = createElement('span', 'team-preset-lineage-moves');
+			const moveEntries = entry.moves || entry.pokemon?.moves || [];
+			for (let moveIndex = 0; moveIndex < 4; moveIndex++) {
+				const move = moveEntries[moveIndex];
+				moves.append(createElement('span', move ? '' : 'empty', move?.name || move || '\u2014'));
+			}
+			details.append(summary, moves);
+			const option = button('', 'team-preset-lineage-option' +
+				(preset.pokemonIds?.[slotIndex] === pokemonId ? ' selected' : ''));
+			option.append(pokemonSprite({species, name}), details);
+			option.addEventListener('click', () => saveLink(pokemonId));
+			choices.append(option);
+		}
+		if (!candidates.length) choices.append(createElement('p', 'team-preset-empty',
+			'Voc\u00ea ainda n\u00e3o possui nenhum Pok\u00e9mon desta linha evolutiva.'));
+		dialog.append(heading, choices); layer.append(dialog); document.body.append(layer);
+		const dismiss = () => layer.remove();
+		async function saveLink(pokemonId) {
+			const pokemonIds = Array.from({length: preset.species.length}, (_, index) => preset.pokemonIds?.[index] || null);
+			pokemonIds[slotIndex] = pokemonId || null;
+			try {
+				await api('/team-presets/' + encodeURIComponent(preset.id), {method: 'PATCH', body: {
+					characterId: character.id, name: preset.name, species: preset.species, pokemonIds,
+				}});
+				dismiss(); await renderDashboard();
+			} catch (linkError) { showToast(linkError.message, true); }
+		}
+		automatic.addEventListener('click', () => saveLink(null));
+		close.addEventListener('click', dismiss);
+		layer.addEventListener('click', event => { if (event.target === layer) dismiss(); });
+	}
+	function renderList() {
+		list.replaceChildren();
+		const presets = character.teamPresets || [];
+		if (!presets.length) {
+			list.append(createElement('p', 'team-preset-empty', 'Nenhuma equipe salva.'));
+			return;
+		}
+		for (const preset of presets) {
+			const availableEntries = teamPresetOwnedEntries(character);
+			const owned = teamPresetOwnedSpecies(character);
+			const represented = new Map();
+			const usedPokemonIds = new Set();
+			const unavailableSlots = [];
+			const boxAllowed = state.session.role === 'master' || character.pageAccess?.box !== false;
+			const card = createElement('article', 'team-preset-card');
+			const heading = createElement('div', 'team-preset-card-heading');
+			heading.append(createElement('strong', '', preset.name));
+			if (!boxAllowed) heading.append(createElement('small', '', 'Box indispon\u00edvel'));
+			const pokemon = createElement('div', 'team-preset-card-pokemon');
+			for (const [slotIndex, species] of preset.species.entries()) {
+				const id = String(species).toLowerCase().replace(/[^a-z0-9]+/g, '');
+				const amount = (represented.get(id) || 0) + 1;
+				represented.set(id, amount);
+				const linkedId = preset.pokemonIds?.[slotIndex] || '';
+				const linked = linkedId ? availableEntries.find(entry => entry.pokemonId === linkedId && !usedPokemonIds.has(linkedId)) : null;
+				const isOwned = linked ? evolutionRoot(linked.species || linked.pokemon?.species || '') === evolutionRoot(species) :
+					amount <= (owned.get(id) || 0);
+				if (linked && isOwned) usedPokemonIds.add(linkedId);
+				if (!isOwned) unavailableSlots.push(slotIndex);
+				const prevos = isOwned ? [] : ownedPreEvolutions(species, owned);
+				const note = linkedId ? 'Vinculado' : (prevos.length ? 'Possui ' + prevos.join(', ') : '');
+				const trigger = button('', 'team-preset-lineage-trigger');
+				trigger.title = 'Escolher um Pok\u00e9mon desta linha evolutiva';
+				trigger.append(sprite(species, isOwned ? 'owned' : 'unowned', note));
+				trigger.addEventListener('click', () => openLineagePicker(preset, slotIndex));
+				pokemon.append(trigger);
+			}
+			if (unavailableSlots.length || !boxAllowed) card.classList.add('unavailable');
+			const controls = createElement('div', 'team-preset-card-actions');
+			const use = button('Usar', 'button primary');
+			const edit = button('Editar', 'button'); const remove = button('Excluir', 'button danger');
+			use.disabled = !!unavailableSlots.length || !boxAllowed;
+			controls.append(use, edit, remove); card.append(heading, pokemon, controls);
+			card.setAttribute('aria-disabled', String(!!unavailableSlots.length || !boxAllowed));
+			use.addEventListener('click', async () => {
+				try {
+					await api('/team-presets/' + encodeURIComponent(preset.id) + '/apply', {
+						method: 'POST', body: {characterId: character.id, expectedRevision: character.box.revision},
+					});
+					showToast('Equipe trocada com sucesso.'); await renderDashboard();
+				} catch (applyError) { showToast(applyError.message, true); }
+			});
+			edit.addEventListener('click', () => openEditor(preset));
+			remove.addEventListener('click', async () => {
+				try {
+					await api('/team-presets/' + encodeURIComponent(preset.id), {method: 'DELETE', body: {characterId: character.id}});
+					showToast('Equipe exclu\u00edda.'); await renderDashboard();
+				} catch (removeError) { showToast(removeError.message, true); }
+			});
+			list.append(card);
+		}
+	}
+	create.addEventListener('click', () => openEditor());
+	renderList();
+}
+
+const RPG_BADGE_REGIONS = [
+	['kanto', 'Kanto', ['Rocha', 'Cascata', 'Trovão', 'Arco-íris', 'Alma', 'Pântano', 'Vulcão', 'Terra']],
+	['johto', 'Johto', ['Zéfiro', 'Colmeia', 'Planície', 'Névoa', 'Tempestade', 'Mineral', 'Geleira', 'Nascente']],
+	['hoenn', 'Hoenn', ['Pedra', 'Punho', 'Dínamo', 'Calor', 'Equilíbrio', 'Pena', 'Mente', 'Chuva']],
+	['sinnoh', 'Sinnoh', ['Carvão', 'Floresta', 'Paralelepípedo', 'Pântano', 'Relíquia', 'Mina', 'Sincelo', 'Farol']],
+	['unova', 'Unova', ['Trio', 'Básica', 'Inseto', 'Raio', 'Terremoto', 'Jato', 'Congelamento', 'Lenda']],
+	['kalos', 'Kalos', ['Inseto', 'Penhasco', 'Briga', 'Planta', 'Voltagem', 'Fada', 'Psíquica', 'Iceberg']],
+	['galar', 'Galar', ['Planta', 'Água', 'Fogo', 'Luta', 'Fada', 'Pedra', 'Noturna', 'Dragão']],
+	['paldea', 'Paldea', ['Inseto', 'Planta', 'Elétrica', 'Água', 'Normal', 'Fantasma', 'Psíquica', 'Gelo']],
+];
+const RPG_BADGE_SHEET_ROW_POSITIONS = [
+	'0%',
+	'14.285714%',
+	'28.571429%',
+	'42.857143%',
+	'57.142857%',
+	'71.428571%',
+	'85.714286%',
+	'100%',
+];
+
+function profileMetric(label, value) {
+	const metric = createElement('div', 'overview-metric');
+	metric.append(createElement('small', '', label), createElement('strong', '', String(value)));
+	return metric;
+}
+
+function formatOverviewMoney(value) {
+	const amount = Number(value || 0);
+	const formatter = Math.abs(amount) >= 1000 ? new Intl.NumberFormat('pt-BR', {
+		notation: 'compact', compactDisplay: 'short', maximumFractionDigits: 1,
+	}) : new Intl.NumberFormat('pt-BR');
+	return '\u20bd ' + formatter.format(amount);
+}
+
+function editableTrainerTagline(character) {
+	const quote = createElement('blockquote', 'overview-tagline');
+	const text = createElement('span', '', character.profile?.tagline || 'A aventura está apenas começando.');
+	quote.append(text);
+	quote.tabIndex = 0;
+	quote.setAttribute('role', 'button');
+	quote.setAttribute('aria-label', 'Editar frase do treinador');
+	let editing = false;
+	let cancelling = false;
+	let original = text.textContent;
+	const finish = () => {
+		editing = false;
+		text.contentEditable = 'false';
+		quote.classList.remove('editing');
+	};
+	const begin = () => {
+		if (editing) return;
+		editing = true;
+		cancelling = false;
+		original = text.textContent;
+		text.contentEditable = 'true';
+		quote.classList.add('editing');
+		text.focus();
+		const selection = window.getSelection();
+		const range = document.createRange();
+		range.selectNodeContents(text);
+		selection.removeAllRanges(); selection.addRange(range);
+	};
+	quote.addEventListener('click', begin);
+	quote.addEventListener('keydown', event => {
+		if (!editing && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); begin(); return; }
+		if (!editing) return;
+		if (event.key === 'Enter') { event.preventDefault(); text.blur(); }
+		if (event.key === 'Escape') {
+			event.preventDefault(); cancelling = true; text.textContent = original; text.blur();
+		}
+	});
+	text.addEventListener('input', () => {
+		if ((text.textContent || '').length > 120) text.textContent = (text.textContent || '').slice(0, 120);
+	});
+	text.addEventListener('blur', async () => {
+		if (!editing) return;
+		const next = (text.textContent || '').trim();
+		if (cancelling || next === original) { text.textContent = original; finish(); return; }
+		if (!next) { text.textContent = original; finish(); showToast('A frase não pode ficar vazia.', true); return; }
+		finish();
+		try {
+			const data = await api('/profile/tagline', {method: 'PATCH', body: {characterId: character.id, tagline: next}});
+			state.currentCharacter = data.character;
+			text.textContent = data.character.profile.tagline;
+		} catch (error) {
+			text.textContent = original;
+			showToast(error.message, true);
+		}
+	});
+	return quote;
+}
+
+function openPokedexSummary(character, catalog) {
+	const profile = character.profile || {};
+	const seen = new Set(profile.pokedex?.seen || []);
+	const caught = new Set(profile.pokedex?.caught || []);
+	const layer = createElement('div', 'overview-pokedex-layer');
+	const dialog = createElement('section', 'overview-pokedex-dialog');
+	dialog.setAttribute('role', 'dialog');
+	dialog.setAttribute('aria-label', 'Pokédex');
+	const deviceHitbox = createElement('div', 'overview-pokedex-device-hitbox');
+	const close = button('', 'overview-pokedex-power-close');
+	close.setAttribute('aria-label', 'Fechar Pokédex');
+	const discover = button('', 'overview-pokedex-discover hidden');
+	discover.setAttribute('aria-label', 'Marcar Pokémon como visto');
+	const movesToggle = button('', 'overview-pokedex-moves-toggle hidden');
+	movesToggle.setAttribute('aria-label', 'Mostrar possíveis moves');
+	const dpad = createElement('div', 'overview-pokedex-dpad');
+	const dpadImage = createElement('div', 'overview-pokedex-dpad-image');
+	let deviceImageAnimationTimer = null;
+	const animateDeviceImage = control => {
+		clearTimeout(deviceImageAnimationTimer);
+		dpadImage.className = 'overview-pokedex-dpad-image';
+		void dpadImage.offsetWidth;
+		dpadImage.classList.add(`press-${control}`);
+		deviceImageAnimationTimer = setTimeout(() => { dpadImage.className = 'overview-pokedex-dpad-image'; }, 190);
+	};
+	const dpadDirections = [
+		['up', 'Pokémon quatro números antes'], ['right', 'Próximo Pokémon'],
+		['down', 'Pokémon quatro números depois'], ['left', 'Pokémon anterior'],
+	];
+	for (const [direction, label] of dpadDirections) {
+		const control = button('', `overview-pokedex-dpad-${direction}`);
+		control.dataset.direction = direction;
+		control.setAttribute('aria-label', label);
+		dpad.append(control);
+	}
+	const leftScreen = createElement('div', 'overview-pokedex-left-screen');
+	const rightScreen = createElement('div', 'overview-pokedex-right-screen');
+	const regions = createElement('header', 'overview-pokedex-regions');
+	const grid = createElement('div', 'overview-pokedex-grid');
+	const national = [...new Map([...catalog].sort((a, b) => Number(a.num || 0) - Number(b.num || 0))
+		.filter(pokemon => pokemon.num > 0).map(pokemon => [pokemon.num, pokemon])).values()];
+	const nationalById = new Map(national.map(pokemon => [String(pokemon.id || '').toLowerCase(), pokemon]));
+	const masterViewingPlayer = state.session?.role === 'master' && state.session?.mode === 'player' &&
+		String(state.session.viewAsCharacterId || '') === String(character.id || '');
+	let selectedPokemon = null;
+	let rightScreenMode = 'details';
+	const movesCache = new Map();
+	const evolutionChildren = new Map();
+	for (const pokemon of national) {
+		const parent = String(pokemon.prevo || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
+		if (!parent) continue;
+		if (!evolutionChildren.has(parent)) evolutionChildren.set(parent, []);
+		evolutionChildren.get(parent).push(pokemon);
+	}
+	const evolutionaryLine = pokemon => {
+		let root = pokemon;
+		const visitedParents = new Set();
+		while (root?.prevo) {
+			const parentId = String(root.prevo).toLowerCase().replace(/[^a-z0-9]+/g, '');
+			if (!parentId || visitedParents.has(parentId)) break;
+			visitedParents.add(parentId);
+			root = nationalById.get(parentId) || root;
+			if (String(root.id || '').toLowerCase() !== parentId) break;
+		}
+		const result = [];
+		const visit = entry => {
+			if (!entry || result.includes(entry)) return;
+			result.push(entry);
+			for (const child of (evolutionChildren.get(String(entry.id || '').toLowerCase()) || []).sort((a, b) => a.num - b.num)) visit(child);
+		};
+		visit(root);
+		return result;
+	};
+	const regionRanges = [
+		['Todas', 1, Infinity], ['Kanto', 1, 151], ['Johto', 152, 251], ['Hoenn', 252, 386],
+		['Sinnoh', 387, 493], ['Unova', 494, 649], ['Kalos', 650, 721], ['Alola', 722, 809],
+		['Galar', 810, 898], ['Hisui', 899, 905], ['Paldea', 906, Infinity],
+	];
+	const renderDetails = pokemon => {
+		selectedPokemon = pokemon;
+		rightScreenMode = 'details';
+		movesToggle.classList.remove('active');
+		rightScreen.replaceChildren();
+		const id = String(pokemon.id || '').toLowerCase();
+		const known = seen.has(id) || caught.has(id);
+		discover.classList.toggle('hidden', !masterViewingPlayer || known);
+		movesToggle.classList.toggle('hidden', !known);
+		if (!known) {
+			rightScreen.append(createElement('p', 'overview-pokedex-detail-empty', 'Pokémon ainda não registrado.'));
+			return;
+		}
+		const heading = createElement('header', 'overview-pokedex-detail-heading');
+		const title = createElement('div', 'overview-pokedex-detail-title');
+		title.append(createElement('strong', '', pokemon.name));
+		const types = createElement('div', 'overview-pokedex-detail-types');
+		for (const type of pokemon.types || []) types.append(createElement('span', 'type-' + String(type).toLowerCase(), type));
+		title.append(types);
+		heading.append(title, createElement('small', '', '#' + String(pokemon.num).padStart(4, '0')));
+		const special = pokemon.mythical ? 'Mítico' : (pokemon.pseudoLegendary ? 'Pseudo-lendário' : (pokemon.legendary ? 'Lendário' : ''));
+		const content = createElement('div', 'overview-pokedex-detail-content');
+		const identity = createElement('div', 'overview-pokedex-detail-identity');
+		const visual = pokemonSprite({species: pokemon.name});
+		identity.append(visual);
+		const stats = createElement('dl', 'overview-pokedex-detail-stats');
+		for (const [label, key] of [['HP', 'hp'], ['Ataque', 'atk'], ['Defesa', 'def'], ['At. Esp.', 'spa'], ['Def. Esp.', 'spd'], ['Velocidade', 'spe']]) {
+			stats.append(createElement('dt', '', label), createElement('dd', '', String(pokemon.baseStats?.[key] ?? '—')));
+		}
+		content.append(identity, stats);
+		const abilities = createElement('div', 'overview-pokedex-detail-abilities');
+		abilities.append(createElement('strong', '', 'Habilidades'));
+		const abilityList = createElement('div', 'overview-pokedex-detail-ability-list');
+		for (const ability of pokemon.abilityDetails || (pokemon.abilities || []).map(name => ({name}))) {
+			abilityList.append(createElement('span', ability.hidden ? 'hidden-ability' : '', ability.name));
+		}
+		abilities.append(abilityList);
+		const extra = createElement('div', 'overview-pokedex-detail-extra');
+		if (special) extra.append(createElement('span', 'overview-pokedex-detail-special', special));
+		const line = evolutionaryLine(pokemon);
+		if (line.length > 1) {
+			const evolution = createElement('section', 'overview-pokedex-detail-evolution');
+			evolution.append(createElement('strong', '', 'Linha evolutiva'));
+			const evolutionList = createElement('div', 'overview-pokedex-detail-evolution-list');
+			for (const member of line) {
+				const memberId = String(member.id || '').toLowerCase();
+				const known = seen.has(memberId) || caught.has(memberId);
+				const entry = createElement('div', known ? '' : 'unseen');
+				entry.append(pokemonSprite({species: member.name}), createElement('span', '', known ? member.name : '???'));
+				evolutionList.append(entry);
+			}
+			evolution.append(evolutionList); extra.append(evolution);
+		}
+		const alternativeForms = catalog.filter(entry => {
+			const entryId = String(entry.id || '').toLowerCase();
+			if (entryId === id || (!seen.has(entryId) && !caught.has(entryId))) return false;
+			return (pokemon.baseSpriteId && entry.baseSpriteId === pokemon.baseSpriteId) || Number(entry.num) === Number(pokemon.num);
+		});
+		if (alternativeForms.length) {
+			const forms = createElement('section', 'overview-pokedex-detail-forms');
+			forms.append(createElement('strong', '', 'Formas conhecidas'));
+			const formList = createElement('div', 'overview-pokedex-detail-form-list');
+			for (const form of alternativeForms) formList.append(createElement('span', '', form.name));
+			forms.append(formList); extra.append(forms);
+		}
+		rightScreen.append(heading, content, abilities, extra);
+	};
+	const renderMoves = async pokemon => {
+		const id = String(pokemon.id || '').toLowerCase();
+		if (!seen.has(id) && !caught.has(id)) return;
+		rightScreenMode = 'moves';
+		movesToggle.classList.add('active');
+		rightScreen.replaceChildren(createElement('p', 'overview-pokedex-detail-empty', 'Carregando moves...'));
+		try {
+			let data = movesCache.get(id);
+			if (!data) {
+				data = await api(`/profile/pokedex/moves?characterId=${encodeURIComponent(character.id)}&species=${encodeURIComponent(id)}`);
+				movesCache.set(id, data);
+			}
+			if (selectedPokemon !== pokemon || rightScreenMode !== 'moves') return;
+			rightScreen.replaceChildren();
+			const heading = createElement('header', 'overview-pokedex-moves-heading');
+			heading.append(createElement('strong', '', pokemon.name), createElement('small', '', data.caught ? 'Moves possíveis' : 'Moves por nível'));
+			rightScreen.append(heading);
+			const sections = [['level', 'Por nível'], ['tm', 'TM'], ['egg', 'Egg Move']];
+			for (const [key, label] of sections) {
+				if (key !== 'level' && !data.caught) continue;
+				const section = createElement('section', 'overview-pokedex-move-section');
+				section.append(createElement('h4', '', label));
+				const list = createElement('div', 'overview-pokedex-move-list');
+				for (const move of data.moves[key] || []) {
+					const row = createElement('div', 'overview-pokedex-move-row');
+					row.append(createElement('span', `type-${String(move.type).toLowerCase()}`, move.type),
+						createElement('strong', '', move.name));
+					if (key === 'level') row.append(createElement('small', '', `Nv. ${move.level}`));
+					list.append(row);
+				}
+				if (!list.childElementCount) list.append(createElement('p', 'overview-pokedex-move-empty', 'Nenhum move.'));
+				section.append(list); rightScreen.append(section);
+			}
+		} catch (error) {
+			if (rightScreenMode === 'moves') rightScreen.replaceChildren(createElement('p', 'overview-pokedex-detail-empty', error.message));
+		}
+	};
+	const renderEntries = (minimum, maximum) => {
+		grid.replaceChildren();
+		for (const pokemon of national) {
+			const number = Number(pokemon.num || 0);
+			if (number < minimum || number > maximum) continue;
+			const id = String(pokemon.id || '').toLowerCase();
+			const isSeen = seen.has(id) || caught.has(id);
+			const isCaught = caught.has(id);
+			const card = createElement('article', 'overview-pokedex-entry' + (isSeen ? ' seen' : ' unseen') +
+				(isCaught ? ' caught' : '') + (masterViewingPlayer && !isSeen ? ' master-preview' : ''));
+			card.dataset.pokemonId = id;
+			card.tabIndex = 0;
+			card.setAttribute('role', 'button');
+			card.setAttribute('aria-label', isSeen ? `Ver dados de ${pokemon.name}` : 'Pokémon ainda não registrado');
+			card.append(createElement('small', '', '#' + String(number).padStart(4, '0')));
+			const visual = pokemonSprite({species: pokemon.name});
+			card.append(visual, createElement('strong', '', isSeen ? pokemon.name : '???'));
+			if (isCaught) card.append(createElement('span', 'overview-pokedex-caught', 'Capturado'));
+			const select = () => {
+				grid.querySelectorAll('.overview-pokedex-entry.selected').forEach(entry => entry.classList.remove('selected'));
+				card.classList.add('selected');
+				renderDetails(pokemon);
+			};
+			card.addEventListener('click', select);
+			card.addEventListener('keydown', event => {
+				if (event.key !== 'Enter' && event.key !== ' ') return;
+				event.preventDefault(); select();
+			});
+			grid.append(card);
+		}
+		leftScreen.scrollTop = 0;
+	};
+	const navigatePokedex = offset => {
+		if (!selectedPokemon) return;
+		const current = national.findIndex(entry => String(entry.id || '').toLowerCase() === String(selectedPokemon.id || '').toLowerCase());
+		if (current < 0) return;
+		const target = national[Math.max(0, Math.min(national.length - 1, current + offset))];
+		if (!target || target === selectedPokemon) return;
+		grid.querySelectorAll('.overview-pokedex-entry.selected').forEach(entry => entry.classList.remove('selected'));
+		const card = grid.querySelector(`[data-pokemon-id="${String(target.id || '').toLowerCase()}"]`);
+		if (card) {
+			card.classList.add('selected');
+			card.scrollIntoView({block: 'nearest', behavior: 'smooth'});
+		}
+		renderDetails(target);
+	};
+	for (const [name, minimum, maximum] of regionRanges) {
+		const region = button(name, 'overview-pokedex-region' + (name === 'Todas' ? ' active' : ''));
+		region.addEventListener('click', () => {
+			regions.querySelectorAll('.overview-pokedex-region').forEach(item => item.classList.toggle('active', item === region));
+			renderEntries(minimum, maximum);
+		});
+		regions.append(region);
+	}
+	leftScreen.append(regions, grid);
+	rightScreen.append(createElement('p', 'overview-pokedex-detail-empty', 'Selecione um Pokémon.'));
+	dialog.append(deviceHitbox, dpadImage, close, discover, movesToggle, dpad, leftScreen, rightScreen);
+	layer.append(dialog); document.body.append(layer);
+	renderEntries(1, Infinity);
+	const keyboardControls = event => {
+		if (event.key === 'Escape') {
+			event.preventDefault();
+			close.click();
+			return;
+		}
+		const directions = {ArrowUp: 'up', ArrowRight: 'right', ArrowDown: 'down', ArrowLeft: 'left'};
+		const direction = directions[event.key];
+		if (!direction) return;
+		event.preventDefault();
+		dpad.querySelector(`[data-direction="${direction}"]`)?.click();
+	};
+	const dismiss = () => {
+		window.removeEventListener('keydown', keyboardControls);
+		layer.remove();
+	};
+	window.addEventListener('keydown', keyboardControls);
+	close.addEventListener('click', () => {
+		animateDeviceImage('power');
+		setTimeout(dismiss, 150);
+	});
+	movesToggle.addEventListener('click', () => {
+		if (!selectedPokemon) return;
+		animateDeviceImage('moves');
+		if (rightScreenMode === 'moves') renderDetails(selectedPokemon);
+		else renderMoves(selectedPokemon);
+	});
+	dpad.addEventListener('click', event => {
+		const control = event.target.closest('button');
+		const direction = control?.dataset.direction;
+		const offsets = {left: -1, right: 1, up: -4, down: 4};
+		if (direction && offsets[direction]) {
+			animateDeviceImage(direction);
+			navigatePokedex(offsets[direction]);
+		}
+	});
+	discover.addEventListener('click', async () => {
+		if (!masterViewingPlayer || !selectedPokemon || discover.disabled) return;
+		animateDeviceImage('discover');
+		discover.disabled = true;
+		try {
+			const data = await api('/profile/pokedex/seen', {
+				method: 'PATCH', body: {characterId: character.id, species: selectedPokemon.id || selectedPokemon.name},
+			});
+			const id = String(selectedPokemon.id || '').toLowerCase();
+			seen.add(id);
+			character.profile = data.character.profile;
+			if (state.currentCharacter?.id === data.character.id) state.currentCharacter = data.character;
+			const card = grid.querySelector(`[data-pokemon-id="${id}"]`);
+			if (card) {
+				card.classList.remove('unseen'); card.classList.add('seen');
+				card.setAttribute('aria-label', `Ver dados de ${selectedPokemon.name}`);
+				const name = card.querySelector('strong'); if (name) name.textContent = selectedPokemon.name;
+			}
+			renderDetails(selectedPokemon);
+			showToast(`${selectedPokemon.name} foi marcado como visto.`);
+		} catch (error) {
+			showToast(error.message, true);
+		} finally {
+			discover.disabled = false;
+		}
+	});
+	deviceHitbox.addEventListener('click', event => event.stopPropagation());
+	layer.addEventListener('click', event => { if (event.target === layer) dismiss(); });
+}
+
+async function renderPlayerBody(character) {
+	const root = createElement('div', 'player-overview');
+	const profile = character.profile || {stats: {}, pokedex: {}, badges: {}};
+	const stats = profile.stats || {};
+	const caught = profile.pokedex?.caught?.length || 0;
+	const seen = profile.pokedex?.seen?.length || 0;
+
+	const identity = createElement('section', 'panel overview-identity');
+	const avatar = characterAvatarBadge(character); avatar.classList.add('overview-avatar');
+	const identityText = createElement('div', 'overview-identity-copy');
+	identityText.append(createElement('h1', '', character.characterName), createElement('strong', '', 'Treinador Pokémon'),
+		editableTrainerTagline(character));
+	identity.append(avatar, identityText);
+
+	const wallet = section('Carteira');
+	const bank = Math.max(0, Number(character.bank?.balance || 0));
+	const walletGrid = createElement('div', 'overview-money-grid');
+	walletGrid.append(profileMetric('Dinheiro', formatOverviewMoney(character.money)), profileMetric('Banco', formatOverviewMoney(bank)),
+		profileMetric('Valor total', formatOverviewMoney(Number(character.money || 0) + bank)));
+	wallet.body.append(walletGrid);
+
+	const statistics = section('Estatísticas');
+	statistics.panel.classList.add('overview-statistics-panel');
+	statistics.heading.classList.add('overview-statistics-toggle');
+	statistics.heading.setAttribute('role', 'button');
+	statistics.heading.setAttribute('tabindex', '0');
+	statistics.heading.setAttribute('aria-expanded', 'false');
+	statistics.heading.append(createElement('span', 'overview-statistics-chevron', '⌄'));
+	const statisticsGrid = createElement('div', 'overview-metric-grid overview-statistics-grid');
+	statisticsGrid.append(profileMetric('Vitórias', stats.wins || 0), profileMetric('Derrotas', stats.losses || 0),
+		profileMetric('Fugas', stats.fleeAttempts || 0), profileMetric('Concursos disputados', stats.contestsEntered || 0),
+		profileMetric('Concursos vencidos', stats.contestsWon || 0));
+	statistics.body.append(statisticsGrid);
+	const statisticsDetails = createElement('div', 'overview-statistics-details hidden');
+	statisticsDetails.append(
+		profileMetric('Pokémon derrotados', stats.pokemonDefeated || 0),
+		profileMetric('Pokémon libertados', stats.pokemonReleased || 0),
+		profileMetric('Itens utilizados', stats.itemsUsed || 0),
+		profileMetric('Poké Balls lançadas', stats.pokeballsThrown || 0),
+		profileMetric('Evoluções', stats.evolutions || 0),
+		profileMetric('Ovos chocados', stats.eggsHatched || 0),
+		profileMetric('Fósseis restaurados', stats.fossilsRestored || 0),
+		profileMetric('Maior sequência de vitórias', stats.longestWinStreak || 0)
+	);
+	statistics.panel.append(statisticsDetails);
+	let outsideStatisticsHandler;
+	const closeStatistics = () => {
+		statisticsDetails.classList.add('hidden');
+		statistics.heading.setAttribute('aria-expanded', 'false');
+		if (outsideStatisticsHandler) document.removeEventListener('pointerdown', outsideStatisticsHandler);
+		outsideStatisticsHandler = undefined;
+	};
+	const toggleStatistics = () => {
+		const opening = statisticsDetails.classList.contains('hidden');
+		if (!opening) return closeStatistics();
+		statisticsDetails.classList.remove('hidden');
+		statistics.heading.setAttribute('aria-expanded', 'true');
+		outsideStatisticsHandler = event => {
+			if (!statistics.panel.contains(event.target)) closeStatistics();
+		};
+		setTimeout(() => document.addEventListener('pointerdown', outsideStatisticsHandler), 0);
+	};
+	statistics.heading.addEventListener('click', toggleStatistics);
+	statistics.heading.addEventListener('keydown', event => {
+		if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggleStatistics(); }
+		if (event.key === 'Escape') closeStatistics();
+	});
+
+	const pokedex = section('Pokédex');
+	pokedex.panel.classList.add('overview-pokedex-panel');
+	let catalog = [];
+	try { catalog = await rpgLoadBattlePokemon(); } catch {}
+	const dexTotal = Math.max(1, new Set(catalog.filter(pokemon => pokemon.num > 0).map(pokemon => pokemon.num)).size || 1025);
+	const dexGrid = createElement('div', 'overview-pokedex-summary');
+	dexGrid.append(profileMetric('Vistos', seen), profileMetric('Capturados', caught),
+		profileMetric('Completude', Math.min(100, Math.round(caught / dexTotal * 100)) + '%'));
+	const openDex = button('', 'overview-pokedex-open');
+	const pokedexImage = document.createElement('img');
+	pokedexImage.src = './assets/pokedex-kanto.png?v=20260831-1';
+	pokedexImage.alt = 'Abrir Pokédex';
+	openDex.append(pokedexImage);
+	openDex.title = 'Abrir Pokédex';
+	openDex.setAttribute('aria-label', 'Abrir Pokédex');
+	openDex.disabled = !catalog.length;
+	openDex.addEventListener('click', () => openPokedexSummary(character, catalog));
+	pokedex.heading.append(openDex);
+	pokedex.body.append(dexGrid);
+
+	const team = section('Equipe');
+	const teamStrip = createElement('div', 'overview-team-strip');
+	for (const pokemon of character.team || []) {
+		const card = createElement('div', 'overview-team-pokemon');
+		card.append(pokemonSprite(pokemon), createElement('strong', '', pokemon.name || pokemon.species));
+		teamStrip.append(card);
+	}
+	if (!teamStrip.children.length) teamStrip.append(createElement('p', '', 'Nenhum Pokémon na equipe.'));
+	team.body.append(teamStrip);
+
+	const badges = section('Insígnias');
+	badges.panel.classList.add('overview-badges-panel');
+	const badgeRegions = createElement('div', 'overview-badge-regions');
+	for (const [regionIndex, [regionId, regionName, regionBadges]] of RPG_BADGE_REGIONS.entries()) {
+		const earned = new Set(profile.badges?.[regionId] || []);
+		const region = createElement('article', 'overview-badge-region');
+		const title = createElement('div', 'overview-badge-title');
+		title.append(createElement('strong', '', 'Insígnias de ' + regionName), createElement('span', '', earned.size + ' / ' + regionBadges.length));
+		const slots = createElement('div', 'overview-badge-slots');
+		for (const [badgeIndex, badgeName] of regionBadges.entries()) {
+			const badgeId = String(badgeName).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-');
+			const slot = createElement('span', 'overview-badge badge-' + badgeId + (earned.has(badgeId) ? ' earned' : ''));
+			if (regionIndex < RPG_BADGE_SHEET_ROW_POSITIONS.length) {
+				slot.classList.add('official');
+				slot.style.setProperty('--badge-x', (badgeIndex / 7 * 100) + '%');
+				slot.style.setProperty('--badge-y', RPG_BADGE_SHEET_ROW_POSITIONS[regionIndex]);
+			}
+			slot.title = 'Insígnia ' + badgeName;
+			slots.append(slot);
+		}
+		region.append(title, slots); badgeRegions.append(region);
+	}
+	badges.body.append(badgeRegions);
+
+	root.append(identity, wallet.panel, team.panel, pokedex.panel, statistics.panel, badges.panel);
+	return root;
+}
+
+function renderCurrentTeamPanel(character) {
 	const team = section('Equipe atual');
 	const list = createElement('div', 'pokemon-list');
 	for (const [teamIndex, pokemon] of (character.team || []).entries()) {
@@ -670,7 +1498,7 @@ function renderPlayerBody(character) {
 		if (moves) info.append(createElement('small', '', moves));
 		if (training) info.append(createElement('small', 'training-time', 'Em treinamento \u00b7 Restam ' + formatCampaignDuration(training.remainingMs)));
 		const builder = button('Team Builder', 'button pokemon-team-builder-button');
-		builder.addEventListener('click', () => openTeamBuilder(character.box?.party?.[teamIndex]?.pokemonId, 'team'));
+		builder.addEventListener('click', () => openTeamBuilder(character.box?.party?.[teamIndex]?.pokemonId, 'overview'));
 		row.append(info, createElement('span', 'tag', pokemon.gender || 'N'), builder);
 		list.append(row);
 	}
@@ -688,7 +1516,14 @@ function renderPlayerBody(character) {
 		list.append(row);
 	}	if (!list.children.length) list.append(createElement('p', '', 'Nenhum Pok\u00e9mon na equipe.'));
 	team.body.append(list);
-	root.append(team.panel);
+	return team.panel;
+}
+
+function renderPlayerTeamBody(character) {
+	const root = createElement('div');
+	const presets = section('Equipes salvas');
+	root.append(presets.panel);
+	void renderTeamPresetPlanner(character, presets.body);
 
 	return root;
 }
@@ -1683,12 +2518,13 @@ async function renderDashboard() {
 				state.dashboardView === 'contests' ? await window.RPGContestUI.render({state, api, master: false, character, rerender: renderDashboard}) :
 				state.dashboardView === 'box' ? await renderPlayerBox(character) :
 				state.dashboardView === 'bag' ? await renderPlayerBag(character) :
+				state.dashboardView === 'team' ? renderPlayerTeamBody(character) :
 				state.dashboardView === 'team-builder' ? await renderPlayerTeamBuilder(character) :
 				state.dashboardView === 'center' ? await renderPokemonCenter(character) :
 				state.dashboardView === 'fossils' ? await renderFossilLab(character) :
 				state.dashboardView === 'nursery' ? await renderNursery(character) :
 				state.dashboardView === 'shops' ? await renderShops(character) :
-				renderPlayerBody(character);
+				await renderPlayerBody(character);
 			body.replaceChildren(playerView);
 		}
 	} catch (error) {

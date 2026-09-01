@@ -972,6 +972,9 @@ button.team-builder-main-property:hover { border-color: #5a7ead; box-shadow: 0 0
 .team-builder-simple-move.selected { background: #edf4fd; box-shadow: inset 4px 0 #517caf; }
 .team-builder-simple-move:disabled { opacity: .72; }
 .team-builder-simple-move > small { color: #657185; font-size: 10px; }
+.team-builder-move-type-info { display: flex; min-width: 0; align-items: center; justify-content: flex-end; gap: 4px; }
+.team-builder-move-type-info .type-badge { flex: none; }
+.team-builder-move-level { flex: none; color: #56657a; font-size: 9px; font-weight: 700; white-space: nowrap; }
 .team-builder-stats-header,
 .team-builder-detailed-stat {
 	display: grid;

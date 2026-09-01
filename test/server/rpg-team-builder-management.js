@@ -177,6 +177,15 @@ describe('RPG Team Builder management backend', () => {
 		assert.throws(() => service.editBoxPokemonWithTeamBuilder(
 			player.token, undefined, pokemonId, changedMoves, box.revision
 		), /field is locked: moves/);
+
+		const nicknameView = service.renamePokemonFromTeamBuilder(
+			player.token, undefined, pokemonId, 'Marujo', box.revision
+		);
+		assert.equal(nicknameView.pokemon.name, 'Marujo');
+		const master = service.loginMaster('14081998');
+		assert.throws(() => service.renamePokemonFromTeamBuilder(
+			master.token, 'samuel', pokemonId, 'Proibido', nicknameView.boxRevision
+		), /Mestre n\u00e3o pode alterar o apelido/);
 	});
 
 	it('lets a Player swap move slots while preserving each move PP without consuming a TM', () => {

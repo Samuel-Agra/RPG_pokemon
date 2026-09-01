@@ -176,6 +176,9 @@ describe('RPG Team Builder frontend', () => {
 		assert.match(teamBuilder, /Habilidade Oculta/);
 		assert.match(teamBuilder, /line\.disabled = isReadOnly\(\) \|\| !data\.permissions\.master/);
 	});
+	it('keeps the exact current moves when a Player saves only a nickname', () => {
+		assert.match(teamBuilder, /data\.permissions\.master \? draftMoves\.map[\s\S]*pokemon\.moves\.map\(move => move\.name\)/);
+	});
 
 	it('shows selected, owned-TM, level and compatible-TM move groups', () => {
 		assert.match(teamBuilder, /appendMoveGroup\(pane, 'TMs [^']* na Bag'/);
@@ -237,7 +240,8 @@ describe('RPG Team Builder frontend', () => {
 		assert.doesNotMatch(teamBuilder, /Diminua um atributo antes de aumentar outro/);
 		assert.match(css, /team-builder-training-meta/);
 		assert.doesNotMatch(teamBuilder, /team-builder-actions/);
-		assert.match(teamBuilder, /nickname\.addEventListener\('change', saveGeneral\)/);
+		assert.match(teamBuilder, /nickname\.addEventListener\('change', saveNickname\)/);
+		assert.match(teamBuilder, /\/team-builder\/.*\/nickname/);
 		assert.match(teamBuilder, /levelControl\.addEventListener\('change', saveGeneral\)/);
 		assert.match(teamBuilder, /Salvar atributos/);
 	});

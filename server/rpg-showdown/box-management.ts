@@ -183,6 +183,11 @@ export interface RPGBoxMoveInput {
 	expectedRevision: number;
 }
 
+export interface RPGBoxApplyPartyInput {
+	pokemonIds: string[];
+	expectedRevision: number;
+}
+
 export interface RPGBoxMasterEdit {
 	hp?: number;
 	pp?: number[];
@@ -286,6 +291,49 @@ export class RPGBoxManagement {
 			this.restore(character.box, source, entry);
 			throw error;
 		}
+		this.commit(character);
+	}
+
+	static applyParty(character: RPGBoxCharacterData, input: RPGBoxApplyPartyInput): void {
+		this.revision(character, input.expectedRevision);
+		if (!Array.isArray(input.pokemonIds) || input.pokemonIds.length < 1 || input.pokemonIds.length > 6) {
+			throw new Error('A equipe salva deve conter entre 1 e 6 Pok\u00e9mon');
+		}
+		const ids = input.pokemonIds.map(id => String(id || ''));
+		if (ids.some(id => !id) || new Set(ids).size !== ids.length) {
+			throw new Error('A equipe salva possui Pok\u00e9mon repetidos ou inv\u00e1lidos');
+		}
+		if (character.box.party.some(entry => (entry as RPGManagedStoredPokemon).metadata?.evTraining)) {
+			throw new Error('Pok\u00e9mon em treinamento deve permanecer na equipe at\u00e9 a conclus\u00e3o');
+		}
+		const all = new Map<string, RPGManagedStoredPokemon>();
+		for (const entry of character.box.party) all.set(entry.pokemonId, entry as RPGManagedStoredPokemon);
+		for (const box of character.box.boxes) {
+			for (const entry of box.slots) if (entry) all.set(entry.pokemonId, entry as RPGManagedStoredPokemon);
+		}
+		const selected = ids.map(id => {
+			const entry = all.get(id);
+			if (!entry) throw new Error('Um Pok\u00e9mon da equipe salva n\u00e3o est\u00e1 mais dispon\u00edvel');
+			return entry;
+		});
+		const selectedIds = new Set(ids);
+		const outgoing = character.box.party.filter(entry => !selectedIds.has(entry.pokemonId));
+		const availableSlots: {boxIndex: number, slot: number}[] = [];
+		for (const box of character.box.boxes) {
+			for (let slot = 0; slot < box.slots.length; slot++) {
+				const entry = box.slots[slot];
+				if (!entry || selectedIds.has(entry.pokemonId)) availableSlots.push({boxIndex: box.index, slot});
+			}
+		}
+		if (outgoing.length > availableSlots.length) {
+			throw new Error('N\u00e3o h\u00e1 espa\u00e7o suficiente na Box para guardar a equipe atual');
+		}
+		for (const location of availableSlots) character.box.boxes[location.boxIndex].slots[location.slot] = null;
+		for (const [index, entry] of outgoing.entries()) {
+			const location = availableSlots[index];
+			character.box.boxes[location.boxIndex].slots[location.slot] = entry;
+		}
+		character.box.party = selected;
 		this.commit(character);
 	}
 
@@ -577,6 +625,16 @@ export class RPGBoxManagement {
 			return Math.max(0, Math.min(maximum, previousPP.get(toID(move)) ?? maximum));
 		});
 		entry.pokemon = this.setToCaptured(edited);
+		this.commit(character);
+	}
+
+	static nickname(
+		character: RPGBoxCharacterData, pokemonId: string, nickname: string, expectedRevision: number
+	): void {
+		this.revision(character, expectedRevision);
+		const entry = this.requireEntry(character.box, pokemonId);
+		if (entry.metadata?.evTraining) throw new Error('Pok\u00e9mon em treinamento est\u00e1 indispon\u00edvel');
+		entry.pokemon.name = this.text(nickname || entry.pokemon.species, 'Pokemon nickname', 30);
 		this.commit(character);
 	}
 
