@@ -175,6 +175,7 @@ describe('RPG login', () => {
 		const service = createService();
 		const character = createCharacter(service);
 		const player = service.loginPlayer(character.id, 'senha-rpg');
+		const master = service.loginMaster('14081998');
 
 		assert.deepEqual(service.getBank(player.token), {version: 1, balance: 0, revision: 0, money: 3000});
 		assert.deepEqual(service.depositBank(player.token, undefined, 2000, 0), {
@@ -187,6 +188,22 @@ describe('RPG login', () => {
 		});
 		assert.equal(service.getCharacter(player.token).money, 1750);
 		assert.equal(service.getCharacter(player.token).bank.balance, 1250);
+		const blocked = service.setCharacterPageAccess(master.token, character.id, 'bank', false);
+		assert.equal(blocked.pageAccess.bank, false);
+		assert.throws(() => service.getBank(player.token), /bloqueou o acesso ao banco/);
+		assert.throws(() => service.depositBank(player.token, undefined, 1, 2), /bloqueou o acesso ao banco/);
+		assert.equal(service.getBank(master.token, character.id).balance, 1250);
+	});
+
+	it('lets only the Master add or remove money from a Player wallet', () => {
+		const service = createService();
+		const character = createCharacter(service);
+		const player = service.loginPlayer(character.id, 'senha-rpg');
+		const master = service.loginMaster('14081998');
+		assert.equal(service.adjustCharacterMoney(master.token, character.id, 'add', 500).money, 3500);
+		assert.equal(service.adjustCharacterMoney(master.token, character.id, 'remove', 1200).money, 2300);
+		assert.throws(() => service.adjustCharacterMoney(master.token, character.id, 'remove', 2301), /insuficientes/);
+		assert.throws(() => service.adjustCharacterMoney(player.token, character.id, 'add', 1), /master/i);
 	});
 
 	it('lets the Player persist a personalized trainer phrase', () => {

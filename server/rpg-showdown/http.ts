@@ -207,7 +207,7 @@ export class RPGHttpServer {
 			const body = await this.body(req);
 			this.json(res, 200, { character: this.login.setCharacterPageAccess(
 				this.token(req), this.string(body.characterId),
-				this.string(body.page) as 'bag' | 'box' | 'training' | 'center' | 'fossils' | 'nursery' | 'shops',
+				this.string(body.page) as 'bank' | 'bag' | 'box' | 'training' | 'center' | 'fossils' | 'nursery' | 'shops',
 				body.allowed === true
 			) });
 			return;
@@ -215,6 +215,14 @@ export class RPGHttpServer {
 		if (method === 'GET' && url.pathname === '/api/rpg/bank') {
 			this.json(res, 200, {bank: this.login.getBank(
 				this.token(req), url.searchParams.get('characterId') || undefined
+			)});
+			return;
+		}
+		if (method === 'PUT' && url.pathname === '/api/rpg/characters/money') {
+			const body = await this.body(req);
+			this.json(res, 200, {character: this.login.adjustCharacterMoney(
+				this.token(req), this.string(body.characterId),
+				this.string(body.operation) as 'add' | 'remove', Number(body.amount)
 			)});
 			return;
 		}

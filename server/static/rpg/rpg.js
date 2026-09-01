@@ -1440,9 +1440,141 @@ async function renderPlayerBody(character) {
 	const wallet = section('Carteira');
 	const bank = Math.max(0, Number(character.bank?.balance || 0));
 	const walletGrid = createElement('div', 'overview-money-grid');
-	walletGrid.append(profileMetric('Dinheiro', formatOverviewMoney(character.money)), profileMetric('Banco', formatOverviewMoney(bank)),
+	const moneyMetric = profileMetric('Dinheiro', formatOverviewMoney(character.money));
+	const bankMetric = profileMetric('Banco', formatOverviewMoney(bank));
+	walletGrid.append(moneyMetric, bankMetric,
 		profileMetric('Valor total', formatOverviewMoney(Number(character.money || 0) + bank)));
 	wallet.body.append(walletGrid);
+	const masterViewingPlayer = state.session?.role === 'master' && state.session?.mode === 'player';
+	if (masterViewingPlayer) {
+		moneyMetric.classList.add('overview-bank-toggle');
+		moneyMetric.setAttribute('role', 'button'); moneyMetric.setAttribute('tabindex', '0');
+		moneyMetric.setAttribute('aria-expanded', 'false');
+		const moneyPanel = createElement('div', 'overview-bank-panel overview-money-panel hidden');
+		const moneyChoices = createElement('div', 'overview-bank-choices');
+		const addMoney = button('Adicionar', 'button primary');
+		const removeMoney = button('Remover', 'button danger');
+		moneyChoices.append(addMoney, removeMoney);
+		const moneyForm = createElement('form', 'overview-bank-form hidden');
+		const moneyTitle = createElement('strong');
+		const moneyAmount = createElement('input');
+		moneyAmount.type = 'number'; moneyAmount.min = '1'; moneyAmount.step = '1'; moneyAmount.inputMode = 'numeric';
+		moneyAmount.placeholder = 'Valor em Pokécoins';
+		const moneyConfirm = button('', 'button primary'); moneyConfirm.type = 'submit';
+		const moneyCancel = button('Cancelar', 'button'); moneyCancel.type = 'button';
+		moneyForm.append(moneyTitle, moneyAmount, moneyConfirm, moneyCancel);
+		moneyPanel.append(moneyChoices, moneyForm);
+		wallet.panel.classList.add('overview-wallet-panel'); wallet.panel.append(moneyPanel);
+		let moneyOperation = '';
+		let outsideMoneyHandler;
+		const closeMoney = () => {
+			moneyPanel.classList.add('hidden'); moneyMetric.setAttribute('aria-expanded', 'false');
+			moneyChoices.classList.remove('hidden'); moneyForm.classList.add('hidden'); moneyOperation = '';
+			if (outsideMoneyHandler) document.removeEventListener('pointerdown', outsideMoneyHandler);
+		};
+		const toggleMoney = () => {
+			if (!moneyPanel.classList.contains('hidden')) { closeMoney(); return; }
+			moneyPanel.classList.remove('hidden'); moneyMetric.setAttribute('aria-expanded', 'true');
+			outsideMoneyHandler = event => { if (!wallet.panel.contains(event.target)) closeMoney(); };
+			setTimeout(() => document.addEventListener('pointerdown', outsideMoneyHandler), 0);
+		};
+		const chooseMoneyOperation = operation => {
+			moneyOperation = operation; moneyChoices.classList.add('hidden'); moneyForm.classList.remove('hidden');
+			moneyTitle.textContent = operation === 'add' ? 'Quanto deseja adicionar?' : 'Quanto deseja remover?';
+			moneyConfirm.textContent = operation === 'add' ? 'Adicionar' : 'Remover';
+			moneyConfirm.className = operation === 'add' ? 'button primary' : 'button danger';
+			moneyAmount.max = operation === 'remove' ? String(Math.max(0, Number(character.money || 0))) : '';
+			moneyAmount.value = ''; moneyAmount.focus();
+		};
+		moneyMetric.addEventListener('click', toggleMoney);
+		moneyMetric.addEventListener('keydown', event => {
+			if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggleMoney(); }
+		});
+		addMoney.addEventListener('click', () => chooseMoneyOperation('add'));
+		removeMoney.addEventListener('click', () => chooseMoneyOperation('remove'));
+		moneyCancel.addEventListener('click', () => {
+			moneyChoices.classList.remove('hidden'); moneyForm.classList.add('hidden'); moneyOperation = '';
+		});
+		moneyForm.addEventListener('submit', async event => {
+			event.preventDefault();
+			const value = Number(moneyAmount.value);
+			if (!Number.isSafeInteger(value) || value <= 0) { showToast('Informe um valor inteiro maior que zero.', true); return; }
+			moneyConfirm.disabled = true;
+			try {
+				await api('/characters/money', {method: 'PUT', body: {
+					characterId: character.id, operation: moneyOperation, amount: value,
+				}});
+				showToast(moneyOperation === 'add' ? 'Dinheiro adicionado.' : 'Dinheiro removido.');
+				await renderDashboard();
+			} catch (error) { moneyConfirm.disabled = false; showToast(error.message, true); }
+		});
+	}
+	const bankAllowed = character.pageAccess?.bank !== false;
+	if (bankAllowed) {
+	bankMetric.classList.add('overview-bank-toggle');
+	bankMetric.setAttribute('role', 'button');
+	bankMetric.setAttribute('tabindex', '0');
+	bankMetric.setAttribute('aria-expanded', 'false');
+	const bankPanel = createElement('div', 'overview-bank-panel hidden');
+	const bankChoices = createElement('div', 'overview-bank-choices');
+	const deposit = button('Depositar', 'button primary');
+	const withdraw = button('Retirar', 'button');
+	bankChoices.append(deposit, withdraw);
+	const bankForm = createElement('form', 'overview-bank-form hidden');
+	const bankFormTitle = createElement('strong');
+	const amount = createElement('input');
+	amount.type = 'number'; amount.min = '1'; amount.step = '1'; amount.inputMode = 'numeric';
+	amount.placeholder = 'Valor em Pokécoins';
+	const confirm = button('', 'button primary'); confirm.type = 'submit';
+	const cancel = button('Cancelar', 'button'); cancel.type = 'button';
+	bankForm.append(bankFormTitle, amount, confirm, cancel);
+	bankPanel.append(bankChoices, bankForm);
+	wallet.panel.classList.add('overview-wallet-panel');
+	wallet.panel.append(bankPanel);
+	let bankMode = '';
+	let outsideBankHandler;
+	const closeBank = () => {
+		bankPanel.classList.add('hidden'); bankMetric.setAttribute('aria-expanded', 'false');
+		bankChoices.classList.remove('hidden'); bankForm.classList.add('hidden'); bankMode = '';
+		if (outsideBankHandler) document.removeEventListener('pointerdown', outsideBankHandler);
+	};
+	const toggleBank = () => {
+		const opening = bankPanel.classList.contains('hidden');
+		if (!opening) { closeBank(); return; }
+		bankPanel.classList.remove('hidden'); bankMetric.setAttribute('aria-expanded', 'true');
+		outsideBankHandler = event => { if (!wallet.panel.contains(event.target)) closeBank(); };
+		setTimeout(() => document.addEventListener('pointerdown', outsideBankHandler), 0);
+	};
+	const chooseBankMode = mode => {
+		bankMode = mode; bankChoices.classList.add('hidden'); bankForm.classList.remove('hidden');
+		bankFormTitle.textContent = mode === 'deposit' ? 'Quanto deseja depositar?' : 'Quanto deseja retirar?';
+		confirm.textContent = mode === 'deposit' ? 'Depositar' : 'Resgatar';
+		amount.max = String(mode === 'deposit' ? Math.max(0, Number(character.money || 0)) : bank);
+		amount.value = ''; amount.focus();
+	};
+	bankMetric.addEventListener('click', toggleBank);
+	bankMetric.addEventListener('keydown', event => {
+		if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggleBank(); }
+	});
+	deposit.addEventListener('click', () => chooseBankMode('deposit'));
+	withdraw.addEventListener('click', () => chooseBankMode('withdraw'));
+	cancel.addEventListener('click', () => {
+		bankChoices.classList.remove('hidden'); bankForm.classList.add('hidden'); bankMode = '';
+	});
+	bankForm.addEventListener('submit', async event => {
+		event.preventDefault();
+		const value = Number(amount.value);
+		if (!Number.isSafeInteger(value) || value <= 0) { showToast('Informe um valor inteiro maior que zero.', true); return; }
+		confirm.disabled = true;
+		try {
+			await api('/bank/' + (bankMode === 'deposit' ? 'deposit' : 'redeem'), {
+				method: 'POST', body: {amount: value, expectedRevision: Number(character.bank?.revision || 0)},
+			});
+			showToast(bankMode === 'deposit' ? 'Depósito realizado.' : 'Retirada realizada.');
+			await renderDashboard();
+		} catch (error) { confirm.disabled = false; showToast(error.message, true); }
+	});
+	}
 
 	const statistics = section('Estatísticas');
 	statistics.panel.classList.add('overview-statistics-panel');
@@ -2389,7 +2521,7 @@ async function renderMasterBody(characters) {
 			});
 			return toggle;
 		};
-		for (const [page, label] of [['box', 'Box'], ['bag', 'Bag'], ['training', 'Treinamento'], ['center', 'Centro Pokémon'], ['fossils', 'Paleontologia'], ['nursery', 'Berçário']]) {
+		for (const [page, label] of [['bank', 'Banco'], ['box', 'Box'], ['bag', 'Bag'], ['training', 'Treinamento'], ['center', 'Centro Pokémon'], ['fossils', 'Paleontologia'], ['nursery', 'Berçário']]) {
 			permissions.append(pageToggle(page, label));
 		}
 		const shopAccess = createElement('div', 'master-shop-access');

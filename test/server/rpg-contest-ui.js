@@ -22,6 +22,7 @@ describe('RPG contest UI', () => {
 		const battle = fs.readFileSync(path.join(root, 'battle-ui-v2.js'), 'utf8');
 		const playerBattle = fs.readFileSync(path.join(root, 'battle-ui.js'), 'utf8');
 		const room = fs.readFileSync(path.join(root, 'battle-room.js'), 'utf8');
+		const rpg = fs.readFileSync(path.join(root, 'rpg.js'), 'utf8');
 		assert.ok(contest.includes("actionButton('Assistir'"));
 		assert.ok(contest.includes('const active = !context.master'));
 		assert.ok(contest.includes("!['cancelled', 'ended'].includes(session.status)"));
@@ -31,6 +32,12 @@ describe('RPG contest UI', () => {
 		assert.ok(room.includes('const observer = !viewerParticipant'));
 		assert.ok(room.includes('if (observer || !side) return null;'));
 		assert.ok(!room.includes('Modo de observacao: o Mestre nao controla lados formados apenas por Players.'));
+		assert.ok(rpg.includes("profileMetric('Banco'"));
+		assert.ok(rpg.includes('if (bankAllowed) {'));
+		assert.ok(rpg.includes("api('/bank/' + (bankMode === 'deposit' ? 'deposit' : 'redeem')"));
+		assert.ok(rpg.includes("api('/characters/money'"));
+		assert.ok(rpg.includes("const masterViewingPlayer = state.session?.role === 'master' && state.session?.mode === 'player'"));
+		assert.ok(rpg.includes("['bank', 'Banco']"));
 	});
 
 	it('provides move selection, judging, reactions, results and an event-ready stage', () => {

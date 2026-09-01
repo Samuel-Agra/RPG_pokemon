@@ -486,6 +486,15 @@ input, select {
 .overview-metric small { display: block; min-height: 25px; color: #66788d; font-size: 10px; font-weight: bold; text-transform: uppercase; }
 .overview-metric strong { display: block; color: #263f60; font-size: 21px; overflow-wrap: anywhere; }
 .overview-money-grid .overview-metric:last-child { background: linear-gradient(#fff8cf, #efe1a0); border-color: #bca65a; }
+.overview-wallet-panel { position: relative; overflow: visible; }
+.overview-bank-toggle { cursor: pointer; user-select: none; transition: border-color .15s ease, box-shadow .15s ease, transform .15s ease; }
+.overview-bank-toggle:hover, .overview-bank-toggle:focus-visible, .overview-bank-toggle[aria-expanded="true"] { border-color: #527eae; box-shadow: 0 0 0 2px #86a8d55c; outline: 0; transform: translateY(-1px); }
+.overview-bank-panel { position: absolute; z-index: 30; top: calc(100% + 5px); left: 0; width: 100%; padding: 13px; background: linear-gradient(#f8fbff, #e7eef6); border: 1px solid #93a4b7; border-radius: 6px; box-shadow: 0 10px 25px #23374d55; }
+.overview-bank-panel.hidden, .overview-bank-form.hidden, .overview-bank-choices.hidden { display: none; }
+.overview-bank-choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.overview-bank-form { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; align-items: center; }
+.overview-bank-form > strong { grid-column: 1 / -1; color: #2a4566; }
+.overview-bank-form input { min-width: 0; }
 .overview-pokedex-summary { margin-bottom: 12px; }
 .overview-pokedex-panel > .section-title { position: relative; padding-right: 126px; }
 .overview-pokedex-panel > .section-body { min-height: 72px; }

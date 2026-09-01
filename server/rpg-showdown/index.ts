@@ -161,6 +161,7 @@ export interface RPGCharacterSelection {
 }
 
 export interface RPGCharacterPageAccess {
+	bank: boolean;
 	bag: boolean;
 	box: boolean;
 	training: boolean;
@@ -739,7 +740,7 @@ export class RPGLoginService {
 		const state: RPGCharacterState = {
 			version: RPG_ACCOUNT_VERSION, id, characterName, playerName, avatar,
 			pageAccess: {
-				bag: true, box: true, training: true, center: true, fossils: true, nursery: true, shops: true,
+				bank: true, bag: true, box: true, training: true, center: true, fossils: true, nursery: true, shops: true,
 			},
 			shopAccess: Object.fromEntries(this.commerce.directory().shops.map(shop => [shop.id, true])),
 			money: request.initialMoney, bank: {version: 1, balance: 0, revision: 0},
@@ -1005,14 +1006,15 @@ export class RPGLoginService {
 
 	setCharacterPageAccess(
 		token: string, characterId: string,
-		page: 'bag' | 'box' | 'training' | 'center' | 'fossils' | 'nursery' | 'shops', allowed: boolean
+		page: 'bank' | 'bag' | 'box' | 'training' | 'center' | 'fossils' | 'nursery' | 'shops', allowed: boolean
 	): RPGCharacterState {
 		this.requireMasterRole(token);
-		if (!['bag', 'box', 'training', 'center', 'fossils', 'nursery', 'shops'].includes(page)) {
+		if (!['bank', 'bag', 'box', 'training', 'center', 'fossils', 'nursery', 'shops'].includes(page)) {
 			throw new Error('Invalid RPG character page access');
 		}
 		const record = this.requireCharacter(characterId);
 		record.state.pageAccess = {
+			bank: record.state.pageAccess?.bank !== false,
 			bag: record.state.pageAccess?.bag !== false,
 			box: record.state.pageAccess?.box !== false,
 			training: record.state.pageAccess?.training !== false,
@@ -1054,6 +1056,21 @@ export class RPGLoginService {
 	getBank(token: string, characterId?: string): RPGBankView {
 		const record = this.requireBankRecord(token, characterId, 'money:read');
 		return {...this.bankAccount(record.state), money: record.state.money};
+	}
+
+	adjustCharacterMoney(
+		token: string, characterId: string, operation: 'add' | 'remove', amount: number
+	): RPGCharacterState {
+		this.requireMasterRole(token);
+		if (!['add', 'remove'].includes(operation)) throw new Error('Operação de dinheiro inválida');
+		if (!Number.isSafeInteger(amount) || amount <= 0) throw new Error('O valor deve ser um inteiro maior que zero');
+		const record = this.requireCharacter(characterId);
+		const nextMoney = operation === 'add' ? record.state.money + amount : record.state.money - amount;
+		if (!Number.isSafeInteger(nextMoney) || nextMoney < 0) throw new Error('Pokécoins insuficientes na carteira');
+		record.state.money = nextMoney;
+		record.state.updatedAt = this.now();
+		this.repository.set(record);
+		return this.characterView(record);
 	}
 
 	setTrainerTagline(token: string, characterId: string | undefined, tagline: string): RPGCharacterState {
@@ -3434,7 +3451,11 @@ export class RPGLoginService {
 		const session = this.getSession(token);
 		const target = toID(characterId || session.characterId || session.viewAsCharacterId || '');
 		this.requirePermission(token, permission, target);
-		return this.requireCharacter(target);
+		const record = this.requireCharacter(target);
+		if (session.role === 'player' && record.state.pageAccess?.bank === false) {
+			throw new Error('O Mestre bloqueou o acesso ao banco');
+		}
+		return record;
 	}
 
 	private characterShopAccess(character: RPGCharacterState): Record<string, boolean> {
@@ -4691,6 +4712,7 @@ function ensurePermanentTestCharacters(service: RPGLoginService, masterCode: str
 function migrateCharacterPageAccess(service: RPGLoginService): void {
 	for (const record of service.repository.list()) {
 		const pageAccess = {
+			bank: record.state.pageAccess?.bank !== false,
 			bag: record.state.pageAccess?.bag !== false,
 			box: record.state.pageAccess?.box !== false,
 			training: record.state.pageAccess?.training !== false,
