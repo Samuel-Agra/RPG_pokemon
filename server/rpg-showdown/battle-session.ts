@@ -518,6 +518,16 @@ export class RPGBattleSessionService {
 			}
 		}
 		const opponents = session.participants.filter(participant => participant.team === 'B');
+		if (session.format === 'multi' && (session.opponentType === 'player' || session.opponentType === 'npc')) {
+			const teamA = session.participants.filter(participant => participant.team === 'A');
+			const teamB = session.participants.filter(participant => participant.team === 'B');
+			if (teamA.length !== 2 || teamB.length !== 2) {
+				throw new Error('RPG Multi battles require exactly two trainers on each team');
+			}
+			if (session.opponentType === 'npc' && !session.participants.some(participant => participant.kind === 'npc')) {
+				throw new Error('RPG Multi battles against trainers require at least one NPC');
+			}
+		}
 		if (!opponents.some(participant => participant.kind === session.opponentType)) {
 			throw new Error('RPG battle opponent type does not match team B');
 		}

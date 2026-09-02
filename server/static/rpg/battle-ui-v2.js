@@ -277,12 +277,15 @@ function rpgBattleEditor(characters, existing, onClose) {
 		column.dataset.participantTeam = teamId;
 		column.append(createElement('strong', '', 'Equipe ' + teamId));
 		for (const character of characters) {
-			const inExisting = existing?.participants.some(item => item.team === teamId && item.characterId === character.id) || false;
+			const inExisting = existing?.format === 'multi' ?
+				teamId === 'A' && !!existing.participants.some(item => item.kind === 'player' && item.characterId === character.id) :
+				!!existing?.participants.some(item => item.team === teamId && item.characterId === character.id);
 			const choice = rpgPlayerParticipantChoice(character, teamId, inExisting, false, () => {
 				if (choice.input.checked) {
 					const other = playerInputs.get((teamId === 'A' ? 'B' : 'A') + ':' + character.id);
 					if (other) other.checked = false;
 				}
+				refreshMultiAssignments();
 			});
 			playerInputs.set(teamId + ':' + character.id, choice.input);
 			column.append(choice.wrapper);
@@ -299,8 +302,12 @@ function rpgBattleEditor(characters, existing, onClose) {
 			displayName: participant.displayName, pokemon,
 		})));
 	const temporaryNPCs = window.RPGContestUI.battleTemporaryNPCEditor(
-		{api}, initialTemporaryNPCs, () => Number(teamLimit.value)
+		{api}, initialTemporaryNPCs, () => Number(teamLimit.value), () => canAddMultiParticipant()
 	);
+	const savedNPCs = window.RPGContestUI.savedNPCSelector({api}, () => Number(teamLimit.value), false, temporaryNPCs.registeredCards, () => canAddMultiParticipant());
+	const savedNPCColumn = createElement('div', 'participant-column battle-saved-npc-column hidden');
+	savedNPCColumn.append(savedNPCs.root);
+	columns.append(savedNPCColumn);
 	npcPanel.append(temporaryNPCs.root);
 	participantsStep.body.append(npcPanel);
 
@@ -314,7 +321,74 @@ function rpgBattleEditor(characters, existing, onClose) {
 	pokemonStep.body.append(limitRow, wildArea);
 	form.append(pokemonStep.step, participantsStep.step);
 
-	const conditions = rpgBattleStep(4, 'Condi\u00e7\u00f5es iniciais', 'Configure o ambiente e o ponto inicial do confronto.');
+	const multiAssignmentStep = rpgBattleStep(4, 'Forma\u00e7\u00e3o das equipes', 'Defina os dois treinadores da Equipe A e os dois treinadores da Equipe B.');
+	multiAssignmentStep.step.classList.add('hidden');
+	const multiAssignmentList = createElement('div', 'battle-multi-assignment-list');
+	multiAssignmentStep.body.append(
+		createElement('p', 'format-help', 'Selecione quatro treinadores, incluindo ao menos um NPC. Cada equipe deve receber exatamente dois treinadores.'),
+		multiAssignmentList
+	);
+	form.append(multiAssignmentStep.step);
+	const multiAssignments = new Map();
+	function canAddMultiParticipant() {
+		return format.value !== 'multi' || opponent.value !== 'npc' || multiCandidates().length < 4;
+	}
+	function multiCandidates() {
+		const candidates = [];
+		for (const character of characters) {
+			if (playerInputs.get('A:' + character.id)?.checked) {
+				candidates.push({key: 'player:' + character.id, kind: 'player', name: character.characterName, avatar: character.avatar});
+			}
+		}
+		for (const npc of [...savedNPCs.participants(), ...temporaryNPCs.participants()]) {
+			candidates.push({key: 'npc:' + npc.id, kind: 'npc', name: npc.displayName, avatar: npc.avatar});
+		}
+		return candidates;
+	}
+	function multiFormationReady(candidates = multiCandidates()) {
+		if (candidates.length !== 4 || !candidates.some(candidate => candidate.kind === 'npc')) return false;
+		return candidates.filter(candidate => multiAssignments.get(candidate.key) === 'A').length === 2 &&
+			candidates.filter(candidate => multiAssignments.get(candidate.key) === 'B').length === 2 &&
+			candidates.some(candidate => candidate.kind === opponent.value && multiAssignments.get(candidate.key) === 'B');
+	}
+	function refreshMultiAssignments() {
+		if (!multiAssignmentList) return;
+		const candidates = multiCandidates();
+		const full = format.value === 'multi' && opponent.value === 'npc' && candidates.length >= 4;
+		const multiPlayer = format.value === 'multi' && opponent.value === 'player';
+		for (const [key, input] of playerInputs) {
+			const teamId = key.slice(0, 1);
+			const selectedOnTeam = [...playerInputs].filter(([entryKey, entryInput]) => entryKey.startsWith(teamId + ':') && entryInput.checked).length;
+			if (!input.checked && !input.closest('.hidden')) input.disabled = multiPlayer ? selectedOnTeam >= 2 : key.startsWith('A:') && full;
+		}
+		for (const control of temporaryNPCs.root.querySelectorAll('.contest-temporary-heading-actions button')) control.disabled = full;
+		savedNPCs.refresh?.();
+		const validKeys = new Set(candidates.map(candidate => candidate.key));
+		for (const key of [...multiAssignments.keys()]) if (!validKeys.has(key)) multiAssignments.delete(key);
+		for (const candidate of candidates) {
+			if (multiAssignments.has(candidate.key)) continue;
+			const aCount = [...multiAssignments.values()].filter(team => team === 'A').length;
+			multiAssignments.set(candidate.key, aCount < 2 ? 'A' : 'B');
+		}
+		multiAssignmentList.replaceChildren();
+		for (const candidate of candidates) {
+			const row = createElement('div', 'battle-multi-assignment-row');
+			const portrait = createElement('img');
+			portrait.src = RPGAssets.url(`sprites/trainers/${String(candidate.avatar || 'lucas').replace(/\.png$/i, '')}.png`); portrait.alt = '';
+			const identity = createElement('div');
+			identity.append(createElement('strong', '', candidate.name), createElement('small', '', candidate.kind === 'npc' ? 'NPC' : 'Player'));
+			const team = rpgBattleSelect([['A', 'Equipe A'], ['B', 'Equipe B']], multiAssignments.get(candidate.key) || 'A');
+			team.addEventListener('change', () => { multiAssignments.set(candidate.key, team.value); refreshMultiAssignments(); });
+			row.append(portrait, identity, team); multiAssignmentList.append(row);
+		}
+		if (!candidates.length) multiAssignmentList.append(createElement('div', 'empty-state', 'Escolha os participantes no t\u00f3pico 3.'));
+		const multiPlayerReady = [...playerInputs].filter(([key, input]) => key.startsWith('A:') && input.checked).length === 2 &&
+			[...playerInputs].filter(([key, input]) => key.startsWith('B:') && input.checked).length === 2;
+		invite.disabled = format.value === 'multi' && (opponent.value === 'npc' ? !multiFormationReady(candidates) : opponent.value === 'player' ? !multiPlayerReady : false);
+	}
+	new MutationObserver(() => refreshMultiAssignments()).observe(temporaryNPCs.registeredCards.parentElement, {childList: true, subtree: true});
+
+	const conditions = rpgBattleStep(5, 'Condi\u00e7\u00f5es iniciais', 'Configure o ambiente e o ponto inicial do confronto.');
 	const weather = rpgBattleSelect([['', 'Nenhum'], ['sunnyday', 'Sunny'], ['raindance', 'Rain'], ['sandstorm', 'Sand'], ['snow', 'Snow']], existing?.conditions.weather.id || '');
 	const terrain = rpgBattleSelect([['', 'Nenhum'], ['electricterrain', 'Electric'], ['grassyterrain', 'Grassy'], ['psychicterrain', 'Psychic'], ['mistyterrain', 'Misty']], existing?.conditions.terrain.id || '');
 	const startingTurn = createElement('input'); startingTurn.type = 'number'; startingTurn.min = '1'; startingTurn.value = String(existing?.conditions.startingTurn || 1);
@@ -421,7 +495,7 @@ function rpgBattleEditor(characters, existing, onClose) {
 	});
 	form.append(conditions.step);
 
-	const rulesStep = rpgBattleStep(5, 'Regras especiais', 'As escolhas de equipe pertencem aos treinadores participantes.');
+	const rulesStep = rpgBattleStep(6, 'Regras especiais', 'As escolhas de equipe pertencem aos treinadores participantes.');
 	const canFlee = rpgBattleCheck('Permitir fuga', existing?.rules.canFlee ?? true);
 	const experience = rpgBattleCheck('Conceder experi\u00eancia', existing?.rules.grantsExperience ?? true);
 	const switching = rpgBattleCheck('Permitir trocar Pok\u00e9mon', existing?.rules.allowSwitching ?? true);
@@ -451,19 +525,27 @@ function rpgBattleEditor(characters, existing, onClose) {
 		opponent.disabled = isBoss || isRaid;
 		const isPlayer = opponent.value === 'player';
 		const isNpc = opponent.value === 'npc';
+		const isMultiTrainer = format.value === 'multi' && isNpc;
 		const isWild = opponent.value === 'wild' || opponent.value === 'horde';
 		const wagerAllowed = isPlayer || isNpc;
 		wagerField.classList.toggle('hidden', !wagerAllowed);
 		wagerAmount.disabled = !wagerAllowed;
 		if (!wagerAllowed) wagerAmount.value = '0';
 		columns.classList.remove('hidden');
-		npcPanel.classList.toggle('hidden', !isNpc);
-		columns.querySelector('[data-participant-team="B"]').classList.toggle('hidden', !isPlayer);
+		npcPanel.classList.toggle('hidden', !(isNpc || isMultiTrainer));
+		savedNPCColumn.classList.toggle('hidden', !(isNpc || isMultiTrainer));
+		columns.querySelector('[data-participant-team="B"]').classList.toggle('hidden', !isPlayer || isMultiTrainer);
+		multiAssignmentStep.step.classList.toggle('hidden', !isMultiTrainer);
+		conditions.step.querySelector('.battle-step-number').textContent = isMultiTrainer ? '5' : '4';
+		rulesStep.step.querySelector('.battle-step-number').textContent = isMultiTrainer ? '6' : '5';
+		columns.querySelector('[data-participant-team="A"] > strong').textContent = isPlayer && !isMultiTrainer ? 'Equipe A' : 'Players';
 		for (const [key, input] of playerInputs) {
 			if (key.startsWith('A:') && isRaid) { input.checked = true; input.disabled = true; }
 			else input.disabled = false;
 			if (key.startsWith('B:') && !isPlayer) input.checked = false;
+			if (key.startsWith('B:') && isMultiTrainer) input.checked = false;
 		}
+		refreshMultiAssignments();
 		teamLimit.disabled = isRaid;
 		if (isRaid) teamLimit.value = '6';
 		wildArea.classList.toggle('hidden', !isWild);
@@ -516,12 +598,28 @@ function rpgBattleEditor(characters, existing, onClose) {
 		try {
 			const participants = [];
 			const isRaid = format.value === 'raid';
+			const isMultiTrainer = format.value === 'multi' && opponent.value === 'npc';
+			const isMultiPlayer = format.value === 'multi' && opponent.value === 'player';
+			const selectedNPCParticipants = (opponent.value === 'npc' || isMultiTrainer) ?
+				[...savedNPCs.participants(), ...temporaryNPCs.participants()] : [];
+			if (isMultiTrainer) {
+				const candidates = multiCandidates();
+				if (candidates.length !== 4) throw new Error('O formato Multi exige exatamente quatro treinadores.');
+				if (!candidates.some(candidate => candidate.kind === 'npc')) throw new Error('A batalha Multi deve incluir ao menos um NPC.');
+				const aCount = candidates.filter(candidate => multiAssignments.get(candidate.key) === 'A').length;
+				const bCount = candidates.filter(candidate => multiAssignments.get(candidate.key) === 'B').length;
+				if (aCount !== 2 || bCount !== 2) throw new Error('Distribua exatamente dois treinadores em cada equipe.');
+				if (!candidates.some(candidate => candidate.kind === opponent.value && multiAssignments.get(candidate.key) === 'B')) {
+					throw new Error(`A Equipe B precisa ter ao menos um ${opponent.value === 'npc' ? 'NPC' : 'Player'} conforme o adversário escolhido.`);
+				}
+			}
 			for (const [key, input] of playerInputs) {
 				const [teamId, characterId] = key.split(':');
-				if (!input.checked || (teamId === 'B' && opponent.value !== 'player')) continue;
+				if (!input.checked || (isMultiTrainer && teamId === 'B') || (!isMultiTrainer && teamId === 'B' && opponent.value !== 'player')) continue;
 				const character = characters.find(item => item.id === characterId);
+				const participantTeam = isMultiTrainer ? multiAssignments.get('player:' + characterId) : teamId;
 				participants.push({
-					id: 'player-' + teamId.toLowerCase() + '-' + characterId, team: teamId, kind: 'player', characterId,
+					id: 'player-' + participantTeam.toLowerCase() + '-' + characterId, team: participantTeam, kind: 'player', characterId,
 					displayName: character.characterName, selectionLimit: isRaid ? 6 : Number(teamLimit.value),
 					pokemon: isRaid ? (character.team || []).slice(0, 6).flatMap((_, teamIndex) =>
 						(character.box?.party?.[teamIndex]?.metadata?.evTraining ||
@@ -529,16 +627,20 @@ function rpgBattleEditor(characters, existing, onClose) {
 					) : [],
 				});
 			}
-			if (!participants.some(item => item.team === 'A')) throw new Error('Escolha ao menos um Player para a Equipe A.');
-			if (opponent.value === 'player' && !participants.some(item => item.team === 'B')) throw new Error('Escolha ao menos um Player para a Equipe B.');
-			if (opponent.value === 'npc') {
-				const npcs = temporaryNPCs.participants();
-				if (!npcs.length) throw new Error('Crie ao menos um NPC temporário.');
-				for (const [index, npc] of npcs.entries()) {
+			if (!isMultiTrainer && !participants.some(item => item.team === 'A')) throw new Error('Escolha ao menos um Player para a Equipe A.');
+			if (!isMultiTrainer && opponent.value === 'player' && !participants.some(item => item.team === 'B')) throw new Error('Escolha ao menos um Player para a Equipe B.');
+			if (isMultiPlayer && (participants.filter(item => item.team === 'A').length !== 2 || participants.filter(item => item.team === 'B').length !== 2)) {
+				throw new Error('O formato Multi contra Players exige exatamente dois Players em cada equipe.');
+			}
+			if (opponent.value === 'npc' || isMultiTrainer) {
+				if (!selectedNPCParticipants.length) throw new Error('Escolha um NPC salvo ou crie um NPC temporário.');
+				for (const [index, npc] of selectedNPCParticipants.entries()) {
+					const pokemonTeam = npc.pokemonTeam?.length ? npc.pokemonTeam : [npc.pokemon];
+					const participantTeam = isMultiTrainer ? multiAssignments.get('npc:' + npc.id) : 'B';
 					participants.push({
-						id: `npc-b-${index + 1}-${npc.id}`, team: 'B', kind: 'npc',
-						displayName: npc.displayName, avatar: npc.avatar, npcRole: 'generic', selectionLimit: 1,
-						pokemon: [structuredClone(npc.pokemon)],
+						id: `npc-${participantTeam.toLowerCase()}-${index + 1}-${npc.id}`, team: participantTeam, kind: 'npc',
+						displayName: npc.displayName, avatar: npc.avatar, npcRole: 'generic', selectionLimit: pokemonTeam.length,
+						pokemon: pokemonTeam.map(selection => structuredClone(selection)),
 					});
 				}
 			}
@@ -611,6 +713,7 @@ function rpgBattleEditor(characters, existing, onClose) {
 			error.scrollIntoView({ behavior: 'smooth', block: 'center' });
 		} finally {
 			for (const item of actions.querySelectorAll('button')) item.disabled = false;
+			refreshMultiAssignments();
 		}
 	});
 

@@ -531,7 +531,43 @@
 .contest-editor .battle-step-body { display: grid; gap: 14px; }
 .contest-basic-grid { display: grid; grid-template-columns: minmax(220px, 1.6fr) repeat(3, minmax(130px, 1fr)); gap: 12px; align-items: end; }
 .contest-participant-columns { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; align-items: stretch; }
-.contest-player-list, .contest-registered-npcs { min-width: 0; max-height: 360px; overflow: auto; }
+.contest-player-list, .contest-registered-npcs, .battle-editor .participant-columns > .participant-column { box-sizing: border-box; min-width: 0; height: 475px; min-height: 475px; max-height: 475px; overflow: auto; }
+.registered-npc-selector { display: grid; gap: 10px; min-width: 0; }
+.registered-npc-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.registered-npc-heading small { color: #65758d; text-align: right; }
+.registered-npc-browser { overflow: hidden; border: 1px solid #c5cfda; border-radius: 10px; background: #f7f9fc; }
+.registered-npc-navigation { display: flex; align-items: center; gap: 10px; min-height: 42px; padding: 7px 10px; border-bottom: 1px solid #c5cfda; background: #e8edf5; }
+.registered-npc-navigation .registered-npc-back { box-sizing: border-box; display: grid; place-items: center; flex: 0 0 25px; width: 25px; min-width: 25px; max-width: 25px; height: 25px; min-height: 25px; max-height: 25px; padding: 0; color: #456486; background: linear-gradient(#f9fbfd, #e1e9f2); border: 1px solid #9aabbd; border-radius: 50%; box-shadow: inset 0 1px #fff, 0 1px 2px #263b5425; }
+.registered-npc-back-arrow { width: 7px; height: 7px; border-top: 2px solid currentColor; border-left: 2px solid currentColor; transform: translateX(2px) rotate(-45deg); }
+.registered-npc-navigation .registered-npc-back:hover,
+.registered-npc-navigation .registered-npc-back:focus-visible { color: #fff; background: linear-gradient(#6788ae, #46698f); border-color: #365675; }
+.registered-npc-contents { display: grid; gap: 5px; padding: 8px; }
+.registered-npc-folder-name { width: 100%; justify-content: flex-start; border: 0; border-radius: 7px; background: transparent; color: #304563; text-align: left; }
+.registered-npc-folder-name::after { content: '\203A'; margin-left: auto; font-size: 20px; }
+.registered-npc-folder-name:hover { background: #e4ebf5; }
+.registered-npc-row { box-sizing: border-box; display: grid; grid-template-columns: minmax(120px, 1fr) auto; align-items: center; gap: 6px; width: 100%; min-height: 58px; padding: 3px 6px; border: 1px solid #c1cad6; border-radius: 7px; background: #fff; }
+.registered-npc-row.active { border-color: #4e76a4; box-shadow: 0 0 0 2px #779ac755; background: #f3f7fc; }
+.registered-npc-identity { display: grid; grid-template-columns: 44px minmax(0, 1fr); align-items: center; gap: 7px; width: 100%; min-width: 0; height: 50px; padding: 2px; border: 0; background: transparent; color: #2d4260; text-align: left; }
+.registered-npc-identity img, .registered-npc-trainer { width: 40px; height: 47px; object-fit: contain; image-rendering: pixelated; }
+.registered-npc-identity strong { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.registered-npc-inline-team { display: grid; grid-template-columns: repeat(6, 42px); align-items: center; gap: 2px; }
+.registered-npc-inline-pokemon { box-sizing: border-box; display: grid; place-items: center; width: 42px; min-width: 42px; height: 48px; padding: 1px; border: 1px solid transparent; border-radius: 6px; background: transparent; opacity: .72; }
+.registered-npc-inline-pokemon:disabled { cursor: default; }
+.registered-npc-row.active .registered-npc-inline-pokemon { opacity: 1; cursor: pointer; }
+.registered-npc-inline-pokemon.selected { border-color: #d6a51d; background: #fff0a9; box-shadow: inset 0 0 0 1px #fff8d2; }
+.registered-npc-inline-pokemon .pokemon-sprite { width: 38px; height: 42px; }
+.registered-npc-selection-error .registered-npc-row.active { animation: registered-npc-error 260ms ease 2; }
+@keyframes registered-npc-error { 50% { border-color: #b12d2d; transform: translateX(2px); } }
+.registered-npc-selected-list { display: grid; gap: 7px; }
+.contest-registered-selected-cards:empty { display: none; }
+.registered-npc-selected-card { align-items: center; }
+.registered-npc-selected-team { display: flex; gap: 2px; }
+.registered-npc-selected-team .pokemon-sprite { width: 42px; height: 42px; }
+.battle-multi-assignment-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.battle-multi-assignment-row { display: grid; grid-template-columns: 48px minmax(0, 1fr) 118px; align-items: center; gap: 9px; min-height: 60px; padding: 7px 9px; border: 1px solid #bdc8d6; border-radius: 8px; background: #f5f7fa; }
+.battle-multi-assignment-row img { width: 44px; height: 50px; object-fit: contain; image-rendering: pixelated; }
+.battle-multi-assignment-row strong, .battle-multi-assignment-row small { display: block; }
+.battle-multi-assignment-row small { color: var(--muted); }
 .contest-reserved-npcs { display: grid; place-items: center; min-height: 145px; margin-top: 10px; padding: 20px; border: 1px dashed #aab6c5; border-radius: 10px; color: var(--muted); text-align: center; }
 .contest-temporary-npcs, .contest-catalog-section { display: grid; gap: 12px; }
 .contest-temporary-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
@@ -715,6 +751,7 @@
 	.contest-npc-state { grid-column: 1 / -1; }
 }
 @media (max-width: 620px) {
+	.battle-multi-assignment-list { grid-template-columns: 1fr; }
 	.contest-expressive-callout { top: 104px; left: 24px; width: 43%; font-size: 13px; }
 	.contest-expressive-callout strong { font-size: 23px; }
 	.contest-stage { min-height: 350px; }

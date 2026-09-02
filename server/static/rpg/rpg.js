@@ -2702,6 +2702,13 @@ async function loadMasterNPCLibraryFromServer() {
 	masterNPCLibraryLoadedFromServer = true;
 }
 
+window.RPGMasterNPCLibrary = {
+	async load() {
+		await loadMasterNPCLibraryFromServer();
+		return structuredClone(readMasterNPCLibrary());
+	},
+};
+
 async function renderMasterNPCLibraryDashboard() {
 	try { await loadMasterNPCLibraryFromServer(); } catch (error) { showToast('Falha ao carregar a biblioteca do servidor: ' + error.message, true); }
 	return renderMasterNPCFolders();

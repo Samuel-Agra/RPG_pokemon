@@ -682,6 +682,7 @@ window.RPGContestUI = (() => {
 				}
 				card.append(info, actionButton('Remover', () => { participants.splice(participants.indexOf(participant), 1); renderCards(); })); cards.append(card);
 			}
+			cards.append(registeredCards);
 		}
 		async function openCreator() {
 			create.disabled = true;
@@ -691,6 +692,7 @@ window.RPGContestUI = (() => {
 			} finally { create.disabled = false; }
 		}
 		async function generateRandomNPC() {
+			if (profile.canAddParticipant && !profile.canAddParticipant()) return;
 			const ranks = {
 				normal: {level: 20, quality: 0}, great: {level: 35, quality: 1}, super: {level: 50, quality: 2},
 				hyper: {level: 70, quality: 3}, master: {level: 90, quality: 4},
@@ -774,6 +776,7 @@ window.RPGContestUI = (() => {
 			return power + stab + accuracy / 5 + (move.flags?.length || 0);
 		}
 		async function generateRandomBattleNPC(levelRangeValue, rankId) {
+			if (profile.canAddParticipant && !profile.canAddParticipant()) return;
 			const rankDefinitions = {
 				normal: {index: 0, iv: [0, 10]}, great: {index: 1, iv: [8, 18]}, super: {index: 2, iv: [15, 24]},
 				hyper: {index: 3, iv: [22, 29]}, master: {index: 4, iv: [28, 31]},
@@ -1581,7 +1584,8 @@ window.RPGContestUI = (() => {
 					if (!pendingNpcBuild) pendingNpcBuild = {id, displayName: npcName.value.trim(), avatar: selectedAvatar.id, pokemonTeam: []};
 					pendingNpcBuild.pokemonTeam.push(selection);
 			}
-			function finishNPC() {
+		function finishNPC() {
+					if (profile.canAddParticipant && !profile.canAddParticipant()) throw new Error('O limite de quatro treinadores j\u00e1 foi atingido.');
 					participants.push({id: pendingNpcBuild.id, kind: 'npc', displayName: pendingNpcBuild.displayName,
 						avatar: pendingNpcBuild.avatar, pokemon: pendingNpcBuild.pokemonTeam[0], pokemonTeam: pendingNpcBuild.pokemonTeam});
 					pendingNpcBuild = null; renderCards(); closeCreator();
@@ -1603,13 +1607,154 @@ window.RPGContestUI = (() => {
 			creator.append(error, creatorActions);
 		}
 		function closeCreator() { pendingNpcBuild = null; creator.classList.add('hidden'); creator.replaceChildren(); create.classList.remove('hidden'); }
-		renderCards(); root.append(creator, cards); return {root, participants: () => structuredClone(participants)};
+		const registeredCards = el('div', 'contest-registered-selected-cards');
+		renderCards(); root.append(creator, cards); return {root, registeredCards, participants: () => structuredClone(participants)};
 	}
 	function contestTemporaryNPCEditor(context, initialParticipants, contestCategory, contestRank, contestMode) {
 		return buildTemporaryNPCEditor(context, initialParticipants, {...temporaryNPCProfiles.contest, contestCategory, contestRank, contestMode});
 	}
-	function battleTemporaryNPCEditor(context, initialParticipants, battleTeamSize) {
-		return buildTemporaryNPCEditor(context, initialParticipants, {...temporaryNPCProfiles.battle, battleTeamSize});
+	function battleTemporaryNPCEditor(context, initialParticipants, battleTeamSize, canAddParticipant) {
+		return buildTemporaryNPCEditor(context, initialParticipants, {...temporaryNPCProfiles.battle, battleTeamSize, canAddParticipant});
+	}
+	function savedNPCPokemonSelection(pokemon, participantId) {
+		const stats = pokemon.baseStats || {};
+		const ivs = pokemon.ivs || {};
+		const evs = pokemon.evs || {};
+		const level = Math.max(1, Number(pokemon.level) || 1);
+		const hp = String(pokemon.species || pokemon.name || '').toLowerCase() === 'shedinja' ? 1 :
+			Math.floor((2 * (Number(stats.hp) || 50) + (Number(ivs.hp) || 0) + Math.floor((Number(evs.hp) || 0) / 4)) * level / 100) + level + 10;
+		return {set: {
+			name: pokemon.name || pokemon.species, species: pokemon.species || pokemon.name, level,
+			moves: [...(pokemon.moves || [])].slice(0, 4), ability: pokemon.ability || '', item: pokemon.item || '',
+			nature: pokemon.nature || 'Serious', gender: pokemon.gender || '', shiny: !!pokemon.shiny,
+			evs: {...evs}, ivs: {...ivs}, rpg: {hp, status: '', friendship: Number(pokemon.friendship) || 0,
+				contestPerformance: Number(pokemon.performance) || 0, contestPerformanceTrainerId: participantId},
+		}};
+	}
+	function savedNPCSelector(context, getLimit, requireExactTeam = false, selectedHost = null, canAddParticipant = null) {
+		const root = el('section', 'registered-npc-selector');
+		const heading = el('div', 'registered-npc-heading');
+		heading.append(el('strong', '', 'NPCs salvos'), el('small', '', 'Escolha um NPC e os Pokémon que participarão.'));
+		const browser = el('div', 'registered-npc-browser');
+		const selectedList = selectedHost || el('div', 'registered-npc-selected-list');
+		selectedList.classList.add('registered-npc-selected-list');
+		const selected = [];
+		let library = {folders: [], npcs: []};
+		let currentFolderId = null;
+		let activeNPCId = '';
+		const pendingPokemon = new Map();
+		const defaults = [
+			{id: 'pokemon', name: 'Pokémon', parentId: null}, {id: 'free', name: 'NPCs livres', parentId: null},
+			...['Kanto','Johto','Hoenn','Sinnoh','Unova','Kalos','Alola','Galar','Hisui','Paldea'].map(name => ({id: `region-${name.toLowerCase()}`, name, parentId: null})),
+		];
+		function folders() {
+			const custom = (library.folders || []).filter(folder => folder?.id && !defaults.some(item => item.id === folder.id));
+			return [...defaults, ...custom];
+		}
+		function descendantHasNPC(folderId, visiting = new Set()) {
+			if (visiting.has(folderId)) return false;
+			visiting.add(folderId);
+			if ((library.npcs || []).some(npc => npc.folderId === folderId && Array.isArray(npc.team) && npc.team.length && !selected.some(entry => entry.npc.id === npc.id))) return true;
+			return folders().filter(folder => folder.parentId === folderId).some(folder => descendantHasNPC(folder.id, visiting));
+		}
+		function renderSelected() {
+			selectedList.replaceChildren();
+			for (const entry of selected) {
+				const card = el('article', 'contest-temporary-card registered-npc-selected-card');
+				const trainer = el('img', 'contest-temporary-trainer-sprite');
+				trainer.src = RPGAssets.url(`sprites/trainers/${String(entry.npc.sprite || 'lucas').replace(/\.png$/i, '')}.png`); trainer.alt = '';
+				const team = el('div', 'contest-temporary-team-sprites registered-npc-selected-team');
+				entry.indexes.forEach(index => team.append(pokemonSprite(entry.npc.team[index])));
+				const info = el('div'); info.append(el('strong', '', entry.npc.name));
+				if (requireExactTeam) {
+					for (const index of entry.indexes) {
+						const pokemon = entry.npc.team[index];
+						info.append(el('small', '', `${pokemon.name || pokemon.species} · Nv. ${pokemon.level || 1}`),
+							el('small', '', (pokemon.moves || []).join(' · ')));
+					}
+				} else info.append(el('small', '', entry.indexes.map(index => entry.npc.team[index].name || entry.npc.team[index].species).join(' · ')));
+				const remove = actionButton('Remover', () => { selected.splice(selected.indexOf(entry), 1); renderSelected(); renderBrowser(); });
+				card.append(trainer, team, info, remove); selectedList.append(card);
+			}
+		}
+		function activateOrConfirmNPC(npc) {
+			if (selected.some(entry => entry.npc.id === npc.id)) return;
+			if (activeNPCId !== npc.id) {
+				if (canAddParticipant && !canAddParticipant()) return;
+				activeNPCId = npc.id;
+				if (!pendingPokemon.has(npc.id)) pendingPokemon.set(npc.id, new Set());
+				return renderBrowser();
+			}
+			const chosen = pendingPokemon.get(npc.id) || new Set();
+			const limit = Math.max(1, Number(getLimit()) || 1);
+			if (canAddParticipant && !canAddParticipant()) return;
+			if (!chosen.size || (requireExactTeam && chosen.size !== limit)) {
+				root.classList.remove('registered-npc-selection-error');
+				void root.offsetWidth;
+				root.classList.add('registered-npc-selection-error');
+				return;
+			}
+			selected.push({npc, indexes: [...chosen].slice(0, limit)});
+			activeNPCId = ''; pendingPokemon.delete(npc.id); renderSelected(); renderBrowser();
+		}
+		function renderBrowser() {
+			browser.replaceChildren();
+			const navigation = el('div', 'registered-npc-navigation');
+			if (currentFolderId) {
+				const current = folders().find(folder => folder.id === currentFolderId);
+				const back = actionButton('', () => { currentFolderId = current?.parentId || null; renderBrowser(); });
+				back.classList.add('registered-npc-back'); back.title = 'Voltar'; back.setAttribute('aria-label', 'Voltar');
+				back.append(el('span', 'registered-npc-back-arrow'));
+				navigation.append(back, el('strong', '', current?.name || 'NPCs'));
+			}
+			if (navigation.childElementCount) browser.append(navigation);
+			const contents = el('div', 'registered-npc-contents');
+			for (const folder of folders().filter(folder => (folder.parentId || null) === currentFolderId && descendantHasNPC(folder.id))) {
+				const folderButton = actionButton(folder.name, () => { currentFolderId = folder.id; renderBrowser(); });
+				folderButton.className = 'registered-npc-folder-name'; contents.append(folderButton);
+			}
+			for (const npc of (library.npcs || []).filter(npc => (npc.folderId || null) === currentFolderId && npc.team?.length && !selected.some(entry => entry.npc.id === npc.id))) {
+				const row = el('article', 'registered-npc-row');
+				const isActive = activeNPCId === npc.id;
+				row.classList.toggle('active', isActive);
+				const image = el('img'); image.src = RPGAssets.url(`sprites/trainers/${String(npc.sprite || 'lucas').replace(/\.png$/i, '')}.png`); image.alt = '';
+				const identity = actionButton('', () => activateOrConfirmNPC(npc)); identity.className = 'registered-npc-identity';
+				identity.append(image, el('strong', '', npc.name));
+				identity.disabled = !!(canAddParticipant && !canAddParticipant() && !isActive);
+				const pokemonChoices = el('div', 'registered-npc-inline-team');
+				const chosen = pendingPokemon.get(npc.id) || new Set();
+				for (const [index, pokemon] of npc.team.slice(0, 6).entries()) {
+					const pokemonButton = actionButton('', () => {
+						if (!isActive) return;
+						const limit = Math.max(1, Number(getLimit()) || 1);
+						if (chosen.has(index)) chosen.delete(index);
+						else if (chosen.size < limit) chosen.add(index);
+						pendingPokemon.set(npc.id, chosen); renderBrowser();
+					});
+					pokemonButton.className = 'registered-npc-inline-pokemon'; pokemonButton.classList.toggle('selected', chosen.has(index));
+					pokemonButton.disabled = !isActive; pokemonButton.title = pokemon.name || pokemon.species || 'Pokémon';
+					pokemonButton.append(pokemonSprite(pokemon)); pokemonChoices.append(pokemonButton);
+				}
+				row.append(identity, pokemonChoices);
+				contents.append(row);
+			}
+			if (!contents.childElementCount) contents.append(el('p', 'empty-state', 'Nenhum NPC salvo nesta pasta.'));
+			browser.append(contents);
+		}
+		root.append(heading, browser);
+		if (!selectedHost) root.append(selectedList);
+		Promise.resolve(window.RPGMasterNPCLibrary?.load?.()).then(data => { library = data || library; renderBrowser(); }).catch(error => browser.replaceChildren(el('p', 'form-error', error.message)));
+		return {root, refresh: renderBrowser, participants() {
+			return selected.map((entry, index) => {
+				const id = `saved-npc-${entry.npc.id}-${index + 1}`;
+				const limit = Math.max(1, Number(getLimit()) || 1);
+				if (requireExactTeam && entry.indexes.length !== limit) {
+					throw new Error(`${entry.npc.name} precisa usar ${limit} Pokémon neste formato.`);
+				}
+				const pokemonTeam = entry.indexes.slice(0, limit).map(teamIndex => savedNPCPokemonSelection(entry.npc.team[teamIndex], id));
+				return {id, kind: 'npc', displayName: entry.npc.name, avatar: entry.npc.sprite, pokemon: pokemonTeam[0], pokemonTeam};
+			});
+		}};
 	}
 	function contestEditor(context, existing, onClose) {
 		const form = el('form', 'panel battle-editor contest-editor');
@@ -1636,10 +1781,11 @@ window.RPGContestUI = (() => {
 			playerInputs.set(character.id, choice.input); players.append(choice.wrapper);
 		}
 		if (!context.characters.length) players.append(el('small', '', 'Nenhum Player criado.'));
-		const registeredNPCs = el('div', 'participant-column contest-registered-npcs');
-		registeredNPCs.append(el('strong', '', 'NPCs'), el('div', 'contest-reserved-npcs', 'Espaço reservado para os NPCs cadastrados da campanha.'));
-		participantColumns.append(players, registeredNPCs);
 		const temporaryNPCs = contestTemporaryNPCEditor(context, existing?.participants || [], () => category.value, () => rank.value, () => mode.value);
+		const registeredNPCs = el('div', 'participant-column contest-registered-npcs');
+		const savedNPCs = savedNPCSelector(context, () => mode.value === 'trio' ? 3 : mode.value === 'duo' ? 2 : 1, true, temporaryNPCs.registeredCards);
+		registeredNPCs.append(savedNPCs.root);
+		participantColumns.append(players, registeredNPCs);
 		participantsStep.body.append(participantColumns, temporaryNPCs.root); form.append(participantsStep.section);
 
 		const conditions = step(3, 'Condições iniciais', 'Defina o clima e o terreno permanentes do palco.');
@@ -1688,7 +1834,7 @@ window.RPGContestUI = (() => {
 					if (!input.checked) continue; const character = context.characters.find(item => item.id === characterId);
 					participants.push({id: `${characterId}-contest`, kind: 'player', characterId, displayName: character.characterName, avatar: character.avatar});
 				}
-				participants.push(...temporaryNPCs.participants());
+				participants.push(...savedNPCs.participants(), ...temporaryNPCs.participants());
 				const request = {name: name.value.trim(), mode: mode.value, category: category.value, rank: rank.value, participants,
 					scenario: {id: existing?.scenario?.id || 'classic-stage', name: name.value.trim() || 'Palco do concurso', tags: [],
 						backgroundId: backgroundInput.value, weather: weather.value, terrain: terrain.value}};
@@ -1863,5 +2009,5 @@ window.RPGContestUI = (() => {
 		schedulePreContestRefresh(context, page, sessions);
 		return page;
 	}
-	return {render, battleTemporaryNPCEditor, stopAudio: () => window.RPGBattleAudio?.stop()};
+	return {render, battleTemporaryNPCEditor, savedNPCSelector, stopAudio: () => window.RPGBattleAudio?.stop()};
 })();
