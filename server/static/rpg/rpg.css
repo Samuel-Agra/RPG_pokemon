@@ -492,6 +492,7 @@ input, select {
 .overview-bank-panel { position: absolute; z-index: 30; top: calc(100% + 5px); left: 0; width: 100%; padding: 13px; background: linear-gradient(#f8fbff, #e7eef6); border: 1px solid #93a4b7; border-radius: 6px; box-shadow: 0 10px 25px #23374d55; }
 .overview-bank-panel.hidden, .overview-bank-form.hidden, .overview-bank-choices.hidden { display: none; }
 .overview-bank-choices { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.overview-bank-choices.single-action { grid-template-columns: 1fr; }
 .overview-bank-form { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 8px; align-items: center; }
 .overview-bank-form > strong { grid-column: 1 / -1; color: #2a4566; }
 .overview-bank-form input { min-width: 0; }
@@ -2784,9 +2785,803 @@ input, select {
 .campaign-clock-copy small { margin-top: 4px; color: var(--muted); font-size: 11px; }
 .campaign-clock-actions { display: flex; gap: 9px; flex: none; }
 .campaign-clock-button { min-width: 88px; font-size: 15px; }
+
+.master-npc-library { display: grid; }
+.master-npc-folder-grid {
+	display: grid;
+	grid-template-columns: repeat(4, minmax(0, 1fr));
+	gap: 14px;
+	max-height: 2000px;
+	overflow: hidden;
+	transform: translateY(0);
+	transform-origin: top;
+	opacity: 1;
+	transition: max-height 300ms ease, opacity 180ms ease, transform 300ms ease;
+}
+.master-npc-folder-grid.folders-collapsed { max-height: 0; transform: translateY(-18px); opacity: 0; pointer-events: none; }
+.master-npc-folder {
+	position: relative;
+	display: grid;
+	min-height: 142px;
+	grid-template-rows: 82px auto;
+	gap: 8px;
+	margin: 0;
+	padding: 17px 15px 14px;
+	overflow: hidden;
+	background: linear-gradient(150deg, #fbfdff, #e7edf4);
+	border-color: #aab7c7;
+}
+.master-npc-folder::after {
+	position: absolute;
+	right: -25px;
+	bottom: -36px;
+	width: 105px;
+	height: 105px;
+	background: radial-gradient(circle, #7190b11c, transparent 68%);
+	content: '';
+}
+.master-npc-folder-icon {
+	position: relative;
+	display: block;
+	width: 94px;
+	height: 63px;
+	margin: 8px auto 0;
+	background: linear-gradient(#e5ba56, #c88b28);
+	border: 2px solid #93631d;
+	border-radius: 6px 8px 8px 8px;
+	box-shadow: inset 0 3px #fff4a45e, 0 5px 9px #27384b30;
+}
+.master-npc-folder-icon::before {
+	position: absolute;
+	top: -13px;
+	left: 7px;
+	width: 41px;
+	height: 16px;
+	background: linear-gradient(#ebc466, #d69b35);
+	border: 2px solid #93631d;
+	border-bottom: 0;
+	border-radius: 6px 7px 0 0;
+	content: '';
+}
+.master-npc-folder-icon::after {
+	position: absolute;
+	inset: 12px 9px 8px;
+	background: linear-gradient(135deg, #fff4ba66, #8f5f1517);
+	border: 1px solid #a9782e;
+	border-radius: 3px;
+	content: '';
+}
+.master-npc-folder-copy { position: relative; z-index: 1; min-width: 0; text-align: center; }
+.master-npc-folder-copy strong,
+.master-npc-folder-copy small { display: block; }
+.master-npc-folder-copy strong { color: #293f5c; font-size: 17px; }
+.master-npc-folder-copy small { margin-top: 3px; color: #68798e; font-size: 10px; }
+.master-npc-folder.folder-pokemon .master-npc-folder-icon {
+	background: linear-gradient(#e9695d, #b73532);
+	border-color: #802221;
+}
+.master-npc-folder.folder-pokemon .master-npc-folder-icon::before {
+	background: linear-gradient(#f07b70, #c74740);
+	border-color: #802221;
+}
+.master-npc-folder.folder-free .master-npc-folder-icon {
+	background: linear-gradient(#7697bd, #4c6f98);
+	border-color: #365273;
+}
+.master-npc-folder.folder-free .master-npc-folder-icon::before {
+	background: linear-gradient(#89a9cc, #5d80a9);
+	border-color: #365273;
+}
+.master-npc-folder.folder-custom .master-npc-folder-icon {
+	background: linear-gradient(var(--npc-folder-light, #ebc466), var(--npc-folder-color, #d69b35));
+	border-color: color-mix(in srgb, var(--npc-folder-color, #93631d) 72%, #17283c);
+}
+.master-npc-folder.folder-custom .master-npc-folder-icon::before {
+	background: linear-gradient(color-mix(in srgb, var(--npc-folder-light, #ebc466) 82%, white), var(--npc-folder-light, #ebc466));
+	border-color: color-mix(in srgb, var(--npc-folder-color, #93631d) 72%, #17283c);
+}
+.master-npc-folder.folder-created { animation: master-npc-folder-materialize 650ms cubic-bezier(.2,.8,.2,1) both; }
+@keyframes master-npc-folder-materialize {
+	0% { opacity: .2; transform: scale(.88); filter: saturate(0); }
+	55% { opacity: 1; transform: scale(1.04); filter: saturate(1.35); }
+	100% { transform: scale(1); filter: saturate(1); }
+}
+.master-npc-folder-create {
+	position: relative;
+	display: grid;
+	min-height: 142px;
+	grid-template-columns: 1fr;
+	align-content: center;
+	align-items: center;
+	gap: 2px;
+	padding: 15px;
+	color: #61738a;
+	background: transparent;
+	border: 2px dashed #9aabbd;
+	border-radius: 7px;
+	box-shadow: none;
+	text-align: center;
+	cursor: pointer;
+}
+.master-npc-folder-create:hover,
+.master-npc-folder-create:focus-visible {
+	color: #304d70;
+	background: #e8eef650;
+	border-color: #58779b;
+	box-shadow: inset 0 0 0 1px #ffffff99;
+}
+.master-npc-folder-create-icon {
+	display: grid;
+	width: 52px;
+	height: 52px;
+	place-items: center;
+	margin: 0 auto 6px;
+	border: 2px solid currentColor;
+	border-radius: 50%;
+	font: bold 34px/1 Arial, sans-serif;
+}
+.master-npc-folder-create strong,
+.master-npc-folder-create small { display: block; }
+.master-npc-folder-create strong { font-size: 16px; }
+.master-npc-folder-create small { color: #78889b; font-size: 10px; }
+.master-npc-folder-create.editing {
+	grid-template-columns: 1fr;
+	align-content: center;
+	text-align: center;
+	cursor: default;
+}
+.master-npc-folder-create.editing .master-npc-folder-create-icon { margin: 0 auto 6px; }
+.master-npc-folder-create-copy { min-width: 0; }
+.master-npc-folder-name {
+	display: block;
+	width: calc(100% - 72px);
+	box-sizing: border-box;
+	margin: 0 auto;
+	padding: 0;
+	color: #304d70;
+	background: transparent;
+	border: 0;
+	border-radius: 0;
+	box-shadow: none;
+	outline: 0;
+	font-weight: bold;
+	font-size: 16px;
+	text-align: center;
+}
+.master-npc-folder-name::placeholder { color: #718197; opacity: 1; }
+.master-npc-folder-name:focus { background: transparent; border: 0; box-shadow: none; }
+.master-npc-folder-palette {
+	position: absolute;
+	top: 10px;
+	right: 10px;
+	bottom: 10px;
+	display: grid;
+	grid-template-rows: repeat(6, 1fr);
+	align-items: center;
+	justify-items: center;
+	width: 28px;
+}
+.master-npc-folder-swatch {
+	width: 22px;
+	height: 22px;
+	min-width: 0;
+	padding: 0;
+	background: var(--swatch-color);
+	border: 2px solid #ffffff;
+	border-radius: 50%;
+	box-shadow: 0 0 0 1px #6d7d90;
+}
+.master-npc-folder-swatch:hover,
+.master-npc-folder-swatch:focus-visible { transform: scale(1.16); }
+.master-npc-folder-menu {
+	position: fixed;
+	z-index: 10000;
+	min-width: 130px;
+	padding: 5px;
+	background: #f8fafc;
+	border: 1px solid #9aa9bb;
+	border-radius: 5px;
+	box-shadow: 0 8px 22px #1724364d;
+}
+.master-npc-folder-menu button {
+	display: block;
+	width: 100%;
+	padding: 7px 12px;
+	text-align: left;
+}
+.master-npc-breadcrumbs {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	margin-bottom: 8px;
+	color: #76869a;
+}
+.master-npc-breadcrumbs .master-npc-folder-collapse-toggle {
+	display: grid;
+	width: 25px;
+	height: 25px;
+	min-width: 25px;
+	place-items: center;
+	padding: 0;
+	color: #456486;
+	background: linear-gradient(#f9fbfd, #e1e9f2);
+	border: 1px solid #9aabbd;
+	border-radius: 50%;
+	box-shadow: inset 0 1px #fff, 0 1px 2px #263b5425;
+}
+.master-npc-folder-collapse-arrow {
+	width: 7px;
+	height: 7px;
+	border-top: 2px solid currentColor;
+	border-left: 2px solid currentColor;
+	transform: translateY(2px) rotate(45deg);
+	transition: transform 180ms ease;
+}
+.master-npc-folder-collapse-toggle.collapsed .master-npc-folder-collapse-arrow { transform: translateY(-2px) rotate(225deg); }
+.master-npc-breadcrumbs .master-npc-folder-collapse-toggle:hover,
+.master-npc-breadcrumbs .master-npc-folder-collapse-toggle:focus-visible { color: #fff; background: linear-gradient(#6788ae, #46698f); border-color: #365675; }
+.master-npc-breadcrumbs button {
+	padding: 3px 5px;
+	color: #36577e;
+	background: transparent;
+	border: 0;
+	box-shadow: none;
+}
+.master-npc-list-header {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	margin: 12px 0 7px;
+}
+.master-npc-folder-grid.folders-collapsed + .master-npc-list-header { margin-top: 3px; }
+.master-npc-list-header h3 { margin: 0; }
+.master-npc-list-actions { display: flex; align-items: center; gap: 8px; }
+.master-npc-empty { padding: 24px; color: #748398; text-align: center; }
+.master-library-record-list { display: grid; gap: 5px; }
+.master-library-record-list > .master-library-sortable { margin: 0; }
+.master-library-sortable { position: relative; margin: 0; cursor: grab; transition: opacity 120ms ease, transform 120ms ease, box-shadow 120ms ease; }
+.master-library-sortable:active { cursor: grabbing; }
+.master-library-sortable.dragging { z-index: 4; opacity: .48; transform: scale(.992); }
+.master-library-sortable.drag-target { box-shadow: 0 -3px 0 #4f75a1, 0 2px 5px #253b5530; }
+.master-library-sortable.drag-target::before {
+	position: absolute;
+	z-index: 5;
+	top: -6px;
+	left: -2px;
+	width: 9px;
+	height: 9px;
+	background: #4f75a1;
+	border: 2px solid #fff;
+	border-radius: 50%;
+	box-shadow: 0 0 0 1px #385a80;
+	content: '';
+}
+.master-npc-column-labels {
+	display: grid;
+	grid-template-columns: 54px minmax(130px, 1.2fr) repeat(4, minmax(100px, 1fr));
+	gap: 10px;
+	padding: 0 14px 5px;
+	color: #718197;
+	font-size: 9px;
+	font-weight: bold;
+	text-transform: uppercase;
+}
+.master-npc-row { margin: 0 0 8px; overflow: hidden; }
+.master-npc-summary {
+	position: relative;
+	display: grid;
+	grid-template-columns: 54px minmax(130px, 1.2fr) repeat(4, minmax(100px, 1fr));
+	align-items: center;
+	gap: 10px;
+	min-height: 62px;
+	padding: 8px 14px;
+	cursor: pointer;
+	list-style: none;
+}
+.master-npc-summary::-webkit-details-marker { display: none; }
+.master-npc-row-sprite {
+	display: grid;
+	width: 48px;
+	height: 48px;
+	place-items: center;
+	overflow: hidden;
+	background: #e7edf5;
+	border: 1px solid #b7c3d1;
+	border-radius: 5px;
+	font-weight: bold;
+}
+.master-npc-row-sprite img { max-width: 100%; max-height: 100%; object-fit: contain; image-rendering: pixelated; }
+.master-npc-summary > span:not(.master-npc-row-sprite) { color: #55677e; font-size: 11px; }
+.master-npc-expanded-team { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px; min-height: 72px; }
+.master-npc-expanded-member { display: grid; justify-items: center; gap: 3px; min-width: 72px; color: #304967; }
+.master-npc-expanded-member .pokemon-sprite { display: grid; width: 72px; height: 64px; place-items: center; background: transparent; border: 0; box-shadow: none; }
+.master-npc-expanded-member .pokemon-sprite img { width: 100%; height: 100%; max-width: 100%; max-height: 100%; object-fit: contain; image-rendering: pixelated; }
+.master-npc-expanded-member strong { font-size: 11px; }
+.master-npc-expanded {
+	display: grid;
+	grid-template-columns: repeat(2, minmax(0, 1fr));
+	gap: 10px;
+	padding: 14px;
+	background: #f5f8fc;
+	border-top: 1px solid #c7d1dd;
+}
+.master-npc-expanded section {
+	min-height: 94px;
+	padding: 12px;
+	background: #fff;
+	border: 1px solid #ccd5e0;
+	border-radius: 5px;
+}
+.master-npc-expanded h4 { margin: 0 0 7px; color: #2d4564; }
+.master-npc-expanded p { margin: 0; color: #50647d; white-space: pre-wrap; }
+.master-npc-row-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; }
+.master-note-row { margin: 10px 0 0; overflow: hidden; }
+.master-note-summary {
+	display: flex;
+	align-items: center;
+	justify-content: space-between;
+	gap: 12px;
+	min-height: 48px;
+	padding: 10px 16px;
+	color: #2d4564;
+	cursor: pointer;
+	list-style: none;
+}
+.master-note-summary::-webkit-details-marker { display: none; }
+.master-note-summary strong { font-size: 16px; }
+.master-note-summary button { display: none; flex: none; }
+.master-note-row[open] .master-note-summary button { display: inline-block; }
+.master-note-expanded { display: block; width: 100%; box-sizing: border-box; padding: 16px; background: #f8fafc; border-top: 1px solid #c7d1dd; }
+.master-note-rendered { min-height: 90px; margin: 0 0 14px; color: #405873; white-space: pre-wrap; overflow-wrap: anywhere; }
+.master-note-rendered > :first-child { margin-top: 0; }
+.master-note-rendered > :last-child { margin-bottom: 0; }
+.master-note-editor { display: grid; gap: 14px; padding: 18px; }
+.master-note-editor h3 { margin: 0; }
+.master-note-content-editor {
+	width: 100%;
+	min-height: 230px;
+	box-sizing: border-box;
+	padding: 12px;
+	color: #263d5a;
+	background: #fff;
+	border: 1px solid #9ba9b9;
+	border-radius: 4px;
+	font: 14px/1.45 Arial, sans-serif;
+	font-weight: normal;
+	white-space: pre-wrap;
+	overflow-wrap: anywhere;
+}
+.master-note-content-editor:focus { border-color: #5278a6; box-shadow: 0 0 0 2px #6e94bf35; outline: 0; }
+.master-note-content-editor:empty::before { color: #8491a1; content: attr(data-placeholder); pointer-events: none; }
+.master-note-toolbar {
+	position: relative;
+	display: flex;
+	flex-wrap: wrap;
+	align-items: center;
+	gap: 6px;
+	padding: 10px 11px;
+	background: linear-gradient(180deg, #f4f7fb 0%, #dce5ef 100%);
+	border: 1px solid #9eafc1;
+	border-top: 0;
+	border-radius: 0 0 5px 5px;
+	box-shadow: inset 0 1px #ffffff, 0 2px 5px #263b5420;
+}
+.master-note-toolbar::before {
+	position: absolute;
+	top: 0;
+	right: 11px;
+	left: 11px;
+	height: 1px;
+	background: linear-gradient(90deg, transparent, #8297ae, transparent);
+	content: '';
+}
+.master-note-format-button {
+	width: 34px;
+	height: 30px;
+	min-width: 34px;
+	padding: 0;
+	color: #304967;
+	background: linear-gradient(#ffffff, #e8eef5);
+	border: 1px solid #9baabc;
+	border-radius: 4px;
+	box-shadow: inset 0 1px #fff, 0 1px 2px #283a4f26;
+	font-family: Georgia, serif;
+	font-size: 14px;
+	font-weight: bold;
+	line-height: 28px;
+}
+.master-note-format-button:hover,
+.master-note-format-button:focus-visible {
+	color: #fff;
+	background: linear-gradient(#6788ae, #46698f);
+	border-color: #365675;
+	box-shadow: inset 0 1px #ffffff55, 0 2px 4px #263c5850;
+}
+.master-note-format-button:active {
+	transform: translateY(1px);
+	background: linear-gradient(#3b5d83, #54779d);
+	box-shadow: inset 0 2px 4px #182b4055;
+}
+.master-note-format-button svg { width: 19px; height: 19px; vertical-align: middle; fill: none; stroke: currentColor; stroke-width: 1.7; stroke-linecap: round; stroke-linejoin: round; }
+.master-note-format-button svg circle { fill: currentColor; stroke: none; }
+.master-note-format-button.format-italic { font-style: italic; }
+.master-note-format-button.format-underline { text-decoration: underline; }
+.master-note-format-button.format-strikethrough { text-decoration: line-through; }
+.master-note-toolbar > .toolbar-group-start {
+	margin-left: 9px;
+	box-shadow: -8px 0 0 -7px #98a8ba, inset 0 1px #fff, 0 1px 2px #283a4f26;
+}
+.master-note-format-select {
+	width: auto;
+	min-width: 112px;
+	height: 30px;
+	padding: 3px 26px 3px 8px;
+	color: #304967;
+	background-color: #f8fafc;
+	border: 1px solid #9baabc;
+	border-radius: 4px;
+	box-shadow: inset 0 1px #fff;
+	font-size: 11px;
+	font-weight: bold;
+}
+.master-note-toolbar .master-note-format-select:nth-of-type(2) { min-width: 150px; }
+.master-note-toolbar .master-note-format-select:nth-of-type(3) { min-width: 64px; }
+.master-note-format-select:focus { border-color: #5278a6; box-shadow: 0 0 0 2px #6e94bf35; outline: 0; }
+.master-note-color-control {
+	display: flex;
+	align-items: center;
+	gap: 6px;
+	height: 30px;
+	box-sizing: border-box;
+	padding: 0 7px;
+	color: #405671;
+	background: linear-gradient(#ffffff, #e8eef5);
+	border: 1px solid #9baabc;
+	border-radius: 4px;
+	box-shadow: inset 0 1px #fff;
+	font-size: 9px;
+	font-weight: bold;
+}
+.master-note-color-control input {
+	width: 25px;
+	height: 20px;
+	padding: 0;
+	overflow: hidden;
+	background: transparent;
+	border: 1px solid #8192a6;
+	border-radius: 3px;
+	cursor: pointer;
+}
+@media (max-width: 900px) {
+	.master-note-toolbar > * { margin-left: 0 !important; }
+}
+.master-npc-editor { padding: 18px; }
+.master-npc-editor h3 { margin-top: 0; }
+.master-npc-form-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; }
+.master-npc-form-field { display: grid; gap: 5px; color: #334d6d; font-weight: bold; }
+.master-npc-form-field input,
+.master-npc-form-field textarea { width: 100%; box-sizing: border-box; }
+.master-npc-form-field:nth-child(n + 7) { grid-column: 1 / -1; }
+.master-npc-visual-field,
+.master-npc-team-field { position: relative; }
+.master-npc-trainer-toggle {
+	display: flex;
+	align-items: center;
+	gap: 10px;
+	min-height: 68px;
+	padding: 7px 12px;
+	text-align: left;
+}
+.master-npc-trainer-toggle img {
+	width: 48px;
+	height: 54px;
+	object-fit: contain;
+	image-rendering: pixelated;
+}
+.master-npc-picker-placeholder {
+	display: grid;
+	width: 44px;
+	height: 44px;
+	place-items: center;
+	border: 1px dashed #8798ac;
+	border-radius: 5px;
+	font-size: 24px;
+}
+.master-npc-trainer-options,
+.master-npc-pokemon-picker {
+	position: absolute;
+	z-index: 30;
+	top: 100%;
+	left: 0;
+	right: 0;
+	max-height: 360px;
+	padding: 9px;
+	overflow: auto;
+	background: #f8fafc;
+	border: 1px solid #9eacbd;
+	border-radius: 5px;
+	box-shadow: 0 12px 28px #1c2c4247;
+}
+.master-npc-trainer-options {
+	display: grid;
+	grid-template-columns: repeat(5, minmax(72px, 1fr));
+	gap: 7px;
+}
+.master-npc-trainer-option {
+	display: grid;
+	min-width: 0;
+	place-items: center;
+	gap: 3px;
+	padding: 6px;
+}
+.master-npc-trainer-option img { width: 46px; height: 54px; object-fit: contain; image-rendering: pixelated; }
+.master-npc-trainer-option span { max-width: 100%; overflow: hidden; font-size: 9px; text-overflow: ellipsis; }
+.master-npc-team-members {
+	display: grid;
+	grid-template-columns: repeat(6, minmax(0, 1fr));
+	gap: 7px;
+}
+.master-npc-team-member {
+	position: relative;
+	display: grid;
+	min-height: 86px;
+	place-items: center;
+	padding: 5px;
+	background: #f6f8fb;
+	border: 1px solid #bdc8d5;
+	border-radius: 5px;
+	text-align: center;
+}
+.master-npc-team-member .pokemon-sprite { width: 50px; height: 50px; }
+.master-npc-team-member .pokemon-sprite img { width: 100%; height: 100%; object-fit: contain; image-rendering: pixelated; }
+.master-npc-team-member strong { max-width: 100%; overflow: hidden; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.master-npc-team-member .danger {
+	position: absolute;
+	top: 2px;
+	right: 2px;
+	min-width: 20px;
+	padding: 0 5px;
+}
+.master-npc-team-empty {
+	grid-column: 1 / -1;
+	padding: 18px;
+	color: #73849a;
+	border: 1px dashed #adb9c7;
+	text-align: center;
+}
+.master-npc-team-field > button { justify-self: start; }
+.master-npc-pokemon-picker { top: auto; bottom: 40px; max-height: 430px; }
+.master-npc-pokemon-picker > input { position: sticky; top: 0; z-index: 1; margin-bottom: 8px; }
+.master-npc-pokemon-results { display: grid; grid-template-columns: repeat(6, minmax(76px, 1fr)); gap: 6px; }
+.master-npc-pokemon-option { display: grid; min-width: 0; place-items: center; gap: 3px; padding: 5px; }
+.master-npc-pokemon-option .pokemon-sprite { width: 48px; height: 48px; }
+.master-npc-pokemon-option .pokemon-sprite img { width: 100%; height: 100%; object-fit: contain; image-rendering: pixelated; }
+.master-npc-pokemon-option span { max-width: 100%; overflow: hidden; font-size: 9px; text-overflow: ellipsis; white-space: nowrap; }
+.master-npc-pokemon-manager {
+	position: absolute;
+	z-index: 35;
+	left: 0;
+	right: 0;
+	bottom: 40px;
+	max-height: min(720px, 84vh);
+	padding: 14px;
+	overflow: auto;
+	background: #f6f8fb;
+	border: 1px solid #8fa0b5;
+	border-radius: 6px;
+	box-shadow: 0 14px 34px #17283d59;
+}
+.master-npc-pokemon-manager-head { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+.master-npc-pokemon-manager-head h4 { margin: 0; font-size: 18px; }
+.master-npc-pokemon-manager-head button { margin-left: auto; }
+.master-npc-pokemon-toolbar {
+	display: grid;
+	grid-template-columns: 200px 72px 142px 78px 96px 108px;
+	justify-content: start;
+	align-items: stretch;
+	margin: 0 -14px;
+	padding: 12px 14px;
+	background: #e7edf6;
+	border-top: 1px solid #b6c1cf;
+	border-bottom: 1px solid #b6c1cf;
+}
+.master-npc-pokemon-toolbar > * { position: relative; padding: 10px 10px 6px; border: 1px solid #b3becc; background: #f8fafc; }
+.master-npc-pokemon-toolbar > * + * { border-left: 0; }
+.master-npc-pokemon-toolbar input:not([type="checkbox"]),
+.master-npc-pokemon-toolbar select { width: 100%; min-width: 0; box-sizing: border-box; }
+.master-npc-pokemon-name { display: grid; align-content: center; }
+.master-npc-pokemon-name small,
+.master-npc-pokemon-toolbar .master-npc-compact-control > span {
+	position: absolute;
+	top: -10px;
+	left: 8px;
+	padding: 2px 7px;
+	background: #dce4ef;
+	border: 1px solid #aeb9c8;
+	border-radius: 4px;
+	color: #4f5f75;
+	font-size: 9px;
+}
+.master-npc-pokemon-name strong { color: #263d61; font-size: 19px; }
+.master-npc-pokemon-toolbar input[type="checkbox"] { width: 20px; height: 20px; margin: auto; }
+.master-npc-pokemon-showdown-body {
+	display: grid;
+	grid-template-columns: 180px minmax(320px, 1fr) minmax(280px, 31%);
+	gap: 12px;
+	padding: 16px 0 12px;
+}
+.master-npc-pokemon-portrait { position: relative; min-width: 0; min-height: 200px; }
+.master-npc-pokemon-portrait .pokemon-sprite { position: absolute; top: 50%; left: 50%; width: 200px; height: 200px; overflow: visible; background: transparent; border: 0; border-radius: 0; box-shadow: none; transform: translate(-50%, -50%); }
+.master-npc-pokemon-portrait .pokemon-sprite img { width: 100%; height: 100%; max-width: 100%; max-height: 100%; object-fit: contain; image-rendering: pixelated; }
+.master-npc-pokemon-center { display: grid; align-content: start; gap: 12px; }
+.master-npc-pokemon-types { display: flex; justify-content: flex-start; gap: 7px; min-height: 34px; padding: 7px 10px; background: #fff; border: 1px solid #bcc7d3; border-radius: 5px; }
+.master-npc-pokemon-types span { align-self: center; padding: 3px 12px; border-radius: 12px; color: #fff; font-size: 10px; font-weight: bold; }
+.master-npc-pokemon-hp { position: relative; display: grid; grid-template-columns: 1fr auto; gap: 6px; padding: 12px 14px 20px; background: #fff; border: 1px solid #bcc7d3; border-radius: 5px; }
+.master-npc-pokemon-hp i { position: absolute; right: 14px; bottom: 8px; left: 14px; height: 10px; background: linear-gradient(#79c970, #4fa84c); border-radius: 6px; }
+.master-npc-pokemon-properties { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.master-npc-pokemon-properties .master-npc-compact-control { position: relative; padding: 16px 10px 10px; background: #eef2f8; border: 1px solid #b9c4d1; border-radius: 5px; }
+.master-npc-pokemon-properties .master-npc-compact-control > span { position: absolute; top: -10px; left: 8px; padding: 2px 7px; background: #dce4ef; border: 1px solid #aeb9c8; border-radius: 4px; }
+.master-npc-pokemon-properties .contest-ability-property {
+	position: relative;
+	display: flex;
+	align-items: stretch;
+	min-width: 0;
+	padding: 0;
+	background: #eef2f8;
+	border: 1px solid #b9c4d1;
+	border-radius: 5px;
+}
+.master-npc-pokemon-properties .contest-ability-property > .contest-npc-property-label {
+	position: absolute;
+	z-index: 2;
+	top: -10px;
+	left: 8px;
+	padding: 2px 7px;
+	background: #dce4ef;
+	border: 1px solid #aeb9c8;
+	border-radius: 4px;
+	color: #4f5f75;
+	font-size: 9px;
+	font-weight: bold;
+}
+.master-npc-pokemon-properties .contest-ability-button {
+	align-content: center;
+	width: 100%;
+	min-height: 100%;
+	padding: 16px 10px 10px;
+	border-radius: 5px;
+}
+.master-npc-property-picker { position: relative; min-width: 0; padding: 16px 10px 10px; background: #eef2f8; border: 1px solid #b9c4d1; border-radius: 5px; }
+.master-npc-property-picker > span { position: absolute; z-index: 2; top: -10px; left: 8px; padding: 2px 7px; background: #dce4ef; border: 1px solid #aeb9c8; border-radius: 4px; color: #4f5f75; font-size: 9px; font-weight: bold; }
+.master-npc-property-button { display: grid; gap: 3px; width: 100%; min-height: 45px; padding: 5px 8px; background: transparent; border: 0; box-shadow: none; text-align: left; }
+.master-npc-property-button.master-npc-item-button { grid-template-columns: 34px minmax(0, 1fr); align-items: center; gap: 7px; }
+.master-npc-property-button small { color: #68788d; font-size: 9px; }
+.master-npc-property-dropdown { position: absolute; z-index: 65; top: calc(100% + 7px); left: 0; width: min(380px, 56vw); max-height: 280px; padding: 6px; overflow-y: auto; background: #fff; border: 1px solid #9eacbd; border-radius: 5px; box-shadow: 0 12px 28px #1b2c4355; }
+.master-npc-property-dropdown > input { position: sticky; top: 0; z-index: 1; width: 100%; box-sizing: border-box; margin-bottom: 6px; }
+.master-npc-property-results { display: grid; gap: 4px; }
+.master-npc-property-option { display: grid; grid-template-columns: 34px minmax(0, 1fr); align-items: center; gap: 7px; width: 100%; min-height: 46px; padding: 5px 7px; background: #fff; border: 1px solid #ccd5df; text-align: left; }
+.master-npc-property-option small { color: #68788d; font-size: 9px; }
+.master-npc-property-option.master-npc-ability-option { grid-template-columns: minmax(0, 1fr); align-items: start; gap: 3px; padding: 8px 10px; }
+.master-npc-ability-option strong,
+.master-npc-ability-option small { display: block; width: 100%; line-height: 1.35; white-space: normal; }
+.master-npc-item-icon { display: grid; width: 32px; height: 32px; place-items: center; }
+.master-npc-item-icon:empty { opacity: 0; }
+.master-npc-item-icon img,
+.master-npc-item-icon canvas,
+.master-npc-item-icon > * { max-width: 30px; max-height: 30px; object-fit: contain; image-rendering: pixelated; }
+.master-npc-item-copy { display: grid; min-width: 0; gap: 2px; }
+.master-npc-item-copy strong,
+.master-npc-item-copy small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.master-npc-compact-control { display: grid; gap: 3px; min-width: 0; color: #52677f; font-size: 9px; font-weight: bold; }
+.master-npc-compact-control input,
+.master-npc-compact-control select { width: 100%; box-sizing: border-box; }
+.master-npc-pokemon-attributes { position: relative; display: grid; align-content: start; gap: 6px; padding: 10px; background: #fff; border: 1px solid #aeb9c8; border-radius: 5px; }
+.master-npc-pokemon-attribute-head { display: grid; grid-template-columns: minmax(62px, 1fr) 34px 34px 44px; align-items: center; gap: 0; padding-bottom: 7px; border-bottom: 1px solid #c6d0db; }
+.master-npc-pokemon-attribute-head h4 { margin: 0; color: #293f5e; }
+.master-npc-pokemon-attribute-head span { color: #65758a; font-size: 9px; text-align: center; }
+.master-npc-pokemon-stat {
+	display: grid;
+	grid-template-columns: 38px 1fr 1fr;
+	align-items: end;
+	gap: 6px;
+	padding: 7px;
+	background: #fff;
+	border: 1px solid #c4ceda;
+	border-radius: 4px;
+}
+.master-npc-pokemon-stat > strong { align-self: center; color: #314b6a; font-size: 10px; }
+.master-npc-attribute-summary { display: grid; }
+.master-npc-attribute-summary-row { display: grid; grid-template-columns: minmax(62px, 1fr) 34px 34px 44px; align-items: center; min-height: 23px; border-bottom: 1px solid #e0e5eb; font-size: 9px; }
+.master-npc-attribute-summary-row.heading { color: #65758a; text-align: center; }
+.master-npc-attribute-summary-row span,
+.master-npc-attribute-summary-row b { text-align: center; }
+.master-npc-attribute-footer { display: flex; align-items: center; justify-content: space-between; gap: 7px; margin-top: 6px; color: #586a81; font-size: 9px; }
+.master-npc-attribute-footer button { padding: 5px 8px; }
+.master-npc-attribute-editor {
+	position: absolute;
+	z-index: 50;
+	top: 0;
+	right: calc(100% + 9px);
+	display: grid;
+	grid-template-columns: repeat(2, minmax(150px, 1fr));
+	gap: 7px;
+	width: min(620px, 70vw);
+	padding: 12px;
+	background: #fff;
+	border: 1px solid #9cabbc;
+	border-radius: 5px;
+	box-shadow: 0 14px 32px #1b2c4355;
+}
+.master-npc-attribute-editor > .master-npc-compact-control { grid-column: 1 / -1; max-width: 220px; }
+.master-npc-nature-picker { width: 185px; max-width: 100%; }
+.master-npc-nature-picker .contest-nature-panel { right: 0; left: auto; }
+.master-npc-nature-grid { display: grid; grid-template-columns: 90px repeat(5, minmax(90px, 1fr)); gap: 4px; }
+.master-npc-nature-grid > strong,
+.master-npc-nature-corner { display: grid; min-height: 36px; place-items: center; padding: 3px; border-radius: 4px; color: #fff; font-size: 9px; text-align: center; }
+.master-npc-nature-grid > .increase { background: #4f79aa; }
+.master-npc-nature-grid > .decrease { background: #b95851; }
+.master-npc-nature-corner { background: linear-gradient(32deg, #b9534b 0 48%, #e7edf5 49% 51%, #4e79ad 52%); }
+.master-npc-nature-option { display: grid; min-height: 52px; place-content: center; gap: 1px; padding: 3px; background: #fff; border: 1px solid #c9d2dd; border-radius: 4px; text-align: center; }
+.master-npc-nature-option strong { font-size: 11px; }
+.master-npc-nature-option small { font-size: 8px; }
+.master-npc-nature-option .increase { color: #27843b; }
+.master-npc-nature-option .decrease { color: #b53e3e; }
+.master-npc-nature-option .neutral { color: #747d89; }
+.master-npc-nature-option.neutral { background: #f4edbd; }
+.master-npc-pokemon-moves { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 10px; margin-top: -24px; }
+.master-npc-pokemon-moves h4 { grid-column: 1 / -1; margin: 0; color: #293f5e; font-size: 18px; }
+.master-npc-pokemon-moves .team-builder-move-slot { min-width: 0; height: 132px; }
+.master-npc-pokemon-moves .team-builder-move-card { width: 100%; height: 100%; min-height: 132px; }
+.master-npc-pokemon-moves .rpg-move-button-body { width: 100%; min-width: 0; overflow: hidden; }
+.master-npc-pokemon-moves .rpg-move-summary,
+.master-npc-pokemon-moves .rpg-move-explanation { min-width: 0; overflow: hidden; }
+.master-npc-pokemon-moves .rpg-move-button-description {
+	max-width: 100%;
+	overflow: hidden;
+	overflow-wrap: anywhere;
+	word-break: normal;
+}
+.master-npc-move-dropdown {
+	position: absolute;
+	z-index: 55;
+	right: 14px;
+	bottom: 76px;
+	left: 14px;
+	display: grid;
+	grid-template-rows: auto minmax(0, 1fr);
+	gap: 8px;
+	height: min(470px, 65vh);
+	padding: 10px;
+	background: #f8fafc;
+	border: 1px solid #9cabbc;
+	border-radius: 5px;
+	box-shadow: 0 14px 32px #1b2c4355;
+}
+.master-npc-move-choices { display: grid; grid-template-columns: 1fr; gap: 4px; min-height: 0; overflow-y: auto; }
+.master-npc-move-choices .team-builder-simple-move { width: 100%; }
+.master-npc-editor-actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 14px; }
+.master-npc-editor-actions .danger { margin-right: auto; }
 @media (max-width: 700px) {
 	.campaign-clock .section-body { align-items: stretch; flex-direction: column; }
 	.campaign-clock-actions { display: grid; grid-template-columns: 1fr 1fr; }
+	.master-npc-folder-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+	.master-npc-summary { grid-template-columns: 48px 1fr; }
+	.master-npc-column-labels { display: none; }
+	.master-npc-summary > span { grid-column: 2; }
+	.master-npc-expanded,
+	.master-npc-form-grid { grid-template-columns: 1fr; }
+	.master-npc-form-field:nth-child(n + 7) { grid-column: auto; }
+	.master-npc-trainer-options { grid-template-columns: repeat(3, minmax(70px, 1fr)); }
+	.master-npc-team-members,
+	.master-npc-pokemon-results { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+	.master-npc-pokemon-toolbar { grid-template-columns: 1fr 74px; gap: 8px; }
+	.master-npc-pokemon-toolbar > * + * { border-left: 1px solid #b3becc; }
+	.master-npc-pokemon-showdown-body { grid-template-columns: 1fr; }
+	.master-npc-pokemon-attributes { grid-template-columns: 1fr 1fr; }
+	.master-npc-pokemon-moves { grid-template-columns: 1fr 1fr; }
+}
+@media (min-width: 701px) and (max-width: 980px) {
+	.master-npc-folder-grid { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 }
 .box-team-egg-slot:disabled{opacity:1;cursor:not-allowed;background:linear-gradient(#fffaf0,#eee2cf)}
 .box-team-egg-slot .box-pokemon-image{filter:none}

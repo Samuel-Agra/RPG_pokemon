@@ -626,6 +626,7 @@ export interface RPGLoginServiceOptions {
 	contestComboRepository?: RPGContestComboRepository;
 	customItemRepository?: RPGCustomItemRepository;
 	commerceRepository?: RPGCommerceRepository;
+	masterNPCLibraryFile?: string;
 	sessionTtlMs?: number;
 	now?: () => number;
 	random?: () => number;
@@ -648,6 +649,8 @@ export class RPGLoginService {
 	private readonly now: () => number;
 	private readonly random: () => number;
 	private readonly bytes: (size: number) => Buffer;
+	private readonly masterNPCLibraryFile?: string;
+	private masterNPCLibrary: Record<string, unknown> | null = null;
 
 	constructor(options: RPGLoginServiceOptions) {
 		if (typeof options.masterCode !== 'string' || !options.masterCode) {
@@ -672,6 +675,12 @@ export class RPGLoginService {
 		this.now = options.now || Date.now;
 		this.random = options.random || Math.random;
 		this.bytes = options.randomBytes || secureRandomBytes;
+		this.masterNPCLibraryFile = options.masterNPCLibraryFile && resolve(options.masterNPCLibraryFile);
+		if (this.masterNPCLibraryFile && existsSync(this.masterNPCLibraryFile)) {
+			const stored = JSON.parse(readFileSync(this.masterNPCLibraryFile, 'utf8')) as unknown;
+			if (!stored || typeof stored !== 'object' || Array.isArray(stored)) throw new Error('Invalid RPG master NPC library file');
+			this.masterNPCLibrary = structuredClone(stored as Record<string, unknown>);
+		}
 		this.battleSessions = new RPGBattleSessionService({
 			repository: options.battleSessionRepository,
 			now: this.now,
@@ -1030,6 +1039,26 @@ export class RPGLoginService {
 		return structuredClone(record.state);
 	}
 
+	getMasterNPCLibrary(token: string): Record<string, unknown> | null {
+		const session = this.getSession(token);
+		if (session.role !== 'master') throw new Error('RPG master session required');
+		return this.masterNPCLibrary && structuredClone(this.masterNPCLibrary);
+	}
+
+	setMasterNPCLibrary(token: string, library: unknown): Record<string, unknown> {
+		const session = this.getSession(token);
+		if (session.role !== 'master') throw new Error('RPG master session required');
+		if (!library || typeof library !== 'object' || Array.isArray(library)) throw new Error('Invalid RPG master NPC library');
+		this.masterNPCLibrary = structuredClone(library as Record<string, unknown>);
+		if (this.masterNPCLibraryFile) {
+			mkdirSync(dirname(this.masterNPCLibraryFile), {recursive: true});
+			const temporary = this.masterNPCLibraryFile + '.tmp';
+			writeFileSync(temporary, JSON.stringify(this.masterNPCLibrary, null, '\t') + '\n', 'utf8');
+			renameSync(temporary, this.masterNPCLibraryFile);
+		}
+		return structuredClone(this.masterNPCLibrary);
+	}
+
 	setCharacterShopAccess(token: string, characterId: string, shopId: string, allowed: boolean): RPGCharacterState {
 		this.requireMasterRole(token);
 		const id = String(shopId || '');
@@ -1061,10 +1090,16 @@ export class RPGLoginService {
 	adjustCharacterMoney(
 		token: string, characterId: string, operation: 'add' | 'remove', amount: number
 	): RPGCharacterState {
-		this.requireMasterRole(token);
+		const session = this.getSession(token);
+		const target = toID(characterId);
+		if (session.role === 'master') {
+			this.requireMasterRole(token);
+		} else if (session.mode !== 'player' || toID(session.characterId || '') !== target || operation !== 'remove') {
+			throw new Error('O Player só pode remover dinheiro da própria carteira');
+		}
 		if (!['add', 'remove'].includes(operation)) throw new Error('Operação de dinheiro inválida');
 		if (!Number.isSafeInteger(amount) || amount <= 0) throw new Error('O valor deve ser um inteiro maior que zero');
-		const record = this.requireCharacter(characterId);
+		const record = this.requireCharacter(target);
 		const nextMoney = operation === 'add' ? record.state.money + amount : record.state.money - amount;
 		if (!Number.isSafeInteger(nextMoney) || nextMoney < 0) throw new Error('Pokécoins insuficientes na carteira');
 		record.state.money = nextMoney;
@@ -4821,6 +4856,7 @@ export function createRPGLoginServiceFromConfig(
 		rpgcontestcombofile?: string,
 		rpgcustomitemfile?: string,
 		rpgshopfile?: string,
+		rpgmasternpclibraryfile?: string,
 		rpgseedtestaccount?: boolean,
 	} = Config
 ): RPGLoginService {
@@ -4846,6 +4882,7 @@ export function createRPGLoginServiceFromConfig(
 	const service = new RPGLoginService({
 		masterCode, repository, battleSessionRepository, contestSessionRepository, contestComboRepository,
 		customItemRepository, commerceRepository,
+		masterNPCLibraryFile: config.rpgmasternpclibraryfile || resolve('config/rpg-master-npc-library.json'),
 	});
 	migrateCharacterPageAccess(service);
 	migrateCharacterBanks(service);

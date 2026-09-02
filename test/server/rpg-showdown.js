@@ -203,7 +203,8 @@ describe('RPG login', () => {
 		assert.equal(service.adjustCharacterMoney(master.token, character.id, 'add', 500).money, 3500);
 		assert.equal(service.adjustCharacterMoney(master.token, character.id, 'remove', 1200).money, 2300);
 		assert.throws(() => service.adjustCharacterMoney(master.token, character.id, 'remove', 2301), /insuficientes/);
-		assert.throws(() => service.adjustCharacterMoney(player.token, character.id, 'add', 1), /master/i);
+		assert.throws(() => service.adjustCharacterMoney(player.token, character.id, 'add', 1), /só pode remover/);
+		assert.equal(service.adjustCharacterMoney(player.token, character.id, 'remove', 300).money, 2000);
 	});
 
 	it('lets the Player persist a personalized trainer phrase', () => {

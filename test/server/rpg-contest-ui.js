@@ -37,6 +37,9 @@ describe('RPG contest UI', () => {
 		assert.ok(rpg.includes("api('/bank/' + (bankMode === 'deposit' ? 'deposit' : 'redeem')"));
 		assert.ok(rpg.includes("api('/characters/money'"));
 		assert.ok(rpg.includes("const masterViewingPlayer = state.session?.role === 'master' && state.session?.mode === 'player'"));
+		assert.ok(rpg.includes("const playerEditingOwnMoney = state.session?.role === 'player' && state.session?.mode === 'player'"));
+		assert.ok(rpg.includes('!moneyPanel.contains(event.target) && !moneyMetric.contains(event.target)'));
+		assert.ok(rpg.includes('!bankPanel.contains(event.target) && !bankMetric.contains(event.target)'));
 		assert.ok(rpg.includes("['bank', 'Banco']"));
 	});
 

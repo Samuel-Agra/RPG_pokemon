@@ -22,7 +22,7 @@ import { getRPGContestMoveCatalog, getRPGContestPokemonMoveCatalog } from './con
 import {RPGContestRuntimeManager, type RPGContestRuntimeAction} from './contest-runtime';
 import { getRPGItemIconPath } from './item-icons';
 
-const MAX_BODY_SIZE = 64 * 1024;
+const MAX_BODY_SIZE = 2 * 1024 * 1024;
 
 export class RPGHttpServer {
 	private service?: RPGLoginService;
@@ -211,6 +211,18 @@ export class RPGHttpServer {
 				body.allowed === true
 			) });
 			return;
+		}
+		if (url.pathname === '/api/rpg/master-npc-library') {
+			const token = this.token(req);
+			if (method === 'GET') {
+				this.json(res, 200, {library: this.login.getMasterNPCLibrary(token)});
+				return;
+			}
+			if (method === 'PUT') {
+				const body = await this.body(req);
+				this.json(res, 200, {library: this.login.setMasterNPCLibrary(token, body.library)});
+				return;
+			}
 		}
 		if (method === 'GET' && url.pathname === '/api/rpg/bank') {
 			this.json(res, 200, {bank: this.login.getBank(

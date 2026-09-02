@@ -120,6 +120,7 @@ function saveSession(session) {
 	if (identityChanged) {
 		state.battleSessions = [];
 		state.dismissedBattleSessionIds.clear();
+		masterNPCLibraryLoadedFromServer = false;
 	}
 	if (session) {
 		localStorage.setItem(STORAGE_KEY, JSON.stringify(session));
@@ -1440,13 +1441,14 @@ async function renderPlayerBody(character) {
 	const wallet = section('Carteira');
 	const bank = Math.max(0, Number(character.bank?.balance || 0));
 	const walletGrid = createElement('div', 'overview-money-grid');
-	const moneyMetric = profileMetric('Dinheiro', formatOverviewMoney(character.money));
+	const moneyMetric = profileMetric('Pokécoin', formatOverviewMoney(character.money));
 	const bankMetric = profileMetric('Banco', formatOverviewMoney(bank));
 	walletGrid.append(moneyMetric, bankMetric,
 		profileMetric('Valor total', formatOverviewMoney(Number(character.money || 0) + bank)));
 	wallet.body.append(walletGrid);
 	const masterViewingPlayer = state.session?.role === 'master' && state.session?.mode === 'player';
-	if (masterViewingPlayer) {
+	const playerEditingOwnMoney = state.session?.role === 'player' && state.session?.mode === 'player';
+	if (masterViewingPlayer || playerEditingOwnMoney) {
 		moneyMetric.classList.add('overview-bank-toggle');
 		moneyMetric.setAttribute('role', 'button'); moneyMetric.setAttribute('tabindex', '0');
 		moneyMetric.setAttribute('aria-expanded', 'false');
@@ -1454,7 +1456,9 @@ async function renderPlayerBody(character) {
 		const moneyChoices = createElement('div', 'overview-bank-choices');
 		const addMoney = button('Adicionar', 'button primary');
 		const removeMoney = button('Remover', 'button danger');
-		moneyChoices.append(addMoney, removeMoney);
+		if (masterViewingPlayer) moneyChoices.append(addMoney);
+		moneyChoices.append(removeMoney);
+		moneyChoices.classList.toggle('single-action', !masterViewingPlayer);
 		const moneyForm = createElement('form', 'overview-bank-form hidden');
 		const moneyTitle = createElement('strong');
 		const moneyAmount = createElement('input');
@@ -1474,8 +1478,14 @@ async function renderPlayerBody(character) {
 		};
 		const toggleMoney = () => {
 			if (!moneyPanel.classList.contains('hidden')) { closeMoney(); return; }
+			for (const panel of wallet.panel.querySelectorAll('.overview-bank-panel:not(.overview-money-panel)')) {
+				panel.classList.add('hidden');
+			}
+			bankMetric.setAttribute('aria-expanded', 'false');
 			moneyPanel.classList.remove('hidden'); moneyMetric.setAttribute('aria-expanded', 'true');
-			outsideMoneyHandler = event => { if (!wallet.panel.contains(event.target)) closeMoney(); };
+			outsideMoneyHandler = event => {
+				if (!moneyPanel.contains(event.target) && !moneyMetric.contains(event.target)) closeMoney();
+			};
 			setTimeout(() => document.addEventListener('pointerdown', outsideMoneyHandler), 0);
 		};
 		const chooseMoneyOperation = operation => {
@@ -1541,8 +1551,12 @@ async function renderPlayerBody(character) {
 	const toggleBank = () => {
 		const opening = bankPanel.classList.contains('hidden');
 		if (!opening) { closeBank(); return; }
+		for (const panel of wallet.panel.querySelectorAll('.overview-money-panel')) panel.classList.add('hidden');
+		moneyMetric.setAttribute('aria-expanded', 'false');
 		bankPanel.classList.remove('hidden'); bankMetric.setAttribute('aria-expanded', 'true');
-		outsideBankHandler = event => { if (!wallet.panel.contains(event.target)) closeBank(); };
+		outsideBankHandler = event => {
+			if (!bankPanel.contains(event.target) && !bankMetric.contains(event.target)) closeBank();
+		};
 		setTimeout(() => document.addEventListener('pointerdown', outsideBankHandler), 0);
 	};
 	const chooseBankMode = mode => {
@@ -2634,6 +2648,1037 @@ async function openDeleteDialog() {
 	}
 }
 
+const MASTER_NPC_LIBRARY_KEY = 'rpg-master-npc-library-v1';
+let masterNPCLastCreatedFolderId = '';
+let masterNPCLibraryLoadedFromServer = false;
+let masterNPCLibrarySaveChain = Promise.resolve();
+const masterNPCExpandedFolderIds = new Set();
+const MASTER_NPC_FOLDER_COLORS = [
+	{value: '#d69b35', light: '#ebc466'}, {value: '#c74740', light: '#f07b70'},
+	{value: '#4c6f98', light: '#89a9cc'}, {value: '#4f8a67', light: '#85bd91'},
+	{value: '#76539b', light: '#a486c4'}, {value: '#bd6e96', light: '#e59abb'},
+];
+const MASTER_NPC_DEFAULT_FOLDERS = [
+	{id: 'pokemon', name: 'Pok\u00e9mon', parentId: null, kind: 'pokemon', locked: true},
+	{id: 'free', name: 'NPCs livres', parentId: null, kind: 'free', locked: true},
+	...['Kanto', 'Johto', 'Hoenn', 'Sinnoh', 'Unova', 'Kalos', 'Alola', 'Galar', 'Hisui', 'Paldea']
+		.map(name => ({id: 'region-' + name.toLowerCase(), name, parentId: null, kind: 'region', locked: true})),
+];
+
+function readMasterNPCLibrary() {
+	let stored = {};
+	try { stored = JSON.parse(localStorage.getItem(MASTER_NPC_LIBRARY_KEY) || '{}'); } catch {}
+	const customFolders = Array.isArray(stored.folders) ? stored.folders.filter(folder => folder?.id && folder?.name) : [];
+	return {
+		folders: [...MASTER_NPC_DEFAULT_FOLDERS, ...customFolders.filter(folder => !folder.locked)],
+		npcs: Array.isArray(stored.npcs) ? stored.npcs : [],
+		notes: Array.isArray(stored.notes) ? stored.notes : [],
+	};
+}
+
+function saveMasterNPCLibrary(library) {
+	const stored = {
+		folders: library.folders.filter(folder => !folder.locked),
+		npcs: library.npcs,
+		notes: library.notes || [],
+	};
+	localStorage.setItem(MASTER_NPC_LIBRARY_KEY, JSON.stringify(stored));
+	if (state.session?.role === 'master') {
+		masterNPCLibrarySaveChain = masterNPCLibrarySaveChain
+			.then(() => api('/master-npc-library', {method: 'PUT', body: {library: stored}}))
+			.catch(error => showToast('N\u00e3o foi poss\u00edvel salvar a biblioteca no servidor: ' + error.message, true));
+	}
+}
+
+async function loadMasterNPCLibraryFromServer() {
+	if (masterNPCLibraryLoadedFromServer || state.session?.role !== 'master') return;
+	const local = readMasterNPCLibrary();
+	const response = await api('/master-npc-library');
+	if (response.library) {
+		localStorage.setItem(MASTER_NPC_LIBRARY_KEY, JSON.stringify(response.library));
+	} else if (local.npcs.length || local.notes.length || local.folders.some(folder => !folder.locked)) {
+		saveMasterNPCLibrary(local);
+	}
+	masterNPCLibraryLoadedFromServer = true;
+}
+
+async function renderMasterNPCLibraryDashboard() {
+	try { await loadMasterNPCLibraryFromServer(); } catch (error) { showToast('Falha ao carregar a biblioteca do servidor: ' + error.message, true); }
+	return renderMasterNPCFolders();
+}
+
+function masterNPCId(prefix) {
+	return prefix + '-' + Date.now().toString(36) + '-' + Math.random().toString(36).slice(2, 8);
+}
+
+function closeMasterNPCFolderMenu() {
+	document.querySelector('.master-npc-folder-menu')?.remove();
+}
+
+function masterNPCFolderDescendants(library, folderId) {
+	const ids = new Set([folderId]);
+	let changed = true;
+	while (changed) {
+		changed = false;
+		for (const folder of library.folders) {
+			if (folder.parentId && ids.has(folder.parentId) && !ids.has(folder.id)) {
+				ids.add(folder.id);
+				changed = true;
+			}
+		}
+	}
+	return ids;
+}
+
+function openMasterNPCFolderMenu(event, folder, library, refresh) {
+	event.preventDefault();
+	event.stopPropagation();
+	closeMasterNPCFolderMenu();
+	const menu = createElement('div', 'master-npc-folder-menu');
+	menu.setAttribute('role', 'menu');
+	const remove = button('Excluir', 'danger');
+	remove.setAttribute('role', 'menuitem');
+	remove.addEventListener('click', () => {
+		const descendantIds = masterNPCFolderDescendants(library, folder.id);
+		const nestedCount = descendantIds.size - 1;
+		const npcCount = library.npcs.filter(npc => descendantIds.has(npc.folderId)).length;
+		const noteCount = (library.notes || []).filter(note => descendantIds.has(note.folderId)).length;
+		if ((nestedCount || npcCount || noteCount) && !confirm(
+			'A pasta "' + folder.name + '" possui ' +
+			(nestedCount ? nestedCount + ' subpasta(s)' : '') +
+			(nestedCount && (npcCount || noteCount) ? ', ' : '') +
+			(npcCount ? npcCount + ' NPC(s)' : '') +
+			(npcCount && noteCount ? ' e ' : '') +
+			(noteCount ? noteCount + ' bloco(s) de notas' : '') +
+			'. Excluir a pasta e todo o seu conte\u00fado?'
+		)) return;
+		library.folders = library.folders.filter(entry => !descendantIds.has(entry.id));
+		library.npcs = library.npcs.filter(npc => !descendantIds.has(npc.folderId));
+		library.notes = (library.notes || []).filter(note => !descendantIds.has(note.folderId));
+		saveMasterNPCLibrary(library);
+		closeMasterNPCFolderMenu();
+		refresh();
+		showToast('Pasta exclu\u00edda.');
+	});
+	menu.append(remove);
+	document.body.append(menu);
+	const width = menu.offsetWidth;
+	const height = menu.offsetHeight;
+	menu.style.left = Math.max(8, Math.min(event.clientX, window.innerWidth - width - 8)) + 'px';
+	menu.style.top = Math.max(8, Math.min(event.clientY, window.innerHeight - height - 8)) + 'px';
+	setTimeout(() => document.addEventListener('click', closeMasterNPCFolderMenu, {once: true}), 0);
+}
+
+function masterNPCField(label, name, value = '', multiline = false) {
+	const wrapper = createElement('label', 'master-npc-form-field');
+	wrapper.append(createElement('span', '', label));
+	const control = document.createElement(multiline ? 'textarea' : 'input');
+	control.name = name;
+	control.value = value;
+	if (multiline) control.rows = 4;
+	wrapper.append(control);
+	return wrapper;
+}
+
+function masterNPCControl(label, control) {
+	const wrapper = createElement('label', 'master-npc-compact-control');
+	wrapper.append(createElement('span', '', label), control);
+	return wrapper;
+}
+
+function masterNPCMoveCard(move, onClick) {
+	const type = String(move?.type || 'normal').toLowerCase();
+	const card = button('', 'team-builder-move-card rpg-move-button type-' + type);
+	card.type = 'button';
+	if (!move) {
+		card.classList.add('empty');
+		card.append(createElement('strong', '', 'Espa\u00e7o de golpe'));
+		if (onClick) card.addEventListener('click', onClick);
+		return card;
+	}
+	const title = createElement('div', 'rpg-move-title'); title.append(createElement('strong', '', move.name || move.moveName || move.moveId));
+	const identity = createElement('div', 'rpg-move-identity');
+	const battleCategory = move.battleCategory || move.category || 'Status';
+	const category = createElement('i', 'rpg-category-icon category-' + String(battleCategory).toLowerCase());
+	category.setAttribute('aria-label', battleCategory);
+	identity.append(category, createElement('span', 'rpg-type-badge type-' + type, String(move.type || 'Normal').toUpperCase()));
+	const technical = createElement('div', 'rpg-move-technical');
+	technical.append(createElement('span', '', move.basePower == null ? 'Power \u2014' : 'Power ' + move.basePower), createElement('span', '', move.alwaysHits ? 'Accuracy \u2014' : 'Accuracy ' + (move.accuracy ?? '\u2014') + '%'));
+	const summary = createElement('div', 'rpg-move-summary'); summary.append(identity, technical, createElement('div', 'rpg-move-range', move.targetLabel || move.target || ''));
+	const explanation = createElement('div', 'rpg-move-explanation'); explanation.append(createElement('p', 'rpg-move-button-description', move.description || 'Sem efeito adicional.'), createElement('b', 'rpg-move-pp', 'PP ' + (move.pp ?? '\u2014')));
+	const body = createElement('div', 'rpg-move-button-body'); body.append(summary, explanation);
+	card.append(title, body);
+	if (onClick) card.addEventListener('click', onClick);
+	return card;
+}
+
+function masterNPCTrainerPicker(selectedId = '') {
+	const field = createElement('div', 'master-npc-form-field master-npc-visual-field');
+	field.append(createElement('span', '', 'Sprite do treinador'));
+	const input = createElement('input');
+	input.type = 'hidden';
+	input.name = 'sprite';
+	input.value = selectedId || '';
+	const toggle = button('', 'master-npc-trainer-toggle');
+	const renderToggle = () => {
+		const avatar = AVATARS.find(entry => entry.id === input.value);
+		toggle.replaceChildren();
+		if (avatar) toggle.append(trainerImage(avatar), createElement('strong', '', avatar.name));
+		else toggle.append(createElement('span', 'master-npc-picker-placeholder', '+'), createElement('strong', '', 'Escolher treinador'));
+	};
+	const options = createElement('div', 'master-npc-trainer-options hidden');
+	for (const avatar of AVATARS) {
+		const option = button('', 'master-npc-trainer-option');
+		option.type = 'button';
+		option.append(trainerImage(avatar), createElement('span', '', avatar.name));
+		option.addEventListener('click', () => {
+			input.value = avatar.id;
+			options.classList.add('hidden');
+			renderToggle();
+		});
+		options.append(option);
+	}
+	toggle.type = 'button';
+	toggle.addEventListener('click', () => options.classList.toggle('hidden'));
+	field.append(input, toggle, options);
+	const closeOutside = event => {
+		if (!field.isConnected) {
+			document.removeEventListener('pointerdown', closeOutside);
+			return;
+		}
+		if (!field.contains(event.target)) options.classList.add('hidden');
+	};
+	document.addEventListener('pointerdown', closeOutside);
+	renderToggle();
+	return field;
+}
+
+function masterNPCTeamPicker(existing) {
+	const field = createElement('div', 'master-npc-form-field master-npc-team-field');
+	field.append(createElement('span', '', 'Equipe do NPC'));
+	const legacy = String(existing?.teams || '').split(/[,;\n]+/).map(species => species.trim()).filter(Boolean);
+	const selected = (Array.isArray(existing?.team) ? existing.team : legacy).map(entry =>
+		typeof entry === 'string' ? {species: entry, name: entry, level: 50, nature: 'Serious', moves: [], ability: '', item: '',
+			evs: {hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0}, ivs: {hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0}} : structuredClone(entry)
+	);
+	const input = createElement('input');
+	input.type = 'hidden';
+	input.name = 'team';
+	const members = createElement('div', 'master-npc-team-members');
+	const update = () => {
+		input.value = JSON.stringify(selected);
+		members.replaceChildren();
+		for (const [index, pokemon] of selected.entries()) {
+			const species = pokemon.species || pokemon.name;
+			const member = createElement('div', 'master-npc-team-member');
+			member.append(pokemonSprite(pokemon), createElement('strong', '', species), createElement('small', '', 'Nv. ' + (pokemon.level || 1)));
+			member.addEventListener('click', () => void openPokemonManager(pokemon, index));
+			const remove = button('\u00d7', 'danger');
+			remove.type = 'button';
+			remove.setAttribute('aria-label', 'Remover ' + species);
+			remove.addEventListener('click', event => { event.stopPropagation(); selected.splice(index, 1); update(); });
+			member.append(remove);
+			members.append(member);
+		}
+		if (!selected.length) members.append(createElement('div', 'master-npc-team-empty', 'Nenhum Pok\u00e9mon escolhido.'));
+	};
+	const add = button('Adicionar Pok\u00e9mon');
+	add.type = 'button';
+	const picker = createElement('div', 'master-npc-pokemon-picker hidden');
+	const search = createElement('input');
+	search.type = 'search';
+	search.placeholder = 'Buscar Pok\u00e9mon...';
+	const results = createElement('div', 'master-npc-pokemon-results');
+	const manager = createElement('div', 'master-npc-pokemon-manager hidden');
+	let catalog = [];
+	const stats = ['hp', 'atk', 'def', 'spa', 'spd', 'spe'];
+	const natures = ['Hardy','Lonely','Brave','Adamant','Naughty','Bold','Docile','Relaxed','Impish','Lax','Timid','Hasty','Serious','Jolly','Naive','Modest','Mild','Quiet','Bashful','Rash','Calm','Gentle','Sassy','Careful','Quirky'];
+	async function openPokemonManager(source, editingIndex = -1) {
+		picker.classList.add('hidden');
+		manager.classList.remove('hidden');
+		manager.replaceChildren(createElement('div', 'loading-block', 'Carregando ficha...'));
+		const pokemon = typeof source === 'string' ? catalog.find(entry => entry.name === source) : catalog.find(entry => entry.name === source.name || entry.name === source.species) || source;
+		const draft = editingIndex >= 0 ? structuredClone(selected[editingIndex]) : {
+			species: pokemon.name, name: pokemon.name, level: 50, nature: 'Serious', gender: pokemon.genders?.[0] || '',
+			ability: pokemon.abilities?.[0] || '', item: '', shiny: false, moves: [], evs: Object.fromEntries(stats.map(id => [id, 0])), ivs: Object.fromEntries(stats.map(id => [id, 0])),
+		};
+		const query = new URLSearchParams({species: draft.species, level: String(draft.level || 50)});
+		let legalMoves = [], itemCatalog = [];
+		try {
+			const [moveData, itemData] = await Promise.all([api('/contest-pokemon-moves?' + query), api('/bag/master/catalog')]);
+			legalMoves = moveData.moves || [];
+			itemCatalog = (itemData.items || []).filter(entry => (entry.category === 'held' || entry.tags?.includes('held')) && !entry.tags?.some(tag => ['breeding', 'contestonly', 'primalorb', 'megastone', 'berry'].includes(tag)));
+		} catch {}
+		manager.replaceChildren();
+		const heading = createElement('div', 'master-npc-pokemon-manager-head');
+		heading.append(createElement('h4', '', 'Gerenciar Pok\u00e9mon'));
+		const automatic = button('Configurar automaticamente', 'primary');
+		heading.append(automatic);
+		manager.append(heading);
+		const toolbar = createElement('div', 'master-npc-pokemon-toolbar');
+		const level = createElement('input'); level.type = 'number'; level.min = '1'; level.max = '100'; level.value = String(draft.level || 50);
+		const friendship = createElement('input'); friendship.type = 'number'; friendship.min = '0'; friendship.max = '255'; friendship.value = String(draft.friendship ?? draft.rpg?.friendship ?? 100);
+		const performance = createElement('input'); performance.type = 'number'; performance.min = '0'; performance.max = '100'; performance.value = String(draft.performance ?? draft.rpg?.contestPerformance ?? 0);
+		const nature = createElement('select'); for (const value of natures) nature.append(new Option(value, value)); nature.value = draft.nature || 'Serious';
+		const abilityDetails = Array.isArray(pokemon.abilityDetails) ? pokemon.abilityDetails : (pokemon.abilities || []).map(name => ({name, description: 'Descri\u00e7\u00e3o indispon\u00edvel.'}));
+		const ability = createElement('select'); for (const entry of abilityDetails) ability.append(new Option(entry.name, entry.name)); ability.value = draft.ability || ability.options[0]?.value || '';
+		const gender = createElement('select'); for (const value of pokemon.genders || ['M','F']) gender.append(new Option(value === 'M' ? 'Masculino' : value === 'F' ? 'Feminino' : 'Sem g\u00eanero', value)); gender.value = draft.gender || gender.options[0]?.value || '';
+		const shiny = createElement('input'); shiny.type = 'checkbox'; shiny.checked = !!draft.shiny;
+		const item = createElement('input'); item.type = 'hidden'; item.value = draft.item || '';
+		const pokemonName = createElement('div', 'master-npc-pokemon-name'); pokemonName.append(createElement('small', '', 'Pok\u00e9mon'), createElement('strong', '', draft.species));
+		toolbar.append(
+			pokemonName,
+			masterNPCControl('Shiny', shiny),
+			masterNPCControl('G\u00eanero', gender),
+			masterNPCControl('Level', level),
+			masterNPCControl('Amizade', friendship),
+			masterNPCControl('Performance', performance)
+		);
+		manager.append(toolbar);
+		const showdownBody = createElement('div', 'master-npc-pokemon-showdown-body');
+		const portrait = createElement('div', 'master-npc-pokemon-portrait'); portrait.append(pokemonSprite(draft));
+		shiny.addEventListener('change', () => {
+			portrait.replaceChildren(pokemonSprite({...pokemon, ...draft, shiny: shiny.checked}));
+		});
+		const center = createElement('div', 'master-npc-pokemon-center');
+		const typeRow = createElement('div', 'master-npc-pokemon-types');
+		for (const type of pokemon.types || []) typeRow.append(createElement('span', 'type-' + String(type).toLowerCase(), type));
+		const hpBase = pokemon.baseStats?.hp || 1;
+		const maximumHP = draft.species === 'Shedinja' ? 1 : Math.floor((2 * hpBase + Number(draft.ivs?.hp || 0) + Math.floor(Number(draft.evs?.hp || 0) / 4)) * Number(level.value) / 100) + Number(level.value) + 10;
+		const hp = createElement('div', 'master-npc-pokemon-hp'); hp.append(createElement('strong', '', 'HP'), createElement('span', '', maximumHP + ' / ' + maximumHP), createElement('i'));
+		const properties = createElement('div', 'master-npc-pokemon-properties');
+		const itemProperty = createElement('div', 'master-npc-property-picker');
+		const itemButton = button('', 'master-npc-property-button master-npc-item-button');
+		const itemOptions = createElement('div', 'master-npc-property-dropdown hidden');
+		const itemSearch = createElement('input'); itemSearch.type = 'search'; itemSearch.placeholder = 'Buscar held item...';
+		const itemResults = createElement('div', 'master-npc-property-results');
+		const itemIcon = entry => {
+			const host = createElement('span', 'master-npc-item-icon');
+			const visual = entry && typeof rpgRuntimeItemIcon === 'function' ? rpgRuntimeItemIcon(entry) : null;
+			if (visual) host.append(visual);
+			return host;
+		};
+		const renderItemButton = () => {
+			const selectedItem = itemCatalog.find(entry => entry.id === item.value); const copy = createElement('span', 'master-npc-item-copy');
+			copy.append(createElement('strong', '', selectedItem?.name || 'Sem item'), createElement('small', '', selectedItem?.description || 'Clique para escolher um held item.'));
+			itemButton.replaceChildren(itemIcon(selectedItem), copy);
+		};
+		const renderItems = () => {
+			const query = rpgSpriteKey(itemSearch.value); itemResults.replaceChildren();
+			const empty = button('', 'master-npc-property-option'); empty.append(itemIcon(null), createElement('strong', '', 'Sem item')); empty.addEventListener('click', () => { item.value = ''; itemOptions.classList.add('hidden'); renderItemButton(); }); itemResults.append(empty);
+			for (const entry of itemCatalog.filter(candidate => !query || rpgSpriteKey(candidate.name).includes(query))) {
+				const option = button('', 'master-npc-property-option'); const copy = createElement('span', 'master-npc-item-copy'); copy.append(createElement('strong', '', entry.name), createElement('small', '', entry.description || 'Sem descri\u00e7\u00e3o.'));
+				option.append(itemIcon(entry), copy); option.addEventListener('click', () => { item.value = entry.id; itemOptions.classList.add('hidden'); renderItemButton(); }); itemResults.append(option);
+			}
+		};
+		itemButton.addEventListener('click', () => { itemOptions.classList.toggle('hidden'); renderItems(); if (!itemOptions.classList.contains('hidden')) itemSearch.focus(); }); itemSearch.addEventListener('input', renderItems); itemOptions.append(itemSearch, itemResults); itemProperty.append(createElement('span', '', 'Item'), item, itemButton, itemOptions); renderItemButton();
+		const abilityProperty = createElement('div', 'team-builder-main-property team-builder-main-ability contest-ability-property');
+		const abilityButton = button('', 'contest-ability-button');
+		const abilityOptions = createElement('section', 'panel contest-ability-dropdown hidden');
+		const abilityResults = createElement('div', 'contest-ability-results'); abilityOptions.append(abilityResults);
+		const renderAbilityButton = () => { const entry = abilityDetails.find(candidate => candidate.name === ability.value); abilityButton.replaceChildren(createElement('strong', '', entry?.name || 'Sem habilidade')); };
+		for (const entry of abilityDetails) {
+			const option = button('', 'contest-ability-option' + (entry.name === ability.value ? ' selected' : ''));
+			option.append(createElement('strong', '', entry.name), createElement('small', '', entry.description || 'Descri\u00e7\u00e3o indispon\u00edvel.'));
+			if (entry.hidden) option.append(createElement('span', 'contest-ability-hidden-label', 'Habilidade Oculta'));
+			option.addEventListener('click', () => {
+				ability.value = entry.name; abilityOptions.classList.add('hidden'); renderAbilityButton();
+				abilityResults.querySelectorAll('.contest-ability-option').forEach(node => node.classList.toggle('selected', node === option));
+			}); abilityResults.append(option);
+		}
+		abilityButton.addEventListener('click', () => abilityOptions.classList.toggle('hidden'));
+		abilityProperty.append(createElement('span', 'contest-npc-property-label', 'Habilidade'), ability, abilityButton, abilityOptions);
+		ability.classList.add('hidden'); renderAbilityButton();
+		properties.append(itemProperty, abilityProperty);
+		center.append(typeRow, hp, properties);
+		const moveSelects = [];
+		const movesPanel = createElement('div', 'master-npc-pokemon-moves team-builder-four-moves'); movesPanel.append(createElement('h4', '', 'Golpes'));
+		const moveSlots = [];
+		const moveChoice = id => legalMoves.find(move => move.moveId === id);
+		const renderMoveSlot = index => {
+			const slot = moveSlots[index];
+			slot.replaceChildren(masterNPCMoveCard(moveChoice(moveSelects[index].value), () => {
+				movesPanel.querySelector('.master-npc-move-dropdown')?.remove();
+				const dropdown = createElement('div', 'master-npc-move-dropdown');
+				const searchMove = createElement('input'); searchMove.type = 'search'; searchMove.placeholder = 'Buscar golpe...';
+				const choices = createElement('div', 'master-npc-move-choices');
+				const draw = () => {
+					const query = rpgSpriteKey(searchMove.value); choices.replaceChildren();
+					const clear = button('Remover golpe'); clear.type = 'button'; clear.addEventListener('click', () => { moveSelects[index].value = ''; dropdown.remove(); renderMoveSlot(index); }); choices.append(clear);
+					const typeOrder = {Normal:0,Grass:1,Fire:2,Water:3,Electric:4,Bug:5,Flying:6,Poison:7,Rock:8,Ground:9,Ice:10,Fighting:11,Psychic:12,Ghost:13,Dragon:14,Dark:15,Steel:16,Fairy:17};
+					const categoryOrder = {Physical:0,Special:1,Status:2};
+					const ordered = legalMoves.filter(entry => !query || rpgSpriteKey(entry.name || entry.moveName).includes(query)).sort((first, second) =>
+						(typeOrder[first.type] ?? 18) - (typeOrder[second.type] ?? 18) ||
+						(categoryOrder[first.battleCategory] ?? 3) - (categoryOrder[second.battleCategory] ?? 3) ||
+						String(first.name).localeCompare(String(second.name), 'en', {sensitivity: 'base'}));
+					for (const move of ordered) {
+						const row = button('', 'team-builder-simple-move');
+						const category = createElement('i', 'rpg-category-icon category-' + String(move.battleCategory || 'Status').toLowerCase());
+						row.append(createElement('strong', '', move.name), createElement('span', 'team-builder-type type-' + String(move.type).toLowerCase(), move.type), category,
+							createElement('span', '', move.basePower == null ? '\u2014' : String(move.basePower)), createElement('span', '', move.accuracy == null ? '\u2014' : move.accuracy + '%'),
+							createElement('span', '', String(move.pp)), createElement('small', '', move.description || 'Sem efeito adicional.'));
+						row.addEventListener('click', () => { moveSelects[index].value = move.moveId; dropdown.remove(); renderMoveSlot(index); }); choices.append(row);
+					}
+				};
+				searchMove.addEventListener('input', draw); dropdown.append(searchMove, choices); movesPanel.append(dropdown); draw(); searchMove.focus();
+			}));
+		};
+		for (let index = 0; index < 4; index++) {
+			const select = createElement('select'); select.append(new Option('Sem move', ''));
+			for (const move of legalMoves) select.append(new Option(move.name || move.moveName || move.moveId, move.moveId));
+			select.value = draft.moves?.[index] || '';
+			select.classList.add('hidden'); moveSelects.push(select);
+			const slot = createElement('div', 'team-builder-move-slot'); slot.append(select); moveSlots.push(slot); movesPanel.append(slot); renderMoveSlot(index);
+		}
+		const reloadMoves = async () => {
+			const preserved = moveSelects.map(select => select.value);
+			const moveQuery = new URLSearchParams({species: draft.species, level: String(Math.max(1, Math.min(100, Number(level.value) || 1)))});
+			try { legalMoves = (await api('/contest-pokemon-moves?' + moveQuery)).moves || legalMoves; } catch {}
+			for (const [index, select] of moveSelects.entries()) {
+				select.replaceChildren(new Option('Sem move', ''));
+				for (const move of legalMoves) select.append(new Option(move.name || move.moveName || move.moveId, move.moveId));
+				select.value = preserved[index] || '';
+				renderMoveSlot(index);
+			}
+		};
+		level.addEventListener('change', () => void reloadMoves());
+		const attributes = createElement('div', 'master-npc-pokemon-attributes');
+		const attributeHead = createElement('div', 'master-npc-pokemon-attribute-head');
+		attributeHead.append(createElement('h4', '', 'Atributos'), createElement('span', '', 'EV'), createElement('span', '', 'IV'), createElement('span', '', 'Total')); attributes.append(attributeHead);
+		const attributeSummary = createElement('div', 'master-npc-attribute-summary');
+		const attributeEditor = createElement('div', 'master-npc-attribute-editor hidden');
+		const evInputs = {}, ivInputs = {};
+		for (const id of stats) {
+			const ev = createElement('input'); ev.type = 'number'; ev.min = '0'; ev.max = '252'; ev.value = String(draft.evs?.[id] || 0); evInputs[id] = ev;
+			const iv = createElement('input'); iv.type = 'number'; iv.min = '0'; iv.max = '31'; iv.value = String(draft.ivs?.[id] || 0); ivInputs[id] = iv;
+			const row = createElement('div', 'master-npc-pokemon-stat'); row.append(createElement('strong', '', id.toUpperCase()), masterNPCControl('EV', ev), masterNPCControl('IV', iv)); attributeEditor.append(row);
+		}
+		const updateAttributeSummary = () => {
+			attributeSummary.querySelectorAll('.master-npc-attribute-summary-row:not(.heading)').forEach(row => row.remove());
+			for (const id of stats) {
+				const base = pokemon.baseStats?.[id] || 1; const ev = Number(evInputs[id].value || 0); const iv = Number(ivInputs[id].value || 0); const lv = Number(level.value || 1);
+				const total = id === 'hp' ? (draft.species === 'Shedinja' ? 1 : Math.floor((2 * base + iv + Math.floor(ev / 4)) * lv / 100) + lv + 10) : Math.floor((Math.floor((2 * base + iv + Math.floor(ev / 4)) * lv / 100) + 5));
+				const row = createElement('div', 'master-npc-attribute-summary-row'); row.append(createElement('strong', '', id === 'hp' ? 'HP' : id.toUpperCase()), createElement('span', '', String(ev)), createElement('span', '', String(iv)), createElement('b', '', String(total))); attributeSummary.append(row);
+			}
+		};
+		for (const input of [...Object.values(evInputs), ...Object.values(ivInputs), level]) input.addEventListener('input', updateAttributeSummary);
+		const attributeFooter = createElement('div', 'master-npc-attribute-footer');
+		const naturePicker = createElement('div', 'contest-nature-picker master-npc-nature-picker');
+		const natureLabel = button('', 'contest-nature-button'); natureLabel.type = 'button';
+		const natureButtonLabel = createElement('span', '', 'Natureza');
+		const natureButtonValue = createElement('strong', '', nature.value);
+		natureLabel.append(natureButtonLabel, natureButtonValue);
+		const naturePanel = createElement('div', 'contest-nature-panel hidden');
+		const natureMatrix = [['Hardy','Bold','Modest','Calm','Timid'],['Lonely','Docile','Mild','Gentle','Hasty'],['Adamant','Impish','Bashful','Careful','Jolly'],['Naughty','Lax','Rash','Quirky','Naive'],['Brave','Relaxed','Quiet','Sassy','Serious']];
+		const natureStats = ['Attack','Defense','Sp. Attack','Sp. Defense','Speed'];
+		const natureGrid = createElement('div', 'contest-nature-grid');
+		const natureCorner = createElement('div', 'contest-nature-corner'); natureCorner.append(createElement('span', '', '\u2212'), createElement('strong', '', '+')); natureGrid.append(natureCorner);
+		for (const stat of natureStats) natureGrid.append(createElement('strong', 'contest-nature-axis increase', '+ ' + stat));
+		for (let rowIndex = 0; rowIndex < 5; rowIndex++) {
+			natureGrid.append(createElement('strong', 'contest-nature-axis decrease', '\u2212 ' + natureStats[rowIndex]));
+			for (let columnIndex = 0; columnIndex < 5; columnIndex++) {
+				const name = natureMatrix[rowIndex][columnIndex]; const neutral = rowIndex === columnIndex;
+				const option = button('', 'contest-nature-option' + (neutral ? ' neutral' : '') + (name === nature.value ? ' selected' : ''));
+				option.dataset.nature = name;
+				option.append(createElement('strong', '', name));
+				if (neutral) option.append(createElement('small', 'contest-nature-neutral-label', 'Neutro'));
+				else option.append(createElement('small', 'contest-nature-increase', '+ ' + natureStats[columnIndex]), createElement('small', 'contest-nature-decrease', '\u2212 ' + natureStats[rowIndex]));
+				option.addEventListener('click', () => {
+					nature.value = name; nature.dispatchEvent(new Event('change'));
+					natureGrid.querySelectorAll('.contest-nature-option').forEach(node => node.classList.toggle('selected', node.dataset.nature === name));
+					naturePanel.classList.add('hidden');
+				}); natureGrid.append(option);
+			}
+		}
+		naturePanel.append(natureGrid); natureLabel.addEventListener('click', () => naturePanel.classList.toggle('hidden'));
+		nature.addEventListener('change', () => {
+			natureButtonValue.textContent = nature.value;
+			natureGrid.querySelectorAll('.contest-nature-option').forEach(node => node.classList.toggle('selected', node.dataset.nature === nature.value));
+		});
+		naturePicker.append(nature, natureLabel, naturePanel);
+		const editAttributes = button('Editar atributos'); editAttributes.type = 'button'; editAttributes.addEventListener('click', () => attributeEditor.classList.toggle('hidden'));
+		attributeFooter.append(naturePicker, editAttributes); attributes.append(attributeSummary, attributeFooter, attributeEditor); updateAttributeSummary();
+		showdownBody.append(portrait, center, attributes); manager.append(showdownBody, movesPanel);
+		const managerActions = createElement('div', 'master-npc-editor-actions');
+		const cancel = button('Cancelar'); cancel.type = 'button'; cancel.addEventListener('click', () => manager.classList.add('hidden'));
+		const confirmPokemon = button(editingIndex >= 0 ? 'Salvar Pok\u00e9mon' : 'Adicionar \u00e0 equipe', 'primary'); confirmPokemon.type = 'button';
+		const applyAutomatic = () => {
+			nature.value = natures[Math.floor(Math.random() * natures.length)];
+			nature.dispatchEvent(new Event('change'));
+			if (ability.options.length) {
+				ability.selectedIndex = Math.floor(Math.random() * ability.options.length); renderAbilityButton();
+				abilityResults.querySelectorAll('.contest-ability-option').forEach((node, index) => node.classList.toggle('selected', index === ability.selectedIndex));
+			}
+			if (itemCatalog.length) { item.value = itemCatalog[Math.floor(Math.random() * itemCatalog.length)].id; renderItemButton(); }
+			for (const input of Object.values(ivInputs)) input.value = String(Math.floor(Math.random() * 32));
+			let remaining = 508; const order = [...stats].sort(() => Math.random() - .5);
+			for (const id of order) { const value = Math.min(252, remaining); evInputs[id].value = String(value); remaining -= value; }
+			const pool = [...legalMoves].sort(() => Math.random() - .5).slice(0, 4);
+			for (let index = 0; index < moveSelects.length; index++) { moveSelects[index].value = pool[index]?.moveId || ''; renderMoveSlot(index); }
+			updateAttributeSummary();
+		};
+		automatic.addEventListener('click', applyAutomatic);
+		confirmPokemon.addEventListener('click', () => {
+			const configured = {...draft, level: Number(level.value), friendship: Number(friendship.value), performance: Number(performance.value), nature: nature.value, ability: ability.value, gender: gender.value, shiny: shiny.checked, item: item.value.trim(),
+				moves: moveSelects.map(select => select.value).filter(Boolean), evs: Object.fromEntries(stats.map(id => [id, Number(evInputs[id].value)])), ivs: Object.fromEntries(stats.map(id => [id, Number(ivInputs[id].value)]))};
+			if (editingIndex >= 0) selected[editingIndex] = configured; else selected.push(configured);
+			manager.classList.add('hidden'); update();
+		});
+		managerActions.append(cancel, confirmPokemon); manager.append(managerActions);
+	}
+	const renderResults = () => {
+		const query = rpgSpriteKey(search.value);
+		results.replaceChildren();
+		for (const pokemon of catalog.filter(entry => !query || rpgSpriteKey(entry.name).includes(query))) {
+			const option = button('', 'master-npc-pokemon-option');
+			option.type = 'button';
+			option.append(pokemonSprite(pokemon), createElement('span', '', pokemon.name));
+			option.addEventListener('click', () => {
+				if (selected.length >= 6) return showToast('A equipe j\u00e1 possui seis Pok\u00e9mon.', true);
+				void openPokemonManager(pokemon);
+			});
+			results.append(option);
+		}
+	};
+	add.addEventListener('click', async () => {
+		if (selected.length >= 6) return showToast('A equipe j\u00e1 possui seis Pok\u00e9mon.', true);
+		picker.classList.toggle('hidden');
+		if (!picker.classList.contains('hidden') && !catalog.length) {
+			results.replaceChildren(createElement('div', 'loading-block', 'Carregando Pok\u00e9mon...'));
+			try { catalog = (await api('/battle-pokemon')).pokemon || []; renderResults(); } catch (error) { showToast(error.message, true); }
+		}
+		if (!picker.classList.contains('hidden')) search.focus();
+	});
+	search.addEventListener('input', renderResults);
+	picker.append(search, results);
+	field.append(input, members, add, picker, manager);
+	const closeOutside = event => {
+		if (!field.isConnected) {
+			document.removeEventListener('pointerdown', closeOutside);
+			return;
+		}
+		if (!field.contains(event.target)) {
+			picker.classList.add('hidden');
+			manager.classList.add('hidden');
+		} else {
+			for (const property of manager.querySelectorAll('.master-npc-property-picker')) {
+				if (!property.contains(event.target)) property.querySelector('.master-npc-property-dropdown')?.classList.add('hidden');
+			}
+			for (const property of manager.querySelectorAll('.contest-ability-property')) {
+				if (!property.contains(event.target)) property.querySelector('.contest-ability-dropdown')?.classList.add('hidden');
+			}
+			if (!event.target.closest('.master-npc-pokemon-attributes')) {
+				manager.querySelector('.master-npc-attribute-editor')?.classList.add('hidden');
+				manager.querySelector('.contest-nature-panel')?.classList.add('hidden');
+			}
+			if (!event.target.closest('.master-npc-pokemon-moves')) manager.querySelector('.master-npc-move-dropdown')?.remove();
+		}
+	};
+	document.addEventListener('pointerdown', closeOutside);
+	update();
+	return field;
+}
+
+function renderMasterNPCForm(library, folderId, existing, refresh) {
+	const form = createElement('form', 'panel master-npc-editor');
+	form.append(createElement('h3', '', existing ? 'Editar NPC' : 'Criar NPC'));
+	const grid = createElement('div', 'master-npc-form-grid');
+	grid.append(
+		masterNPCTrainerPicker(existing?.sprite),
+		masterNPCField('Nome', 'name', existing?.name),
+		masterNPCField('Papel', 'role', existing?.role),
+		masterNPCField('Local', 'location', existing?.location),
+		masterNPCField('Especialidade', 'specialty', existing?.specialty),
+		masterNPCField('Uso', 'usage', existing?.usage),
+		masterNPCField('Informa\u00e7\u00f5es b\u00e1sicas e localiza\u00e7\u00e3o', 'basicInfo', existing?.basicInfo, true),
+		masterNPCField('Descri\u00e7\u00e3o', 'description', existing?.description, true),
+		masterNPCTeamPicker(existing),
+		masterNPCField('Anota\u00e7\u00f5es', 'notes', existing?.notes, true)
+	);
+	form.append(grid);
+	const actions = createElement('div', 'master-npc-editor-actions');
+	if (existing) {
+		const remove = button('Excluir NPC');
+		remove.type = 'button';
+		let deletionArmed = false;
+		remove.addEventListener('click', () => {
+			if (!deletionArmed) {
+				deletionArmed = true;
+				remove.classList.add('danger');
+				remove.textContent = 'Confirmar exclus\u00e3o';
+				return;
+			}
+			library.npcs = library.npcs.filter(npc => npc.id !== existing.id);
+			saveMasterNPCLibrary(library);
+			showToast('NPC exclu\u00eddo.');
+			refresh();
+		});
+		actions.append(remove);
+	}
+	const cancel = button('Cancelar');
+	cancel.type = 'button';
+	cancel.addEventListener('click', refresh);
+	const save = button(existing ? 'Salvar altera\u00e7\u00f5es' : 'Salvar NPC', 'primary');
+	save.type = 'submit';
+	actions.append(cancel, save);
+	form.append(actions);
+	form.addEventListener('submit', event => {
+		event.preventDefault();
+		const values = Object.fromEntries(new FormData(form));
+		values.name = String(values.name || '').trim();
+		try { values.team = JSON.parse(String(values.team || '[]')); } catch { values.team = []; }
+		delete values.teams;
+		if (!values.name) return showToast('Informe o nome do NPC.', true);
+		const npc = {...existing, ...values, id: existing?.id || masterNPCId('npc'), folderId, order: existing?.order ?? Date.now()};
+		const index = library.npcs.findIndex(entry => entry.id === npc.id);
+		if (index >= 0) library.npcs[index] = npc;
+		else library.npcs.push(npc);
+		saveMasterNPCLibrary(library);
+		showToast(existing ? 'NPC atualizado.' : 'NPC salvo.');
+		refresh();
+	});
+	return form;
+}
+
+function renderMasterNPCRow(npc, library, refresh) {
+	const details = createElement('details', 'panel master-npc-row');
+	const summary = createElement('summary', 'master-npc-summary');
+	const sprite = createElement('span', 'master-npc-row-sprite');
+	if (npc.sprite) {
+		const image = createElement('img');
+		image.src = RPGAssets.url('sprites/trainers/' + npc.sprite.replace(/\.png$/i, '') + '.png');
+		image.alt = '';
+		sprite.append(image);
+	} else sprite.textContent = initials(npc.name);
+	summary.append(sprite, createElement('strong', '', npc.name || '\u2014'));
+	for (const value of [npc.role, npc.location, npc.specialty]) summary.append(createElement('span', '', value || '\u2014'));
+	const teamEntries = (Array.isArray(npc.team) ? npc.team : String(npc.teams || '').split(/[,;\n]+/))
+		.map(entry => typeof entry === 'string' ? {species: entry.trim(), name: entry.trim()} : entry)
+		.filter(entry => String(entry?.species || entry?.name || '').trim()).slice(0, 6);
+	summary.append(createElement('span', '', npc.usage || '\u2014'));
+	details.append(summary);
+	const expanded = createElement('div', 'master-npc-expanded');
+	const sections = [
+		['Informa\u00e7\u00f5es b\u00e1sicas e localiza\u00e7\u00e3o', npc.basicInfo],
+		['Descri\u00e7\u00e3o', npc.description], ['Equipes do NPC', null], ['Anota\u00e7\u00f5es', npc.notes],
+	];
+	for (const [title, content] of sections) {
+		const section = createElement('section');
+		section.append(createElement('h4', '', title));
+		if (title === 'Equipes do NPC') {
+			const team = createElement('div', 'master-npc-expanded-team');
+			for (const entry of teamEntries) {
+				const member = createElement('div', 'master-npc-expanded-member');
+				member.append(pokemonSprite(entry), createElement('strong', '', entry.name || entry.species));
+				team.append(member);
+			}
+			if (!teamEntries.length) team.append(createElement('p', '', 'Nenhum Pok\u00e9mon registrado.'));
+			section.append(team);
+		} else section.append(createElement('p', '', content || 'Nenhuma informa\u00e7\u00e3o registrada.'));
+		expanded.append(section);
+	}
+	const actions = createElement('div', 'master-npc-row-actions');
+	const edit = button('Editar');
+	edit.addEventListener('click', () => details.replaceWith(renderMasterNPCForm(library, npc.folderId, npc, refresh)));
+	actions.append(edit);
+	expanded.append(actions);
+	details.append(expanded);
+	return details;
+}
+
+function sanitizeMasterNoteHTML(value) {
+	const template = document.createElement('template');
+	template.innerHTML = String(value || '');
+	const allowedTags = new Set(['DIV', 'P', 'BR', 'HR', 'STRONG', 'B', 'EM', 'I', 'U', 'S', 'STRIKE', 'SUP', 'SUB', 'H2', 'H3', 'BLOCKQUOTE', 'UL', 'OL', 'LI', 'SPAN', 'FONT']);
+	let removed = true;
+	while (removed) {
+		removed = false;
+		for (const child of [...template.content.querySelectorAll('*')]) {
+			if (allowedTags.has(child.tagName)) continue;
+			child.replaceWith(...child.childNodes);
+			removed = true;
+		}
+	}
+	for (const child of [...template.content.querySelectorAll('*')]) {
+			const alignment = child.style.textAlign;
+			const color = child.style.color;
+			const backgroundColor = child.style.backgroundColor;
+			const fontFamily = child.style.fontFamily;
+			const fontSize = child.style.fontSize;
+			const face = child.getAttribute('face');
+			const size = child.getAttribute('size');
+			child.removeAttribute('style');
+			for (const attribute of [...child.attributes]) child.removeAttribute(attribute.name);
+			if (['left', 'center', 'right', 'justify'].includes(alignment)) child.style.textAlign = alignment;
+			if (color) child.style.color = color;
+			if (backgroundColor) child.style.backgroundColor = backgroundColor;
+			if (fontFamily && /^[\w\s,'-]+$/.test(fontFamily)) child.style.fontFamily = fontFamily;
+			if (fontSize && /^(?:\d+(?:\.\d+)?(?:px|pt|em|rem|%))$/.test(fontSize)) child.style.fontSize = fontSize;
+			if (child.tagName === 'FONT' && face && /^[\w\s,'-]+$/.test(face)) child.setAttribute('face', face);
+			if (child.tagName === 'FONT' && /^[1-7]$/.test(size || '')) child.setAttribute('size', size);
+	}
+	return template.innerHTML;
+}
+
+function masterNoteToolbarIcon(name) {
+	const icons = {
+		undo: '<path d="M9 6H4l3-3M4 6c7-1 10 2 10 7"/>',
+		redo: '<path d="M9 6h5l-3-3m3 3C7 5 4 8 4 13"/>',
+		bold: '<path d="M6 3h5a3 3 0 0 1 0 6H6zm0 6h6a3 3 0 0 1 0 6H6z"/><path d="M6 3v12"/>',
+		italic: '<path d="M9 3h5M4 15h5M11 3 7 15"/>',
+		underline: '<path d="M5 3v6a4 4 0 0 0 8 0V3M4 16h10"/>',
+		strikethrough: '<path d="M12.8 5.5C12.2 3.5 6 2.5 6 6c0 1.4 1.6 2 3.5 2.5M4 9h11m-8 3c.8 3 7 2.5 7-.5 0-1.3-1.4-2-3.2-2.5"/>',
+		superscript: '<path d="m4 7 5 7m0-7-5 7"/><path d="M11 3c3-2 4 2 0 4h4"/>',
+		subscript: '<path d="m4 4 5 7m0-7-5 7"/><path d="M11 12c3-2 4 2 0 4h4"/>',
+		insertunorderedlist: '<circle cx="3" cy="5" r="1"/><circle cx="3" cy="9" r="1"/><circle cx="3" cy="13" r="1"/><path d="M7 5h8M7 9h8M7 13h8"/>',
+		insertorderedlist: '<path d="M2 4h2v3M2 7h3m-3 3c3-2 4 1 0 3h3M8 5h7M8 9h7M8 13h7"/>',
+		justifyleft: '<path d="M3 4h12M3 7h8M3 10h12M3 13h8"/>',
+		justifycenter: '<path d="M3 4h12M5 7h8M3 10h12M5 13h8"/>',
+		justifyright: '<path d="M3 4h12M7 7h8M3 10h12M7 13h8"/>',
+		justifyfull: '<path d="M3 4h12M3 7h12M3 10h12M3 13h12"/>',
+		outdent: '<path d="M8 4h7M8 7h7M8 11h7M8 14h7M2 9h5M2 9l3-3M2 9l3 3"/>',
+		indent: '<path d="M8 4h7M8 7h7M8 11h7M8 14h7M2 9h5M7 9 4 6M7 9l-3 3"/>',
+		inserthorizontalrule: '<path d="M2 9h14"/><path d="m5 6-2 3 2 3m8-6 2 3-2 3"/>',
+		removeformat: '<path d="M4 4h9M8.5 4 5 14m2.5-4 4 4M10 14h5"/><path d="m11 10 4 4-2 2-4-4z"/>',
+	};
+	const svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+	svg.setAttribute('viewBox', '0 0 18 18');
+	svg.setAttribute('aria-hidden', 'true');
+	svg.innerHTML = icons[name.toLowerCase()] || '';
+	return svg;
+}
+
+function renderMasterNoteForm(library, folderId, existing, refresh) {
+	const form = createElement('form', 'panel master-note-editor');
+	form.append(createElement('h3', '', existing ? 'Editar bloco de notas' : 'Criar bloco de notas'));
+	const title = masterNPCField('T\u00edtulo', 'title', existing?.title || '');
+	const textField = createElement('div', 'master-npc-form-field master-note-text-field');
+	textField.append(createElement('span', '', 'Texto'));
+	const editor = createElement('div', 'master-note-content-editor');
+	editor.contentEditable = 'true';
+	editor.setAttribute('role', 'textbox');
+	editor.setAttribute('aria-multiline', 'true');
+	editor.dataset.placeholder = 'Escreva livremente...';
+	if (existing?.format === 'rich') editor.innerHTML = sanitizeMasterNoteHTML(existing.content);
+	else editor.textContent = existing?.content || '';
+	const toolbar = createElement('div', 'master-note-toolbar');
+	const command = (titleText, name, value = null) => {
+		const control = button('', 'master-note-format-button format-' + name.toLowerCase()); control.type = 'button'; control.setAttribute('aria-label', titleText);
+		control.append(masterNoteToolbarIcon(name));
+		control.addEventListener('mousedown', event => event.preventDefault());
+		control.addEventListener('click', () => { editor.focus(); document.execCommand(name, false, value); });
+		return control;
+	};
+	const format = createElement('select', 'master-note-format-select');
+	for (const [label, value] of [['Texto', 'p'], ['T\u00edtulo', 'h2'], ['Subt\u00edtulo', 'h3'], ['Cita\u00e7\u00e3o', 'blockquote']]) format.append(new Option(label, value));
+	format.addEventListener('change', () => { editor.focus(); document.execCommand('formatBlock', false, format.value); format.value = 'p'; });
+	const font = createElement('select', 'master-note-format-select');
+	for (const value of [
+		'Arial', 'Arial Black', 'Calibri', 'Cambria', 'Candara', 'Century Gothic', 'Comic Sans MS',
+		'Courier New', 'Garamond', 'Georgia', 'Impact', 'Palatino Linotype', 'Segoe UI',
+		'Tahoma', 'Times New Roman', 'Trebuchet MS', 'Verdana',
+	]) font.append(new Option(value, value));
+	font.addEventListener('change', () => { editor.focus(); document.execCommand('fontName', false, font.value); });
+	const size = createElement('select', 'master-note-format-select');
+	for (const value of [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48, 72]) size.append(new Option(String(value), String(value)));
+	size.value = '12';
+	size.setAttribute('aria-label', 'Tamanho da fonte');
+	size.addEventListener('change', () => {
+		editor.focus();
+		document.execCommand('fontSize', false, '7');
+		for (const element of editor.querySelectorAll('font[size="7"]')) {
+			element.removeAttribute('size');
+			element.style.fontSize = size.value + 'pt';
+		}
+	});
+	const colorControl = (label, commandName, initial) => {
+		const wrapper = createElement('label', 'master-note-color-control');
+		wrapper.append(createElement('span', '', label));
+		const input = createElement('input'); input.type = 'color'; input.value = initial;
+		input.setAttribute('aria-label', label);
+		input.addEventListener('input', () => { editor.focus(); document.execCommand(commandName, false, input.value); });
+		wrapper.append(input); return wrapper;
+	};
+	const groupStart = control => { control.classList.add('toolbar-group-start'); return control; };
+	const textColor = colorControl('Texto', 'foreColor', '#263d5a');
+	const highlightColor = colorControl('Marca-texto', 'hiliteColor', '#fff29a');
+	toolbar.append(
+		command('Desfazer', 'undo'), command('Refazer', 'redo'),
+		groupStart(format), font, size,
+		groupStart(command('Negrito', 'bold')), command('It\u00e1lico', 'italic'), command('Sublinhado', 'underline'), command('Riscado', 'strikeThrough'),
+		command('Subscrito', 'subscript'), command('Sobrescrito', 'superscript'), command('Limpar formata\u00e7\u00e3o', 'removeFormat'),
+		groupStart(textColor), highlightColor,
+		groupStart(command('Lista com marcadores', 'insertUnorderedList')), command('Lista numerada', 'insertOrderedList'),
+		command('Diminuir recuo', 'outdent'), command('Aumentar recuo', 'indent'),
+		groupStart(command('Alinhar \u00e0 esquerda', 'justifyLeft')), command('Centralizar', 'justifyCenter'),
+		command('Alinhar \u00e0 direita', 'justifyRight'), command('Justificar', 'justifyFull'),
+		groupStart(command('Inserir linha divis\u00f3ria', 'insertHorizontalRule'))
+	);
+	textField.append(editor, toolbar);
+	form.append(title, textField);
+	const actions = createElement('div', 'master-npc-editor-actions');
+	if (existing) {
+		const remove = button('Excluir bloco');
+		remove.type = 'button';
+		let deletionArmed = false;
+		remove.addEventListener('click', () => {
+			if (!deletionArmed) {
+				deletionArmed = true;
+				remove.classList.add('danger');
+				remove.textContent = 'Confirmar exclus\u00e3o';
+				return;
+			}
+			library.notes = (library.notes || []).filter(note => note.id !== existing.id);
+			saveMasterNPCLibrary(library); refresh(); showToast('Bloco de notas exclu\u00eddo.');
+		});
+		actions.append(remove);
+	}
+	const cancel = button('Cancelar'); cancel.type = 'button'; cancel.addEventListener('click', refresh);
+	const save = button(existing ? 'Salvar altera\u00e7\u00f5es' : 'Salvar bloco', 'primary'); save.type = 'submit';
+	actions.append(cancel, save); form.append(actions);
+	form.addEventListener('submit', event => {
+		event.preventDefault();
+		const values = Object.fromEntries(new FormData(form));
+		values.title = String(values.title || '').trim();
+		values.content = sanitizeMasterNoteHTML(editor.innerHTML);
+		values.format = 'rich';
+		if (!values.title) return showToast('Informe o t\u00edtulo do bloco de notas.', true);
+		const note = {...existing, ...values, id: existing?.id || masterNPCId('note'), folderId, order: existing?.order ?? Date.now()};
+		library.notes ||= [];
+		const index = library.notes.findIndex(entry => entry.id === note.id);
+		if (index >= 0) library.notes[index] = note; else library.notes.push(note);
+		saveMasterNPCLibrary(library); refresh(); showToast(existing ? 'Bloco atualizado.' : 'Bloco de notas salvo.');
+	});
+	return form;
+}
+
+function renderMasterNoteRow(note, library, refresh) {
+	const details = createElement('details', 'panel master-note-row');
+	const summary = createElement('summary', 'master-note-summary');
+	const edit = button('Editar'); edit.type = 'button';
+	edit.addEventListener('click', event => {
+		event.preventDefault();
+		event.stopPropagation();
+		details.replaceWith(renderMasterNoteForm(library, note.folderId, note, refresh));
+	});
+	summary.append(createElement('strong', '', note.title || 'Sem t\u00edtulo'), edit);
+	const expanded = createElement('div', 'master-note-expanded');
+	const content = createElement('div', 'master-note-rendered');
+	if (note.format === 'rich') content.innerHTML = sanitizeMasterNoteHTML(note.content);
+	else content.textContent = note.content || '';
+	if (!content.textContent.trim()) content.textContent = 'Este bloco est\u00e1 vazio.';
+	expanded.append(content);
+	details.append(summary, expanded);
+	return details;
+}
+
+function enableMasterLibraryRecordSorting(list, library) {
+	let dragged = null;
+	for (const row of list.querySelectorAll('.master-library-sortable')) {
+		row.draggable = true;
+		row.addEventListener('dragstart', event => {
+			if (event.target.closest('button, input, select, textarea, [contenteditable="true"]')) {
+				event.preventDefault();
+				return;
+			}
+			dragged = row;
+			row.classList.add('dragging');
+			event.dataTransfer.effectAllowed = 'move';
+			event.dataTransfer.setData('text/plain', row.dataset.recordId || '');
+		});
+		row.addEventListener('dragend', () => {
+			row.classList.remove('dragging');
+			list.querySelectorAll('.drag-target').forEach(element => element.classList.remove('drag-target'));
+			dragged = null;
+		});
+	}
+	list.addEventListener('dragover', event => {
+		if (!dragged) return;
+		event.preventDefault();
+		event.dataTransfer.dropEffect = 'move';
+		const target = event.target.closest('.master-library-sortable');
+		list.querySelectorAll('.drag-target').forEach(element => element.classList.remove('drag-target'));
+		if (!target || target === dragged) return;
+		target.classList.add('drag-target');
+		const before = event.clientY < target.getBoundingClientRect().top + target.offsetHeight / 2;
+		list.insertBefore(dragged, before ? target : target.nextSibling);
+	});
+	list.addEventListener('drop', event => {
+		if (!dragged) return;
+		event.preventDefault();
+		const rows = [...list.querySelectorAll('.master-library-sortable')];
+		rows.forEach((row, index) => {
+			const collection = row.dataset.recordType === 'note' ? library.notes : library.npcs;
+			const record = collection.find(entry => entry.id === row.dataset.recordId);
+			if (record) record.order = index;
+		});
+		saveMasterNPCLibrary(library);
+		showToast('Organiza\u00e7\u00e3o salva.');
+	});
+}
+
+function renderMasterNPCFolders(folderId = null) {
+	const library = readMasterNPCLibrary();
+	const root = createElement('div', 'master-npc-library');
+	const refresh = () => {
+		const next = renderMasterNPCFolders(folderId);
+		if (root.isConnected) root.replaceWith(next);
+		else $('#dashboard-body').replaceChildren(next);
+	};
+	if (folderId) {
+		const trail = [];
+		let cursor = library.folders.find(folder => folder.id === folderId);
+		while (cursor) { trail.unshift(cursor); cursor = library.folders.find(folder => folder.id === cursor.parentId); }
+		const breadcrumbs = createElement('nav', 'master-npc-breadcrumbs');
+		const folderToggle = button('', 'master-npc-folder-collapse-toggle');
+		const foldersCollapsed = !masterNPCExpandedFolderIds.has(folderId);
+		folderToggle.setAttribute('aria-label', foldersCollapsed ? 'Mostrar pastas' : 'Minimizar pastas');
+		folderToggle.setAttribute('aria-expanded', String(!foldersCollapsed));
+		folderToggle.classList.toggle('collapsed', foldersCollapsed);
+		folderToggle.append(createElement('span', 'master-npc-folder-collapse-arrow'));
+		folderToggle.addEventListener('click', () => {
+			const collapsed = !root.querySelector('.master-npc-folder-grid')?.classList.contains('folders-collapsed');
+			if (collapsed) masterNPCExpandedFolderIds.delete(folderId);
+			else masterNPCExpandedFolderIds.add(folderId);
+			root.querySelector('.master-npc-folder-grid')?.classList.toggle('folders-collapsed', collapsed);
+			folderToggle.classList.toggle('collapsed', collapsed);
+			folderToggle.setAttribute('aria-expanded', String(!collapsed));
+			folderToggle.setAttribute('aria-label', collapsed ? 'Mostrar pastas' : 'Minimizar pastas');
+		});
+		const home = button('NPCs e selvagens');
+		home.addEventListener('click', () => root.replaceWith(renderMasterNPCFolders()));
+		breadcrumbs.append(folderToggle, home);
+		for (const folder of trail) {
+			breadcrumbs.append(createElement('span', '', '\u203a'));
+			const crumb = button(folder.name);
+			crumb.addEventListener('click', () => root.replaceWith(renderMasterNPCFolders(folder.id)));
+			breadcrumbs.append(crumb);
+		}
+		root.append(breadcrumbs);
+	}
+	const grid = createElement('div', 'master-npc-folder-grid');
+	if (folderId && !masterNPCExpandedFolderIds.has(folderId)) grid.classList.add('folders-collapsed');
+	for (const folder of library.folders.filter(folder => folder.parentId === folderId)) {
+		const tile = button('', 'panel master-npc-folder folder-' + folder.kind);
+		if (folder.color) {
+			tile.style.setProperty('--npc-folder-color', folder.color);
+			tile.style.setProperty('--npc-folder-light', folder.lightColor || folder.color);
+		}
+		if (folder.id === masterNPCLastCreatedFolderId) {
+			tile.classList.add('folder-created');
+			masterNPCLastCreatedFolderId = '';
+		}
+		tile.append(createElement('span', 'master-npc-folder-icon'), createElement('div', 'master-npc-folder-copy'));
+		tile.lastChild.append(createElement('strong', '', folder.name), createElement('small', '', 'Abrir pasta'));
+		tile.addEventListener('click', () => root.replaceWith(renderMasterNPCFolders(folder.id)));
+		if (!folder.locked) tile.addEventListener('contextmenu', event => openMasterNPCFolderMenu(event, folder, library, refresh));
+		grid.append(tile);
+	}
+	const createFolder = createElement('section', 'master-npc-folder-create');
+	createFolder.tabIndex = 0;
+	createFolder.setAttribute('role', 'button');
+	const createIcon = createElement('span', 'master-npc-folder-create-icon', '+');
+	const createCopy = createElement('div', 'master-npc-folder-create-copy');
+	const createTitle = createElement('strong', '', 'Criar pasta');
+	const createHint = createElement('small', '', folderId ? 'Criar dentro desta pasta' : 'Nova organiza\u00e7\u00e3o personalizada');
+	createCopy.append(createTitle, createHint);
+	createFolder.append(createIcon, createCopy);
+	const beginCreation = () => {
+		if (createFolder.classList.contains('editing')) return;
+		createFolder.classList.add('editing');
+		createFolder.removeAttribute('role');
+		createFolder.tabIndex = -1;
+		const input = createElement('input', 'master-npc-folder-name');
+		input.type = 'text';
+		input.maxLength = 40;
+		input.placeholder = 'Nome da pasta';
+		createTitle.replaceWith(input);
+		createHint.textContent = 'Escolha uma cor para criar';
+		const palette = createElement('div', 'master-npc-folder-palette');
+		const cancelCreation = event => {
+			if (event && createFolder.contains(event.target)) return;
+			document.removeEventListener('pointerdown', cancelCreation);
+			refresh();
+		};
+		for (const color of MASTER_NPC_FOLDER_COLORS) {
+			const swatch = button('', 'master-npc-folder-swatch');
+			swatch.type = 'button';
+			swatch.style.setProperty('--swatch-color', color.value);
+			swatch.setAttribute('aria-label', 'Criar pasta com esta cor');
+			swatch.addEventListener('click', event => {
+				event.stopPropagation();
+				const name = input.value.trim().replace(/\s+/g, ' ').slice(0, 40);
+				if (!name) { input.focus(); return showToast('Informe um nome para a pasta.', true); }
+				if (library.folders.some(entry => entry.parentId === folderId && entry.name.localeCompare(name, 'pt-BR', {sensitivity: 'base'}) === 0)) return showToast('J\u00e1 existe uma pasta com esse nome.', true);
+				const id = masterNPCId('folder');
+				library.folders.push({id, name, parentId: folderId, kind: 'custom', color: color.value, lightColor: color.light});
+				saveMasterNPCLibrary(library);
+				masterNPCLastCreatedFolderId = id;
+				document.removeEventListener('pointerdown', cancelCreation);
+				refresh();
+				showToast('Pasta criada.');
+			});
+			palette.append(swatch);
+		}
+		createFolder.append(palette);
+		input.addEventListener('click', event => event.stopPropagation());
+		input.addEventListener('keydown', event => {
+			if (event.key !== 'Escape') return;
+			event.preventDefault();
+			document.removeEventListener('pointerdown', cancelCreation);
+			refresh();
+		});
+		setTimeout(() => document.addEventListener('pointerdown', cancelCreation), 0);
+		input.focus();
+	};
+	createFolder.addEventListener('click', beginCreation);
+	createFolder.addEventListener('keydown', event => {
+		if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); beginCreation(); }
+	});
+	grid.append(createFolder);
+	root.append(grid);
+	if (folderId && folderId !== 'pokemon') {
+		const listHeader = createElement('div', 'master-npc-list-header');
+		const listActions = createElement('div', 'master-npc-list-actions');
+		const createNote = button('Criar bloco de notas', 'primary');
+		const createNPC = button('Criar NPC', 'primary');
+		createNote.addEventListener('click', () => root.replaceWith(renderMasterNoteForm(library, folderId, null, refresh)));
+		createNPC.addEventListener('click', () => root.replaceWith(renderMasterNPCForm(library, folderId, null, refresh)));
+		listActions.append(createNote, createNPC);
+		listHeader.append(createElement('h3', '', 'NPCs e anota\u00e7\u00f5es'), listActions);
+		root.append(listHeader);
+		const npcs = library.npcs.filter(npc => npc.folderId === folderId);
+		const notes = (library.notes || []).filter(note => note.folderId === folderId);
+		if (!npcs.length && !notes.length) root.append(createElement('div', 'panel master-npc-empty', 'Nenhum arquivo salvo nesta pasta.'));
+		if (npcs.length && !notes.length) {
+			const columns = createElement('div', 'master-npc-column-labels');
+			for (const label of ['Sprite', 'Nome', 'Papel', 'Local', 'Especialidade', 'Uso']) columns.append(createElement('span', '', label));
+			root.append(columns);
+		}
+		if (npcs.length || notes.length) {
+			const recordList = createElement('div', 'master-library-record-list');
+			const records = [
+				...npcs.map((record, index) => ({type: 'npc', record, fallback: index})),
+				...notes.map((record, index) => ({type: 'note', record, fallback: npcs.length + index})),
+			].sort((a, b) => {
+				const aOrder = Number.isFinite(Number(a.record.order)) ? Number(a.record.order) : a.fallback;
+				const bOrder = Number.isFinite(Number(b.record.order)) ? Number(b.record.order) : b.fallback;
+				return aOrder - bOrder;
+			});
+			for (const entry of records) {
+				const row = entry.type === 'npc' ? renderMasterNPCRow(entry.record, library, refresh) : renderMasterNoteRow(entry.record, library, refresh);
+				row.classList.add('master-library-sortable');
+				row.dataset.recordType = entry.type;
+				row.dataset.recordId = entry.record.id;
+				recordList.append(row);
+			}
+			enableMasterLibraryRecordSorting(recordList, library);
+			root.append(recordList);
+		}
+	}
+	return root;
+}
+
 function closeDeleteDialog() {
 	state.deletionChallenge = null;
 	$('#delete-confirmation').value = '';
@@ -2691,14 +3736,20 @@ async function renderDashboard() {
 			$('#profile-role').textContent = 'Controle da campanha';
 			$('#dashboard-eyebrow').textContent = 'Painel do Mestre';
 			$('#dashboard-eyebrow').classList.remove('hidden');
-			$('#dashboard-title').textContent = state.dashboardView === 'battles' ? 'Prepara\u00e7\u00e3o de batalhas' : state.dashboardView === 'contests' ? 'Concursos Pok\u00e9mon' : 'Vis\u00e3o geral da campanha';
-			$('#dashboard-description').textContent = state.dashboardView === 'battles' ? 'Monte o confronto, envie convites e aguarde as confirma\u00e7\u00f5es.' : 'Acompanhe personagens, equipes, recursos e batalhas.';
+			$('#dashboard-title').textContent = state.dashboardView === 'battles' ? 'Prepara\u00e7\u00e3o de batalhas' :
+				state.dashboardView === 'contests' ? 'Concursos Pok\u00e9mon' :
+				state.dashboardView === 'npcs' ? 'NPCs e selvagens' :
+				'Vis\u00e3o geral da campanha';
+			$('#dashboard-description').textContent = state.dashboardView === 'battles' ? 'Monte o confronto, envie convites e aguarde as confirma\u00e7\u00f5es.' :
+				state.dashboardView === 'npcs' ? 'Organize Pok\u00e9mon importantes e NPCs para batalhas e concursos.' :
+				'Acompanhe personagens, equipes, recursos e batalhas.';
 			$('#logout-button').textContent = 'Sair da sess\u00e3o';
 			$('#logout-button').classList.add('danger');
 			$('#delete-character').classList.add('hidden');
 			body.replaceChildren(
 				state.dashboardView === 'battles' ? await renderMasterBattles(characters) :
 				state.dashboardView === 'contests' ? await window.RPGContestUI.render({state, api, master: true, characters, rerender: renderDashboard}) :
+				state.dashboardView === 'npcs' ? await renderMasterNPCLibraryDashboard() :
 				state.dashboardView === 'nursery' ? await renderNursery() :
 				state.dashboardView === 'shops' ? await renderShops() :
 				await renderMasterBody(characters)
