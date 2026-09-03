@@ -587,6 +587,7 @@ function dashboardNav(isMaster) {
 		['npcs', 'NPCs e selvagens'], ['tournaments', 'Torneios'], ['nursery', 'Berçário'],
 	] : [
 		['overview', 'Vis\u00e3o geral'], ['team', 'Equipe'],
+		['documents', 'Documentos'],
 		['team-builder', 'Team Builder'],
 		['center', 'Centro Pokémon', centerBlocked],
 		['fossils', 'Paleontologia', fossilsBlocked],
@@ -3355,7 +3356,8 @@ function masterNoteToolbarIcon(name) {
 	return svg;
 }
 
-function renderMasterNoteForm(library, folderId, existing, refresh) {
+function renderMasterNoteForm(library, folderId, existing, refresh, saveLibrary = saveMasterNPCLibrary) {
+	const playerDocument = saveLibrary === savePlayerDocuments;
 	const form = createElement('form', 'panel master-note-editor');
 	form.append(createElement('h3', '', existing ? 'Editar bloco de notas' : 'Criar bloco de notas'));
 	const title = masterNPCField('T\u00edtulo', 'title', existing?.title || '');
@@ -3423,6 +3425,72 @@ function renderMasterNoteForm(library, folderId, existing, refresh) {
 	);
 	textField.append(editor, toolbar);
 	form.append(title, textField);
+	let selectedPokemon = playerDocument && Array.isArray(existing?.pokemonSprites) ? structuredClone(existing.pokemonSprites) : [];
+	if (playerDocument) {
+		const pokemonField = createElement('div', 'master-npc-form-field player-note-pokemon-field');
+		pokemonField.append(createElement('span', '', 'Sprites de Pokémon'));
+		const selectedList = createElement('div', 'player-note-pokemon-selected');
+		const pickerToggle = button('Adicionar Pokémon');
+		pickerToggle.type = 'button';
+		const picker = createElement('div', 'player-note-pokemon-picker hidden');
+		const search = createElement('input');
+		search.type = 'search';
+		search.placeholder = 'Buscar Pokémon...';
+		const results = createElement('div', 'player-note-pokemon-results');
+		let catalog = [];
+		const pokemonKey = pokemon => String(pokemon?.id || pokemon?.spriteId || pokemon?.name || pokemon?.species || '');
+		const renderSelected = () => {
+			selectedList.replaceChildren();
+			for (const pokemon of selectedPokemon) {
+				const entry = createElement('div', 'player-note-pokemon-chip');
+				entry.append(pokemonSprite(pokemon), createElement('strong', '', pokemon.name || pokemon.species));
+				const remove = button('×', 'danger');
+				remove.type = 'button';
+				remove.setAttribute('aria-label', 'Remover ' + (pokemon.name || pokemon.species));
+				remove.addEventListener('click', () => {
+					selectedPokemon = selectedPokemon.filter(candidate => pokemonKey(candidate) !== pokemonKey(pokemon));
+					renderSelected(); renderResults();
+				});
+				entry.append(remove); selectedList.append(entry);
+			}
+			selectedList.classList.toggle('hidden', !selectedPokemon.length);
+		};
+		const renderResults = () => {
+			const query = rpgSpriteKey(search.value);
+			results.replaceChildren();
+			for (const pokemon of catalog.filter(entry => !query || rpgSpriteKey(entry.name).includes(query))) {
+				const selected = selectedPokemon.some(candidate => pokemonKey(candidate) === pokemonKey(pokemon));
+				const option = button('', 'master-npc-pokemon-option' + (selected ? ' selected' : ''));
+				option.type = 'button';
+				option.append(pokemonSprite(pokemon), createElement('span', '', pokemon.name));
+				option.addEventListener('click', () => {
+					if (selected) selectedPokemon = selectedPokemon.filter(candidate => pokemonKey(candidate) !== pokemonKey(pokemon));
+					else selectedPokemon.push({id: pokemon.id, name: pokemon.name, species: pokemon.name, spriteId: pokemon.spriteId, baseSpriteId: pokemon.baseSpriteId});
+					renderSelected(); renderResults();
+				});
+				results.append(option);
+			}
+		};
+		pickerToggle.addEventListener('click', async () => {
+			picker.classList.toggle('hidden');
+			if (picker.classList.contains('hidden')) return;
+			if (!catalog.length) {
+				results.replaceChildren(createElement('div', 'loading-block', 'Carregando Pokémon...'));
+				try { catalog = (await api('/battle-pokemon')).pokemon || []; renderResults(); } catch (error) { showToast(error.message, true); }
+			}
+			search.focus();
+		});
+		search.addEventListener('input', renderResults);
+		picker.append(search, results);
+		pokemonField.append(selectedList, pickerToggle, picker);
+		form.append(pokemonField);
+		renderSelected();
+		const closePickerOutside = event => {
+			if (!form.isConnected) return document.removeEventListener('pointerdown', closePickerOutside);
+			if (!pokemonField.contains(event.target)) picker.classList.add('hidden');
+		};
+		document.addEventListener('pointerdown', closePickerOutside);
+	}
 	const actions = createElement('div', 'master-npc-editor-actions');
 	if (existing) {
 		const remove = button('Excluir bloco');
@@ -3436,7 +3504,7 @@ function renderMasterNoteForm(library, folderId, existing, refresh) {
 				return;
 			}
 			library.notes = (library.notes || []).filter(note => note.id !== existing.id);
-			saveMasterNPCLibrary(library); refresh(); showToast('Bloco de notas exclu\u00eddo.');
+			saveLibrary(library); refresh(); showToast('Bloco de notas exclu\u00eddo.');
 		});
 		actions.append(remove);
 	}
@@ -3449,24 +3517,26 @@ function renderMasterNoteForm(library, folderId, existing, refresh) {
 		values.title = String(values.title || '').trim();
 		values.content = sanitizeMasterNoteHTML(editor.innerHTML);
 		values.format = 'rich';
+		if (playerDocument) values.pokemonSprites = selectedPokemon;
 		if (!values.title) return showToast('Informe o t\u00edtulo do bloco de notas.', true);
 		const note = {...existing, ...values, id: existing?.id || masterNPCId('note'), folderId, order: existing?.order ?? Date.now()};
 		library.notes ||= [];
 		const index = library.notes.findIndex(entry => entry.id === note.id);
 		if (index >= 0) library.notes[index] = note; else library.notes.push(note);
-		saveMasterNPCLibrary(library); refresh(); showToast(existing ? 'Bloco atualizado.' : 'Bloco de notas salvo.');
+		saveLibrary(library); refresh(); showToast(existing ? 'Bloco atualizado.' : 'Bloco de notas salvo.');
 	});
 	return form;
 }
 
-function renderMasterNoteRow(note, library, refresh) {
+function renderMasterNoteRow(note, library, refresh, saveLibrary = saveMasterNPCLibrary) {
+	const playerDocument = saveLibrary === savePlayerDocuments;
 	const details = createElement('details', 'panel master-note-row');
 	const summary = createElement('summary', 'master-note-summary');
 	const edit = button('Editar'); edit.type = 'button';
 	edit.addEventListener('click', event => {
 		event.preventDefault();
 		event.stopPropagation();
-		details.replaceWith(renderMasterNoteForm(library, note.folderId, note, refresh));
+		details.replaceWith(renderMasterNoteForm(library, note.folderId, note, refresh, saveLibrary));
 	});
 	summary.append(createElement('strong', '', note.title || 'Sem t\u00edtulo'), edit);
 	const expanded = createElement('div', 'master-note-expanded');
@@ -3475,11 +3545,20 @@ function renderMasterNoteRow(note, library, refresh) {
 	else content.textContent = note.content || '';
 	if (!content.textContent.trim()) content.textContent = 'Este bloco est\u00e1 vazio.';
 	expanded.append(content);
+	if (playerDocument && Array.isArray(note.pokemonSprites) && note.pokemonSprites.length) {
+		const pokemonList = createElement('div', 'player-note-pokemon-display');
+		for (const pokemon of note.pokemonSprites) {
+			const entry = createElement('div', 'player-note-pokemon-display-entry');
+			entry.append(pokemonSprite(pokemon), createElement('strong', '', pokemon.name || pokemon.species));
+			pokemonList.append(entry);
+		}
+		expanded.append(pokemonList);
+	}
 	details.append(summary, expanded);
 	return details;
 }
 
-function enableMasterLibraryRecordSorting(list, library) {
+function enableMasterLibraryRecordSorting(list, library, saveLibrary = saveMasterNPCLibrary) {
 	let dragged = null;
 	for (const row of list.querySelectorAll('.master-library-sortable')) {
 		row.draggable = true;
@@ -3519,7 +3598,7 @@ function enableMasterLibraryRecordSorting(list, library) {
 			const record = collection.find(entry => entry.id === row.dataset.recordId);
 			if (record) record.order = index;
 		});
-		saveMasterNPCLibrary(library);
+		saveLibrary(library);
 		showToast('Organiza\u00e7\u00e3o salva.');
 	});
 }
@@ -3686,6 +3765,153 @@ function renderMasterNPCFolders(folderId = null) {
 	return root;
 }
 
+let playerDocumentsLibrary = null;
+let playerDocumentsSaveChain = Promise.resolve();
+let playerDocumentsLastCreatedFolderId = '';
+const playerDocumentsExpandedFolderIds = new Set();
+
+function normalizePlayerDocuments(value) {
+	const source = value && typeof value === 'object' ? value : {};
+	return {
+		folders: Array.isArray(source.folders) ? source.folders.filter(folder => folder?.id && folder?.name).map(folder => ({...folder, locked: false, kind: 'custom'})) : [],
+		notes: Array.isArray(source.notes) ? source.notes.filter(note => note?.id && note?.folderId) : [],
+		npcs: [],
+	};
+}
+
+function savePlayerDocuments(library) {
+	playerDocumentsLibrary = normalizePlayerDocuments(library);
+	const stored = {folders: playerDocumentsLibrary.folders, notes: playerDocumentsLibrary.notes};
+	playerDocumentsSaveChain = playerDocumentsSaveChain
+		.then(() => api('/documents', {method: 'PUT', body: {library: stored}}))
+		.catch(error => showToast('N\u00e3o foi poss\u00edvel salvar os documentos: ' + error.message, true));
+}
+
+async function renderPlayerDocumentsDashboard() {
+	const response = await api('/documents');
+	playerDocumentsLibrary = normalizePlayerDocuments(response.library);
+	return renderPlayerDocumentFolders();
+}
+
+function renderPlayerDocumentFolders(folderId = null) {
+	const library = playerDocumentsLibrary || normalizePlayerDocuments(null);
+	const root = createElement('div', 'master-npc-library player-documents-library');
+	const refresh = () => {
+		const next = renderPlayerDocumentFolders(folderId);
+		if (root.isConnected) root.replaceWith(next);
+		else $('#dashboard-body').replaceChildren(next);
+	};
+	if (folderId) {
+		const trail = [];
+		let cursor = library.folders.find(folder => folder.id === folderId);
+		while (cursor) { trail.unshift(cursor); cursor = library.folders.find(folder => folder.id === cursor.parentId); }
+		const breadcrumbs = createElement('nav', 'master-npc-breadcrumbs');
+		const folderToggle = button('', 'master-npc-folder-collapse-toggle');
+		const foldersCollapsed = !playerDocumentsExpandedFolderIds.has(folderId);
+		folderToggle.setAttribute('aria-label', foldersCollapsed ? 'Mostrar pastas' : 'Minimizar pastas');
+		folderToggle.setAttribute('aria-expanded', String(!foldersCollapsed));
+		folderToggle.classList.toggle('collapsed', foldersCollapsed);
+		folderToggle.append(createElement('span', 'master-npc-folder-collapse-arrow'));
+		folderToggle.addEventListener('click', () => {
+			const collapsed = !root.querySelector('.master-npc-folder-grid')?.classList.contains('folders-collapsed');
+			if (collapsed) playerDocumentsExpandedFolderIds.delete(folderId); else playerDocumentsExpandedFolderIds.add(folderId);
+			root.querySelector('.master-npc-folder-grid')?.classList.toggle('folders-collapsed', collapsed);
+			folderToggle.classList.toggle('collapsed', collapsed);
+			folderToggle.setAttribute('aria-expanded', String(!collapsed));
+			folderToggle.setAttribute('aria-label', collapsed ? 'Mostrar pastas' : 'Minimizar pastas');
+		});
+		const home = button('Documentos');
+		home.addEventListener('click', () => root.replaceWith(renderPlayerDocumentFolders()));
+		breadcrumbs.append(folderToggle, home);
+		for (const folder of trail) {
+			breadcrumbs.append(createElement('span', '', '\u203a'));
+			const crumb = button(folder.name);
+			crumb.addEventListener('click', () => root.replaceWith(renderPlayerDocumentFolders(folder.id)));
+			breadcrumbs.append(crumb);
+		}
+		root.append(breadcrumbs);
+	}
+	const grid = createElement('div', 'master-npc-folder-grid');
+	if (folderId && !playerDocumentsExpandedFolderIds.has(folderId)) grid.classList.add('folders-collapsed');
+	for (const folder of library.folders.filter(folder => folder.parentId === folderId)) {
+		const tile = button('', 'panel master-npc-folder folder-custom');
+		if (folder.color) {
+			tile.style.setProperty('--npc-folder-color', folder.color);
+			tile.style.setProperty('--npc-folder-light', folder.lightColor || folder.color);
+		}
+		if (folder.id === playerDocumentsLastCreatedFolderId) { tile.classList.add('folder-created'); playerDocumentsLastCreatedFolderId = ''; }
+		tile.append(createElement('span', 'master-npc-folder-icon'), createElement('div', 'master-npc-folder-copy'));
+		tile.lastChild.append(createElement('strong', '', folder.name), createElement('small', '', 'Abrir pasta'));
+		tile.addEventListener('click', () => root.replaceWith(renderPlayerDocumentFolders(folder.id)));
+		tile.addEventListener('contextmenu', event => {
+			event.preventDefault(); event.stopPropagation(); closeMasterNPCFolderMenu();
+			const menu = createElement('div', 'master-npc-folder-menu');
+			menu.style.left = event.clientX + 'px'; menu.style.top = event.clientY + 'px';
+			const remove = button('Excluir', 'danger');
+			remove.addEventListener('click', () => {
+				const ids = masterNPCFolderDescendants(library, folder.id);
+				const hasContent = ids.size > 1 || library.notes.some(note => ids.has(note.folderId));
+				if (hasContent && !confirm('Esta pasta possui conteúdo. Excluir a pasta e todos os blocos de notas dentro dela?')) return;
+				library.folders = library.folders.filter(entry => !ids.has(entry.id));
+				library.notes = library.notes.filter(note => !ids.has(note.folderId));
+				savePlayerDocuments(library); closeMasterNPCFolderMenu(); refresh(); showToast('Pasta excluída.');
+			});
+			menu.append(remove); document.body.append(menu);
+			setTimeout(() => document.addEventListener('pointerdown', closeMasterNPCFolderMenu, {once: true}), 0);
+		});
+		grid.append(tile);
+	}
+	const createFolder = createElement('section', 'master-npc-folder-create');
+	createFolder.tabIndex = 0; createFolder.setAttribute('role', 'button');
+	const createIcon = createElement('span', 'master-npc-folder-create-icon', '+');
+	const createCopy = createElement('div', 'master-npc-folder-create-copy');
+	const createTitle = createElement('strong', '', 'Criar pasta');
+	const createHint = createElement('small', '', folderId ? 'Criar dentro desta pasta' : 'Nova organização personalizada');
+	createCopy.append(createTitle, createHint); createFolder.append(createIcon, createCopy);
+	const beginCreation = () => {
+		if (createFolder.classList.contains('editing')) return;
+		createFolder.classList.add('editing'); createFolder.removeAttribute('role'); createFolder.tabIndex = -1;
+		const input = createElement('input', 'master-npc-folder-name'); input.type = 'text'; input.maxLength = 40; input.placeholder = 'Nome da pasta';
+		createTitle.replaceWith(input); createHint.textContent = 'Escolha uma cor para criar';
+		const palette = createElement('div', 'master-npc-folder-palette');
+		const cancelCreation = event => { if (event && createFolder.contains(event.target)) return; document.removeEventListener('pointerdown', cancelCreation); refresh(); };
+		for (const color of MASTER_NPC_FOLDER_COLORS) {
+			const swatch = button('', 'master-npc-folder-swatch'); swatch.type = 'button'; swatch.style.setProperty('--swatch-color', color.value);
+			swatch.setAttribute('aria-label', 'Criar pasta com esta cor');
+			swatch.addEventListener('click', event => {
+				event.stopPropagation(); const name = input.value.trim().replace(/\s+/g, ' ').slice(0, 40);
+				if (!name) { input.focus(); return showToast('Informe um nome para a pasta.', true); }
+				if (library.folders.some(entry => entry.parentId === folderId && entry.name.localeCompare(name, 'pt-BR', {sensitivity: 'base'}) === 0)) return showToast('Já existe uma pasta com esse nome.', true);
+				const id = masterNPCId('folder'); library.folders.push({id, name, parentId: folderId, kind: 'custom', color: color.value, lightColor: color.light});
+				savePlayerDocuments(library); playerDocumentsLastCreatedFolderId = id; document.removeEventListener('pointerdown', cancelCreation); refresh(); showToast('Pasta criada.');
+			}); palette.append(swatch);
+		}
+		createFolder.append(palette); input.addEventListener('click', event => event.stopPropagation());
+		input.addEventListener('keydown', event => { if (event.key === 'Escape') { event.preventDefault(); document.removeEventListener('pointerdown', cancelCreation); refresh(); } });
+		setTimeout(() => document.addEventListener('pointerdown', cancelCreation), 0); input.focus();
+	};
+	createFolder.addEventListener('click', beginCreation);
+	createFolder.addEventListener('keydown', event => { if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); beginCreation(); } });
+	grid.append(createFolder); root.append(grid);
+	if (folderId) {
+		const listHeader = createElement('div', 'master-npc-list-header');
+		const createNote = button('Criar bloco de notas', 'primary');
+		createNote.addEventListener('click', () => root.replaceWith(renderMasterNoteForm(library, folderId, null, refresh, savePlayerDocuments)));
+		listHeader.append(createElement('h3', '', 'Blocos de notas'), createNote); root.append(listHeader);
+		const notes = library.notes.filter(note => note.folderId === folderId);
+		if (!notes.length) root.append(createElement('div', 'panel master-npc-empty', 'Nenhum bloco de notas salvo nesta pasta.'));
+		else {
+			const recordList = createElement('div', 'master-library-record-list');
+			for (const note of [...notes].sort((a, b) => (Number(a.order) || 0) - (Number(b.order) || 0))) {
+				const row = renderMasterNoteRow(note, library, refresh, savePlayerDocuments);
+				row.classList.add('master-library-sortable'); row.dataset.recordType = 'note'; row.dataset.recordId = note.id; recordList.append(row);
+			}
+			enableMasterLibraryRecordSorting(recordList, library, savePlayerDocuments); root.append(recordList);
+		}
+	}
+	return root;
+}
+
 function closeDeleteDialog() {
 	state.deletionChallenge = null;
 	$('#delete-confirmation').value = '';
@@ -3772,8 +3998,11 @@ async function renderDashboard() {
 			$('#profile-role').textContent = state.session.role === 'master' ? 'Visualiza\u00e7\u00e3o do Mestre' : character.playerName;
 			$('#dashboard-eyebrow').textContent = '';
 			$('#dashboard-eyebrow').classList.add('hidden');
-			$('#dashboard-title').textContent = state.dashboardView === 'battles' ? 'Convites de batalha' : state.dashboardView === 'contests' ? 'Concursos Pok\u00e9mon' : 'Ol\u00e1, ' + character.characterName;
-			$('#dashboard-description').textContent = state.dashboardView === 'battles' ? 'Participe dos seus combates ou assista aos combates em andamento.' : 'Sua equipe e seus recursos persistentes.';
+			$('#dashboard-title').textContent = state.dashboardView === 'battles' ? 'Convites de batalha' :
+				state.dashboardView === 'contests' ? 'Concursos Pok\u00e9mon' :
+				state.dashboardView === 'documents' ? 'Documentos' : 'Ol\u00e1, ' + character.characterName;
+			$('#dashboard-description').textContent = state.dashboardView === 'battles' ? 'Participe dos seus combates ou assista aos combates em andamento.' :
+				state.dashboardView === 'documents' ? 'Organize suas pastas e blocos de notas.' : 'Sua equipe e seus recursos persistentes.';
 			const viewing = state.session.role === 'master';
 			$('#logout-button').textContent = viewing ? 'Voltar como Mestre' : 'Sair da sess\u00e3o';
 			$('#logout-button').classList.toggle('danger', !viewing);
@@ -3788,6 +4017,7 @@ async function renderDashboard() {
 				state.dashboardView === 'fossils' ? await renderFossilLab(character) :
 				state.dashboardView === 'nursery' ? await renderNursery(character) :
 				state.dashboardView === 'shops' ? await renderShops(character) :
+				state.dashboardView === 'documents' ? await renderPlayerDocumentsDashboard() :
 				await renderPlayerBody(character);
 			body.replaceChildren(playerView);
 		}

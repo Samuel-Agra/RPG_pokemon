@@ -224,6 +224,18 @@ export class RPGHttpServer {
 				return;
 			}
 		}
+		if (url.pathname === '/api/rpg/documents') {
+			const token = this.token(req);
+			if (method === 'GET') {
+				this.json(res, 200, {library: this.login.getPlayerDocuments(token)});
+				return;
+			}
+			if (method === 'PUT') {
+				const body = await this.body(req);
+				this.json(res, 200, {library: this.login.setPlayerDocuments(token, body.library)});
+				return;
+			}
+		}
 		if (method === 'GET' && url.pathname === '/api/rpg/bank') {
 			this.json(res, 200, {bank: this.login.getBank(
 				this.token(req), url.searchParams.get('characterId') || undefined

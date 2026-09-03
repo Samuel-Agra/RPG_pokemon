@@ -627,6 +627,7 @@ export interface RPGLoginServiceOptions {
 	customItemRepository?: RPGCustomItemRepository;
 	commerceRepository?: RPGCommerceRepository;
 	masterNPCLibraryFile?: string;
+	playerDocumentsFile?: string;
 	sessionTtlMs?: number;
 	now?: () => number;
 	random?: () => number;
@@ -651,6 +652,8 @@ export class RPGLoginService {
 	private readonly bytes: (size: number) => Buffer;
 	private readonly masterNPCLibraryFile?: string;
 	private masterNPCLibrary: Record<string, unknown> | null = null;
+	private readonly playerDocumentsFile?: string;
+	private playerDocuments: Record<string, Record<string, unknown>> = {};
 
 	constructor(options: RPGLoginServiceOptions) {
 		if (typeof options.masterCode !== 'string' || !options.masterCode) {
@@ -680,6 +683,12 @@ export class RPGLoginService {
 			const stored = JSON.parse(readFileSync(this.masterNPCLibraryFile, 'utf8')) as unknown;
 			if (!stored || typeof stored !== 'object' || Array.isArray(stored)) throw new Error('Invalid RPG master NPC library file');
 			this.masterNPCLibrary = structuredClone(stored as Record<string, unknown>);
+		}
+		this.playerDocumentsFile = options.playerDocumentsFile && resolve(options.playerDocumentsFile);
+		if (this.playerDocumentsFile && existsSync(this.playerDocumentsFile)) {
+			const stored = JSON.parse(readFileSync(this.playerDocumentsFile, 'utf8')) as unknown;
+			if (!stored || typeof stored !== 'object' || Array.isArray(stored)) throw new Error('Invalid RPG player documents file');
+			this.playerDocuments = structuredClone(stored as Record<string, Record<string, unknown>>);
 		}
 		this.battleSessions = new RPGBattleSessionService({
 			repository: options.battleSessionRepository,
@@ -1057,6 +1066,24 @@ export class RPGLoginService {
 			renameSync(temporary, this.masterNPCLibraryFile);
 		}
 		return structuredClone(this.masterNPCLibrary);
+	}
+
+	getPlayerDocuments(token: string): Record<string, unknown> | null {
+		const characterId = this.playerDocumentCharacterId(token);
+		return this.playerDocuments[characterId] ? structuredClone(this.playerDocuments[characterId]) : null;
+	}
+
+	setPlayerDocuments(token: string, library: unknown): Record<string, unknown> {
+		const characterId = this.playerDocumentCharacterId(token);
+		if (!library || typeof library !== 'object' || Array.isArray(library)) throw new Error('Invalid RPG player documents');
+		this.playerDocuments[characterId] = structuredClone(library as Record<string, unknown>);
+		if (this.playerDocumentsFile) {
+			mkdirSync(dirname(this.playerDocumentsFile), {recursive: true});
+			const temporary = this.playerDocumentsFile + '.tmp';
+			writeFileSync(temporary, JSON.stringify(this.playerDocuments, null, '\t') + '\n', 'utf8');
+			renameSync(temporary, this.playerDocumentsFile);
+		}
+		return structuredClone(this.playerDocuments[characterId]);
 	}
 
 	setCharacterShopAccess(token: string, characterId: string, shopId: string, allowed: boolean): RPGCharacterState {
@@ -3493,6 +3520,15 @@ export class RPGLoginService {
 		return record;
 	}
 
+	private playerDocumentCharacterId(token: string): string {
+		const session = this.getSession(token);
+		const target = toID(session.characterId || session.viewAsCharacterId || '');
+		if (!target) throw new Error('Os documentos requerem um personagem');
+		this.requirePermission(token, 'character:read', target);
+		this.requireCharacter(target);
+		return target;
+	}
+
 	private characterShopAccess(character: RPGCharacterState): Record<string, boolean> {
 		return Object.fromEntries(this.commerce.directory().shops.map(shop => [
 			shop.id, character.shopAccess?.[shop.id] !== false,
@@ -4857,6 +4893,7 @@ export function createRPGLoginServiceFromConfig(
 		rpgcustomitemfile?: string,
 		rpgshopfile?: string,
 		rpgmasternpclibraryfile?: string,
+		rpgplayerdocumentsfile?: string,
 		rpgseedtestaccount?: boolean,
 	} = Config
 ): RPGLoginService {
@@ -4883,6 +4920,7 @@ export function createRPGLoginServiceFromConfig(
 		masterCode, repository, battleSessionRepository, contestSessionRepository, contestComboRepository,
 		customItemRepository, commerceRepository,
 		masterNPCLibraryFile: config.rpgmasternpclibraryfile || resolve('config/rpg-master-npc-library.json'),
+		playerDocumentsFile: config.rpgplayerdocumentsfile || resolve('config/rpg-player-documents.json'),
 	});
 	migrateCharacterPageAccess(service);
 	migrateCharacterBanks(service);
