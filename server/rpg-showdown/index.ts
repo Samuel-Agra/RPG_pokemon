@@ -261,7 +261,7 @@ export interface RPGSession {
 	expiresAt: number;
 }
 
-type RPGInternalSession = Omit<RPGSession, 'token'>;
+type RPGInternalSession = Omit<RPGSession, 'token'> & {lastSeenAt: number; activeArea?: string};
 
 export interface RPGCharacterDeletionChallenge {
 	challengeId: string;
@@ -628,6 +628,7 @@ export interface RPGLoginServiceOptions {
 	commerceRepository?: RPGCommerceRepository;
 	masterNPCLibraryFile?: string;
 	playerDocumentsFile?: string;
+	campaignSettingsFile?: string;
 	sessionTtlMs?: number;
 	now?: () => number;
 	random?: () => number;
@@ -654,6 +655,8 @@ export class RPGLoginService {
 	private masterNPCLibrary: Record<string, unknown> | null = null;
 	private readonly playerDocumentsFile?: string;
 	private playerDocuments: Record<string, Record<string, unknown>> = {};
+	private readonly campaignSettingsFile?: string;
+	private campaignSettings: {name: string; currentDateTime: string; quickNotes: string};
 
 	constructor(options: RPGLoginServiceOptions) {
 		if (typeof options.masterCode !== 'string' || !options.masterCode) {
@@ -678,6 +681,16 @@ export class RPGLoginService {
 		this.now = options.now || Date.now;
 		this.random = options.random || Math.random;
 		this.bytes = options.randomBytes || secureRandomBytes;
+		this.campaignSettingsFile = options.campaignSettingsFile && resolve(options.campaignSettingsFile);
+		this.campaignSettings = {name: 'Minha campanha', currentDateTime: new Date(this.now()).toISOString(), quickNotes: ''};
+		if (this.campaignSettingsFile && existsSync(this.campaignSettingsFile)) {
+			const stored = JSON.parse(readFileSync(this.campaignSettingsFile, 'utf8')) as Partial<typeof this.campaignSettings>;
+			if (typeof stored.name === 'string' && stored.name.trim()) this.campaignSettings.name = stored.name.trim().slice(0, 80);
+			if (typeof stored.currentDateTime === 'string' && Number.isFinite(Date.parse(stored.currentDateTime))) {
+				this.campaignSettings.currentDateTime = new Date(stored.currentDateTime).toISOString();
+			}
+			if (typeof stored.quickNotes === 'string') this.campaignSettings.quickNotes = stored.quickNotes.slice(0, 50_000);
+		}
 		this.masterNPCLibraryFile = options.masterNPCLibraryFile && resolve(options.masterNPCLibraryFile);
 		if (this.masterNPCLibraryFile && existsSync(this.masterNPCLibraryFile)) {
 			const stored = JSON.parse(readFileSync(this.masterNPCLibraryFile, 'utf8')) as unknown;
@@ -790,6 +803,8 @@ export class RPGLoginService {
 			this.sessions.delete(key);
 			throw new Error('Invalid or expired RPG session');
 		}
+		session.lastSeenAt = this.now();
+		this.sessions.set(key, session);
 		return { ...structuredClone(session), token };
 	}
 
@@ -1018,6 +1033,10 @@ export class RPGLoginService {
 			record.state.updatedAt = now;
 			this.repository.set(record);
 		}
+		this.campaignSettings.currentDateTime = new Date(
+			Date.parse(this.campaignSettings.currentDateTime) + milliseconds
+		).toISOString();
+		this.persistCampaignSettings();
 		result.charactersAffected = changedIds.size;
 		return result;
 	}
@@ -1084,6 +1103,71 @@ export class RPGLoginService {
 			renameSync(temporary, this.playerDocumentsFile);
 		}
 		return structuredClone(this.playerDocuments[characterId]);
+	}
+
+	getCampaignSettings(token: string): {
+		name: string; currentDateTime: string; quickNotes: string;
+		onlinePlayers: number; onlinePlayerNames: string[];
+		onlinePlayerAreas: {characterId: string; nick: string; characterName: string; avatar: string; area: string}[];
+	} {
+		this.requireMasterRole(token);
+		const onlineCharacterIds = new Set<string>();
+		const onlineThreshold = this.now() - 15_000;
+		for (const session of this.sessions.values()) {
+			if (session.role === 'player' && session.characterId && session.expiresAt > this.now() &&
+				session.lastSeenAt >= onlineThreshold) {
+				onlineCharacterIds.add(session.characterId);
+			}
+		}
+		const onlinePlayerNames = [...onlineCharacterIds].map(id => this.repository.get(id)?.state.playerName || id)
+			.sort((a, b) => a.localeCompare(b, 'pt-BR'));
+		const onlinePlayerAreas = [...this.sessions.values()].filter(session =>
+			session.role === 'player' && session.characterId && onlineCharacterIds.has(session.characterId) && session.activeArea
+		).map(session => {
+			const state = this.repository.get(session.characterId!)?.state;
+			return state ? {
+				characterId: state.id, nick: state.playerName, characterName: state.characterName,
+				avatar: state.avatar, area: session.activeArea!,
+			} : null;
+		}).filter((entry): entry is NonNullable<typeof entry> => !!entry)
+			.filter((entry, index, entries) => entries.findIndex(other => other.characterId === entry.characterId) === index);
+		return {
+			...structuredClone(this.campaignSettings), onlinePlayers: onlineCharacterIds.size,
+			onlinePlayerNames, onlinePlayerAreas,
+		};
+	}
+
+	updatePlayerPresence(token: string, area: unknown): {online: boolean; area: string} {
+		const key = this.tokenKey(token);
+		const publicSession = this.getSession(token);
+		if (publicSession.role !== 'player') return {online: false, area: ''};
+		const allowedAreas = new Set(['center', 'fossils', 'nursery', 'shops', 'box']);
+		const activeArea = typeof area === 'string' && allowedAreas.has(area) ? area : '';
+		const session = this.sessions.get(key)!;
+		session.activeArea = activeArea;
+		this.sessions.set(key, session);
+		return {online: true, area: activeArea};
+	}
+
+	setCampaignSettings(token: string, input: unknown): {name: string; currentDateTime: string} {
+		this.requireMasterRole(token);
+		if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('Configuração de campanha inválida');
+		const value = input as {name?: unknown; currentDateTime?: unknown};
+		const name = String(value.name || '').trim().replace(/\s+/g, ' ').slice(0, 80);
+		const date = new Date(String(value.currentDateTime || ''));
+		if (!name) throw new Error('Informe o nome da campanha');
+		if (!Number.isFinite(date.getTime())) throw new Error('Informe uma data e hora válidas');
+		this.campaignSettings = {...this.campaignSettings, name, currentDateTime: date.toISOString()};
+		this.persistCampaignSettings();
+		return structuredClone(this.campaignSettings);
+	}
+
+	setCampaignQuickNotes(token: string, notes: unknown): {quickNotes: string} {
+		this.requireMasterRole(token);
+		if (typeof notes !== 'string') throw new Error('Anotação rápida inválida');
+		this.campaignSettings.quickNotes = notes.slice(0, 50_000);
+		this.persistCampaignSettings();
+		return {quickNotes: this.campaignSettings.quickNotes};
 	}
 
 	setCharacterShopAccess(token: string, characterId: string, shopId: string, allowed: boolean): RPGCharacterState {
@@ -3529,6 +3613,14 @@ export class RPGLoginService {
 		return target;
 	}
 
+	private persistCampaignSettings(): void {
+		if (!this.campaignSettingsFile) return;
+		mkdirSync(dirname(this.campaignSettingsFile), {recursive: true});
+		const temporary = this.campaignSettingsFile + '.tmp';
+		writeFileSync(temporary, JSON.stringify(this.campaignSettings, null, '\t') + '\n', 'utf8');
+		renameSync(temporary, this.campaignSettingsFile);
+	}
+
 	private characterShopAccess(character: RPGCharacterState): Record<string, boolean> {
 		return Object.fromEntries(this.commerce.directory().shops.map(shop => [
 			shop.id, character.shopAccess?.[shop.id] !== false,
@@ -4367,7 +4459,7 @@ export class RPGLoginService {
 		const createdAt = this.now();
 		const session: RPGInternalSession = {
 			version: RPG_SESSION_VERSION, ...input,
-			createdAt, expiresAt: createdAt + this.sessionTtlMs,
+			createdAt, expiresAt: createdAt + this.sessionTtlMs, lastSeenAt: createdAt,
 		};
 		this.sessions.set(this.tokenKey(token), session);
 		return { ...structuredClone(session), token };
@@ -4894,6 +4986,7 @@ export function createRPGLoginServiceFromConfig(
 		rpgshopfile?: string,
 		rpgmasternpclibraryfile?: string,
 		rpgplayerdocumentsfile?: string,
+		rpgcampaignsettingsfile?: string,
 		rpgseedtestaccount?: boolean,
 	} = Config
 ): RPGLoginService {
@@ -4921,6 +5014,7 @@ export function createRPGLoginServiceFromConfig(
 		customItemRepository, commerceRepository,
 		masterNPCLibraryFile: config.rpgmasternpclibraryfile || resolve('config/rpg-master-npc-library.json'),
 		playerDocumentsFile: config.rpgplayerdocumentsfile || resolve('config/rpg-player-documents.json'),
+		campaignSettingsFile: config.rpgcampaignsettingsfile || resolve('config/rpg-campaign-settings.json'),
 	});
 	migrateCharacterPageAccess(service);
 	migrateCharacterBanks(service);

@@ -42,6 +42,8 @@ const state = {
 };
 let battleSessionSyncBusy = false;
 let battleSessionSyncTimer = null;
+let masterPresenceSyncTimer = null;
+let playerPresenceHeartbeatTimer = null;
 
 const $ = selector => document.querySelector(selector);
 
@@ -198,6 +200,31 @@ function startBattleSessionSynchronization() {
 	document.addEventListener('visibilitychange', () => {
 		if (!document.hidden) void synchronizeBattleSessions();
 	});
+	if (!masterPresenceSyncTimer) {
+		masterPresenceSyncTimer = window.setInterval(async () => {
+			const value = document.querySelector('[data-master-online-players]');
+			if (!value || document.hidden || state.session?.role !== 'master' || state.session.mode !== 'master') return;
+			try {
+				const data = await api('/campaign/settings', {cache: 'no-store'});
+				value.textContent = String(data.settings?.onlinePlayers || 0) + '/' + String(state.campaignCharacters.length);
+				const list = document.querySelector('[data-master-online-list]');
+				if (list) {
+					const names = data.settings?.onlinePlayerNames || [];
+					list.replaceChildren(...(names.length ? names.map(name => createElement('span', '', name)) : [createElement('small', '', 'Nenhum player online.') ]));
+				}
+				const areas = document.querySelector('[data-master-area-presence]');
+				if (areas) renderMasterAreaPresence(areas, data.settings?.onlinePlayerAreas || []);
+			} catch {}
+		}, 5000);
+	}
+	if (!playerPresenceHeartbeatTimer) {
+		const heartbeat = async () => {
+			if (!state.session || state.session.role !== 'player' || document.hidden) return;
+			try { await api('/presence', {method: 'POST', body: {area: state.dashboardView}}); } catch {}
+		};
+		playerPresenceHeartbeatTimer = window.setInterval(heartbeat, 4000);
+		void heartbeat();
+	}
 }
 
 function initials(value) {
@@ -342,6 +369,32 @@ function fillCharacterAvatar(badge, character) {
 
 function characterAvatarBadge(character) {
 	return fillCharacterAvatar(createElement('div', 'avatar-badge'), character);
+}
+
+function renderMasterAreaPresence(container, players) {
+	const areas = [
+		['center', 'Centro Pokémon'], ['fossils', 'Paleontologia'], ['nursery', 'Berçário'],
+		['shops', 'Lojas'], ['box', 'Box'],
+	];
+	container.replaceChildren();
+	for (const [id, label] of areas) {
+		const area = createElement('div', 'master-player-area');
+		area.append(createElement('strong', '', label));
+		const occupants = createElement('div', 'master-player-area-occupants');
+		const present = players.filter(player => player.area === id);
+		if (present.length) {
+			for (const player of present) {
+				const person = createElement('div', 'master-player-area-person');
+				person.append(characterAvatarBadge({
+					avatar: player.avatar, characterName: player.characterName || player.nick,
+				}));
+				person.append(createElement('span', '', player.nick));
+				occupants.append(person);
+			}
+		}
+		area.append(occupants);
+		container.append(area);
+	}
 }
 
 function resetMasterAvatar() {
@@ -611,6 +664,7 @@ function dashboardNav(isMaster) {
 			if (blocked) return;
 			if (view === 'team-builder') state.teamBuilderReturnView = 'team';
 			state.dashboardView = view;
+			if (state.session?.role === 'player') void api('/presence', {method: 'POST', body: {area: view}}).catch(() => {});
 			void renderDashboard();
 		});
 		nav.append(item);
@@ -2456,50 +2510,210 @@ async function renderPokemonCenter(character) {
 }
 async function renderMasterBody(characters) {
 	const root = createElement('div');
-	const shopDirectory = await api('/shops');
-	const grid = createElement('div', 'stat-grid');
-	const teamTotal = characters.reduce((total, character) => total + (character.team?.length || 0), 0);
-	const moneyTotal = characters.reduce((total, character) => total + (character.money || 0), 0);
-	for (const [label, value] of [
-		['Jogadores', String(characters.length)],
-		['Pok\u00e9mon em equipes', String(teamTotal)],
-		['Pokécoins totais', formatMoney(moneyTotal)],
-		['Batalhas ativas', '0'],
-	]) {
-		const card = createElement('div', 'panel stat-card');
-		card.append(createElement('small', '', label), createElement('strong', '', value));
-		grid.append(card);
-	}
-	root.append(grid);
-
-	const clock = section('Relógio da campanha');
-	clock.panel.classList.add('campaign-clock');
-	const clockCopy = createElement('div', 'campaign-clock-copy');
-	clockCopy.append(
-		createElement('strong', '', 'Avançar o tempo da campanha'),
-		createElement('small', '', 'Fósseis, treinamentos e outros sistemas com espera só avançam por estes controles.')
+	const [shopDirectory, campaignData, battleData, contestData] = await Promise.all([
+		api('/shops'), api('/campaign/settings', {cache: 'no-store'}), api('/battle-sessions'), api('/contest-sessions'),
+	]);
+	const campaign = campaignData.settings;
+	const activeBattles = (battleData.battleSessions || []).filter(session => session.status === 'started').length;
+	const activeContests = (contestData.contestSessions || []).filter(session => session.status === 'started').length;
+	const formatCampaignDate = value => {
+		const date = new Date(value);
+		const weekday = new Intl.DateTimeFormat('pt-BR', {weekday: 'short'}).format(date).replace('.', '').toUpperCase();
+		const pad = number => String(number).padStart(2, '0');
+		const calendar = pad(date.getDate()) + '/' + pad(date.getMonth() + 1) + '/' + pad(date.getFullYear() % 100);
+		const clock = pad(date.getHours()) + ':' + pad(date.getMinutes());
+		return weekday + ', ' + calendar + ', ' + clock;
+	};
+	const top = createElement('section', 'panel master-campaign-overview');
+	const identity = createElement('div', 'master-campaign-identity');
+	const campaignName = createElement('h2', '', campaign.name);
+	const campaignDate = createElement('time', '', formatCampaignDate(campaign.currentDateTime));
+	identity.append(
+		createElement('small', '', 'Campanha atual'),
+		campaignName
 	);
+	const metrics = createElement('div', 'master-campaign-metrics');
+	let activePlayersCard = null;
+	for (const [label, value, detail] of [
+		['Jogadores ativos', String(campaign.onlinePlayers || 0) + '/' + String(characters.length), 'online / cadastrados'],
+		['Batalhas', String(activeBattles), 'em andamento'],
+		['Concursos', String(activeContests), 'em andamento'],
+		['Torneios', '0', 'em andamento'],
+	]) {
+		const card = createElement('div', 'master-campaign-metric');
+		const metricValue = createElement('strong', '', value);
+		if (label === 'Jogadores ativos') {
+			metricValue.dataset.masterOnlinePlayers = '';
+			activePlayersCard = card;
+		}
+		card.append(createElement('small', '', label), metricValue, createElement('span', '', detail));
+		metrics.append(card);
+	}
+	const onlineDrawer = createElement('div', 'master-online-players-drawer hidden');
+	const onlineList = createElement('div', 'master-online-players-list');
+	onlineList.dataset.masterOnlineList = '';
+	const onlineNames = campaign.onlinePlayerNames || [];
+	onlineList.replaceChildren(...(onlineNames.length ? onlineNames.map(name => createElement('span', '', name)) : [createElement('small', '', 'Nenhum player online.') ]));
+	onlineDrawer.append(createElement('strong', '', 'Players online'), onlineList);
+	if (activePlayersCard) {
+		activePlayersCard.append(onlineDrawer);
+		activePlayersCard.classList.add('is-interactive');
+		activePlayersCard.tabIndex = 0;
+		activePlayersCard.setAttribute('role', 'button');
+		activePlayersCard.setAttribute('aria-expanded', 'false');
+		const toggleOnlineDrawer = () => {
+			const opening = onlineDrawer.classList.contains('hidden');
+			onlineDrawer.classList.toggle('hidden', !opening);
+			activePlayersCard.setAttribute('aria-expanded', String(opening));
+		};
+		activePlayersCard.addEventListener('click', toggleOnlineDrawer);
+		activePlayersCard.addEventListener('keydown', event => {
+			if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggleOnlineDrawer(); }
+		});
+		onlineDrawer.addEventListener('click', event => event.stopPropagation());
+		root.addEventListener('click', event => {
+			if (activePlayersCard.contains(event.target)) return;
+			onlineDrawer.classList.add('hidden');
+			activePlayersCard.setAttribute('aria-expanded', 'false');
+		});
+	}
+	const toolbar = createElement('div', 'master-campaign-toolbar');
+	const celestial = createElement('div', 'master-campaign-celestial');
+	celestial.setAttribute('aria-label', 'Ciclo de dia e noite da campanha');
+	const orbit = createElement('div', 'master-campaign-celestial-orbit');
+	const sun = createElement('img', 'master-campaign-sun');
+	sun.src = './assets/campaign-clock/solgaleo-head.png';
+	sun.alt = 'Cabeça de Solgaleo representando o dia';
+	const moon = createElement('img', 'master-campaign-moon');
+	moon.src = './assets/campaign-clock/lunala-head.png?v=20260904-2';
+	moon.alt = 'Cabeça de Lunala representando a noite';
+	orbit.append(sun, moon);
+	celestial.append(orbit, createElement('span', 'master-campaign-horizon'));
+	const updateCampaignClock = () => {
+		const date = new Date(campaign.currentDateTime);
+		const hour = date.getHours() + date.getMinutes() / 60;
+		orbit.style.setProperty('--campaign-orbit-angle', ((hour - 12) * 15) + 'deg');
+		celestial.classList.toggle('is-night', hour < 6 || hour >= 18);
+		campaignDate.textContent = formatCampaignDate(date);
+	};
+	updateCampaignClock();
 	const clockActions = createElement('div', 'campaign-clock-actions');
 	for (const hours of [1, 8]) {
 		const advance = button('+' + hours + 'h', 'button primary campaign-clock-button');
 		advance.addEventListener('click', async () => {
 			for (const control of clockActions.querySelectorAll('button')) control.disabled = true;
+			configure.disabled = true;
+			orbit.style.setProperty('--campaign-orbit-shift', (hours * 15) + 'deg');
+			orbit.classList.remove('is-advancing');
+			void orbit.offsetWidth;
+			orbit.classList.add('is-advancing');
 			try {
-				const data = await api('/campaign/time/advance', { method: 'POST', body: { hours } });
+				const [data] = await Promise.all([
+					api('/campaign/time/advance', { method: 'POST', body: { hours } }),
+					new Promise(resolve => window.setTimeout(resolve, 950)),
+				]);
 				const time = data.time;
 				showToast('Campanha avançada em ' + hours + 'h · ' +
 					time.trainings.completed + ' treinamento(s), ' + time.fossils.completed + ' fóssil(is), ' +
 					time.breedings.completed + ' ovo(s) produzido(s) e ' + time.incubations.completed + ' incubação(ões) concluída(s).');
-				await renderDashboard();
-			} catch (error) {
+				campaign.currentDateTime = new Date(new Date(campaign.currentDateTime).getTime() + hours * 3600000).toISOString();
+				orbit.classList.remove('is-advancing');
+				updateCampaignClock();
 				for (const control of clockActions.querySelectorAll('button')) control.disabled = false;
+				configure.disabled = false;
+			} catch (error) {
+				orbit.classList.remove('is-advancing');
+				for (const control of clockActions.querySelectorAll('button')) control.disabled = false;
+				configure.disabled = false;
 				showToast(error.message, true);
 			}
 		});
 		clockActions.append(advance);
 	}
-	clock.body.append(clockCopy, clockActions);
-	root.append(clock.panel);
+	const configure = button('☀', 'button master-campaign-configure');
+	configure.setAttribute('aria-label', 'Configurar campanha');
+	configure.addEventListener('click', () => {
+		root.querySelector('.master-campaign-settings')?.remove();
+		const form = createElement('form', 'panel master-campaign-settings');
+		const heading = createElement('div', 'master-campaign-settings-heading');
+		heading.append(createElement('h3', '', 'Configurar campanha'));
+		const close = button('×'); close.type = 'button'; close.setAttribute('aria-label', 'Fechar'); close.addEventListener('click', () => form.remove());
+		heading.append(close);
+		const nameField = createElement('label'); nameField.append(createElement('span', '', 'Nome da campanha'));
+		const name = createElement('input'); name.name = 'name'; name.maxLength = 80; name.value = campaign.name; nameField.append(name);
+		const dateField = createElement('label'); dateField.append(createElement('span', '', 'Data e horário no RPG'));
+		const date = createElement('input'); date.type = 'datetime-local'; date.name = 'currentDateTime';
+		const current = new Date(campaign.currentDateTime); date.value = new Date(current.getTime() - current.getTimezoneOffset() * 60000).toISOString().slice(0, 16); dateField.append(date);
+		const actions = createElement('div', 'master-campaign-settings-actions');
+		const cancel = button('Cancelar'); cancel.type = 'button'; cancel.addEventListener('click', () => form.remove());
+		const save = button('Salvar configurações', 'primary'); save.type = 'submit'; actions.append(cancel, save);
+		form.append(heading, nameField, dateField, actions);
+		form.addEventListener('submit', async event => {
+			event.preventDefault(); save.disabled = true;
+			try {
+				const data = await api('/campaign/settings', {method: 'PUT', body: {name: name.value, currentDateTime: new Date(date.value).toISOString()}});
+				Object.assign(campaign, data.settings);
+				campaignName.textContent = campaign.name;
+				updateCampaignClock();
+				form.remove();
+				showToast('Configurações da campanha salvas.');
+			} catch (error) { save.disabled = false; showToast(error.message, true); }
+		});
+		top.after(form); name.focus();
+	});
+	const timeControls = createElement('div', 'master-campaign-time-controls');
+	timeControls.append(campaignDate, clockActions);
+	toolbar.append(configure, celestial, timeControls);
+	top.append(identity, metrics, toolbar);
+	if (state.dashboardView === 'overview') root.append(top);
+	if (state.dashboardView === 'overview') {
+		const presence = section('Áreas da campanha');
+		presence.panel.classList.add('master-area-presence-panel');
+		const areaGrid = createElement('div', 'master-area-presence-grid');
+		areaGrid.dataset.masterAreaPresence = '';
+		renderMasterAreaPresence(areaGrid, campaign.onlinePlayerAreas || []);
+		presence.body.append(areaGrid);
+		root.append(presence.panel);
+
+		const notes = section('Anotações rápidas');
+		notes.panel.classList.add('master-quick-notes');
+		const editor = createElement('textarea', 'master-quick-notes-editor');
+		editor.value = campaign.quickNotes || '';
+		editor.maxLength = 50000;
+		editor.placeholder = 'Escreva lembretes, ideias e pendências da campanha...';
+		const status = createElement('small', 'master-quick-notes-status', 'Salvo');
+		let saveTimer = null;
+		let revision = 0;
+		const saveNotes = async () => {
+			const currentRevision = ++revision;
+			status.textContent = 'Salvando...';
+			try {
+				await api('/campaign/quick-notes', {method: 'PUT', body: {notes: editor.value}});
+				if (currentRevision === revision) status.textContent = 'Salvo';
+			} catch (error) {
+				if (currentRevision === revision) status.textContent = 'Não foi possível salvar';
+				showToast(error.message, true);
+			}
+		};
+		editor.addEventListener('input', () => {
+			status.textContent = 'Alterações pendentes';
+			window.clearTimeout(saveTimer);
+			saveTimer = window.setTimeout(() => void saveNotes(), 700);
+		});
+		editor.addEventListener('keydown', event => {
+			if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === 's') {
+				event.preventDefault(); window.clearTimeout(saveTimer); void saveNotes();
+			}
+		});
+		editor.addEventListener('blur', () => {
+			if (status.textContent !== 'Alterações pendentes') return;
+			window.clearTimeout(saveTimer);
+			void saveNotes();
+		});
+		notes.body.append(editor, status);
+		root.append(notes.panel);
+		return root;
+	}
 	const players = section('Personagens da campanha');
 	players.panel.classList.add('master-players-panel');
 	const list = createElement('div', 'master-list');
@@ -3857,7 +4071,11 @@ function renderPlayerDocumentFolders(folderId = null) {
 				savePlayerDocuments(library); closeMasterNPCFolderMenu(); refresh(); showToast('Pasta excluída.');
 			});
 			menu.append(remove); document.body.append(menu);
-			setTimeout(() => document.addEventListener('pointerdown', closeMasterNPCFolderMenu, {once: true}), 0);
+			const width = menu.offsetWidth;
+			const height = menu.offsetHeight;
+			menu.style.left = Math.max(8, Math.min(event.clientX, window.innerWidth - width - 8)) + 'px';
+			menu.style.top = Math.max(8, Math.min(event.clientY, window.innerHeight - height - 8)) + 'px';
+			setTimeout(() => document.addEventListener('click', closeMasterNPCFolderMenu, {once: true}), 0);
 		});
 		grid.append(tile);
 	}
@@ -3960,7 +4178,7 @@ async function renderDashboard() {
 
 	try {
 		if (isMasterMode) {
-			$('.dashboard-heading').classList.toggle('hidden', ['nursery', 'shops'].includes(state.dashboardView));
+			$('.dashboard-heading').classList.toggle('hidden', ['overview', 'nursery', 'shops'].includes(state.dashboardView));
 			const data = await api('/characters/all');
 			const characters = data.characters;
 			state.campaignCharacters = characters;
@@ -3972,6 +4190,7 @@ async function renderDashboard() {
 			$('#dashboard-title').textContent = state.dashboardView === 'battles' ? 'Prepara\u00e7\u00e3o de batalhas' :
 				state.dashboardView === 'contests' ? 'Concursos Pok\u00e9mon' :
 				state.dashboardView === 'npcs' ? 'NPCs e selvagens' :
+				state.dashboardView === 'players' ? 'Jogadores' :
 				'Vis\u00e3o geral da campanha';
 			$('#dashboard-description').textContent = state.dashboardView === 'battles' ? 'Monte o confronto, envie convites e aguarde as confirma\u00e7\u00f5es.' :
 				state.dashboardView === 'npcs' ? 'Organize Pok\u00e9mon importantes e NPCs para batalhas e concursos.' :

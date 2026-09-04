@@ -212,6 +212,28 @@ export class RPGHttpServer {
 			) });
 			return;
 		}
+		if (url.pathname === '/api/rpg/campaign/settings') {
+			const token = this.token(req);
+			if (method === 'GET') {
+				this.json(res, 200, {settings: this.login.getCampaignSettings(token)});
+				return;
+			}
+			if (method === 'PUT') {
+				const body = await this.body(req);
+				this.json(res, 200, {settings: this.login.setCampaignSettings(token, body)});
+				return;
+			}
+		}
+		if (method === 'PUT' && url.pathname === '/api/rpg/campaign/quick-notes') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.setCampaignQuickNotes(this.token(req), body.notes));
+			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/presence') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.updatePlayerPresence(this.token(req), body.area));
+			return;
+		}
 		if (url.pathname === '/api/rpg/master-npc-library') {
 			const token = this.token(req);
 			if (method === 'GET') {
