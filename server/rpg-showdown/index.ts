@@ -188,6 +188,7 @@ export interface RPGCampaignTimeAdvanceResult {
 	trainings: { advanced: number, completed: number };
 	breedings: { advanced: number, completed: number };
 	incubations: { advanced: number, completed: number };
+	events: RPGCampaignEvent[];
 }
 export interface RPGTeamEggView {
 	eggId: string;
@@ -406,6 +407,15 @@ export class RPGFileCharacterRepository implements RPGCharacterRepository {
 interface RPGBattleSessionFileData {
 	version: 1;
 	sessions: RPGBattleSession[];
+}
+export interface RPGCampaignEvent {
+	id: string;
+	type: 'training' | 'fossil' | 'breeding' | 'incubation';
+	title: string;
+	description: string;
+	characterId: string;
+	characterName: string;
+	occurredAt: string;
 }
 
 export interface RPGTrainerProfile {
@@ -656,7 +666,10 @@ export class RPGLoginService {
 	private readonly playerDocumentsFile?: string;
 	private playerDocuments: Record<string, Record<string, unknown>> = {};
 	private readonly campaignSettingsFile?: string;
-	private campaignSettings: {name: string; currentDateTime: string; quickNotes: string};
+	private campaignSettings: {
+		name: string; currentDateTime: string; quickNotes: string; events: RPGCampaignEvent[];
+		playerNotes: Record<string, string>;
+	};
 
 	constructor(options: RPGLoginServiceOptions) {
 		if (typeof options.masterCode !== 'string' || !options.masterCode) {
@@ -682,7 +695,10 @@ export class RPGLoginService {
 		this.random = options.random || Math.random;
 		this.bytes = options.randomBytes || secureRandomBytes;
 		this.campaignSettingsFile = options.campaignSettingsFile && resolve(options.campaignSettingsFile);
-		this.campaignSettings = {name: 'Minha campanha', currentDateTime: new Date(this.now()).toISOString(), quickNotes: ''};
+		this.campaignSettings = {
+			name: 'Minha campanha', currentDateTime: new Date(this.now()).toISOString(), quickNotes: '', events: [],
+			playerNotes: {},
+		};
 		if (this.campaignSettingsFile && existsSync(this.campaignSettingsFile)) {
 			const stored = JSON.parse(readFileSync(this.campaignSettingsFile, 'utf8')) as Partial<typeof this.campaignSettings>;
 			if (typeof stored.name === 'string' && stored.name.trim()) this.campaignSettings.name = stored.name.trim().slice(0, 80);
@@ -690,6 +706,12 @@ export class RPGLoginService {
 				this.campaignSettings.currentDateTime = new Date(stored.currentDateTime).toISOString();
 			}
 			if (typeof stored.quickNotes === 'string') this.campaignSettings.quickNotes = stored.quickNotes.slice(0, 50_000);
+			if (Array.isArray(stored.events)) this.campaignSettings.events = stored.events.slice(-200) as RPGCampaignEvent[];
+			if (stored.playerNotes && typeof stored.playerNotes === 'object' && !Array.isArray(stored.playerNotes)) {
+				this.campaignSettings.playerNotes = Object.fromEntries(Object.entries(stored.playerNotes)
+					.filter((entry): entry is [string, string] => typeof entry[1] === 'string')
+					.map(([id, note]) => [id, note.slice(0, 20_000)]));
+			}
 		}
 		this.masterNPCLibraryFile = options.masterNPCLibraryFile && resolve(options.masterNPCLibraryFile);
 		if (this.masterNPCLibraryFile && existsSync(this.masterNPCLibraryFile)) {
@@ -918,11 +940,40 @@ export class RPGLoginService {
 			trainings: { advanced: 0, completed: 0 },
 			breedings: { advanced: 0, completed: 0 },
 			incubations: { advanced: 0, completed: 0 },
+			events: [],
 		};
+		const completedEvents: RPGCampaignEvent[] = [];
+		const addEvent = (
+			record: RPGStoredCharacter, type: RPGCampaignEvent['type'], title: string, description: string
+		) => completedEvents.push({
+			id: this.bytes(12).toString('base64url'), type, title, description,
+			characterId: record.state.id, characterName: record.state.characterName,
+			occurredAt: this.campaignSettings.currentDateTime,
+		});
 		for (const record of records) {
+			const completingTrainings = [
+				...record.state.box.party,
+				...record.state.box.boxes.flatMap(box => box.slots).filter((entry): entry is NonNullable<typeof entry> => !!entry),
+			].map(entry => entry as RPGManagedStoredPokemon).filter(entry => {
+				const job = entry.metadata?.evTraining;
+				return job && (job.remainingMs ?? Math.max(0, (job.completesAt ?? now) - now)) <= milliseconds;
+			});
+			const completingFossils = (record.state.fossilLab?.projects || []).filter(project => {
+				if (project.receivedAt) return false;
+				const remaining = project.remainingMs ?? Math.max(0, project.completesAt - now);
+				return remaining > 0 && remaining <= milliseconds;
+			});
 			const fossils = record.state.fossilLab ?
 				RPGFossilLab.advanceTime(record.state, milliseconds, now, this.random) : { advanced: 0, completed: 0 };
 			const trainings = RPGBoxManagement.advanceTime(record.state, milliseconds, now);
+			for (const entry of completingTrainings) {
+				addEvent(record, 'training', 'Treinamento concluído',
+					`${entry.pokemon.name || entry.pokemon.species} concluiu seu treinamento.`);
+			}
+			for (const project of completingFossils) {
+				addEvent(record, 'fossil', 'Restauração concluída',
+					`O projeto de ${project.species} terminou no laboratório paleontológico.`);
+			}
 			const breedings = {advanced: 0, completed: 0};
 			const incubations = {advanced: 0, completed: 0};
 			let nurseryChanged = false;
@@ -951,8 +1002,11 @@ export class RPGLoginService {
 								.map(parent => parent.ownerId))]
 								.map(ownerId => [ownerId, RPG_NURSERY_PARENT_RESCUE_TIME_MS])
 						);
+						const producedEggSpecies = project.egg.genetics.species;
 						if (project.slot1.participantType === 'npc') delete project.egg;
 						breedings.completed++;
+						addEvent(record, 'breeding', 'Ovo produzido',
+							`${project.slot1.name} e ${project.slot2.name} produziram um ovo de ${producedEggSpecies}.`);
 						completedNow = true;
 						nurseryChanged = true;
 					}
@@ -1013,6 +1067,10 @@ export class RPGLoginService {
 					const advanced = RPGIncubation.advance(project.egg, milliseconds);
 					if (advanced.advanced) incubations.advanced++;
 					if (advanced.completed) incubations.completed++;
+					if (advanced.completed) {
+						addEvent(record, 'incubation', 'Ovo pronto para chocar',
+							`O ovo de ${project.egg.genetics.species} concluiu a incubação.`);
+					}
 				}
 			}
 			result.fossils.advanced += fossils.advanced;
@@ -1036,6 +1094,10 @@ export class RPGLoginService {
 		this.campaignSettings.currentDateTime = new Date(
 			Date.parse(this.campaignSettings.currentDateTime) + milliseconds
 		).toISOString();
+		for (const event of completedEvents) event.occurredAt = this.campaignSettings.currentDateTime;
+		this.campaignSettings.events.push(...completedEvents);
+		this.campaignSettings.events = this.campaignSettings.events.slice(-200);
+		result.events = structuredClone(completedEvents);
 		this.persistCampaignSettings();
 		result.charactersAffected = changedIds.size;
 		return result;
@@ -1137,6 +1199,11 @@ export class RPGLoginService {
 		};
 	}
 
+	getCampaignClock(token: string): {currentDateTime: string} {
+		this.getSession(token);
+		return {currentDateTime: this.campaignSettings.currentDateTime};
+	}
+
 	updatePlayerPresence(token: string, area: unknown): {online: boolean; area: string} {
 		const key = this.tokenKey(token);
 		const publicSession = this.getSession(token);
@@ -1168,6 +1235,23 @@ export class RPGLoginService {
 		this.campaignSettings.quickNotes = notes.slice(0, 50_000);
 		this.persistCampaignSettings();
 		return {quickNotes: this.campaignSettings.quickNotes};
+	}
+
+	dismissCampaignEvent(token: string, eventId: unknown): {events: RPGCampaignEvent[]} {
+		this.requireMasterRole(token);
+		if (typeof eventId !== 'string' || !eventId) throw new Error('Evento inválido');
+		this.campaignSettings.events = this.campaignSettings.events.filter(event => event.id !== eventId);
+		this.persistCampaignSettings();
+		return {events: structuredClone(this.campaignSettings.events)};
+	}
+
+	setCampaignPlayerNote(token: string, characterId: unknown, note: unknown): {note: string} {
+		this.requireMasterRole(token);
+		if (typeof characterId !== 'string' || !this.repository.get(characterId)) throw new Error('Player inválido');
+		if (typeof note !== 'string') throw new Error('Anotação inválida');
+		this.campaignSettings.playerNotes[characterId] = note.slice(0, 20_000);
+		this.persistCampaignSettings();
+		return {note: this.campaignSettings.playerNotes[characterId]};
 	}
 
 	setCharacterShopAccess(token: string, characterId: string, shopId: string, allowed: boolean): RPGCharacterState {

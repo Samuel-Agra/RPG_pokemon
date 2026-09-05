@@ -39,6 +39,7 @@ const state = {
 	teamBuilderReturnView: 'box',
 	dismissedBattleSessionIds: new Set(),
 	expandedShopAccessIds: new Set(),
+	expandedMasterPlayerIds: new Set(),
 };
 let battleSessionSyncBusy = false;
 let battleSessionSyncTimer = null;
@@ -394,6 +395,39 @@ function renderMasterAreaPresence(container, players) {
 		}
 		area.append(occupants);
 		container.append(area);
+	}
+}
+
+function renderMasterCampaignEvents(container, events) {
+	container.replaceChildren();
+	if (!events.length) {
+		container.append(createElement('p', 'master-campaign-events-empty', 'Nenhum evento pendente.'));
+		return;
+	}
+	const labels = {training: 'Treinamento', fossil: 'Paleontologia', breeding: 'Berçário', incubation: 'Incubação'};
+	for (const event of [...events].reverse()) {
+		const card = createElement('article', 'master-campaign-event event-' + event.type);
+		const close = button('×', 'master-campaign-event-close');
+		close.type = 'button'; close.setAttribute('aria-label', 'Remover evento');
+		const heading = createElement('div', 'master-campaign-event-heading');
+		heading.append(createElement('small', '', labels[event.type] || 'Evento'), createElement('strong', '', event.title));
+		const date = new Date(event.occurredAt);
+		const timestamp = Number.isFinite(date.getTime()) ? date.toLocaleString('pt-BR', {
+			day: '2-digit', month: '2-digit', year: '2-digit', hour: '2-digit', minute: '2-digit',
+		}) : '';
+		card.append(close, heading, createElement('p', '', event.description),
+			createElement('span', 'master-campaign-event-owner', event.characterName),
+			createElement('time', '', timestamp));
+		close.addEventListener('click', async () => {
+			close.disabled = true;
+			try {
+				await api('/campaign/events', {method: 'DELETE', body: {eventId: event.id}});
+				const index = events.findIndex(entry => entry.id === event.id);
+				if (index >= 0) events.splice(index, 1);
+				renderMasterCampaignEvents(container, events);
+			} catch (error) { close.disabled = false; showToast(error.message, true); }
+		});
+		container.append(card);
 	}
 }
 
@@ -1481,6 +1515,7 @@ function openPokedexSummary(character, catalog) {
 
 async function renderPlayerBody(character) {
 	const root = createElement('div', 'player-overview');
+	const campaignClock = await api('/campaign/clock', {cache: 'no-store'});
 	const profile = character.profile || {stats: {}, pokedex: {}, badges: {}};
 	const stats = profile.stats || {};
 	const caught = profile.pokedex?.caught?.length || 0;
@@ -1491,7 +1526,25 @@ async function renderPlayerBody(character) {
 	const identityText = createElement('div', 'overview-identity-copy');
 	identityText.append(createElement('h1', '', character.characterName), createElement('strong', '', 'Treinador Pokémon'),
 		editableTrainerTagline(character));
-	identity.append(avatar, identityText);
+	const clock = createElement('div', 'overview-campaign-clock');
+	const celestial = createElement('div', 'master-campaign-celestial overview-campaign-celestial');
+	const orbit = createElement('div', 'master-campaign-celestial-orbit');
+	const sun = createElement('img', 'master-campaign-sun');
+	sun.src = './assets/campaign-clock/solgaleo-head.png'; sun.alt = 'Dia';
+	const moon = createElement('img', 'master-campaign-moon');
+	moon.src = './assets/campaign-clock/lunala-head.png?v=20260904-2'; moon.alt = 'Noite';
+	orbit.append(sun, moon);
+	celestial.append(orbit, createElement('span', 'master-campaign-horizon'));
+	const campaignDate = new Date(campaignClock.currentDateTime);
+	const campaignHour = campaignDate.getHours() + campaignDate.getMinutes() / 60;
+	orbit.style.setProperty('--campaign-orbit-angle', ((campaignHour - 12) * 15) + 'deg');
+	celestial.classList.toggle('is-night', campaignHour < 6 || campaignHour >= 18);
+	const weekday = new Intl.DateTimeFormat('pt-BR', {weekday: 'short'}).format(campaignDate).replace('.', '').toUpperCase();
+	const pad = number => String(number).padStart(2, '0');
+	const dateLabel = weekday + ', ' + pad(campaignDate.getDate()) + '/' + pad(campaignDate.getMonth() + 1) + '/' +
+		pad(campaignDate.getFullYear() % 100) + ', ' + pad(campaignDate.getHours()) + ':' + pad(campaignDate.getMinutes());
+	clock.append(celestial, createElement('time', '', dateLabel));
+	identity.append(avatar, identityText, clock);
 
 	const wallet = section('Carteira');
 	const bank = Math.max(0, Number(character.bank?.balance || 0));
@@ -2617,6 +2670,11 @@ async function renderMasterBody(characters) {
 					time.trainings.completed + ' treinamento(s), ' + time.fossils.completed + ' fóssil(is), ' +
 					time.breedings.completed + ' ovo(s) produzido(s) e ' + time.incubations.completed + ' incubação(ões) concluída(s).');
 				campaign.currentDateTime = new Date(new Date(campaign.currentDateTime).getTime() + hours * 3600000).toISOString();
+				if (time.events?.length) {
+					campaign.events.push(...time.events);
+					const eventsGrid = root.querySelector('[data-master-campaign-events]');
+					if (eventsGrid) renderMasterCampaignEvents(eventsGrid, campaign.events);
+				}
 				orbit.classList.remove('is-advancing');
 				updateCampaignClock();
 				for (const control of clockActions.querySelectorAll('button')) control.disabled = false;
@@ -2712,37 +2770,165 @@ async function renderMasterBody(characters) {
 		});
 		notes.body.append(editor, status);
 		root.append(notes.panel);
+
+		const events = section('Eventos');
+		events.panel.classList.add('master-campaign-events-panel');
+		const eventsGrid = createElement('div', 'master-campaign-events-grid');
+		eventsGrid.dataset.masterCampaignEvents = '';
+		renderMasterCampaignEvents(eventsGrid, campaign.events || []);
+		events.body.append(eventsGrid);
+		root.append(events.panel);
 		return root;
 	}
 	const players = section('Personagens da campanha');
 	players.panel.classList.add('master-players-panel');
 	const list = createElement('div', 'master-list');
+	const listHeader = createElement('div', 'master-player-summary-header');
+	listHeader.append(
+		createElement('span', '', 'Avatar'), createElement('span', '', 'Personagem'),
+		createElement('span', '', 'Player'), createElement('span', '', 'Equipe')
+	);
+	list.append(listHeader);
+	let masterDexTotal = 1025;
+	try { masterDexTotal = Math.max(1, rpgPokedexEntries(await rpgLoadBattlePokemon()).length); } catch {}
 	for (const character of characters) {
-		const row = createElement('div', 'master-row');
+		const card = createElement('div', 'master-player-card');
+		const row = createElement('div', 'master-player-summary-row');
+		const expanded = state.expandedMasterPlayerIds.has(character.id);
+		row.tabIndex = 0;
+		row.setAttribute('role', 'button');
+		row.setAttribute('aria-expanded', String(expanded));
 		row.append(characterAvatarBadge(character));
-		const info = createElement('div', 'master-info');
-		info.append(createElement('strong', '', character.characterName));
-		info.append(createElement(
-			'small', '',
-			character.playerName + ' \u00b7 ' + formatMoney(character.money) +
-			' \u00b7 ' + (character.team?.length || 0) + ' Pok\u00e9mon'
-		));
+		row.append(createElement('strong', 'master-player-character-name', character.characterName));
+		row.append(createElement('span', 'master-player-nick', character.playerName));
+		const team = createElement('div', 'master-player-summary-team');
+		for (const pokemon of (character.team || []).slice(0, 6)) {
+			const member = createElement('span', 'master-player-summary-pokemon');
+			const image = spriteImage(pokemon);
+			image.alt = pokemon.name || pokemon.species;
+			member.append(image);
+			team.append(member);
+		}
+		if (!character.team?.length) team.append(createElement('small', '', 'Sem Pokémon'));
+		row.append(team);
+		const toggleExpanded = () => {
+			if (state.expandedMasterPlayerIds.has(character.id)) state.expandedMasterPlayerIds.delete(character.id);
+			else state.expandedMasterPlayerIds.add(character.id);
+			void renderDashboard();
+		};
+		row.addEventListener('click', toggleExpanded);
+		row.addEventListener('keydown', event => {
+			if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggleExpanded(); }
+		});
+		const details = createElement('div', 'master-player-details');
+		const tagline = createElement('blockquote', 'master-player-tagline',
+			'“' + (character.profile?.tagline || 'A aventura está apenas começando.') + '”');
+		details.append(tagline);
+		const overview = createElement('div', 'master-player-overview-metrics');
+		const caught = character.profile?.pokedex?.caught?.length || 0;
+		overview.append(
+			profileMetric('Pokédex', Math.min(100, Math.round(caught / masterDexTotal * 100)) + '%'),
+			profileMetric('Pokécoin', formatOverviewMoney(character.money)),
+			profileMetric('Banco', formatOverviewMoney(character.bank?.balance || 0))
+		);
+		details.append(overview);
+		const badges = createElement('div', 'master-player-badge-summary');
+		for (const [regionId, regionName, regionBadges] of RPG_BADGE_REGIONS) {
+			const earned = new Set(character.profile?.badges?.[regionId] || []);
+			const region = createElement('div', 'master-player-badge-region');
+			region.append(createElement('strong', '', regionName),
+				createElement('span', '', earned.size + '/' + regionBadges.length + ' insígnias'));
+			badges.append(region);
+		}
+		details.append(badges);
+		const conditions = createElement('div', 'master-player-conditions');
+		conditions.append(createElement('h3', '', 'Condições especiais'));
+		const conditionList = createElement('div', 'master-player-condition-list');
+		const storedPokemon = [
+			...(character.box?.party || []),
+			...(character.box?.boxes || []).flatMap(box => box.slots || []).filter(Boolean),
+		];
+		for (const entry of storedPokemon) {
+			const training = entry.metadata?.evTraining;
+			const breeding = entry.metadata?.breeding;
+			if (!training && !breeding) continue;
+			const condition = createElement('div', 'master-player-condition');
+			condition.append(pokemonSprite(entry.pokemon));
+			const copy = createElement('div');
+			copy.append(createElement('strong', '', entry.pokemon.name || entry.pokemon.species));
+			if (training) copy.append(createElement('span', '', 'Em treinamento · Restam ' + formatCampaignDuration(training.remainingMs || 0)));
+			if (breeding) {
+				const project = (character.nursery?.projects || []).find(value =>
+					[value.slot1, value.slot2].some(parent => parent?.ownerId === character.id && parent.pokemonId === entry.pokemonId));
+				const remaining = project?.remainingBreedingTimeMs;
+				copy.append(createElement('span', '', 'Em reprodução' +
+					(Number.isFinite(remaining) ? ' · Restam ' + formatCampaignDuration(remaining) : '')));
+			}
+			condition.append(copy); conditionList.append(condition);
+		}
+		for (const egg of character.teamEggs || []) {
+			if (egg.status !== 'incubating') continue;
+			const condition = createElement('div', 'master-player-condition');
+			condition.append(eggVisual());
+			const copy = createElement('div');
+			copy.append(createElement('strong', '', 'Ovo em incubação'),
+				createElement('span', '', 'Restam ' + formatCampaignDuration(egg.remainingIncubationTimeMs || 0)));
+			condition.append(copy); conditionList.append(condition);
+		}
+		if (!conditionList.children.length) conditionList.append(createElement('p', 'master-player-condition-empty', 'Nenhuma condição ativa.'));
+		conditions.append(conditionList); details.append(conditions);
+		const notes = createElement('label', 'master-player-private-notes');
+		notes.append(createElement('strong', '', 'Anotações privadas'));
+		const notesEditor = createElement('textarea');
+		notesEditor.maxLength = 20000;
+		notesEditor.placeholder = 'Registre informações privadas sobre este jogador...';
+		notesEditor.value = campaign.playerNotes?.[character.id] || '';
+		const resizeNotes = () => {
+			notesEditor.style.height = 'auto';
+			notesEditor.style.height = notesEditor.scrollHeight + 'px';
+		};
+		requestAnimationFrame(resizeNotes);
+		const notesStatus = createElement('small', '', 'Salvo');
+		let notesTimer = null;
+		const savePlayerNote = async () => {
+			notesStatus.textContent = 'Salvando...';
+			try {
+				await api('/campaign/player-note', {method: 'PUT', body: {characterId: character.id, note: notesEditor.value}});
+				campaign.playerNotes ||= {}; campaign.playerNotes[character.id] = notesEditor.value;
+				notesStatus.textContent = 'Salvo';
+			} catch (error) { notesStatus.textContent = 'Erro ao salvar'; showToast(error.message, true); }
+		};
+		notesEditor.addEventListener('input', () => {
+			resizeNotes();
+			notesStatus.textContent = 'Alterações pendentes'; window.clearTimeout(notesTimer);
+			notesTimer = window.setTimeout(() => void savePlayerNote(), 700);
+		});
+		notesEditor.addEventListener('blur', () => {
+			if (notesStatus.textContent !== 'Alterações pendentes') return;
+			window.clearTimeout(notesTimer); void savePlayerNote();
+		});
+		notes.append(notesEditor, notesStatus); details.append(notes);
 		const actions = createElement('div', 'master-row-actions');
 		const permissions = createElement('div', 'master-page-access');
 		const pageToggle = (page, label) => {
-			const allowed = character.pageAccess?.[page] !== false;
+			let allowed = character.pageAccess?.[page] !== false;
 			const toggle = button(
-				(allowed ? '✓ ' : '✕ ') + label,
+				label,
 				'master-access-toggle ' + (allowed ? 'allowed' : 'blocked')
 			);
 			toggle.setAttribute('aria-pressed', String(allowed));
 			toggle.addEventListener('click', async () => {
 				toggle.disabled = true;
 				try {
-					await api('/characters/page-access', {
+					const data = await api('/characters/page-access', {
 						method: 'PUT', body: { characterId: character.id, page, allowed: !allowed },
 					});
-					await renderDashboard();
+					allowed = data.character.pageAccess?.[page] !== false;
+					character.pageAccess = data.character.pageAccess;
+					toggle.classList.toggle('allowed', allowed);
+					toggle.classList.toggle('blocked', !allowed);
+					toggle.setAttribute('aria-pressed', String(allowed));
+					toggle.disabled = false;
 				} catch (error) {
 					toggle.disabled = false;
 					showToast(error.message, true);
@@ -2755,65 +2941,79 @@ async function renderMasterBody(characters) {
 		}
 		const shopAccess = createElement('div', 'master-shop-access');
 		const shopMain = createElement('div', 'master-shop-access-main');
-		shopMain.append(pageToggle('shops', 'Lojas'));
-		const shopExpanded = state.expandedShopAccessIds.has(character.id);
-		const expandShops = button(shopExpanded ? '▾' : '▸', 'master-shop-access-expand');
-		expandShops.title = shopExpanded ? 'Ocultar lojas' : 'Configurar lojas desta cidade';
-		expandShops.setAttribute('aria-label', expandShops.title);
-		expandShops.setAttribute('aria-expanded', String(shopExpanded));
-		expandShops.addEventListener('click', () => {
-			if (shopExpanded) state.expandedShopAccessIds.delete(character.id);
-			else state.expandedShopAccessIds.add(character.id);
-			void renderDashboard();
-		});
-		shopMain.append(expandShops);
+		let shopExpanded = state.expandedShopAccessIds.has(character.id);
+		const shopsToggle = button('Lojas', 'master-shops-picker-toggle');
+		shopsToggle.setAttribute('aria-expanded', String(shopExpanded));
+		shopMain.append(shopsToggle);
 		shopAccess.append(shopMain);
-		if (shopExpanded) {
-			const shopPanel = createElement('div', 'master-shop-access-panel');
-			shopPanel.append(createElement('strong', '', 'Lojas disponíveis nesta cidade'));
-			for (const shop of shopDirectory.shops) {
+		const shopPanel = createElement('div', 'master-shop-access-panel');
+		shopPanel.classList.toggle('hidden', !shopExpanded);
+		for (const shop of shopDirectory.shops) {
 				const row = createElement('div', 'master-shop-access-row');
-				row.append(createElement('span', '', shop.name));
-				const allowed = character.shopAccess?.[shop.id] !== false;
+				let allowed = character.shopAccess?.[shop.id] !== false;
 				const toggle = button(
-					allowed ? 'Disponível' : 'Bloqueada',
+					shop.name,
 					'master-access-toggle master-shop-toggle ' + (allowed ? 'allowed' : 'blocked')
 				);
 				toggle.setAttribute('aria-pressed', String(allowed));
 				toggle.addEventListener('click', async () => {
 					toggle.disabled = true;
 					try {
-						await api('/characters/shop-access', {
+						const data = await api('/characters/shop-access', {
 							method: 'PUT',
 							body: { characterId: character.id, shopId: shop.id, allowed: !allowed },
 						});
-						await renderDashboard();
+						allowed = data.character.shopAccess?.[shop.id] !== false;
+						character.shopAccess = data.character.shopAccess;
+						toggle.classList.toggle('allowed', allowed);
+						toggle.classList.toggle('blocked', !allowed);
+						toggle.setAttribute('aria-pressed', String(allowed));
+						toggle.disabled = false;
 					} catch (error) {
 						toggle.disabled = false;
 						showToast(error.message, true);
 					}
 				});
 				row.append(toggle);
-				shopPanel.append(row);
-			}
-			shopAccess.append(shopPanel);
+			shopPanel.append(row);
 		}
+		shopAccess.append(shopPanel);
+		let outsideShopsHandler;
+		const closeShops = () => {
+			shopExpanded = false;
+			state.expandedShopAccessIds.delete(character.id);
+			shopPanel.classList.add('hidden');
+			shopsToggle.setAttribute('aria-expanded', 'false');
+			if (outsideShopsHandler) document.removeEventListener('pointerdown', outsideShopsHandler);
+			outsideShopsHandler = undefined;
+		};
+		shopsToggle.addEventListener('click', () => {
+			shopExpanded = !shopExpanded;
+			if (shopExpanded) state.expandedShopAccessIds.add(character.id);
+			else state.expandedShopAccessIds.delete(character.id);
+			shopPanel.classList.toggle('hidden', !shopExpanded);
+			shopsToggle.setAttribute('aria-expanded', String(shopExpanded));
+			if (!shopExpanded) return closeShops();
+			outsideShopsHandler = event => {
+				if (!shopAccess.contains(event.target)) closeShops();
+			};
+			setTimeout(() => document.addEventListener('pointerdown', outsideShopsHandler), 0);
+		});
 		permissions.append(shopAccess);
 		const view = button('Visualizar como Player', 'button');
 		view.addEventListener('click', () => viewAsPlayer(character, 'overview'));
-		const box = button('Abrir Box', 'button');
-		box.addEventListener('click', () => viewAsPlayer(character, 'box'));
-		const bag = button('Abrir Bag', 'button');
-		bag.addEventListener('click', () => viewAsPlayer(character, 'bag'));
-		const center = button('Abrir Centro Pokémon', 'button');
-		center.addEventListener('click', () => viewAsPlayer(character, 'center'));
-		actions.append(view, box, bag, center);
+		actions.append(view);
+		details.append(actions);
 		const controls = createElement('div', 'master-player-controls');
-		controls.append(permissions, actions);
-		row.append(info, controls);
-		list.append(row);
+		controls.append(details, permissions);
+		controls.classList.toggle('hidden', !expanded);
+		card.append(row, controls);
+		list.append(card);
 	}
-	if (!characters.length) list.append(createElement('p', '', 'Nenhum personagem foi criado.'));
+	if (!characters.length) {
+		listHeader.remove();
+		list.append(createElement('p', '', 'Nenhum personagem foi criado.'));
+	}
 	players.body.append(list);
 	root.append(players.panel);
 	return root;
@@ -4179,21 +4379,31 @@ async function renderDashboard() {
 	try {
 		if (isMasterMode) {
 			$('.dashboard-heading').classList.toggle('hidden', ['overview', 'nursery', 'shops'].includes(state.dashboardView));
+			$('.dashboard-heading').classList.toggle('master-section-heading', state.dashboardView !== 'overview');
+			$('#dashboard-heading-status').classList.toggle('hidden', state.dashboardView === 'overview');
 			const data = await api('/characters/all');
 			const characters = data.characters;
 			state.campaignCharacters = characters;
 			resetMasterAvatar();
 			$('#profile-name').textContent = 'Mestre';
 			$('#profile-role').textContent = 'Controle da campanha';
-			$('#dashboard-eyebrow').textContent = 'Painel do Mestre';
+			$('#dashboard-eyebrow').textContent = state.dashboardView === 'battles' ? 'CENTRO DE BATALHAS' :
+				state.dashboardView === 'contests' ? 'PALCO DE CONCURSOS' :
+				state.dashboardView === 'npcs' ? 'ARQUIVO DA CAMPANHA' :
+				state.dashboardView === 'players' ? 'GESTÃO DE JOGADORES' :
+				state.dashboardView === 'tournaments' ? 'CENTRAL DE TORNEIOS' : 'PAINEL DO MESTRE';
 			$('#dashboard-eyebrow').classList.remove('hidden');
 			$('#dashboard-title').textContent = state.dashboardView === 'battles' ? 'Prepara\u00e7\u00e3o de batalhas' :
 				state.dashboardView === 'contests' ? 'Concursos Pok\u00e9mon' :
 				state.dashboardView === 'npcs' ? 'NPCs e selvagens' :
 				state.dashboardView === 'players' ? 'Jogadores' :
+				state.dashboardView === 'tournaments' ? 'Torneios' :
 				'Vis\u00e3o geral da campanha';
 			$('#dashboard-description').textContent = state.dashboardView === 'battles' ? 'Monte o confronto, envie convites e aguarde as confirma\u00e7\u00f5es.' :
+				state.dashboardView === 'contests' ? 'Organize apresenta\u00e7\u00f5es, participantes e convites do concurso.' :
 				state.dashboardView === 'npcs' ? 'Organize Pok\u00e9mon importantes e NPCs para batalhas e concursos.' :
+				state.dashboardView === 'players' ? 'Acompanhe e gerencie os treinadores desta campanha.' :
+				state.dashboardView === 'tournaments' ? 'Crie e acompanhe os torneios da campanha.' :
 				'Acompanhe personagens, equipes, recursos e batalhas.';
 			$('#logout-button').textContent = 'Sair da sess\u00e3o';
 			$('#logout-button').classList.add('danger');
@@ -4207,6 +4417,8 @@ async function renderDashboard() {
 				await renderMasterBody(characters)
 			);
 		} else {
+			$('.dashboard-heading').classList.remove('master-section-heading');
+			$('#dashboard-heading-status').classList.add('hidden');
 			$('.dashboard-heading').classList.toggle('hidden', ['overview', 'team', 'box', 'bag', 'team-builder', 'center', 'fossils', 'nursery', 'shops'].includes(state.dashboardView));
 			const data = await api('/character');
 			const character = data.character;

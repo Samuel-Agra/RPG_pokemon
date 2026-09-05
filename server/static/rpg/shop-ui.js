@@ -145,8 +145,17 @@
 	}
 	function shopDirectory(directory, options) {
 		const root = el('div', 'shop-ui');
-		const heading = el('section', 'panel shop-directory-heading');
-		heading.append(el('h1', '', 'Lojas'));
+		const masterDirectory = options.isMaster && !options.characterId;
+		const heading = el('section', 'panel shop-directory-heading' + (masterDirectory ? ' master-section-heading' : ''));
+		if (masterDirectory) {
+			const copy = el('div');
+			copy.append(el('span', 'nursery-eyebrow', 'COMÉRCIO DA CAMPANHA'));
+			copy.append(el('h1', '', 'Lojas'));
+			copy.append(el('p', '', 'Gerencie estoques, preços e o acesso dos jogadores.'));
+			heading.append(copy, el('span', 'master-section-status', 'Visão do Mestre'));
+		} else {
+			heading.append(el('h1', '', 'Lojas'));
+		}
 		const grid = el('div', 'shop-directory-grid');
 		for (const shop of directory.shops) {
 			const blocked = shop.allowed === false;
@@ -172,7 +181,8 @@
 		return root;
 	}
 	function shopHeader(view, options) {
-		const header = el('section', 'panel shop-header');
+		const masterShop = options.isMaster && !options.characterId;
+		const header = el('section', 'panel shop-header' + (masterShop ? ' master-section-heading' : ''));
 		const back = button('‹ Lojas', 'button shop-back');
 		back.addEventListener('click', () => {
 			selectedShopId = null;
@@ -181,7 +191,7 @@
 			void options.refresh();
 		});
 		const title = el('div', 'shop-title');
-		title.append(el('p', 'eyebrow', view.shop.type.toUpperCase()), el('h1', '', view.shop.name),
+		title.append(el('p', masterShop ? 'nursery-eyebrow' : 'eyebrow', view.shop.type.toUpperCase()), el('h1', '', view.shop.name),
 			el('p', '', view.shop.description));
 		header.append(back, title);
 		if (view.money !== undefined) header.append(el('strong', 'shop-money', money(view.money)));

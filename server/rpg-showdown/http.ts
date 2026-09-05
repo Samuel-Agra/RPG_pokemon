@@ -224,9 +224,23 @@ export class RPGHttpServer {
 				return;
 			}
 		}
+		if (method === 'GET' && url.pathname === '/api/rpg/campaign/clock') {
+			this.json(res, 200, this.login.getCampaignClock(this.token(req)));
+			return;
+		}
 		if (method === 'PUT' && url.pathname === '/api/rpg/campaign/quick-notes') {
 			const body = await this.body(req);
 			this.json(res, 200, this.login.setCampaignQuickNotes(this.token(req), body.notes));
+			return;
+		}
+		if (method === 'DELETE' && url.pathname === '/api/rpg/campaign/events') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.dismissCampaignEvent(this.token(req), body.eventId));
+			return;
+		}
+		if (method === 'PUT' && url.pathname === '/api/rpg/campaign/player-note') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.setCampaignPlayerNote(this.token(req), body.characterId, body.note));
 			return;
 		}
 		if (method === 'POST' && url.pathname === '/api/rpg/presence') {

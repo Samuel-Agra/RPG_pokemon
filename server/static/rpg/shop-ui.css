@@ -1,5 +1,8 @@
 .shop-ui{display:grid;gap:14px;color:#253652}
 .shop-directory-heading,.shop-header{padding:20px 24px;background:linear-gradient(125deg,#526b98,#2e456f);color:#fff}
+.shop-directory-heading.master-section-heading{display:flex;align-items:center;justify-content:space-between;gap:20px}.shop-directory-heading.master-section-heading,.shop-header.master-section-heading{background:linear-gradient(135deg,#405a84,#243a5d);border-color:#172a48;box-shadow:0 2px 7px #16233d40}
+.shop-directory-heading.master-section-heading h1,.shop-header.master-section-heading h1{color:#fff;text-shadow:0 1px 1px #12233f}
+.shop-header.master-section-heading{grid-template-columns:minmax(0,1fr) auto}.shop-header.master-section-heading .shop-back{grid-column:1/-1;justify-self:start}.shop-header.master-section-heading .shop-title{grid-column:1}.shop-header.master-section-heading .shop-money{grid-column:2}
 .shop-directory-heading h1,.shop-header h1{margin:3px 0 6px;font:700 30px Georgia,serif}.shop-directory-heading p,.shop-header p{margin:0;color:#e6ebf5}
 .shop-directory-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:14px}.shop-directory-card{display:flex;min-height:116px;padding:20px;text-align:left;align-items:center;justify-content:space-between;gap:20px;border-left:7px solid #526b98;background:linear-gradient(135deg,#fff,#edf1f7);cursor:pointer}
 .shop-directory-card:hover{transform:translateY(-2px);box-shadow:0 6px 18px #23365229}.shop-directory-copy{display:grid;gap:7px}.shop-directory-copy strong{font:700 22px Georgia,serif}.shop-directory-copy small{font-size:14px;color:#61718a}
