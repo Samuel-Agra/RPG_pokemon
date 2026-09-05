@@ -97,7 +97,7 @@ export interface RPGNurseryProject {
 	confirmed: Record<string, boolean>;
 	/** Pokecoins requested by Slot 2 and settled once breeding starts. */
 	requestedPokecoins?: number;
-	slotConfirmations?: {slot1: boolean, slot2: boolean};
+	slotConfirmations?: { slot1: boolean, slot2: boolean };
 	paymentTransferredAt?: number;
 	createdAt: number;
 	breedingStartedAt?: number;
@@ -152,15 +152,15 @@ export interface RPGNurseryMasterSlot2Input extends RPGNurseryMasterPokemonInput
 }
 
 export const RPG_NURSERY_BREEDING_ITEMS = Object.freeze([
-	{id: '', name: 'Nenhum', description: 'Sem efeito adicional na procria\u00e7\u00e3o.'},
-	{id: 'everstone', name: 'Everstone', description: 'Permite que a Nature deste progenitor seja herdada.'},
-	{id: 'destinyknot', name: 'Destiny Knot', description: 'Faz os seis IVs deste progenitor serem herdados e é consumido ao concluir a procriação.'},
-	{id: 'powerweight', name: 'Power Weight', description: 'Garante que o IV de HP deste progenitor seja herdado.'},
-	{id: 'powerbracer', name: 'Power Bracer', description: 'Garante que o IV de Attack deste progenitor seja herdado.'},
-	{id: 'powerbelt', name: 'Power Belt', description: 'Garante que o IV de Defense deste progenitor seja herdado.'},
-	{id: 'powerlens', name: 'Power Lens', description: 'Garante que o IV de Sp. Attack deste progenitor seja herdado.'},
-	{id: 'powerband', name: 'Power Band', description: 'Garante que o IV de Sp. Defense deste progenitor seja herdado.'},
-	{id: 'poweranklet', name: 'Power Anklet', description: 'Garante que o IV de Speed deste progenitor seja herdado.'},
+	{ id: '', name: 'Nenhum', description: 'Sem efeito adicional na procria\u00e7\u00e3o.' },
+	{ id: 'everstone', name: 'Everstone', description: 'Permite que a Nature deste progenitor seja herdada.' },
+	{ id: 'destinyknot', name: 'Destiny Knot', description: 'Faz os seis IVs deste progenitor serem herdados e é consumido ao concluir a procriação.' },
+	{ id: 'powerweight', name: 'Power Weight', description: 'Garante que o IV de HP deste progenitor seja herdado.' },
+	{ id: 'powerbracer', name: 'Power Bracer', description: 'Garante que o IV de Attack deste progenitor seja herdado.' },
+	{ id: 'powerbelt', name: 'Power Belt', description: 'Garante que o IV de Defense deste progenitor seja herdado.' },
+	{ id: 'powerlens', name: 'Power Lens', description: 'Garante que o IV de Sp. Attack deste progenitor seja herdado.' },
+	{ id: 'powerband', name: 'Power Band', description: 'Garante que o IV de Sp. Defense deste progenitor seja herdado.' },
+	{ id: 'poweranklet', name: 'Power Anklet', description: 'Garante que o IV de Speed deste progenitor seja herdado.' },
 ] as const);
 
 const STATS: readonly RPGGeneticStat[] = ['hp', 'atk', 'def', 'spa', 'spd', 'spe'];
@@ -215,16 +215,16 @@ export class RPGNurseryGenetics {
 			if (!getRPGAllowedSexes(species.name).includes(automaticSex)) continue;
 			if (!canRPGPokemonBreedAtCurrentStage(species.name, automaticSex)) continue;
 			const compatibility = checkRPGBreedingCompatibility(
-				{species: slot1.species, sex: slot1.sex}, {species: species.name, sex: automaticSex}
+				{ species: slot1.species, sex: slot1.sex }, { species: species.name, sex: automaticSex }
 			);
-			if (compatibility.compatible) options.push({species: species.name, sex: automaticSex});
+			if (compatibility.compatible) options.push({ species: species.name, sex: automaticSex });
 		}
 		return options.sort((a, b) => a.species.localeCompare(b.species) || a.sex.localeCompare(b.sex));
 	}
 
 	static preview(slot1: RPGNurseryParent, slot2: RPGNurseryParent): RPGNurseryGeneticPreview {
 		const compatibility = checkRPGBreedingCompatibility(
-			{species: slot1.species, sex: slot1.sex}, {species: slot2.species, sex: slot2.sex}
+			{ species: slot1.species, sex: slot1.sex }, { species: slot2.species, sex: slot2.sex }
 		);
 		const result: RPGNurseryGeneticPreview = {
 			compatibility, family: compatibility.family, eggOwnerId: slot1.ownerId,
@@ -284,15 +284,15 @@ export class RPGNurseryGenetics {
 		try { male = getRPGBreedingOffspringSpecies(family, 'M'); } catch {}
 		try { female = getRPGBreedingOffspringSpecies(family, 'F'); } catch {}
 		try { neutral = getRPGBreedingOffspringSpecies(family, 'N'); } catch {}
-		if (neutral && !male && !female) return {species: neutral, sex: 'N' as RPGPokemonSex};
+		if (neutral && !male && !female) return { species: neutral, sex: 'N' as RPGPokemonSex };
 		const provisional = male || female;
 		if (!provisional) throw new Error('Fam\\u00edlia reprodutiva sem filhote v\\u00e1lido');
 		if (male && female && toID(male) !== toID(female)) {
-			const sex: RPGPokemonSex = random() < .5 ? 'F' : 'M';
-			return {species: sex === 'F' ? female : male, sex};
+			const sex: RPGPokemonSex = random() < 0.5 ? 'F' : 'M';
+			return { species: sex === 'F' ? female : male, sex };
 		}
 		const species = male || female!;
-		return {species, sex: rollRPGPokemonSex(species, random)};
+		return { species, sex: rollRPGPokemonSex(species, random) };
 	}
 
 	private static possibleOffspring(family: RPGBreedingFamilyId): string[] {
@@ -313,7 +313,7 @@ export class RPGNurseryGenetics {
 	private static inheritIVs(a: RPGNurseryParent, b: RPGNurseryParent, random: () => number) {
 		const ivs = {} as Record<RPGGeneticStat, number>;
 		const origins = {} as Record<RPGGeneticStat, RPGGeneticOrigin>;
-		const parents = ([['slot1', a], ['slot2', b]] as const);
+		const parents = [['slot1', a], ['slot2', b]] as const;
 		const inherited = new Map<RPGGeneticStat, Exclude<RPGGeneticOrigin, 'random'>>();
 		const destinyHolders = parents.filter(([, parent]) => parent.item === 'destinyknot');
 		const powerByStat = new Map<RPGGeneticStat, Exclude<RPGGeneticOrigin, 'random'>[]>();
@@ -334,7 +334,7 @@ export class RPGNurseryGenetics {
 			const randomInheritedCount = Math.min(3, pool.length);
 			while (inherited.size < randomInheritedCount) {
 				const stat = pool.splice(this.randomIndex(pool.length, random), 1)[0];
-				inherited.set(stat, random() < .5 ? 'slot1' : 'slot2');
+				inherited.set(stat, random() < 0.5 ? 'slot1' : 'slot2');
 			}
 		}
 
@@ -347,14 +347,14 @@ export class RPGNurseryGenetics {
 			origins[stat] = origin;
 			ivs[stat] = origin === 'slot1' ? a.ivs[stat] : origin === 'slot2' ? b.ivs[stat] : 0;
 		}
-		return {ivs, origins};
+		return { ivs, origins };
 	}
 
 	private static selectEggMoves(species: string, random: () => number): string[] {
 		const pool = this.eggMoves(species);
 		if (!pool.length) return [];
 		const roll = random();
-		const requested = roll < .5 ? 1 : roll < .8 ? 2 : roll < .95 ? 3 : 4;
+		const requested = roll < 0.5 ? 1 : roll < 0.8 ? 2 : roll < 0.95 ? 3 : 4;
 		// A probabilidade de uma quantidade impossível acumula na maior quantidade disponível.
 		const count = Math.min(requested, pool.length);
 		const available = [...pool], selected: string[] = [];
@@ -366,9 +366,9 @@ export class RPGNurseryGenetics {
 
 	private static eggMoves(species: string): string[] {
 		const learned = new Set<string>();
-		for (const data of Dex.mod('gen9').species.getFullLearnset(species)) {
+		for (const data of Dex.mod('gen9').species.getFullLearnset(toID(species))) {
 			for (const [move, sources] of Object.entries(data.learnset)) {
-				if (sources.some(source => /^9E/.test(source))) learned.add(move);
+				if (sources.some(source => source.startsWith("9E"))) learned.add(move);
 			}
 		}
 		return [...learned].sort();
@@ -376,7 +376,7 @@ export class RPGNurseryGenetics {
 
 	private static levelOneMoves(species: string): string[] {
 		const learned = new Set<string>();
-		for (const data of Dex.mod('gen9').species.getFullLearnset(species)) {
+		for (const data of Dex.mod('gen9').species.getFullLearnset(toID(species))) {
 			for (const [move, sources] of Object.entries(data.learnset)) {
 				if (sources.some(source => /^9L(?:0|1)$/.test(source))) learned.add(move);
 			}

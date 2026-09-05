@@ -1,12 +1,12 @@
 'use strict';
 
 const assert = require('assert').strict;
-const {classifyRPGContestItem} = require('../../dist/server/rpg-showdown');
-const {RPGItems} = require('../../dist/sim/rpg-showdown');
+const { classifyRPGContestItem } = require('../../dist/server/rpg-showdown');
+const { RPGItems } = require('../../dist/sim/rpg-showdown');
 
 describe('RPG contest held items', () => {
 	it('balances visual categories and treats all Mega Stones as one Tough unit', () => {
-		const weighted = {beauty: 0, cute: 0, cool: 0, smart: 0, tough: 0};
+		const weighted = { beauty: 0, cute: 0, cool: 0, smart: 0, tough: 0 };
 		let countedMegaGroup = false;
 		for (const item of RPGItems.list()) {
 			const contest = classifyRPGContestItem(item);

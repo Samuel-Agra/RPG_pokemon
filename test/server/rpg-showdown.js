@@ -84,7 +84,8 @@ describe('RPG login', () => {
 			].map(entry => entry.pokemon.species);
 			assert(storedSpecies.includes('Eevee'));
 			const showcaseBag = first.getBag(player.token);
-			for (const category of showcaseBag.categories.filter(entry => entry.id !== 'mission-items')) {
+			for (const category of showcaseBag.categories.filter(entry =>
+				!['mission-items', 'treasures', 'key-items'].includes(entry.id))) {
 				assert(category.itemTypes > 0, 'Expected test Bag category ' + category.id + ' to contain an item');
 			}
 			assert(showcaseBag.items.some(item => item.id === 'thunderstone'));
@@ -129,7 +130,8 @@ describe('RPG login', () => {
 			].map(entry => entry.pokemon.species);
 			assert(restartedStoredSpecies.includes('Eevee'));
 			const restartedBag = restarted.getBag(restartedPlayer.token);
-			for (const category of restartedBag.categories.filter(entry => entry.id !== 'mission-items')) {
+			for (const category of restartedBag.categories.filter(entry =>
+				!['mission-items', 'treasures', 'key-items'].includes(entry.id))) {
 				assert(category.itemTypes > 0, 'Expected persisted test Bag category ' + category.id + ' to contain an item');
 			}
 			assert(restartedBag.items.some(item => item.id === 'thunderstone'));
@@ -164,7 +166,7 @@ describe('RPG login', () => {
 		}
 		for (const value of Object.values(starter.ivs)) assert.equal(value, 16);
 		assert.equal(state.money, 3000);
-		assert.deepEqual(state.bank, {version: 1, balance: 0, revision: 0});
+		assert.deepEqual(state.bank, { version: 1, balance: 0, revision: 0 });
 		assert.equal(state.box.party.length, 1);
 		assert.equal(state.box.tier, 'small');
 		assert.equal(state.box.boxes.length, 1);
@@ -177,7 +179,7 @@ describe('RPG login', () => {
 		const player = service.loginPlayer(character.id, 'senha-rpg');
 		const master = service.loginMaster('14081998');
 
-		assert.deepEqual(service.getBank(player.token), {version: 1, balance: 0, revision: 0, money: 3000});
+		assert.deepEqual(service.getBank(player.token), { version: 1, balance: 0, revision: 0, money: 3000 });
 		assert.deepEqual(service.depositBank(player.token, undefined, 2000, 0), {
 			version: 1, balance: 2000, revision: 1, money: 1000,
 		});

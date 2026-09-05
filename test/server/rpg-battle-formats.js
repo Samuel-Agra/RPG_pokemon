@@ -18,7 +18,7 @@ function makeService() {
 
 function set(species, level) {
 	return {
-		name: species, species, level, item: '', ability: '', moves: ['tackle'], nature: 'Hardy', gender: 'N',
+		name: species, species, level, item: '', ability: '', moves: ['tackle'], nature: 'Hardy', gender: '',
 		evs: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 },
 		ivs: { hp: 31, atk: 31, def: 31, spa: 31, spd: 31, spe: 31 },
 	};

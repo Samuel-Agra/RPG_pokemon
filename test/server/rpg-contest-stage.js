@@ -10,7 +10,7 @@ const {
 
 describe('RPG contest stage', () => {
 	it('applies a transformation only to following moves in the same round', () => {
-		const scenario = {id: 'garden', name: 'Festival de Flores', tags: ['flower', 'plant'], weather: '', terrain: ''};
+		const scenario = { id: 'garden', name: 'Festival de Flores', tags: ['flower', 'plant'], weather: '', terrain: '' };
 		const stage = createRPGContestStage(scenario);
 		const sun = applyRPGContestMoveToStage(stage, 'sunnyday', scenario);
 		assert.equal(sun.interactionScore, 0);
@@ -24,7 +24,7 @@ describe('RPG contest stage', () => {
 	});
 
 	it('keeps the venue base permanent and removes participant-created effects between rounds', () => {
-		const scenario = {id: 'rain-stage', name: 'Palco Chuvoso', tags: ['light'], weather: 'rain', terrain: ''};
+		const scenario = { id: 'rain-stage', name: 'Palco Chuvoso', tags: ['light'], weather: 'rain', terrain: '' };
 		const stage = createRPGContestStage(scenario);
 		const fire = applyRPGContestMoveToStage(stage, 'fireblast', scenario);
 		const light = applyRPGContestMoveToStage(stage, 'dazzlinggleam', scenario);
@@ -39,7 +39,7 @@ describe('RPG contest stage', () => {
 	});
 
 	it('persists non-weather stage changes and lets Defog clear them', () => {
-		const scenario = {id: 'neutral-stage', name: 'Palco neutro', tags: [], weather: '', terrain: ''};
+		const scenario = { id: 'neutral-stage', name: 'Palco neutro', tags: [], weather: '', terrain: '' };
 		const stage = createRPGContestStage(scenario);
 		for (const [move, tag] of [
 			['spikes', 'spikes'], ['toxicspikes', 'toxicspikes'], ['stealthrock', 'floatingrocks'],

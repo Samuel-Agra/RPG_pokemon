@@ -32,15 +32,15 @@ export interface RPGHatchResult {
 	eggId: string;
 	pokemon: RPGCapturedPokemon;
 	revealed: {
-		species: string;
-		sex: string;
-		nature: string;
-		ability: string;
-		ivs: RPGCapturedPokemon['ivs'];
-		moves: string[];
-		shiny: boolean;
-		lineage: string;
-		parentIds: [string, string];
+		species: string,
+		sex: string,
+		nature: string,
+		ability: string,
+		ivs: RPGCapturedPokemon['ivs'],
+		moves: string[],
+		shiny: boolean,
+		lineage: string,
+		parentIds: [string, string],
 	};
 }
 
@@ -157,11 +157,11 @@ export class RPGIncubation {
 		egg.status = 'carried';
 	}
 
-	static advance(egg: RPGNurseryEgg, milliseconds: number): {advanced: boolean, completed: boolean} {
+	static advance(egg: RPGNurseryEgg, milliseconds: number): { advanced: boolean, completed: boolean } {
 		this.ensureEgg(egg);
 		if (!Number.isFinite(milliseconds) || milliseconds < 0) throw new Error('Tempo de incuba\\u00e7\\u00e3o inv\\u00e1lido');
 		if (egg.status !== 'incubating' || (!egg.incubatorId && !egg.portableIncubator)) {
-			return {advanced: false, completed: false};
+			return { advanced: false, completed: false };
 		}
 		const before = egg.accumulatedIncubationTimeMs || 0;
 		egg.accumulatedIncubationTimeMs = Math.min(egg.requiredIncubationTimeMs!, before + milliseconds);
@@ -170,7 +170,7 @@ export class RPGIncubation {
 			egg.status = 'ready_to_hatch';
 			delete egg.incubationStartedAt;
 		}
-		return {advanced: egg.accumulatedIncubationTimeMs > before, completed};
+		return { advanced: egg.accumulatedIncubationTimeMs > before, completed };
 	}
 
 	static view(egg: RPGNurseryEgg): RPGIncubationEggView {
@@ -183,9 +183,9 @@ export class RPGIncubation {
 				'O ovo est\\u00e1 prestes a chocar!' : 'Parece haver algo se movimentando l\\u00e1 dentro.',
 			progress: Math.max(0, Math.min(100, Math.floor(accumulated / required * 100))),
 			remainingIncubationTimeMs: Math.max(0, required - accumulated),
-			...(egg.incubatorId ? {incubatorId: egg.incubatorId} : {}),
+			...(egg.incubatorId ? { incubatorId: egg.incubatorId } : {}),
 			portableIncubator: egg.portableIncubator === true,
-			...(egg.portableIncubatorId ? {portableIncubatorId: egg.portableIncubatorId} : {}),
+			...(egg.portableIncubatorId ? { portableIncubatorId: egg.portableIncubatorId } : {}),
 		};
 	}
 
@@ -204,8 +204,8 @@ export class RPGIncubation {
 		const pokemon: RPGCapturedPokemon = {
 			name: species.name, species: species.name, level: 1, gender: genetics.sex,
 			shiny: genetics.shiny, item: '', ability: genetics.ability, nature: genetics.nature,
-			moves: [...genetics.moves], ivs: {...genetics.ivs},
-			evs: {hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0},
+			moves: [...genetics.moves], ivs: { ...genetics.ivs },
+			evs: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 },
 			rpg: {
 				version: RPG_STATE_VERSION, level: 1, friendship: 50, item: '',
 				captureBall: 'pokeball',
@@ -223,10 +223,9 @@ export class RPGIncubation {
 			eggId: egg.id, pokemon,
 			revealed: {
 				species: genetics.species, sex: genetics.sex, nature: genetics.nature,
-				ability: genetics.ability, ivs: {...genetics.ivs}, moves: [...genetics.moves],
+				ability: genetics.ability, ivs: { ...genetics.ivs }, moves: [...genetics.moves],
 				shiny: genetics.shiny, lineage: genetics.lineage, parentIds: [...genetics.parentIds],
 			},
 		};
 	}
-
 }

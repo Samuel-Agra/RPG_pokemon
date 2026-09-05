@@ -18,21 +18,21 @@ export class FriendshipSystem {
 		const friendship = pokemon.rpg.friendship ?? 50;
 		let change = 0;
 		switch (event) {
-		case 'level-up':
-			change = friendship < 100 ? 3 : friendship < 160 ? 2 : 0;
-			break;
-		case 'walking':
-			change = friendship < 160 ? 1 : 0;
-			break;
-		case 'berry':
-			change = friendship < 100 ? 10 : friendship < 160 ? 5 : 1;
-			break;
-		case 'vitamin':
-			change = friendship < 100 ? 4 : friendship < 160 ? 2 : 0;
-			break;
-		case 'battle-item':
-			change = friendship < 160 ? 1 : 0;
-			break;
+			case 'level-up':
+				change = friendship < 100 ? 3 : friendship < 160 ? 2 : 0;
+				break;
+			case 'walking':
+				change = friendship < 160 ? 1 : 0;
+				break;
+			case 'berry':
+				change = friendship < 100 ? 10 : friendship < 160 ? 5 : 1;
+				break;
+			case 'vitamin':
+				change = friendship < 100 ? 4 : friendship < 160 ? 2 : 0;
+				break;
+			case 'battle-item':
+				change = friendship < 160 ? 1 : 0;
+				break;
 		}
 		return this.change(pokemon, change);
 	}

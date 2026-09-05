@@ -116,7 +116,7 @@ export class RPGExternalIntegration {
 			if (!sides.has(side as SideID)) {
 				throw new Error(`RPG role references a missing side: ${side}`);
 			}
-			if (!sideRoles.has(role as string)) {
+			if (!sideRoles.has(role)) {
 				throw new Error(`Invalid RPG side role: ${role}`);
 			}
 		}

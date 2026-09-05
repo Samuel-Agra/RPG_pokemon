@@ -112,7 +112,7 @@ describe('RPG fossil restoration laboratory', () => {
 
 	it('applies restoration chance and only reveals failure after completion', () => {
 		const { service, master, player, setRoll } = setup();
-		let bag = service.getBag(master.token, 'samuel');
+		const bag = service.getBag(master.token, 'samuel');
 		setRoll(0.2);
 		service.masterSetBagItemQuantity(master.token, 'samuel', 'helixfossil', 11, bag.revision, 'add');
 		for (let sample = 0; sample < 10; sample++) {
@@ -143,14 +143,14 @@ describe('RPG fossil restoration laboratory', () => {
 		service.masterSetBagItemQuantity(master.token, 'samuel', 'helixfossil', 1, bag.revision, 'add');
 		const lab = service.startFossilRestoration(player.token, undefined, {
 			itemId: 'helixfossil', method: 'standard',
-			samples: {fragmented: 2, preserved: 1, exceptional: 1},
+			samples: { fragmented: 2, preserved: 1, exceptional: 1 },
 		});
 		assert.equal(lab.projects[0].sampleCount, 4);
-		assert.deepEqual(lab.projects[0].samples, {fragmented: 2, preserved: 1, exceptional: 1});
+		assert.deepEqual(lab.projects[0].samples, { fragmented: 2, preserved: 1, exceptional: 1 });
 		assert.equal(lab.projects[0].restorationChance, 90);
 		const preserved = lab.fossils.find(fossil => fossil.sampleKey === 'helixfossil:preserved');
 		assert.equal(preserved.quantity, 6);
-		assert.deepEqual(preserved.qualityQuantities, {fragmented: 0, preserved: 6, exceptional: 0});
+		assert.deepEqual(preserved.qualityQuantities, { fragmented: 0, preserved: 6, exceptional: 0 });
 	});
 
 	it('preserves the randomly selected grade when transferring a fossil', () => {
@@ -174,7 +174,6 @@ describe('RPG fossil restoration laboratory', () => {
 		).quantity, 1);
 	});
 
-
 	it('limits DNA to 100% and applies fossil Shiny odds and IV bonuses', () => {
 		const { service, master, player, setRoll } = setup();
 		for (let sample = 0; sample < 5; sample++) {
@@ -187,12 +186,12 @@ describe('RPG fossil restoration laboratory', () => {
 		service.masterSetBagItemQuantity(master.token, 'samuel', 'helixfossil', 1, bag.revision, 'add');
 		assert.throws(() => service.startFossilRestoration(player.token, undefined, {
 			itemId: 'helixfossil', method: 'standard',
-			samples: {fragmented: 4, preserved: 4, exceptional: 0},
+			samples: { fragmented: 4, preserved: 4, exceptional: 0 },
 		}), /100%/);
 		setRoll(0);
 		let lab = service.startFossilRestoration(player.token, undefined, {
 			itemId: 'helixfossil', method: 'standard',
-			samples: {fragmented: 1, preserved: 2, exceptional: 1},
+			samples: { fragmented: 1, preserved: 2, exceptional: 1 },
 		});
 		assert.equal(lab.projects[0].restorationChance, 100);
 		assert.equal(lab.projects[0].shinyDenominator, 2896);
@@ -201,9 +200,8 @@ describe('RPG fossil restoration laboratory', () => {
 		lab = service.getFossilLab(player.token);
 		const result = service.receiveRestoredFossil(player.token, undefined, lab.projects[0].id);
 		assert.equal(result.pokemon.shiny, true);
-		assert.deepEqual(result.pokemon.ivs, {hp: 7, atk: 7, def: 7, spa: 7, spd: 7, spe: 7});
+		assert.deepEqual(result.pokemon.ivs, { hp: 7, atk: 7, def: 7, spa: 7, spd: 7, spe: 7 });
 	});
-
 
 	it('lets the Master enable or disable Player access to Paleontology', () => {
 		const { service, master, player } = setup();
@@ -215,5 +213,4 @@ describe('RPG fossil restoration laboratory', () => {
 		assert.equal(character.pageAccess.fossils, true);
 		assert.equal(service.getFossilLab(player.token).fossils.length > 0, true);
 	});
-
 });

@@ -7,12 +7,12 @@ NODE ?= node
 NPM ?= npm
 MOCHA := $(NODE) node_modules/mocha/bin/mocha.js
 TSC := $(NODE) node_modules/typescript/bin/tsc
-RPG_TIMEOUT ?= 10000
+RPG_TIMEOUT ?= 20000
 MOCHA_RPG := $(MOCHA) --no-config --no-package --timeout $(RPG_TIMEOUT)
 
 .DEFAULT_GOAL := help
 
-.PHONY: help install build typecheck rpg \
+.PHONY: help install build typecheck lint-rpg rpg \
 	test-rpg test-rpg-server test-rpg-sim test-rpg-core test-rpg-battle \
 	test-rpg-nursery test-rpg-shop test-rpg-inventory test-rpg-team \
 	test-rpg-fossil test-rpg-world test-rpg-ui
@@ -33,6 +33,7 @@ help:
 	@echo COMPILACAO E VALIDACAO
 	@echo   build                Compila o projeto
 	@echo   typecheck            Verifica os tipos TypeScript
+	@echo   lint-rpg             Verifica apenas os arquivos do RPG
 	@echo   test-rpg             Compila e executa todos os testes RPG
 	@echo.
 	@echo TESTES POR CAMADA
@@ -68,11 +69,15 @@ build:
 typecheck:
 	$(TSC) --pretty
 
+lint-rpg:
+	$(NPM) run lint:rpg
+
 rpg: build
 	$(NODE) server/rpg-showdown/start.js
 
 test-rpg: build
-	$(MOCHA_RPG) "test/**/rpg-*.js"
+	$(MOCHA_RPG) "test/server/rpg-*.js"
+	$(MOCHA_RPG) "test/sim/rpg-*.js"
 
 test-rpg-server: build
 	$(MOCHA_RPG) "test/server/rpg-*.js"

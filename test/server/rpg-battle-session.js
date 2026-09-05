@@ -346,7 +346,7 @@ describe('RPG battle preparation sessions', () => {
 		assert.equal(poorLogin.getCharacter(poorMaster.token, poorB.id).money, 3000);
 	});
 
-it('applies RPG sex overrides to starters and controlled encounters', () => {
+	it('applies RPG sex overrides to starters and controlled encounters', () => {
 		const login = service();
 		assert.throws(() => login.createCharacter({
 			characterName: 'Gardevoir macho',
@@ -381,5 +381,4 @@ it('applies RPG sex overrides to starters and controlled encounters', () => {
 			participants: battle.participants,
 		}), /gender is not allowed/);
 	});
-
 });

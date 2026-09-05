@@ -19,7 +19,7 @@ describe('RPG Bag frontend', () => {
 	});
 
 	it('hides the generic player greeting on Box and Bag pages', () => {
-		assert.match(rpgUi, /\['overview', 'team', 'box', 'bag', 'team-builder', 'center', 'fossils'\]\.includes\(state\.dashboardView\)/);
+		assert.match(rpgUi, /\['overview', 'team', 'box', 'bag', 'team-builder', 'center', 'fossils', 'nursery', 'shops'\]\.includes\(state\.dashboardView\)/);
 	});
 
 	it('keeps blocked Bag and Box entries visible but prevents navigation', () => {
@@ -44,7 +44,7 @@ describe('RPG Bag frontend', () => {
 		assert.match(rpgUi, /\/pokemon-center\/recover/);
 		assert.match(rpgUi, /expectedRevision: center\.revision/);
 		assert.match(rpgUi, /\['center', 'Centro Pokémon'\]/);
-		assert.match(rpgUi, /Abrir Centro Pokémon/);
+		assert.match(rpgUi, /\['center', 'Centro Pokémon', centerBlocked\]/);
 		assert.doesNotMatch(rpgUi, /Centro de Treinamento/);
 		assert.match(css, /\.pokemon-center-healing/);
 		assert.match(css, /@keyframes pokemon-center-fill/);

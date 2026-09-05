@@ -63,7 +63,7 @@ describe('RPG Egg presentation outside incubation', () => {
 		assert.match(nursery, /Loja do Berçário/);
 		assert.match(nursery, /shop-buy/);
 		assert.match(nursery, /expectedBagRevision: view\.shop\.bagRevision/);
-		assert.match(nurseryCss, /nursery-rescue-board\.empty/);
+		assert.match(nursery, /nursery-rescue-board' \+\s*\(!rescueEntries\.length \? ' empty'/);
 		assert.match(nurseryCss, /nursery-shop-grid/);
 		assert.match(nurseryCss, /nursery-shop-grid\{grid-template-columns:1fr/);
 		assert.match(nurseryCss, /nursery-shop-buy\{grid-column:3/);
@@ -103,7 +103,7 @@ describe('RPG Egg presentation outside incubation', () => {
 
 	it('uses a plain Egg normally and the active Portable Incubator only while equipped', () => {
 		assert.match(nursery, /egg\?\.portableIncubator/);
-		assert.match(nursery, /options\.spriteUrl\(\{species: 'Egg'\}\)/);
+		assert.match(nursery, /options\.spriteUrl\(\{\s*species: 'Egg'\s*\}\)/);
 		assert.match(rpg, /portableIncubatorVisual/);
 		assert.match(rpg, /portable-incubator-egg/);
 		assert.match(rpg, /plain-egg-visual/);
@@ -150,7 +150,7 @@ describe('RPG Egg presentation outside incubation', () => {
 		assert.match(hatchUi, /createElementNS/);
 		assert.match(hatchUi, /crackPaths/);
 		assert.match(hatchUi, /rpg-hatch-pokemon/);
-		assert.match(hatchUi, /RPGNurseryHatch=Object.freeze/);
+		assert.match(hatchUi, /RPGNurseryHatch\s*=\s*Object\.freeze/);
 		assert.match(nursery, /RPGNurseryHatch.play/);
 		assert.match(teamBuilder, /RPGNurseryHatch.play/);
 		assert.match(nurseryCss, /rpg-hatch-card/);
@@ -158,7 +158,7 @@ describe('RPG Egg presentation outside incubation', () => {
 		assert.match(nurseryCss, /rpg-hatch-crack-draw/);
 		assert.match(nurseryCss, /width:230px;height:288px/);
 		assert.match(nurseryCss, /rpg-hatch-pokemon\{[^}]*width:320px;height:320px[^}]*max-width:94%;max-height:94%/);
-		assert.match(hatchUi, /\[150,460,820,1170\]/);
+		assert.match(hatchUi, /\[150,\s*460,\s*820,\s*1170\]/);
 		assert.match(hatchUi, /playEffect\('eggShake'\)/);
 		assert.match(nurseryCss, /rpg-hatch-incubator-lid/);
 		assert.match(nurseryCss, /rpg-hatch-incubator\{[^}]*width:300px;height:300px/);

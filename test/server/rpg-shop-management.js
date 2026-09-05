@@ -10,7 +10,7 @@ const {
 	RPGMemoryCommerceRepository,
 	RPGFileCommerceRepository,
 } = require('../../dist/server/rpg-showdown');
-const {RPGItems} = require('../../dist/sim/rpg-showdown');
+const { RPGItems } = require('../../dist/sim/rpg-showdown');
 
 function createCharacter(service, name) {
 	service.createCharacter({
@@ -19,7 +19,7 @@ function createCharacter(service, name) {
 		avatar: 'lucas',
 		password: '1234',
 		initialMoney: 10000,
-		starter: {species: 'Squirtle', gender: 'M', level: 10},
+		starter: { species: 'Squirtle', gender: 'M', level: 10 },
 	});
 	return service.loginPlayer(name, '1234');
 }
@@ -127,7 +127,6 @@ describe('RPG shared commerce management', () => {
 		assert(evolution.offers.length > 0, 'Master should see every compatible item, including disabled ones');
 	});
 
-
 	it('orders each establishment by its requested catalog rule', () => {
 		const service = new RPGLoginService({
 			masterCode: '14081998', commerceRepository: new RPGMemoryCommerceRepository(),
@@ -178,13 +177,13 @@ describe('RPG shared commerce management', () => {
 		let view1 = service.getCommerceShop(player1.token, 'poke-mart-central');
 		const result = service.tradeCommerceShop(
 			player1.token, 'poke-mart-central',
-			tradeRequest(view1, 'buy', [{itemId: 'pokeball', quantity: 6}], 'samuel-buy')
+			tradeRequest(view1, 'buy', [{ itemId: 'pokeball', quantity: 6 }], 'samuel-buy')
 		);
 		assert.equal(result.view.money, 8800);
 		assert.equal(result.view.offers.find(item => item.itemId === 'pokeball').stock, 0);
 		const replay = service.tradeCommerceShop(
 			player1.token, 'poke-mart-central',
-			tradeRequest(view1, 'buy', [{itemId: 'pokeball', quantity: 6}], 'samuel-buy')
+			tradeRequest(view1, 'buy', [{ itemId: 'pokeball', quantity: 6 }], 'samuel-buy')
 		);
 		assert.equal(replay.view.money, 8800);
 		assert.equal(replay.view.offers.find(item => item.itemId === 'pokeball').stock, 0);
@@ -192,11 +191,11 @@ describe('RPG shared commerce management', () => {
 		assert.equal(view2.offers.find(item => item.itemId === 'pokeball').stock, 0);
 		assert.throws(() => service.tradeCommerceShop(
 			player2.token, 'poke-mart-central',
-			tradeRequest(view2, 'buy', [{itemId: 'pokeball', quantity: 1}], 'marina-buy')
+			tradeRequest(view2, 'buy', [{ itemId: 'pokeball', quantity: 1 }], 'marina-buy')
 		), /enough stock/);
 		assert.throws(() => service.tradeCommerceShop(
 			player1.token, 'poke-mart-central',
-			tradeRequest(result.view, 'sell', [{itemId: 'pokeball', quantity: 1}], 'samuel-sell-disabled')
+			tradeRequest(result.view, 'sell', [{ itemId: 'pokeball', quantity: 1 }], 'samuel-sell-disabled')
 		), /cannot be sold/);
 
 		masterView = service.getCommerceShop(master.token, 'poke-mart-central');
@@ -208,7 +207,7 @@ describe('RPG shared commerce management', () => {
 		assert.equal(view1.offers[0].buyEnabled, false);
 		const sold = service.tradeCommerceShop(
 			player1.token, 'poke-mart-central',
-			tradeRequest(view1, 'sell', [{itemId: 'pokeball', quantity: 2}], 'samuel-sell')
+			tradeRequest(view1, 'sell', [{ itemId: 'pokeball', quantity: 2 }], 'samuel-sell')
 		);
 		assert.equal(sold.view.money, 8900);
 		assert.equal(sold.view.offers[0].stock, 2);
@@ -247,7 +246,7 @@ describe('RPG shared commerce management', () => {
 	});
 
 	it('rejects stale shared catalog revisions', () => {
-		const service = new RPGLoginService({masterCode: '14081998'});
+		const service = new RPGLoginService({ masterCode: '14081998' });
 		const master = service.loginMaster('14081998');
 		const player = createCharacter(service, 'Carlos');
 		let masterView = service.getCommerceShop(master.token, 'poke-mart-central');
@@ -262,7 +261,7 @@ describe('RPG shared commerce management', () => {
 		});
 		assert.throws(() => service.tradeCommerceShop(
 			player.token, 'poke-mart-central',
-			tradeRequest(stale, 'buy', [{itemId: 'potion', quantity: 1}], 'stale')
+			tradeRequest(stale, 'buy', [{ itemId: 'potion', quantity: 1 }], 'stale')
 		), /revision conflict/);
 	});
 
@@ -286,7 +285,7 @@ describe('RPG shared commerce management', () => {
 			const restored = service.getCommerceShop(restoredMaster.token, 'farm-central');
 			assert.equal(restored.offers.find(item => item.itemId === 'oranberry').stock, 37);
 		} finally {
-			fs.rmSync(directory, {recursive: true, force: true});
+			fs.rmSync(directory, { recursive: true, force: true });
 		}
 	});
 });

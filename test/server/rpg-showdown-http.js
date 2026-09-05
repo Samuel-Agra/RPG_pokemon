@@ -74,18 +74,18 @@ describe('RPG HTTP frontend API', () => {
 		assert.equal(result.data.character.team[0].species, 'Squirtle');
 		assert.equal(result.data.character.money, 3000);
 
-		result = await request('/bank', {headers: {Authorization: 'Bearer ' + token}});
-		assert.deepEqual(result.data.bank, {version: 1, balance: 0, revision: 0, money: 3000});
+		result = await request('/bank', { headers: { Authorization: 'Bearer ' + token } });
+		assert.deepEqual(result.data.bank, { version: 1, balance: 0, revision: 0, money: 3000 });
 		result = await request('/bank/deposit', {
-			method: 'POST', headers: {Authorization: 'Bearer ' + token},
-			body: {amount: 500, expectedRevision: 0},
+			method: 'POST', headers: { Authorization: 'Bearer ' + token },
+			body: { amount: 500, expectedRevision: 0 },
 		});
-		assert.deepEqual(result.data.bank, {version: 1, balance: 500, revision: 1, money: 2500});
+		assert.deepEqual(result.data.bank, { version: 1, balance: 500, revision: 1, money: 2500 });
 		result = await request('/bank/redeem', {
-			method: 'POST', headers: {Authorization: 'Bearer ' + token},
-			body: {amount: 500, expectedRevision: 1},
+			method: 'POST', headers: { Authorization: 'Bearer ' + token },
+			body: { amount: 500, expectedRevision: 1 },
 		});
-		assert.deepEqual(result.data.bank, {version: 1, balance: 0, revision: 2, money: 3000});
+		assert.deepEqual(result.data.bank, { version: 1, balance: 0, revision: 2, money: 3000 });
 	});
 
 	it('returns safe HTTP errors and supports the master dashboard', async () => {
@@ -153,19 +153,19 @@ describe('RPG HTTP frontend API', () => {
 		assert.equal(result.response.status, 200);
 		result = await request('/shops/poke-mart-central/master-bulk', {
 			method: 'POST', headers: masterHeaders,
-			body: {action: 'reset-prices', expectedRevision: result.data.shop.revision},
+			body: { action: 'reset-prices', expectedRevision: result.data.shop.revision },
 		});
 		assert.equal(result.response.status, 200);
 		assert(result.data.offers.length > 1);
 		result = await request('/shops/poke-mart-central/master-bulk', {
 			method: 'POST', headers: masterHeaders,
-			body: {action: 'increase-stock', expectedRevision: result.data.shop.revision},
+			body: { action: 'increase-stock', expectedRevision: result.data.shop.revision },
 		});
 		assert.equal(result.response.status, 200);
 		assert.equal(result.data.offers.find(item => item.itemId === 'pokeball').stock, 3);
 		result = await request('/shops/poke-mart-central/master-bulk', {
 			method: 'POST', headers: masterHeaders,
-			body: {action: 'decrease-stock', expectedRevision: result.data.shop.revision},
+			body: { action: 'decrease-stock', expectedRevision: result.data.shop.revision },
 		});
 		assert.equal(result.response.status, 200);
 		assert.equal(result.data.offers.find(item => item.itemId === 'pokeball').stock, 2);
@@ -179,7 +179,7 @@ describe('RPG HTTP frontend API', () => {
 		result = await request('/shops/poke-mart-central/trade', {
 			method: 'POST', headers: playerHeaders,
 			body: {
-				actionId: 'http-shop-buy', type: 'buy', lines: [{itemId: 'pokeball', quantity: 1}],
+				actionId: 'http-shop-buy', type: 'buy', lines: [{ itemId: 'pokeball', quantity: 1 }],
 				expectedAccountRevision: view.accountRevision, expectedBagRevision: view.bagRevision,
 				expectedCatalogRevision: view.shop.revision,
 			},

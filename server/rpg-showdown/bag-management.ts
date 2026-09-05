@@ -152,6 +152,7 @@ export class RPGBagManagement {
 			const equippedIn = isEquippableHeldItem(definition) ? box.results.flatMap(pokemon =>
 				toID(pokemon.item) === definition.id ? [{
 					pokemonId: pokemon.pokemonId, name: pokemon.name, species: pokemon.species,
+					shiny: pokemon.shiny,
 					location: structuredClone(pokemon.location),
 				}] : []
 			) : [];

@@ -14,7 +14,7 @@ const html = fs.readFileSync(path.join(root, 'server/static/rpg/index.html'), 'u
 describe('RPG commerce frontend', () => {
 	it('provides the central establishment selector and Player buy/sell cart', () => {
 		assert.doesNotMatch(ui, /Onde deseja ir/);
-		assert.doesNotMatch(ui, /COMÉRCIO DA CAMPANHA/);
+		assert.match(ui, /COMÉRCIO DA CAMPANHA/);
 		assert.match(ui, /COMPRAR/);
 		assert.match(ui, /VENDER/);
 		assert.match(ui, /Buscar item/);
@@ -72,9 +72,9 @@ describe('RPG commerce frontend', () => {
 	});
 	it('shows the Master a main shop lock with expandable per-shop controls', () => {
 		assert.match(app, /pageAccess\?\.shops === false/);
-		assert.match(app, /pageToggle\('shops', 'Lojas'\)/);
-		assert.match(app, /master-shop-access-expand/);
-		assert.match(app, /Lojas disponíveis nesta cidade/);
+		assert.match(app, /button\('Lojas', 'master-shops-picker-toggle'\)/);
+		assert.match(app, /shopsToggle\.setAttribute\('aria-expanded'/);
+		assert.doesNotMatch(app, /Lojas disponíveis nesta cidade/);
 		assert.match(app, /character\.shopAccess\?\.\[shop\.id\] !== false/);
 		assert.match(app, /api\('\/characters\/shop-access'/);
 		assert.match(appCss, /master-shop-access-panel/);

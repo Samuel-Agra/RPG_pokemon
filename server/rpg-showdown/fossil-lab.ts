@@ -95,7 +95,7 @@ export class RPGFossilLab {
 	static ensure(character: RPGCharacterState, random: () => number): RPGFossilLabState {
 		const old = character.fossilLab as any;
 		if (!old || old.version !== 2) {
-			const lab: RPGFossilLabState = {version: 2, samples: {}, projects: old?.projects || []};
+			const lab: RPGFossilLabState = { version: 2, samples: {}, projects: old?.projects || [] };
 			for (const fossil of RPG_FOSSILS) {
 				const quantity = this.quantity(character, fossil.itemId);
 				const previous = old?.samples?.[fossil.itemId];
@@ -111,14 +111,14 @@ export class RPGFossilLab {
 			}
 			character.fossilLab = lab;
 		}
-		const lab = character.fossilLab;
+		const lab = character.fossilLab!;
 		for (const fossil of RPG_FOSSILS) {
 			const quantity = this.quantity(character, fossil.itemId);
 			const sample = lab.samples[fossil.itemId] ||= {
 				quantities: this.emptyQuantities(), trackedQuantity: 0, genome: 0,
 				found: 0, donated: 0, sold: 0, restored: 0,
 			};
-			sample.quantities = {...this.emptyQuantities(), ...sample.quantities};
+			sample.quantities = { ...this.emptyQuantities(), ...sample.quantities };
 			sample.genome = Math.max(0, Math.min(100, Number(sample.genome) || 0));
 			const tracked = FOSSIL_QUALITIES.reduce((sum, q) => sum + sample.quantities[q], 0);
 			sample.trackedQuantity = tracked;
@@ -164,14 +164,14 @@ export class RPGFossilLab {
 				...def, id: item.id, itemId: item.id, sampleKey: item.id + ':' + quality, name: item.name,
 				icon: getRPGItemIconPath(item.id), sprite: Number.isInteger(sprite) ? sprite : null,
 				quantity: sample.quantities[quality], totalQuantity: sample.trackedQuantity,
-				qualityQuantities: {...sample.quantities},
+				qualityQuantities: { ...sample.quantities },
 				quality, qualityLabel: QUALITY_LABELS[quality], genome: sample.genome, genomeKnown: known,
 				analyzed: known, displaySpecies: known && species ? species.name : '???',
 				speciesId: known && species ? species.id : undefined, dnaNeeded: 10,
 				contribution: QUALITY_GENOME[quality], chance: QUALITY_GENOME[quality],
 				abilities, abilityDetails: abilities.map(name => {
 					const ability = Dex.mod('gen9').abilities.get(name);
-					return {name: ability.name, description: getRPGAbilityDescriptionPTBR(ability.id)};
+					return { name: ability.name, description: getRPGAbilityDescriptionPTBR(ability.id) };
 				}),
 				genders: species ? this.genders(species) : [], natures, natureDetails,
 				sellPrice: Math.round((item.price?.sell || 0) * QUALITY_PRICE[quality]),
@@ -182,21 +182,21 @@ export class RPGFossilLab {
 			const duration = project.durationMs ?? Math.max(1, project.completesAt - project.startedAt);
 			project.durationMs = duration; project.remainingMs ??= Math.max(0, project.completesAt - now);
 			const progress = Math.max(0, Math.min(1, 1 - project.remainingMs / duration));
-			return {...publicProject, progress, outcome: progress >= 1 ? (successful === false ? 'failed' : 'success') : 'pending', phase: PHASES[progress >= 1 ? 5 : Math.min(4, Math.floor(progress * 5))],
-				complete: progress >= 1, remainingMs: project.remainingMs};
+			return { ...publicProject, progress, outcome: progress >= 1 ? (successful === false ? 'failed' : 'success') : 'pending', phase: PHASES[progress >= 1 ? 5 : Math.min(4, Math.floor(progress * 5))],
+				complete: progress >= 1, remainingMs: project.remainingMs };
 		});
 		const archive = RPG_FOSSILS.filter(f => f.species).map(def => {
 			const sample = lab.samples[def.itemId], known = sample.genome >= 100;
-			const species = Dex.mod('gen9').species.get(def.species!);
+			const species = Dex.mod('gen9').species.get(def.species);
 			const item = RPGItems.require(def.itemId), sprite = Dex.items.get(item.id).spritenum;
-			return {...def, id: item.id, itemId: item.id, name: item.name, icon: getRPGItemIconPath(item.id),
+			return { ...def, id: item.id, itemId: item.id, name: item.name, icon: getRPGItemIconPath(item.id),
 				sprite: Number.isInteger(sprite) ? sprite : null, discovered: known,
 				species: known ? species.name : '???', speciesId: known ? species.id : undefined,
-				fossilsFound: sample.found, restorations: sample.restored, genome: sample.genome};
+				fossilsFound: sample.found, restorations: sample.restored, genome: sample.genome };
 		});
-		return {money: character.money, totalFossils: fossils.reduce((n, f) => n + f.quantity, 0),
+		return { money: character.money, totalFossils: fossils.reduce((n, f) => n + f.quantity, 0),
 			bagRevision: character.inventory.bag.revision, boxRevision: character.box.revision,
-			fossils, projects, archive, experimentalUnlocked: false};
+			fossils, projects, archive, experimentalUnlocked: false };
 	}
 	static analyze(character: RPGCharacterState, itemId: string, quality: RPGFossilQuality | undefined,
 		random: () => number): void {
@@ -251,11 +251,11 @@ export class RPGFossilLab {
 		this.consumeSamples(character, fossil.itemId, samples, random);
 		character.money -= cost; sample.restored++;
 		const durationMs = (input.method === 'advanced' ? 4 : 2) * 86_400_000;
-		lab.projects.push({id, itemId: fossil.itemId, species: species.name, method: input.method,
+		lab.projects.push({ id, itemId: fossil.itemId, species: species.name, method: input.method,
 			startedAt: now, completesAt: now + durationMs, durationMs, remainingMs: durationMs,
 			integrity: restorationChance, sampleCount, samples, restorationChance, shinyDenominator, ivBonus,
 			successful: random() < restorationChance / 100, shiny: random() < 1 / shinyDenominator,
-			nature, ability, gender});
+			nature, ability, gender });
 	}
 	static donate(character: RPGCharacterState, itemId: string, quality: RPGFossilQuality | undefined,
 		random: () => number): void {
@@ -277,8 +277,8 @@ export class RPGFossilLab {
 		if ((project.remainingMs ?? Math.max(0, project.completesAt - now)) > 0) throw new Error('A restauração ainda não foi concluída');
 		if (project.successful === false) { project.receivedAt = now; return null; }
 		const pokemon = this.createPokemon(project, random);
-		RPGBoxManagement.insert(character, {pokemonId: character.id + ':fossil:' + project.id, pokemon,
-			metadata: {ot: character.characterName, training: 'none'}});
+		RPGBoxManagement.insert(character, { pokemonId: character.id + ':fossil:' + project.id, pokemon,
+			metadata: { ot: character.characterName, training: 'none' } });
 		project.receivedAt = now; return pokemon;
 	}
 	static advanceTime(character: RPGCharacterState, milliseconds: number, now: number, random: () => number) {
@@ -291,7 +291,7 @@ export class RPGFossilLab {
 			project.remainingMs = Math.max(0, before - milliseconds); advanced++;
 			if (!project.remainingMs) completed++;
 		}
-		return {advanced, completed};
+		return { advanced, completed };
 	}
 	private static consume(character: RPGCharacterState, itemId: string, quality: RPGFossilQuality,
 		quantity: number, random: () => number): void {
@@ -309,8 +309,8 @@ export class RPGFossilLab {
 			total += quantity;
 		}
 		if (!total) throw new Error('Selecione ao menos uma amostra');
-		character.inventory = {...character.inventory, bag: RPGBagSystem.remove(
-			character.inventory.bag, itemId, total, character.inventory.bag.revision).bag};
+		character.inventory = { ...character.inventory, bag: RPGBagSystem.remove(
+			character.inventory.bag, itemId, total, character.inventory.bag.revision).bag };
 		for (const quality of FOSSIL_QUALITIES) {
 			sample.quantities[quality] -= Math.max(0, Math.floor(quantities[quality] || 0));
 		}
@@ -328,7 +328,7 @@ export class RPGFossilLab {
 		return removed;
 	}
 	private static rollQuality(random: () => number): RPGFossilQuality {
-		const roll = random(); return roll < .6 ? 'fragmented' : roll < .95 ? 'preserved' : 'exceptional';
+		const roll = random(); return roll < 0.6 ? 'fragmented' : roll < 0.95 ? 'preserved' : 'exceptional';
 	}
 	private static resolveQuality(sample: RPGFossilSampleState, requested?: RPGFossilQuality): RPGFossilQuality {
 		if (requested && FOSSIL_QUALITIES.includes(requested) && sample.quantities[requested] > 0) return requested;
@@ -336,7 +336,7 @@ export class RPGFossilLab {
 		if (!q) throw new Error('Este fóssil não está na Bag'); return q;
 	}
 	private static emptyQuantities(): Record<RPGFossilQuality, number> {
-		return {fragmented: 0, preserved: 0, exceptional: 0};
+		return { fragmented: 0, preserved: 0, exceptional: 0 };
 	}
 	private static createPokemon(project: RPGFossilProjectState, random: () => number): RPGCapturedPokemon {
 		const dex = Dex.mod('gen9'), species = dex.species.get(project.species);
@@ -355,18 +355,18 @@ export class RPGFossilLab {
 		const ability = project.ability || abilities[Math.floor(random() * abilities.length)];
 		const gender = project.gender || genders[Math.floor(random() * genders.length)];
 		const ivBonus = Math.max(0, Math.min(31, Math.floor(project.ivBonus || 0)));
-		return {name: species.name, species: species.name, level: 1, gender, shiny: !!project.shiny, item: '', ability, nature,
-			moves, evs: {hp: values[0] * 4, atk: values[1] * 4, def: values[2] * 4,
-				spa: values[3] * 4, spd: values[4] * 4, spe: values[5] * 4},
-			ivs: {hp: ivBonus, atk: ivBonus, def: ivBonus, spa: ivBonus, spd: ivBonus, spe: ivBonus},
-			rpg: {version: RPG_STATE_VERSION, level: 1, friendship: 50, item: '', captureBall: 'pokeball',
-				experience: getSpeciesExperience(species.id) ? 0 : undefined}};
+		return { name: species.name, species: species.name, level: 1, gender, shiny: !!project.shiny, item: '', ability, nature,
+			moves, evs: { hp: values[0] * 4, atk: values[1] * 4, def: values[2] * 4,
+				spa: values[3] * 4, spd: values[4] * 4, spe: values[5] * 4 },
+			ivs: { hp: ivBonus, atk: ivBonus, def: ivBonus, spa: ivBonus, spd: ivBonus, spe: ivBonus },
+			rpg: { version: RPG_STATE_VERSION, level: 1, friendship: 50, item: '', captureBall: 'pokeball',
+				experience: getSpeciesExperience(species.id) ? 0 : undefined } };
 	}
-	private static genders(species: {gender?: string, genderRatio?: {M: number, F: number}}): ('M' | 'F' | 'N')[] {
+	private static genders(species: { gender?: string, genderRatio?: { M: number, F: number } }): ('M' | 'F' | 'N')[] {
 		if (species.gender === 'N') return ['N']; if (species.gender === 'M') return ['M']; if (species.gender === 'F') return ['F'];
 		const result: ('M' | 'F')[] = [];
-		if ((species.genderRatio?.M ?? .5) > 0) result.push('M');
-		if ((species.genderRatio?.F ?? .5) > 0) result.push('F');
+		if ((species.genderRatio?.M ?? 0.5) > 0) result.push('M');
+		if ((species.genderRatio?.F ?? 0.5) > 0) result.push('F');
 		return result.length ? result : ['M', 'F'];
 	}
 	private static requireFossil(itemId: string): FossilDefinition {

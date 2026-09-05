@@ -3,8 +3,8 @@
 const assert = require('assert').strict;
 const fs = require('fs');
 const path = require('path');
-const {getRPGContestMove, getRPGContestMoveCatalog} = require('../../dist/server/rpg-showdown');
-const {Dex} = require('../../dist/sim/dex');
+const { getRPGContestMove, getRPGContestMoveCatalog } = require('../../dist/server/rpg-showdown');
+const { Dex } = require('../../dist/sim/dex');
 
 describe('RPG contest move catalog', () => {
 	it('assigns independent contest data to every official move', () => {

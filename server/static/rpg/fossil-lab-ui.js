@@ -36,7 +36,7 @@
 		async function action(name, body) {
 			try {
 				const result = await options.api('/fossil-lab/' + name, {
-					method: 'POST', body: {characterId: options.characterId, ...body},
+					method: 'POST', body: { characterId: options.characterId, ...body },
 				});
 				view = result.fossilLab;
 				paint();
@@ -119,20 +119,20 @@
 				genome.firstChild.style.width = fossil.genome + '%'; panel.append(genome);
 				const actions = el('div', 'fossil-analysis-actions');
 				const analyze = el('button', 'button fossil-primary', 'Analisar');
-				analyze.addEventListener('click', () => action('analyze', {itemId: fossil.itemId, quality: fossil.quality}));
+				analyze.addEventListener('click', () => action('analyze', { itemId: fossil.itemId, quality: fossil.quality }));
 				const donate = el('button', '', 'Doar');
 				donate.addEventListener('click', () => window.confirm('Doar esta amostra?') &&
-					action('donate', {itemId: fossil.itemId, quality: fossil.quality}));
+					action('donate', { itemId: fossil.itemId, quality: fossil.quality }));
 				const sell = el('button', '', 'Vender por ' + money(fossil.sellPrice));
 				sell.addEventListener('click', () => window.confirm('Vender esta amostra?') &&
-					action('sell', {itemId: fossil.itemId, quality: fossil.quality}));
+					action('sell', { itemId: fossil.itemId, quality: fossil.quality }));
 				actions.append(analyze, donate, sell); panel.append(actions);
 				return panel;
 			}
 			const identity = el('div', 'fossil-identity');
 			const fossilSprite = fossilIcon(fossil);
 			const pokemon = el('img', 'fossil-species-sprite');
-			pokemon.src = options.spriteUrl({species: fossil.displaySpecies}); pokemon.alt = '';
+			pokemon.src = options.spriteUrl({ species: fossil.displaySpecies }); pokemon.alt = '';
 			const names = el('div');
 			names.append(el('small', '', fossil.name), el('h3', '', fossil.displaySpecies),
 				el('span', 'fossil-quality ' + fossil.quality, fossil.qualityLabel));
@@ -158,7 +158,7 @@
 				['preserved', 'Pres.', 20],
 				['exceptional', 'Excep.', 50],
 			];
-			const quantities = fossil.qualityQuantities || {[fossil.quality]: fossil.quantity};
+			const quantities = fossil.qualityQuantities || { [fossil.quality]: fossil.quantity };
 			const sampleInputs = {};
 			const sampleGrid = el('div', 'fossil-sample-grid');
 			for (const [quality, label, contribution] of qualities) {
@@ -182,8 +182,8 @@
 					const contribution = Number(input.dataset.contribution);
 					const usedByOthers = qualities.reduce((total, [quality]) =>
 						quality === changedQuality ? total :
-							total + Math.max(0, Math.floor(Number(sampleInputs[quality].value) || 0)) *
-							Number(sampleInputs[quality].dataset.contribution), 0);
+						total + Math.max(0, Math.floor(Number(sampleInputs[quality].value) || 0)) *
+						Number(sampleInputs[quality].dataset.contribution), 0);
 					const available = Number(quantities[changedQuality]) || 0;
 					const allowed = Math.max(0, Math.min(available, Math.floor((100 - usedByOthers) / contribution)));
 					input.value = String(Math.max(0, Math.min(allowed, Math.floor(Number(input.value) || 0))));
@@ -225,11 +225,11 @@
 			standard.classList.add('selected');
 			choices.append(standard, advanced); panel.append(choices);
 
-			const randomChoice = {value: '', label: 'Aleatório'};
-			const natureChoices = [randomChoice, ...(fossil.natureDetails || fossil.natures.map(name => ({name})))
-				.map(nature => ({value: nature.name, label: nature.name, plus: nature.plus, minus: nature.minus}))];
-			const abilityChoices = [randomChoice, ...(fossil.abilityDetails || fossil.abilities.map(name => ({name})))
-				.map(ability => ({value: ability.name, label: ability.name, description: ability.description || ''}))];
+			const randomChoice = { value: '', label: 'Aleatório' };
+			const natureChoices = [randomChoice, ...(fossil.natureDetails || fossil.natures.map(name => ({ name })))
+				.map(nature => ({ value: nature.name, label: nature.name, plus: nature.plus, minus: nature.minus }))];
+			const abilityChoices = [randomChoice, ...(fossil.abilityDetails || fossil.abilities.map(name => ({ name })))
+				.map(ability => ({ value: ability.name, label: ability.name, description: ability.description || '' }))];
 			const genderChoices = [randomChoice, ...fossil.genders.map(value => ({
 				value, label: value === 'M' ? 'Macho' : value === 'F' ? 'Fêmea' : 'Sem sexo',
 			}))];
@@ -247,6 +247,7 @@
 			advancedFields.append(nature.wrap, ability.wrap, gender.wrap);
 			panel.append(advancedFields);
 
+			let summaryCost, summaryTime;
 			const updateMethodFields = () => {
 				const editable = method === 'advanced';
 				advancedFields.classList.toggle('locked', !editable);
@@ -285,7 +286,6 @@
 			}));
 			summary.append(row1, row2, start); panel.append(summary);
 			return panel;
-			var summaryCost, summaryTime;
 		}
 
 		function methodCard(id, title, description, cost, time) {
@@ -382,7 +382,7 @@
 				const option = el('option', '', typeof item === 'string' ? item : item.label);
 				option.value = typeof item === 'string' ? item : item.value; select.append(option);
 			}
-			wrap.append(select); return {wrap, select};
+			wrap.append(select); return { wrap, select };
 		}
 
 		function projects() {
@@ -392,7 +392,7 @@
 			for (const project of view.projects) {
 				const card = el('article', 'fossil-project' + (project.complete ? ' complete' : ''));
 				const top = el('div', 'fossil-project-top');
-				const sprite = el('img'); sprite.src = options.spriteUrl({species: project.species}); sprite.alt = '';
+				const sprite = el('img'); sprite.src = options.spriteUrl({ species: project.species }); sprite.alt = '';
 				const title = el('div'); title.append(el('strong', '', project.species + ' · Nv. 1'),
 					el('small', '', project.outcome === 'failed' ? 'Restauração sem sucesso' : project.phase));
 				const remaining = el('span', 'fossil-remaining', duration(project.remainingMs));
@@ -406,7 +406,7 @@
 				if (project.complete) {
 					const receive = el('button', 'button fossil-primary', project.outcome === 'failed' ? 'Finalizar projeto' : 'Receber na Box');
 					receive.addEventListener('click', async () => {
-						const result = await action('receive', {projectId: project.id});
+						const result = await action('receive', { projectId: project.id });
 						if (result?.pokemon) options.toast(result.pokemon.species + ' foi enviado para a Box.');
 						else if (result) options.toast('A restauração não obteve DNA viável.', true);
 					});
@@ -426,8 +426,7 @@
 			for (const entry of view.archive) {
 				const card = el('article', 'fossil-archive-card' + (entry.discovered ? '' : ' unknown'));
 				const sprite = el('div', 'fossil-archive-sprite');
-				if (entry.discovered) { const img = el('img'); img.src = options.spriteUrl({species: entry.species}); img.alt = ''; sprite.append(img); }
-				else sprite.textContent = '?';
+				if (entry.discovered) { const img = el('img'); img.src = options.spriteUrl({ species: entry.species }); img.alt = ''; sprite.append(img); } else sprite.textContent = '?';
 				card.append(sprite, el('h3', '', entry.species));
 				if (entry.discovered) {
 					card.append(el('p', '', entry.era + ' · ' + entry.habitat), el('p', '', 'Dieta: ' + entry.diet));
@@ -488,5 +487,5 @@
 		return root;
 	}
 
-	window.RPGFossilLabUI = {render};
+	window.RPGFossilLabUI = { render };
 })();

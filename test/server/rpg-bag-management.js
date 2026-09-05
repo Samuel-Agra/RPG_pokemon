@@ -435,12 +435,12 @@ describe('RPG Bag management backend', () => {
 		assert.equal(service.getBox(player.token).ownerId, 'samuel');
 	});
 
-	it('renders direct Box and Bag shortcuts on every Master player row', () => {
+	it('keeps Box and Bag access controls on every expandable Master player row', () => {
 		const script = fs.readFileSync('server/static/rpg/rpg.js', 'utf8');
-		assert(script.includes("button('Abrir Box', 'button')"));
-		assert(script.includes("button('Abrir Bag', 'button')"));
-		assert(script.includes("viewAsPlayer(character, 'box')"));
-		assert(script.includes("viewAsPlayer(character, 'bag')"));
+		assert(!script.includes("button('Abrir Box', 'button')"));
+		assert(!script.includes("button('Abrir Bag', 'button')"));
+		assert(script.includes("button('Visualizar como Player', 'button')"));
+		assert(script.includes("viewAsPlayer(character, 'overview')"));
 		assert(script.includes("'master-access-toggle ' + (allowed ? 'allowed' : 'blocked')"));
 		assert(script.includes("api('/characters/page-access'"));
 		const bagScript = fs.readFileSync('server/static/rpg/bag-ui.js', 'utf8');

@@ -1,5 +1,5 @@
-import {toID} from '../../sim/dex-data';
-import type {PokemonSet} from '../../sim/teams';
+import { toID } from '../../sim/dex-data';
+import type { PokemonSet } from '../../sim/teams';
 
 export interface RPGContestPlacementInput {
 	id: string;
@@ -55,11 +55,11 @@ export function rankRPGContestParticipants(inputs: readonly RPGContestPlacementI
 
 export function applyRPGContestPerformance(
 	set: PokemonSet, trainerId: string, gain: number
-): {before: number, after: number, gained: number} {
+): { before: number, after: number, gained: number } {
 	const before = getRPGContestPerformance(set, trainerId);
 	const after = Math.min(100, before + Math.max(0, Math.floor(gain)));
 	set.rpg ||= {};
 	set.rpg.contestPerformanceTrainerId = toID(trainerId);
 	set.rpg.contestPerformance = after;
-	return {before, after, gained: after - before};
+	return { before, after, gained: after - before };
 }

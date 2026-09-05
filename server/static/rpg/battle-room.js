@@ -94,8 +94,8 @@ function rpgRuntimePlayShinyEntry(fieldPokemon) {
 	const stars = createElement('span', 'rpg-shiny-entry-stars');
 	stars.setAttribute('aria-hidden', 'true');
 	const image = sprite.querySelector('img');
-	const imageWidth = image?.offsetWidth || Math.round(sprite.offsetWidth * .72);
-	const imageHeight = image?.offsetHeight || Math.round(sprite.offsetHeight * .72);
+	const imageWidth = image?.offsetWidth || Math.round(sprite.offsetWidth * 0.72);
+	const imageHeight = image?.offsetHeight || Math.round(sprite.offsetHeight * 0.72);
 	const effectSize = Math.max(1, Math.round(Math.max(imageWidth, imageHeight) * 1.12));
 	stars.style.left = Math.round((image?.offsetLeft || 0) + imageWidth / 2) + 'px';
 	stars.style.top = Math.round((image?.offsetTop || 0) + imageHeight / 2) + 'px';
@@ -133,7 +133,6 @@ function rpgRuntimeFieldPokemon(pokemon, side, sideId, slotIndex = 0, activeCoun
 	slot.dataset.pokeball = pokemon.pokeball || 'pokeball';
 	slot.dataset.pokeballSprite = pokemon.pokeballSprite || 0;
 	slot.dataset.teamPosition = pokemon.teamPosition;
-
 
 	slot.append(rpgRuntimeSprite(pokemon, side === 'player'));
 	rpgRuntimeSyncStatusVisual(slot, pokemon.status);
@@ -301,7 +300,7 @@ function rpgRuntimeSidePanel(session, side, position, characters, selection) {
 			const ability = createElement('p', 'rpg-side-ability', 'Habilidade ' + (pokemon.ability || '—'));
 			ability.dataset.rpgTooltip = pokemon.ability + '\n' + (pokemon.abilityDescription || 'Descrição não disponível.');
 			panel.append(ability);
-		}		const boosts = createElement('div', 'rpg-side-boosts');
+		} const boosts = createElement('div', 'rpg-side-boosts');
 		for (const stat of ['atk', 'def', 'spa', 'spd', 'spe', 'accuracy', 'evasion']) {
 			boosts.append(rpgRuntimeBoostRow(stat, pokemon.boosts?.[stat] || 0));
 		}
@@ -1215,7 +1214,7 @@ function rpgRuntimeCommands(session, side, foe, submit, observer, moveDetails, r
 				};
 				targetGrid.append(rpgRuntimePartyCard(pokemon, select, {
 					disabled, allowActive: true, blockedReason: !sameTrainer ? 'Pertence a outro treinador.' :
-						pokemon.fainted ? 'Revives não podem ser usados em combate.' : '',
+					pokemon.fainted ? 'Revives não podem ser usados em combate.' : '',
 				}));
 			}
 			inventoryView.append(targetGrid);
@@ -2343,7 +2342,7 @@ async function rpgBattleRoom(session, character, characters = [], isMaster = fal
 		const center = createElement('main', 'rpg-battle-center');
 		const liveWeather = snapshot.field?.weather || session.conditions?.weather?.id || 'none';
 		const liveTerrain = snapshot.field?.terrain || session.conditions?.terrain?.id || 'none';
-		window.RPGBattleAudio?.setEnvironment({weather: liveWeather, terrain: liveTerrain});
+		window.RPGBattleAudio?.setEnvironment({ weather: liveWeather, terrain: liveTerrain });
 		const field = createElement('div', 'rpg-battle-field weather-' + rpgRuntimeEffectId(liveWeather) +
 			' terrain-' + rpgRuntimeEffectId(liveTerrain));
 		const availableAnimations = Array.isArray(snapshot.animations) ?

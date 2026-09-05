@@ -7,9 +7,9 @@ function pokemon(species, gender, level, nature, ability) {
 	return {
 		name: species, species, gender, level, nature, ability, item: '',
 		moves: ['tackle'],
-		evs: {hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0},
-		ivs: {hp: 10, atk: 11, def: 12, spa: 13, spd: 14, spe: 15},
-		rpg: {version: 1, level, friendship: 50, item: '', captureBall: 'pokeball'},
+		evs: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 },
+		ivs: { hp: 10, atk: 11, def: 12, spa: 13, spd: 14, spe: 15 },
+		rpg: { version: 1, level, friendship: 50, item: '', captureBall: 'pokeball' },
 	};
 }
 
@@ -63,7 +63,7 @@ describe('RPG Egg incubation backend', () => {
 		RPGIncubation.carry(value, {
 			teamPokemon: 0, carriedEggs: 0, bagUsedSlots: 0, bagMaxSlots: 10,
 		});
-		const incubator = {id: 'incubator-1', ownerId: 'samuel'};
+		const incubator = { id: 'incubator-1', ownerId: 'samuel' };
 		assert.deepEqual(RPGIncubation.advance(value, 5 * 60 * 60 * 1000), {
 			advanced: false, completed: false,
 		});
@@ -71,7 +71,7 @@ describe('RPG Egg incubation backend', () => {
 		assert.equal(value.status, 'incubating');
 		assert.equal(incubator.eggId, value.id);
 		const second = egg();
-		RPGIncubation.carry(second, {teamPokemon: 0, carriedEggs: 1, bagUsedSlots: 0, bagMaxSlots: 10});
+		RPGIncubation.carry(second, { teamPokemon: 0, carriedEggs: 1, bagUsedSlots: 0, bagMaxSlots: 10 });
 		assert.throws(() => RPGIncubation.insert(second, incubator, 2000), /possui um ovo/);
 		RPGIncubation.advance(value, 6 * 60 * 60 * 1000);
 		const accumulated = value.accumulatedIncubationTimeMs;
@@ -91,7 +91,7 @@ describe('RPG Egg incubation backend', () => {
 		RPGIncubation.carry(value, {
 			teamPokemon: 0, carriedEggs: 0, bagUsedSlots: 0, bagMaxSlots: 10,
 		});
-		const incubator = {id: 'incubator-1', ownerId: 'samuel'};
+		const incubator = { id: 'incubator-1', ownerId: 'samuel' };
 		RPGIncubation.insert(value, incubator, 2000);
 		RPGIncubation.advance(value, RPGIncubation.requiredTime('Ralts'));
 		const result = RPGIncubation.hatch(value, incubator, 9000);

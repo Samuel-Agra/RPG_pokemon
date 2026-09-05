@@ -43,7 +43,7 @@ describe('RPG Team Builder frontend', () => {
 		assert.match(teamBuilder, /if \(deps\.selectedEgg\)/);
 		assert.match(teamBuilder, /const sprite = pokemon\.virtualEgg && deps\.eggVisual/);
 		assert.match(teamBuilder, /deps\.eggVisual\(pokemon, 'team-builder-team-egg-visual'\)/);
-		assert.match(teamBuilder, /deps\.spriteUrl\(\{species: 'Egg'\}\)/);
+		assert.match(teamBuilder, /deps\.spriteUrl\(\{\s*species: 'Egg'\s*\}\)/);
 		assert.match(teamBuilder, /for \(const label of \['Shiny', 'Gênero', 'Level', 'XP'\]\)/);
 		assert.match(teamBuilder, /Parece que tem algo se mexendo\./);
 		assert.match(css, /\.team-builder-egg-message/);
@@ -204,7 +204,6 @@ describe('RPG Team Builder frontend', () => {
 		assert.ok(draw.indexOf('selectedMoves()') < draw.indexOf('activeBrowser()'));
 	});
 
-
 	it('reorders known moves with drag and drop without invoking the TM flow', () => {
 		assert.doesNotMatch(teamBuilder, /Clique para consultar ou arraste/);
 		assert.match(teamBuilder, /card\.draggable = true/);
@@ -281,7 +280,7 @@ describe('RPG Team Builder frontend', () => {
 		assert.match(teamBuilder, /data\.permanentState\.status \|\| data\.permissions\.master/);
 		assert.match(css, /\.team-builder-master-state-popover/);
 		assert.match(css, /\.team-builder-master-hp-controls/);
-		assert.match(css, /\.team-builder-master-hp-slider::\-webkit-slider-thumb/);
+		assert.match(css, /\.team-builder-master-hp-slider::-webkit-slider-thumb/);
 		assert.match(css, /\.team-builder-master-status-grid[\s\S]*grid-template-columns: 44px max-content/);
 		assert.match(css, /\.team-builder-master-status-header[\s\S]*grid-template-columns: 44px max-content/);
 		assert.match(css, /\.status-normal/);

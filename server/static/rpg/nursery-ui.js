@@ -33,7 +33,7 @@
 			return options.eggVisual(egg, 'nursery-egg portable');
 		}
 		const icon = el('img', 'nursery-egg plain-egg-visual');
-		icon.src = options.spriteUrl({species: 'Egg'});
+		icon.src = options.spriteUrl({ species: 'Egg' });
 		icon.alt = 'Egg';
 		icon.draggable = false;
 		return icon;
@@ -54,13 +54,13 @@
 			return card;
 		}
 		const sprite = el('img', 'nursery-parent-sprite');
-		sprite.src = options.spriteUrl({species: parent.species, shiny: !!parent.shiny});
+		sprite.src = options.spriteUrl({ species: parent.species, shiny: !!parent.shiny });
 		sprite.alt = parent.species;
 		const info = el('div', 'nursery-parent-info');
 		info.append(el('small', 'nursery-slot-label', 'SLOT OCUPADO'));
 		info.append(el('strong', '', parent.name));
 		info.append(el('span', '', parent.species + ' · Nv. ' + parent.level + ' · ' +
-			(parent.sex === 'M' ? '♂' : parent.sex === 'F' ? '♀' : 'Sem sexo')));
+		(parent.sex === 'M' ? '♂' : parent.sex === 'F' ? '♀' : 'Sem sexo')));
 		info.append(el('small', '', 'Treinador: ' + parent.ownerName));
 		card.append(sprite, info);
 		return card;
@@ -93,7 +93,7 @@
 		async function action(name, body) {
 			try {
 				const result = await options.api('/nursery/' + name, {
-					method: 'POST', body: {characterId: options.characterId, ...body},
+					method: 'POST', body: { characterId: options.characterId, ...body },
 				});
 				if (result.nursery) view = result.nursery;
 				ensureSelectedPokemon();
@@ -111,7 +111,7 @@
 			hatching = true;
 			try {
 				const result = await window.RPGNurseryHatch.play(options, egg, () => options.api('/nursery/hatch', {
-					method: 'POST', body: {characterId: options.characterId, eggId: egg.eggId},
+					method: 'POST', body: { characterId: options.characterId, eggId: egg.eggId },
 				}));
 				if (result.nursery) view = result.nursery;
 				ensureSelectedPokemon();
@@ -172,17 +172,17 @@
 				card.disabled = pokemon.busy;
 				card.setAttribute('aria-pressed', String(pokemon.pokemonId === selectedPokemonId));
 				const sprite = el('img', 'nursery-team-sprite');
-				sprite.src = options.spriteUrl({species: pokemon.species, shiny: pokemon.shiny});
+				sprite.src = options.spriteUrl({ species: pokemon.species, shiny: pokemon.shiny });
 				sprite.alt = pokemon.species;
 				const copy = el('span', 'nursery-team-copy');
 				const nameLine = el('span', 'nursery-team-name');
 				nameLine.append(el('strong', '', pokemon.name));
 				const sexSymbol = pokemon.gender === 'M' ? '♂' : pokemon.gender === 'F' ? '♀' : '⚲';
 				nameLine.append(el('span', 'nursery-team-sex sex-' +
-					(pokemon.gender === 'M' ? 'male' : pokemon.gender === 'F' ? 'female' : 'neutral'), sexSymbol));
+				(pokemon.gender === 'M' ? 'male' : pokemon.gender === 'F' ? 'female' : 'neutral'), sexSymbol));
 				copy.append(nameLine);
 				copy.append(el('small', '', 'Nv. ' + pokemon.level +
-					(pokemon.busy ? ' · Indisponível' : '')));
+				(pokemon.busy ? ' · Indisponível' : '')));
 				card.append(sprite, copy);
 				card.addEventListener('click', () => {
 					selectedPokemonId = pokemon.pokemonId;
@@ -212,7 +212,7 @@
 			deposit.disabled = !selectedPokemon();
 			deposit.addEventListener('click', async () => {
 				deposit.disabled = true;
-				await action('create', {pokemonId: selectedPokemonId});
+				await action('create', { pokemonId: selectedPokemonId });
 			});
 			actions.append(hint, deposit);
 			panel.append(grid, actions);
@@ -289,7 +289,7 @@
 
 			const sex = el('select', 'textbox');
 			sex.required = true;
-			const sexLabels = {M: 'Macho', F: 'F\u00eamea', N: 'Sem sexo'};
+			const sexLabels = { M: 'Macho', F: 'F\u00eamea', N: 'Sem sexo' };
 			const selectedChoice = () => {
 				const value = species.value.trim().toLowerCase();
 				return choices.find(option => option.species.toLowerCase() === value);
@@ -303,7 +303,7 @@
 					previewSex.textContent = '';
 					return;
 				}
-				sprite.src = options.spriteUrl({species: choice.species});
+				sprite.src = options.spriteUrl({ species: choice.species });
 				sprite.alt = choice.species;
 				previewName.textContent = choice.species;
 				previewSex.textContent = sexLabels[sex.value] || '';
@@ -343,7 +343,7 @@
 						option.type = 'button';
 						option.setAttribute('role', 'option');
 						const icon = el('img');
-						icon.src = options.spriteUrl({species: choice.species});
+						icon.src = options.spriteUrl({ species: choice.species });
 						icon.alt = '';
 						option.append(icon, el('span', '', choice.species));
 						option.addEventListener('mousedown', event => event.preventDefault());
@@ -398,7 +398,7 @@
 
 			const ivs = el('fieldset', 'nursery-master-ivs');
 			ivs.append(el('legend', '', 'IVs'));
-			const statLabels = {hp: 'HP', atk: 'Atk', def: 'Def', spa: 'SpA', spd: 'SpD', spe: 'Spe'};
+			const statLabels = { hp: 'HP', atk: 'Atk', def: 'Def', spa: 'SpA', spd: 'SpD', spe: 'Spe' };
 			const ivInputs = {};
 			for (const stat of Object.keys(statLabels)) {
 				const input = el('input', 'textbox');
@@ -503,7 +503,7 @@
 			}
 			const updatePreview = () => {
 				const choice = choices[Number(species.value)] || choices[0];
-				sprite.src = options.spriteUrl({species: choice.species});
+				sprite.src = options.spriteUrl({ species: choice.species });
 				sprite.alt = choice.species;
 				previewName.textContent = choice.species;
 				previewSex.textContent = 'G\u00eanero autom\u00e1tico: ' + (choice.sex === 'M' ? 'Macho' :
@@ -524,7 +524,7 @@
 
 			const ivs = el('fieldset', 'nursery-master-ivs');
 			ivs.append(el('legend', '', 'IVs'));
-			const statLabels = {hp: 'HP', atk: 'Atk', def: 'Def', spa: 'SpA', spd: 'SpD', spe: 'Spe'};
+			const statLabels = { hp: 'HP', atk: 'Atk', def: 'Def', spa: 'SpA', spd: 'SpD', spe: 'Spe' };
 			const ivInputs = {};
 			for (const stat of Object.keys(statLabels)) {
 				const input = el('input', 'textbox');
@@ -685,21 +685,21 @@
 				const ready = el('div', 'nursery-ready');
 				ready.append(eggIcon(options), el('div', '', 'O ovo foi produzido e aguarda retirada.'));
 				const collect = el('button', 'button primary', 'Retirar ovo');
-				collect.addEventListener('click', () => action('collect', {projectId: project.id}));
+				collect.addEventListener('click', () => action('collect', { projectId: project.id }));
 				ready.append(collect);
 				card.append(ready);
 			}
 			if (['inviting', 'configuring', 'awaiting_confirmation', 'breeding'].includes(project.status) &&
 				project.slot1.ownerId === view.ownerId) {
 				const cancel = el('button', 'button nursery-cancel', 'Cancelar');
-				cancel.addEventListener('click', () => action('cancel', {projectId: project.id}));
+				cancel.addEventListener('click', () => action('cancel', { projectId: project.id }));
 				const terms = card.querySelector('.nursery-terms');
 				if (terms) terms.prepend(cancel);
 				else card.append(cancel);
 			} else if (['configuring', 'awaiting_confirmation', 'breeding'].includes(project.status) &&
 				project.slot2?.ownerId === view.ownerId) {
 				const withdraw = el('button', 'button nursery-cancel', 'Retirar Pokémon');
-				withdraw.addEventListener('click', () => action('withdraw-slot2', {projectId: project.id}));
+				withdraw.addEventListener('click', () => action('withdraw-slot2', { projectId: project.id }));
 				const terms = card.querySelector('.nursery-terms');
 				if (terms) terms.prepend(withdraw);
 				else card.append(withdraw);
@@ -707,7 +707,7 @@
 			if (view.viewerRole === 'master' && project.slot1.participantType === 'npc' &&
 				['inviting', 'configuring', 'awaiting_confirmation', 'breeding'].includes(project.status)) {
 				const cancelNpc = el('button', 'button nursery-cancel', 'Cancelar requisição do NPC');
-				cancelNpc.addEventListener('click', () => action('master-cancel', {projectId: project.id}));
+				cancelNpc.addEventListener('click', () => action('master-cancel', { projectId: project.id }));
 				card.append(cancelNpc);
 			}
 			return card;
@@ -737,7 +737,7 @@
 			);
 			if (visible.length) {
 				boardHead.append(el('span', 'nursery-board-count', visible.length +
-					(visible.length === 1 ? ' vaga ativa' : ' vagas ativas')));
+				(visible.length === 1 ? ' vaga ativa' : ' vagas ativas')));
 			}
 			board.append(boardHead);
 			if (visible.length) {
@@ -755,7 +755,7 @@
 					if (project.parentCollected?.[ownerId] === true) continue;
 					if (view.ownerId && ownerId !== view.ownerId) continue;
 					const parents = [project.slot1, project.slot2].filter(parent => parent?.ownerId === ownerId);
-					if (parents.length) rescueEntries.push({project, ownerId, parents});
+					if (parents.length) rescueEntries.push({ project, ownerId, parents });
 				}
 			}
 			const rescueBoard = el('section', 'nursery-shared-board nursery-rescue-board' +
@@ -765,7 +765,7 @@
 				el('div', '', ''),
 				el('h2', '', 'Pokémon aguardando resgate'),
 				el('span', 'nursery-board-count', rescueEntries.length +
-					(rescueEntries.length === 1 ? ' resgate pendente' : ' resgates pendentes'))
+				(rescueEntries.length === 1 ? ' resgate pendente' : ' resgates pendentes'))
 			);
 			rescueBoard.append(rescueHead);
 			if (rescueEntries.length) {
@@ -780,7 +780,7 @@
 					if (view.ownerId === entry.ownerId) {
 						const collectParent = el('button', 'button primary', 'Resgatar Pokémon');
 						collectParent.addEventListener('click', () =>
-							action('collect-parent', {projectId: entry.project.id}));
+							action('collect-parent', { projectId: entry.project.id }));
 						rescueCard.append(collectParent);
 					} else {
 						rescueCard.append(el('small', 'nursery-rescue-waiting',
@@ -862,21 +862,21 @@
 					for (const pokemon of released) {
 						const card = el('article', 'nursery-released-card');
 						const sprite = el('img', 'nursery-released-sprite');
-						sprite.src = options.spriteUrl({species: pokemon.species, shiny: pokemon.shiny});
+						sprite.src = options.spriteUrl({ species: pokemon.species, shiny: pokemon.shiny });
 						sprite.alt = pokemon.species;
 						const copy = el('div', 'nursery-released-copy');
 						copy.append(el('strong', '', pokemon.name));
 						copy.append(el('span', '', pokemon.species + ' · Nv. ' + pokemon.level + ' · ' +
-							(pokemon.gender === 'M' ? '♂' : pokemon.gender === 'F' ? '♀' : 'Sem sexo')));
+						(pokemon.gender === 'M' ? '♂' : pokemon.gender === 'F' ? '♀' : 'Sem sexo')));
 						copy.append(el('small', '', 'Treinador original: ' + pokemon.ownerName));
 						const commands = el('div', 'nursery-released-actions');
 						const restore = el('button', 'button primary', 'Devolver');
 						restore.addEventListener('click', () =>
-							action('restore-released', {releasedId: pokemon.id}));
+							action('restore-released', { releasedId: pokemon.id }));
 						const release = el('button', 'button danger', 'Liberar');
 						release.addEventListener('click', () => {
 							if (!window.confirm('Liberar ' + pokemon.name + ' definitivamente? Esta ação não pode ser desfeita.')) return;
-							action('delete-released', {releasedId: pokemon.id});
+							action('delete-released', { releasedId: pokemon.id });
 						});
 						commands.append(restore, release);
 						card.append(sprite, copy, commands);
@@ -898,7 +898,7 @@
 				copy.append(el('p', '', 'Leve o ovo com você ou coloque-o diretamente na incubadora local.'));
 				const actions = el('div', 'nursery-produced-actions');
 				const collect = el('button', 'button primary', 'Pegar o ovo');
-				collect.addEventListener('click', () => action('collect', {projectId: project.id}));
+				collect.addEventListener('click', () => action('collect', { projectId: project.id }));
 				const localFee = Number(view.fees?.localIncubation || 5000);
 				const deposit = el('button', 'button', 'Incubadora local · ' +
 					new Intl.NumberFormat('pt-BR').format(localFee) + ' ₽');
@@ -941,7 +941,7 @@
 								'É necessária uma vaga realmente livre na equipe para resgatar este Pokémon' : '';
 							hatch.addEventListener('click', () => hatchEgg(egg));
 							control.append(hatch);
-							}
+						}
 					}
 					controls.append(control);
 				}
@@ -957,7 +957,7 @@
 				const available = view.portableIncubators?.available || 0;
 				list.append(el('h2', '', 'Ovos com o treinador'));
 				list.append(el('p', 'nursery-portable-count', 'Incubadoras Portáteis: ' +
-					(view.portableIncubators?.inUse || 0) + ' em uso · ' + available + ' disponíveis'));
+				(view.portableIncubators?.inUse || 0) + ' em uso · ' + available + ' disponíveis'));
 				for (const egg of [...portable, ...carried]) {
 					const row = el('div', 'nursery-egg-row nursery-portable-row');
 					const info = el('span', 'nursery-carried-copy');
@@ -971,7 +971,7 @@
 						commands.append(hatch);
 					} else if (egg.portableIncubator) {
 						const stop = el('button', 'button', 'Guardar incubadora');
-						stop.addEventListener('click', () => action('portable-stop', {eggId: egg.eggId}));
+						stop.addEventListener('click', () => action('portable-stop', { eggId: egg.eggId }));
 						commands.append(stop);
 					} else {
 						const localFee = Number(view.fees?.localIncubation || 5000);
@@ -985,7 +985,7 @@
 						}));
 						const start = el('button', 'button', 'Usar Incubadora Portátil');
 						start.disabled = available < 1;
-						start.addEventListener('click', () => action('portable-start', {eggId: egg.eggId}));
+						start.addEventListener('click', () => action('portable-start', { eggId: egg.eggId }));
 						commands.append(deposit, start);
 					}
 					row.append(eggIcon(options, egg), info, commands);
@@ -1001,5 +1001,5 @@
 		paint();
 		return root;
 	}
-	window.RPGNurseryUI = {render};
+	window.RPGNurseryUI = { render };
 })();

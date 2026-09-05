@@ -293,7 +293,7 @@
 						body: {
 							actionId: 'shop-' + Date.now() + '-' + Math.random().toString(36).slice(2),
 							type: activeTab,
-							lines: lines.map(entry => ({itemId: entry.offer.itemId, quantity: entry.quantity})),
+							lines: lines.map(entry => ({ itemId: entry.offer.itemId, quantity: entry.quantity })),
 							expectedAccountRevision: view.accountRevision,
 							expectedBagRevision: view.bagRevision,
 							expectedCatalogRevision: view.shop.revision,
@@ -385,7 +385,7 @@
 					control.disabled = true;
 					try {
 						await options.api('/shops/' + encodeURIComponent(view.shop.id) + '/master-bulk', {
-							method: 'POST', body: {action, expectedRevision: view.shop.revision},
+							method: 'POST', body: { action, expectedRevision: view.shop.revision },
 						});
 						options.toast('Todos os itens desta loja foram atualizados.');
 						await options.refresh();
@@ -459,7 +459,7 @@
 			syncToggle(sellToPlayer, sellState, 'Vender');
 			syncToggle(buyFromPlayer, buyState, 'Comprar');
 			const reset = button('Resetar preços', 'button shop-row-reset');
-			const controls = {stock, sellToPlayer, buyFromPlayer, sellPrice, buyPrice, reset};
+			const controls = { stock, sellToPlayer, buyFromPlayer, sellPrice, buyPrice, reset };
 			sellToPlayer.addEventListener('change', () => {
 				syncToggle(sellToPlayer, sellState, 'Vender');
 				void saveOffer(offer, controls);
@@ -489,5 +489,5 @@
 		const view = await loadShop(options, selectedShopId);
 		return catalogPage(view, options);
 	}
-	window.RPGShopUI = {render};
+	window.RPGShopUI = { render };
 }());

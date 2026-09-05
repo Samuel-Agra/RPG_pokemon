@@ -354,7 +354,7 @@ const GENERATED_ABILITY_DESCRIPTIONS_PT_BR: Record<string, string> = {
 	"wonderguard": "Este Pokémon só pode ser danificado por golpes super effective e danos indiretos.",
 	"wonderskin": "Golpes de status com verificações de Accuracy são 50% precisos quando usados neste Pokémon.",
 	"zenmode": "Se for Darmanitan, no final do turno muda o Modo para Padrão se > 1/2 HP máximo, caso contrário, Zen.",
-	"zerotohero": "Se este Pokémon for um Palafin em Zero Form, a troca faz com que ele mude para Hero Form."
+	"zerotohero": "Se este Pokémon for um Palafin em Zero Form, a troca faz com que ele mude para Hero Form.",
 };
 
 export function getRPGAbilityDescriptionPTBR(abilityId: string): string {

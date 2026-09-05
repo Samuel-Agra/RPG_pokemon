@@ -502,7 +502,7 @@ describe('RPG Showdown', () => {
 		assert.deepEqual(battle.rpg.result.evolutions, [{
 			side: 'p1', position: 0, fromSpecies: 'Squirtle', toSpecies: 'Wartortle',
 			fromSpriteId: 'squirtle', toSpriteId: 'wartortle',
-			fromSizeClass: 'small', toSizeClass: 'medium', level: 17,
+			fromSizeClass: 'small', toSizeClass: 'medium', level: 17, shiny: false,
 		}]);
 		assert.equal(squirtle.rpg.level, 17);
 		assert.equal(squirtle.rpg.friendship, 71);
@@ -1139,7 +1139,7 @@ describe('RPG Showdown', () => {
 	it('should serialize, migrate, and resume versioned RPG state', () => {
 		const oldState = { hp: 12, status: 'par', pp: [3], friendship: 80 };
 		const restored = RPGStateCodec.deserializePokemon(JSON.stringify(oldState));
-		assert.equal(restored.version, 3);
+		assert.equal(restored.version, 2);
 		const firstBattle = common.createBattle([
 			[{ species: 'Pikachu', ability: 'Static', moves: ['Thunderbolt'], rpg: restored }],
 			[{ species: 'Eevee', ability: 'Run Away', moves: ['Tackle'], rpg: {} }],
@@ -1387,7 +1387,7 @@ describe('RPG Showdown', () => {
 			{ itemId: 'Poke Ball', quantity: 15 },
 			{ itemId: 'revive', quantity: 2 },
 		]);
-		assert.equal(original.version, 4);
+		assert.equal(original.version, 5);
 		assert.equal(original.revision, 0);
 		assert.equal(RPGBagSystem.getQuantity(original, 'pokeball'), 15);
 
@@ -1473,7 +1473,7 @@ describe('RPG Showdown', () => {
 		const restored = RPGBagSystem.migrate(JSON.parse(JSON.stringify({
 			ownerId: 'player-3', revision: 7, items: [{ itemId: 'maxrevive', quantity: 3 }],
 		})));
-		assert.equal(restored.version, 4);
+		assert.equal(restored.version, 5);
 		assert.equal(restored.revision, 7);
 		assert.equal(RPGBagSystem.getQuantity(restored, 'maxrevive'), 3);
 		assert.throws(() => RPGBagSystem.migrate({
@@ -2108,7 +2108,7 @@ describe('RPG Showdown', () => {
 			currency: 'pokedollar', source: 'gen9-sv', reference: 'gen9-sv', buy: 200, sell: 50,
 		});
 		assert.equal(RPG_GEN9_ITEM_PRICES.revive.buy, 2000);
-		assert.equal(RPG_GEN9_ITEM_PRICES.maxrevive.buy, undefined);
+		assert.equal(RPG_GEN9_ITEM_PRICES.maxrevive.buy, 4000);
 		assert.equal(RPG_GEN9_ITEM_PRICES.maxrevive.sell, 1000);
 		assert.equal(RPG_GEN9_ITEM_PRICES.masterball, undefined);
 		assert.equal(RPG_LEGACY_ITEM_PRICES.beastball.buy, 1000);

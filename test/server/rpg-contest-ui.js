@@ -64,7 +64,7 @@ describe('RPG contest UI', () => {
 			assert.ok(ui.includes(className), className);
 		}
 		for (const marker of ['contest-npc-hp-controls', 'Editar atributos', 'team-builder-stats-browser',
-			'currentPP', 'evs: {...evs}', 'ivs: {...ivs}']) {
+			'currentPP', 'evs: { ...evs }', 'ivs: { ...ivs }']) {
 			assert.ok(ui.includes(marker), marker);
 		}
 		assert.ok(ui.includes("if (profile.includeExperience) detailGrid.append(toolbarCell('XP', experience))"));
@@ -128,7 +128,7 @@ describe('RPG contest UI', () => {
 		for (const marker of ['/contest-pokemon-moves?', 'function loadPokemonMoves()',
 			"row.className = 'team-builder-simple-move'", 'pokemonMoveCatalog']) assert.ok(ui.includes(marker), marker);
 		for (const marker of ['Normal: 0, Grass: 1, Fire: 2, Water: 3',
-			'const battleCategoryOrder = {Physical: 0, Special: 1, Status: 2}',
+			'const battleCategoryOrder = { Physical: 0, Special: 1, Status: 2 }',
 			'moveTypeOrder[first.type]', 'battleCategoryOrder[first.battleCategory]']) assert.ok(ui.includes(marker), marker);
 		const http = fs.readFileSync(path.resolve(__dirname, '../../server/rpg-showdown/http.ts'), 'utf8');
 		assert.ok(http.includes("'/api/rpg/contest-pokemon-moves'"));
@@ -138,7 +138,7 @@ describe('RPG contest UI', () => {
 		assert.ok(moves.includes('source.startsWith(`${generation}M`)'));
 		assert.ok(moves.includes('source.startsWith(`${generation}E`)'));
 		assert.ok(moves.includes('description: metadata.description'));
-		assert.ok(moves.includes("import {getRPGMoveMetadata} from './battle-move-analysis'"));
+		assert.ok(moves.includes("import { getRPGMoveMetadata } from './battle-move-analysis'"));
 		assert.match(css, /\.contest-side-moves \.team-builder-four-moves \.team-builder-move-card\.rpg-move-button[^}]*height: 50px[^}]*min-height: 50px[^}]*max-height: 50px/);
 		assert.ok(css.includes('[data-temporary-npc-build="contest"] .team-builder-main-property .contest-npc-property-label'));
 		for (const marker of ['contest-item-search', 'contest-item-dropdown', 'contest-item-results',
@@ -186,16 +186,16 @@ describe('RPG contest UI', () => {
 	it('reuses the current temporary NPC builder in battle preparation', () => {
 		const contest = fs.readFileSync(path.join(root, 'contest-ui.js'), 'utf8');
 		const battle = fs.readFileSync(path.join(root, 'battle-ui-v2.js'), 'utf8');
-		assert.ok(contest.includes("contest: {scope: 'contest'"));
-		assert.ok(contest.includes("battle: {scope: 'battle'"));
+		assert.ok(contest.includes("contest: { scope: 'contest', finishLabel:"));
+		assert.ok(contest.includes("battle: { scope: 'battle', finishLabel:"));
 		assert.ok(contest.includes('function contestTemporaryNPCEditor'));
 		assert.ok(contest.includes('function battleTemporaryNPCEditor'));
-		assert.ok(contest.includes('return {render, battleTemporaryNPCEditor,'));
+		assert.ok(contest.includes('return { render, battleTemporaryNPCEditor,'));
 		assert.ok(battle.includes('window.RPGContestUI.battleTemporaryNPCEditor'));
-		assert.ok(battle.includes("if (opponent.value === 'npc')"));
-		assert.ok(battle.includes("team: 'B', kind: 'npc'"));
+		assert.ok(battle.includes("if (opponent.value === 'npc' || isMultiTrainer)"));
+		assert.ok(battle.includes("team: participantTeam, kind: 'npc'"));
 		assert.ok(battle.includes('avatar: npc.avatar'));
-		assert.ok(battle.includes('pokemon: [structuredClone(npc.pokemon)]'));
+		assert.ok(battle.includes('pokemon: pokemonTeam.map(selection => structuredClone(selection))'));
 		assert.ok(!battle.includes('Cadastre um NPC antes de preparar esse tipo de batalha.'));
 	});
 
@@ -241,7 +241,7 @@ describe('RPG contest UI', () => {
 	it('generates contest-only temporary NPCs by contest rank', () => {
 		const ui = fs.readFileSync(path.join(root, 'contest-ui.js'), 'utf8');
 		for (const marker of ['Criar NPC aleatório', 'generateRandomNPC()', "profile.contestRank?.() || 'normal'",
-			"normal: {level: 20, quality: 0}", "master: {level: 90, quality: 4}",
+			"normal: { level: 20, quality: 0 }", "master: { level: 90, quality: 4 }",
 			"entry.contest.category === category", 'randomRank: rankId', 'contestMoveScoreForCategory(move, category)',
 			"beauty: 'cool', cool: 'beauty', cute: 'tough', tough: 'cute'", 'Math.min(10, baseScore + 2)',
 			'Math.min(2, Math.floor(baseScore / 2))']) assert.ok(ui.includes(marker), marker);
@@ -254,7 +254,7 @@ describe('RPG contest UI', () => {
 		const battle = fs.readFileSync(path.join(root, 'battle-ui-v2.js'), 'utf8');
 		for (const marker of ["['1-20', '1 - 20']", "['81-100', '81 - 100']", "['master', 'Master']",
 			'generateRandomBattleNPC(levelRange.value, difficulty.value)', 'function randomBattleEVs(',
-			'normal: {index: 0, iv: [0, 10]}', 'master: {index: 4, iv: [28, 31]}',
+			'normal: { index: 0, iv: [0, 10] }', 'master: { index: 4, iv: [28, 31] }',
 			'const totals = [64, 160, 280, 400, 508]', 'randomLevelRange: levelRangeValue']) {
 			assert.ok(ui.includes(marker), marker);
 		}
@@ -306,7 +306,7 @@ describe('RPG contest UI', () => {
 		assert.ok(ui.includes('schedulePreContestRefresh(context, page, sessions)'));
 		assert.ok(ui.includes('async function rerenderPreservingViewport(context)'));
 		assert.ok(ui.includes('window.scrollTo(scrollLeft, scrollTop)'));
-		assert.ok(ui.includes('replacement.focus({preventScroll: true})'));
+		assert.ok(ui.includes('replacement.focus({ preventScroll: true })'));
 	});
 
 	it('keeps the active contest fluid and does not reset unchanged judging fields', () => {
@@ -408,7 +408,7 @@ describe('RPG contest UI', () => {
 		const ui = fs.readFileSync(path.join(root, 'contest-ui.js'), 'utf8');
 		assert.ok(ui.includes("context.master && current?.kind === 'npc'"));
 		assert.ok(ui.includes("confirmableAction('Abandonar com este NPC'"));
-		assert.ok(ui.includes("body: {type: 'abandon'}"));
+		assert.ok(ui.includes("body: { type: 'abandon' }"));
 	});
 
 	it('replaces each abandon button with inline Confirmar and Cancelar actions', () => {
@@ -467,7 +467,7 @@ describe('RPG contest UI', () => {
 			'statusSleep', 'impact']) assert.ok(adapter.includes(`'${sound}'`));
 		assert.ok(adapter.includes("if (move.battleCategory === 'Physical' || move.battleCategory === 'Special' || Number(move.basePower) > 0) return 'impact'"));
 		assert.ok(adapter.includes("return ''"));
-		assert.ok(adapter.includes('{onImpact: playMoveSound}'));
+		assert.ok(adapter.includes('{ onImpact: playMoveSound }'));
 		assert.ok(adapter.includes('if (sound) window.RPGBattleAudio?.playEffect(sound)'));
 		const runtime = fs.readFileSync(path.resolve(__dirname, '../../server/rpg-showdown/contest-runtime.ts'), 'utf8');
 		for (const field of ['type: definition.type', 'battleCategory: definition.battleCategory',
@@ -504,7 +504,7 @@ describe('RPG contest UI', () => {
 		assert.ok(adapter.includes('playEffect(`contestAudience${level}`)'));
 		for (let level = 1; level <= 6; level++) assert.ok(css.includes(`.contest-audience-burst.level-${level}`));
 		for (let level = 1; level <= 6; level++) {
-			assert.ok(audio.includes(`contestAudience${level}: {file: 'contest-audience-${level}.wav'`));
+			assert.ok(audio.includes(`contestAudience${level}: { file: 'contest-audience-${level}.wav'`));
 			assert.ok(fs.existsSync(path.join(root, 'assets', 'audio', `contest-audience-${level}.wav`)));
 		}
 		for (const animation of ['uneasy', 'warmth', 'flash', 'historic-flash', 'wave']) {
@@ -519,8 +519,8 @@ describe('RPG contest UI', () => {
 		assert.ok(ui.includes('current.stageStates?.[contest.round - 1]'));
 		assert.ok(ui.includes('renderPersistentStage?.(stage'));
 		for (const marker of ['rpg-weather-effect weather', 'rpg-terrain-effect weather',
-			"spikes: {effect: 'caltrop'", "toxicspikes: {effect: 'poisoncaltrop'",
-			"floatingrocks: {effects: ['rock1', 'rock2', 'rock3']", "stickyweb: {effect: 'web'"]) {
+			"spikes: { effect: 'caltrop'", "toxicspikes: { effect: 'poisoncaltrop'",
+			"floatingrocks: { effects: ['rock1', 'rock2', 'rock3']", "stickyweb: { effect: 'web'"]) {
 			assert.ok(adapter.includes(marker), marker);
 		}
 		assert.ok(adapter.includes('persistentStageSignatures'));
@@ -582,9 +582,9 @@ describe('RPG contest UI', () => {
 		const runtime = fs.readFileSync(path.resolve(__dirname, '../../server/rpg-showdown/contest-runtime.ts'), 'utf8');
 		const http = fs.readFileSync(path.resolve(__dirname, '../../server/rpg-showdown/http.ts'), 'utf8');
 		for (const marker of ["['solo', 'Solo'], ['duo', 'Dupla'], ['trio', 'Trio']", 'mode: mode.value',
-			"session.mode === 'trio' ? 3 : session.mode === 'duo' ? 2 : 1", 'body: {teamIndexes: selection.getPokemonSelection()}',
+			"session.mode === 'trio' ? 3 : session.mode === 'duo' ? 2 : 1", 'body: { teamIndexes: selection.getPokemonSelection() }',
 			'current.pokemonTeam?.length ? current.pokemonTeam : [current.pokemon]', 'current.roundPokemonIndexes',
-			'body: {type: \'select-move\', moveId: move.id, pokemonIndex, activateMega}']) assert.ok(ui.includes(marker), marker);
+			'body: { type: \'select-move\', moveId: move.id, pokemonIndex, activateMega }']) assert.ok(ui.includes(marker), marker);
 		for (const marker of ['.contest-stage-actors.mode-duo .contest-stage-trainer',
 			'.contest-stage-actors.mode-duo .contest-stage-pokemon.slot-0', '.contest-stage-actors.mode-duo .contest-stage-pokemon.slot-1',
 			'.contest-stage-actors.mode-trio .contest-stage-pokemon.slot-0', '.contest-stage-actors.mode-trio .contest-stage-pokemon.slot-1',

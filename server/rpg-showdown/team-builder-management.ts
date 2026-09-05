@@ -193,8 +193,7 @@ export class RPGTeamBuilderManagement {
 			const item = RPGItems.require(itemId);
 			const quantity = available(item.id);
 			return {
-				id: item.id, name: item.name, quantity, stat, amount: 2 as const,
-				icon: getRPGItemIconPath(item.id),
+				...itemView(item, quantity), stat, amount: 2 as const,
 				usable: inParty && (pokemon.ivs[stat] ?? 0) < 31 && quantity > 0,
 			};
 		});

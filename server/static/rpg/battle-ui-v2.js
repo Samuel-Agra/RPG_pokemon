@@ -29,7 +29,7 @@ function rpgBattleConditionHelp(target, title, description) {
 		panel.style.left = Math.max(8, Math.min(event.clientX + 10, window.innerWidth - rect.width - 8)) + 'px';
 		panel.style.top = Math.max(8, Math.min(event.clientY + 10, window.innerHeight - rect.height - 8)) + 'px';
 		RPG_BATTLE_CONDITION_HELP = panel;
-		setTimeout(() => document.addEventListener('pointerdown', rpgCloseBattleConditionHelp, {once: true}), 0);
+		setTimeout(() => document.addEventListener('pointerdown', rpgCloseBattleConditionHelp, { once: true }), 0);
 	});
 }
 
@@ -302,9 +302,9 @@ function rpgBattleEditor(characters, existing, onClose) {
 			displayName: participant.displayName, pokemon,
 		})));
 	const temporaryNPCs = window.RPGContestUI.battleTemporaryNPCEditor(
-		{api}, initialTemporaryNPCs, () => Number(teamLimit.value), () => canAddMultiParticipant()
+		{ api }, initialTemporaryNPCs, () => Number(teamLimit.value), () => canAddMultiParticipant()
 	);
-	const savedNPCs = window.RPGContestUI.savedNPCSelector({api}, () => Number(teamLimit.value), false, temporaryNPCs.registeredCards, () => canAddMultiParticipant());
+	const savedNPCs = window.RPGContestUI.savedNPCSelector({ api }, () => Number(teamLimit.value), false, temporaryNPCs.registeredCards, () => canAddMultiParticipant());
 	const savedNPCColumn = createElement('div', 'participant-column battle-saved-npc-column hidden');
 	savedNPCColumn.append(savedNPCs.root);
 	columns.append(savedNPCColumn);
@@ -337,11 +337,11 @@ function rpgBattleEditor(characters, existing, onClose) {
 		const candidates = [];
 		for (const character of characters) {
 			if (playerInputs.get('A:' + character.id)?.checked) {
-				candidates.push({key: 'player:' + character.id, kind: 'player', name: character.characterName, avatar: character.avatar});
+				candidates.push({ key: 'player:' + character.id, kind: 'player', name: character.characterName, avatar: character.avatar });
 			}
 		}
 		for (const npc of [...savedNPCs.participants(), ...temporaryNPCs.participants()]) {
-			candidates.push({key: 'npc:' + npc.id, kind: 'npc', name: npc.displayName, avatar: npc.avatar});
+			candidates.push({ key: 'npc:' + npc.id, kind: 'npc', name: npc.displayName, avatar: npc.avatar });
 		}
 		return candidates;
 	}
@@ -386,7 +386,7 @@ function rpgBattleEditor(characters, existing, onClose) {
 			[...playerInputs].filter(([key, input]) => key.startsWith('B:') && input.checked).length === 2;
 		invite.disabled = format.value === 'multi' && (opponent.value === 'npc' ? !multiFormationReady(candidates) : opponent.value === 'player' ? !multiPlayerReady : false);
 	}
-	new MutationObserver(() => refreshMultiAssignments()).observe(temporaryNPCs.registeredCards.parentElement, {childList: true, subtree: true});
+	new MutationObserver(() => refreshMultiAssignments()).observe(temporaryNPCs.registeredCards.parentElement, { childList: true, subtree: true });
 
 	const conditions = rpgBattleStep(5, 'Condi\u00e7\u00f5es iniciais', 'Configure o ambiente e o ponto inicial do confronto.');
 	const weather = rpgBattleSelect([['', 'Nenhum'], ['sunnyday', 'Sunny'], ['raindance', 'Rain'], ['sandstorm', 'Sand'], ['snow', 'Snow']], existing?.conditions.weather.id || '');
@@ -447,7 +447,7 @@ function rpgBattleEditor(characters, existing, onClose) {
 			const choice = rpgBattleCheck(name, saved[id] || false); inputs[id] = choice.input; group.append(choice.wrapper);
 			rpgBattleConditionHelp(choice.wrapper, name, effect);
 		}
-		return {group, inputs};
+		return { group, inputs };
 	};
 	const buffsA = buffEditor('A', 'Na Equipe A');
 	const buffsB = buffEditor('B', 'Na Equipe B');
@@ -540,8 +540,7 @@ function rpgBattleEditor(characters, existing, onClose) {
 		rulesStep.step.querySelector('.battle-step-number').textContent = isMultiTrainer ? '6' : '5';
 		columns.querySelector('[data-participant-team="A"] > strong').textContent = isPlayer && !isMultiTrainer ? 'Equipe A' : 'Players';
 		for (const [key, input] of playerInputs) {
-			if (key.startsWith('A:') && isRaid) { input.checked = true; input.disabled = true; }
-			else input.disabled = false;
+			if (key.startsWith('A:') && isRaid) { input.checked = true; input.disabled = true; } else input.disabled = false;
 			if (key.startsWith('B:') && !isPlayer) input.checked = false;
 			if (key.startsWith('B:') && isMultiTrainer) input.checked = false;
 		}
@@ -576,7 +575,7 @@ function rpgBattleEditor(characters, existing, onClose) {
 			const levelOptions = createElement('div', 'wild-level-options');
 			levelOptions.append(rpgBattleField('N\u00edvel', level), guaranteedShiny.wrapper);
 			row.append(picker.picker, levelOptions);
-		wildSelectors.push({ species: picker.input, level, guaranteedShiny: guaranteedShiny.input });
+			wildSelectors.push({ species: picker.input, level, guaranteedShiny: guaranteedShiny.input });
 			wildArea.append(row);
 		}
 	}
@@ -736,37 +735,37 @@ function rpgPlayerPokemonSelection(session, character) {
 	const invitation = session.invitations.find(item => item.characterId === character.id);
 	if (invitation?.response !== 'pending') return null;
 	const panel = createElement('div', 'player-battle-selection');
-	const tournamentSelection=Array.isArray(participant.allowedTeamIndexes)&&participant.allowedTeamIndexes.length>0;
+	const tournamentSelection = Array.isArray(participant.allowedTeamIndexes) && participant.allowedTeamIndexes.length > 0;
 	panel.append(createElement('strong', '', tournamentSelection ? `Escolha e ordene ${participant.selectionLimit} dos Pokémon inscritos` : 'Escolha quais Pok\u00e9mon levar (m\u00e1ximo: ' + participant.selectionLimit + ')'));
 	const selected = tournamentSelection ? [] : participant.pokemon.map(choice => choice.teamIndex);
 	const grid = createElement('div', 'pokemon-choice-grid');
-	const choices=[];
-	const refreshOrder=()=>choices.forEach(({index,badge,input})=>{ const position=selected.indexOf(index); input.checked=position>=0; badge.textContent=position>=0?String(position+1):''; badge.classList.toggle('hidden',position<0); });
+	const choices = [];
+	const refreshOrder = () => choices.forEach(({ index, badge, input }) => { const position = selected.indexOf(index); input.checked = position >= 0; badge.textContent = position >= 0 ? String(position + 1) : ''; badge.classList.toggle('hidden', position < 0); });
 	for (const [index, pokemon] of (character.team || []).entries()) {
-		if(tournamentSelection&&!participant.allowedTeamIndexes.includes(index)) continue;
+		if (tournamentSelection && !participant.allowedTeamIndexes.includes(index)) continue;
 		const training = character.box?.party?.[index]?.metadata?.evTraining;
 		const breeding = character.box?.party?.[index]?.metadata?.breeding;
 		const unavailable = !!training || !!breeding;
-		if (unavailable) { const position=selected.indexOf(index); if(position>=0) selected.splice(position,1); }
+		if (unavailable) { const position = selected.indexOf(index); if (position >= 0) selected.splice(position, 1); }
 		const choice = rpgBattleCheck('', !unavailable && selected.includes(index));
 		choice.wrapper.classList.add('pokemon-choice');
 		if (training) choice.wrapper.classList.add('is-training');
 		if (breeding) choice.wrapper.classList.add('is-breeding');
 		choice.input.disabled = unavailable;
-		const badge=createElement('span','tournament-order-badge hidden'); choice.wrapper.append(badge,pokemonSprite(pokemon));
+		const badge = createElement('span', 'tournament-order-badge hidden'); choice.wrapper.append(badge, pokemonSprite(pokemon));
 		const info = createElement('span');
 		info.append(createElement('strong', '', pokemon.name || pokemon.species), createElement('small', '', (pokemon.species || '') + ' \u00b7 Nv. ' + (pokemon.level || 1)));
 		if (training) info.append(createElement('small', 'training-time', 'Em treinamento \u00b7 Restam ' + rpgTrainingDuration(training.remainingMs)));
 		if (breeding) info.append(createElement('small', 'breeding-time', 'Em procria\u00e7\u00e3o \u00b7 Indispon\u00edvel para batalha'));
 		choice.wrapper.append(info);
-		choice.input.addEventListener('change', () => { const position=selected.indexOf(index); if(choice.input.checked&&position<0&&selected.length<participant.selectionLimit) selected.push(index); else if(!choice.input.checked&&position>=0) selected.splice(position,1); refreshOrder(); });
-		choices.push({index,badge,input:choice.input});
+		choice.input.addEventListener('change', () => { const position = selected.indexOf(index); if (choice.input.checked && position < 0 && selected.length < participant.selectionLimit) selected.push(index); else if (!choice.input.checked && position >= 0) selected.splice(position, 1); refreshOrder(); });
+		choices.push({ index, badge, input: choice.input });
 		grid.append(choice.wrapper);
 	}
 	panel.getPokemonSelection = () => {
 		if (tournamentSelection && selected.length !== participant.selectionLimit) throw new Error(`Escolha e ordene exatamente ${participant.selectionLimit} Pokémon inscritos.`);
 		if (!selected.length || selected.length > participant.selectionLimit) throw new Error('Escolha entre 1 e ' + participant.selectionLimit + ' Pokémon.');
-		return selected.map(teamIndex => ({teamIndex}));
+		return selected.map(teamIndex => ({ teamIndex }));
 	};
 
 	panel.append(grid); refreshOrder();
@@ -824,8 +823,7 @@ async function renderMasterBattles(characters) {
 			const cancel = button('Cancelar batalha', 'button danger');
 			cancel.addEventListener('click', async () => {
 				cancel.disabled = true;
-				try { await api('/battle-sessions/' + encodeURIComponent(session.id), { method: 'DELETE' }); await renderDashboard(); }
-				catch (error) { showToast(error.message, true); }
+				try { await api('/battle-sessions/' + encodeURIComponent(session.id), { method: 'DELETE' }); await renderDashboard(); } catch (error) { showToast(error.message, true); }
 			});
 			actions.append(cancel);
 		}

@@ -123,7 +123,7 @@
 					},
 				});
 				await deps.api('/box/pokemon', {
-					method: 'DELETE', body: {challengeId: result.challenge.challengeId, confirmed: true},
+					method: 'DELETE', body: { challengeId: result.challenge.challengeId, confirmed: true },
 				});
 				close();
 				deps.toast((pokemon.name || pokemon.species) + ' foi liberado.');
@@ -253,7 +253,7 @@
 				deps.eggVisual(deps.selectedEgg, 'team-builder-large-sprite team-builder-large-egg-sprite') :
 				el('img', 'team-builder-large-sprite team-builder-large-egg-sprite');
 			if (!deps.eggVisual) {
-				sprite.src = deps.spriteUrl({species: 'Egg'});
+				sprite.src = deps.spriteUrl({ species: 'Egg' });
 				sprite.alt = 'Egg';
 			}
 			portrait.append(sprite, el('strong', '', 'Egg'));
@@ -284,9 +284,9 @@
 							hatch.disabled = true;
 							try {
 								await window.RPGNurseryHatch.play(deps, deps.selectedEgg, () =>
-									deps.api('/nursery/hatch', {method: 'POST', body: {
+									deps.api('/nursery/hatch', { method: 'POST', body: {
 										characterId: deps.characterId, eggId: deps.selectedEgg.eggId,
-									}})
+									} })
 								);
 								await deps.refresh();
 							} catch (error) { hatch.disabled = false; deps.toast(error.message, true); }
@@ -297,9 +297,9 @@
 						remove.addEventListener('click', async () => {
 							remove.disabled = true;
 							try {
-								await deps.api('/nursery/portable-stop', {method: 'POST', body: {
+								await deps.api('/nursery/portable-stop', { method: 'POST', body: {
 									characterId: deps.characterId, eggId: deps.selectedEgg.eggId,
-								}});
+								} });
 								deps.toast('Egg retirado da Incubadora Portátil.');
 								await deps.refresh();
 							} catch (error) { remove.disabled = false; deps.toast(error.message, true); }
@@ -311,9 +311,9 @@
 					insert.addEventListener('click', async () => {
 						insert.disabled = true;
 						try {
-							await deps.api('/nursery/portable-start', {method: 'POST', body: {
+							await deps.api('/nursery/portable-start', { method: 'POST', body: {
 								characterId: deps.characterId, eggId: deps.selectedEgg.eggId,
-							}});
+							} });
 							deps.toast('Egg colocado na Incubadora Portátil.');
 							await deps.refresh();
 						} catch (error) { insert.disabled = false; deps.toast(error.message, true); }
@@ -420,7 +420,7 @@
 				item: pokemon.item,
 				ability: draftAbility,
 				moves: data.permissions.master ? draftMoves.map(id => choiceById(id)?.name || id) :
-					pokemon.moves.map(move => move.name),
+				pokemon.moves.map(move => move.name),
 				evs: { ...draftEVs },
 				ivs: { ...draftIVs },
 			};
@@ -660,7 +660,7 @@
 				const header = el('div', 'team-builder-master-status-header');
 				header.append(
 					el('strong', 'team-builder-popover-title', 'Status'),
-					makeStatusChoice('', 'OK', 'Normal'),
+					makeStatusChoice('', 'OK', 'Normal')
 				);
 				const choices = el('div', 'team-builder-master-status-grid');
 				for (const statusChoice of [
@@ -700,7 +700,6 @@
 					panel.append(choice);
 				}
 				positionHealingPopover(anchor, panel);
-
 			} catch (error) { deps.toast(error.message, true); }
 		}
 		function makeHealingTrigger(element, mode) {

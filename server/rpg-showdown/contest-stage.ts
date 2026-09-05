@@ -1,6 +1,6 @@
-import {toID} from '../../sim/dex-data';
-import {getRPGContestMove} from './contest-move-catalog';
-import type {RPGContestScenario} from './contest-session';
+import { toID } from '../../sim/dex-data';
+import { getRPGContestMove } from './contest-move-catalog';
+import type { RPGContestScenario } from './contest-session';
 
 export type RPGContestWeather = '' | 'sun' | 'rain' | 'sand' | 'snow';
 export type RPGContestTerrain = '' | 'electric' | 'grassy' | 'psychic' | 'misty';
@@ -90,19 +90,19 @@ export function createRPGContestStage(scenario: RPGContestScenario): RPGContestS
 		base: {
 			weather: scenario.weather || '', terrain: scenario.terrain || '', tags: normalizedTags(scenario.tags || []),
 		},
-		temporary: {weather: '', terrain: '', tags: []},
+		temporary: { weather: '', terrain: '', tags: [] },
 	};
 }
 
 /** A new participant/round retains the venue base and discards every Player-created effect. */
 export function resetRPGContestTemporaryStage(state: RPGContestStageState): RPGContestStageState {
-	return {base: structuredClone(state.base), temporary: {weather: '', terrain: '', tags: []}};
+	return { base: structuredClone(state.base), temporary: { weather: '', terrain: '', tags: [] } };
 }
 
 /** Applies weather acquired specifically through Mega Evolution without treating it as a performed move. */
 export function applyRPGContestMegaAbilityWeather(
 	state: RPGContestStageState, ability: string, previousAbility: string
-): {weather: RPGContestWeather; transformation: string} | null {
+): { weather: RPGContestWeather, transformation: string } | null {
 	const abilityId = toID(ability);
 	if (!abilityId || abilityId === toID(previousAbility)) return null;
 	const weatherByAbility: Readonly<Record<string, RPGContestWeather>> = {
@@ -112,7 +112,7 @@ export function applyRPGContestMegaAbilityWeather(
 	if (!weather) return null;
 	state.temporary.weather = weather;
 	state.temporary.tags = normalizedTags([...state.temporary.tags, weather]);
-	return {weather, transformation: `ability-weather:${weather}`};
+	return { weather, transformation: `ability-weather:${weather}` };
 }
 
 export function applyRPGContestMoveToStage(

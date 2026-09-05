@@ -19,7 +19,7 @@ import { getRPGBattlePokemonCatalog, getRPGPokedexMoves } from './pokemon-catalo
 import { RPGBattleRuntimeManager, type RPGBattleRuntimeAction } from './battle-runtime';
 import { getRPGBattleSceneCatalog } from './battle-scene';
 import { getRPGContestMoveCatalog, getRPGContestPokemonMoveCatalog } from './contest-move-catalog';
-import {RPGContestRuntimeManager, type RPGContestRuntimeAction} from './contest-runtime';
+import { RPGContestRuntimeManager, type RPGContestRuntimeAction } from './contest-runtime';
 import { getRPGItemIconPath } from './item-icons';
 
 const MAX_BODY_SIZE = 2 * 1024 * 1024;
@@ -155,13 +155,13 @@ export class RPGHttpServer {
 				const body = await this.body(req);
 				const input: RPGCommerceOfferInput = {
 					itemId: this.string(body.itemId), expectedRevision: Number(body.expectedRevision),
-					...(body.stock === undefined ? {} : {stock: Number(body.stock)}),
-					...(body.buyMode === undefined ? {} : {buyMode: this.string(body.buyMode) as RPGCommerceOfferInput['buyMode']}),
-					...(body.buyPrice === undefined ? {} : {buyPrice: Number(body.buyPrice)}),
-					...(body.sellPrice === undefined ? {} : {sellPrice: Number(body.sellPrice)}),
-					...(body.buyEnabled === undefined ? {} : {buyEnabled: !!body.buyEnabled}),
-					...(body.sellEnabled === undefined ? {} : {sellEnabled: !!body.sellEnabled}),
-					...(body.remove === undefined ? {} : {remove: !!body.remove}),
+					...(body.stock === undefined ? {} : { stock: Number(body.stock) }),
+					...(body.buyMode === undefined ? {} : { buyMode: this.string(body.buyMode) as RPGCommerceOfferInput['buyMode'] }),
+					...(body.buyPrice === undefined ? {} : { buyPrice: Number(body.buyPrice) }),
+					...(body.sellPrice === undefined ? {} : { sellPrice: Number(body.sellPrice) }),
+					...(body.buyEnabled === undefined ? {} : { buyEnabled: !!body.buyEnabled }),
+					...(body.sellEnabled === undefined ? {} : { sellEnabled: !!body.sellEnabled }),
+					...(body.remove === undefined ? {} : { remove: !!body.remove }),
 				};
 				this.json(res, 200, this.login.configureCommerceOffer(token, shopId, input));
 				return;
@@ -215,12 +215,12 @@ export class RPGHttpServer {
 		if (url.pathname === '/api/rpg/campaign/settings') {
 			const token = this.token(req);
 			if (method === 'GET') {
-				this.json(res, 200, {settings: this.login.getCampaignSettings(token)});
+				this.json(res, 200, { settings: this.login.getCampaignSettings(token) });
 				return;
 			}
 			if (method === 'PUT') {
 				const body = await this.body(req);
-				this.json(res, 200, {settings: this.login.setCampaignSettings(token, body)});
+				this.json(res, 200, { settings: this.login.setCampaignSettings(token, body) });
 				return;
 			}
 		}
@@ -251,54 +251,54 @@ export class RPGHttpServer {
 		if (url.pathname === '/api/rpg/master-npc-library') {
 			const token = this.token(req);
 			if (method === 'GET') {
-				this.json(res, 200, {library: this.login.getMasterNPCLibrary(token)});
+				this.json(res, 200, { library: this.login.getMasterNPCLibrary(token) });
 				return;
 			}
 			if (method === 'PUT') {
 				const body = await this.body(req);
-				this.json(res, 200, {library: this.login.setMasterNPCLibrary(token, body.library)});
+				this.json(res, 200, { library: this.login.setMasterNPCLibrary(token, body.library) });
 				return;
 			}
 		}
 		if (url.pathname === '/api/rpg/documents') {
 			const token = this.token(req);
 			if (method === 'GET') {
-				this.json(res, 200, {library: this.login.getPlayerDocuments(token)});
+				this.json(res, 200, { library: this.login.getPlayerDocuments(token) });
 				return;
 			}
 			if (method === 'PUT') {
 				const body = await this.body(req);
-				this.json(res, 200, {library: this.login.setPlayerDocuments(token, body.library)});
+				this.json(res, 200, { library: this.login.setPlayerDocuments(token, body.library) });
 				return;
 			}
 		}
 		if (method === 'GET' && url.pathname === '/api/rpg/bank') {
-			this.json(res, 200, {bank: this.login.getBank(
+			this.json(res, 200, { bank: this.login.getBank(
 				this.token(req), url.searchParams.get('characterId') || undefined
-			)});
+			) });
 			return;
 		}
 		if (method === 'PUT' && url.pathname === '/api/rpg/characters/money') {
 			const body = await this.body(req);
-			this.json(res, 200, {character: this.login.adjustCharacterMoney(
+			this.json(res, 200, { character: this.login.adjustCharacterMoney(
 				this.token(req), this.string(body.characterId),
 				this.string(body.operation) as 'add' | 'remove', Number(body.amount)
-			)});
+			) });
 			return;
 		}
 		if (method === 'PATCH' && url.pathname === '/api/rpg/profile/tagline') {
 			const body = await this.body(req);
-			this.json(res, 200, {character: this.login.setTrainerTagline(
+			this.json(res, 200, { character: this.login.setTrainerTagline(
 				this.token(req), typeof body.characterId === 'string' ? body.characterId : undefined,
 				this.string(body.tagline)
-			)});
+			) });
 			return;
 		}
 		if (method === 'PATCH' && url.pathname === '/api/rpg/profile/pokedex/seen') {
 			const body = await this.body(req);
-			this.json(res, 200, {character: this.login.markPokedexSpeciesSeen(
+			this.json(res, 200, { character: this.login.markPokedexSpeciesSeen(
 				this.token(req), this.string(body.characterId), this.string(body.species)
-			)});
+			) });
 			return;
 		}
 		if (method === 'GET' && url.pathname === '/api/rpg/profile/pokedex/moves') {
@@ -306,8 +306,8 @@ export class RPGHttpServer {
 			const character = this.login.getCharacter(token, url.searchParams.get('characterId') || undefined);
 			const species = url.searchParams.get('species') || '';
 			const id = Dex.mod('gen9').species.get(species).id;
-			const caught = new Set(character.profile.pokedex?.caught || []).has(id);
-			this.json(res, 200, {caught, moves: getRPGPokedexMoves(species, caught)});
+			const caught = new Set(character.profile?.pokedex?.caught || []).has(id);
+			this.json(res, 200, { caught, moves: getRPGPokedexMoves(species, caught) });
 			return;
 		}
 		if (method === 'POST' && (url.pathname === '/api/rpg/bank/deposit' || url.pathname === '/api/rpg/bank/redeem')) {
@@ -316,7 +316,7 @@ export class RPGHttpServer {
 			const bank = url.pathname.endsWith('/deposit') ?
 				this.login.depositBank(this.token(req), characterId, Number(body.amount), Number(body.expectedRevision)) :
 				this.login.redeemBank(this.token(req), characterId, Number(body.amount), Number(body.expectedRevision));
-			this.json(res, 200, {bank});
+			this.json(res, 200, { bank });
 			return;
 		}
 		if (method === 'PUT' && url.pathname === '/api/rpg/characters/shop-access') {
@@ -492,10 +492,10 @@ export class RPGHttpServer {
 		}
 		if (method === 'POST' && url.pathname === '/api/rpg/team-presets') {
 			const body = await this.body(req);
-			this.json(res, 201, {character: this.login.createTeamPreset(
+			this.json(res, 201, { character: this.login.createTeamPreset(
 				this.token(req), typeof body.characterId === 'string' ? body.characterId : undefined,
-				{name: this.string(body.name), species: body.species as string[], pokemonIds: body.pokemonIds as Array<string | null>}
-			)});
+				{ name: this.string(body.name), species: body.species as string[], pokemonIds: body.pokemonIds as (string | null)[] }
+			) });
 			return;
 		}
 		const teamPresetMatch = /^\/api\/rpg\/team-presets\/([^/]+)(?:\/(apply))?$/.exec(url.pathname);
@@ -505,22 +505,22 @@ export class RPGHttpServer {
 			const body = await this.body(req);
 			const characterId = typeof body.characterId === 'string' ? body.characterId : undefined;
 			if (method === 'PATCH' && !action) {
-				this.json(res, 200, {character: this.login.updateTeamPreset(
+				this.json(res, 200, { character: this.login.updateTeamPreset(
 					this.token(req), characterId, presetId,
-					{name: this.string(body.name), species: body.species as string[], pokemonIds: body.pokemonIds as Array<string | null>}
-				)});
+					{ name: this.string(body.name), species: body.species as string[], pokemonIds: body.pokemonIds as (string | null)[] }
+				) });
 				return;
 			}
 			if (method === 'DELETE' && !action) {
-				this.json(res, 200, {character: this.login.deleteTeamPreset(
+				this.json(res, 200, { character: this.login.deleteTeamPreset(
 					this.token(req), characterId, presetId
-				)});
+				) });
 				return;
 			}
 			if (method === 'POST' && action === 'apply') {
-				this.json(res, 200, {character: this.login.applyTeamPreset(
+				this.json(res, 200, { character: this.login.applyTeamPreset(
 					this.token(req), characterId, presetId, Number(body.expectedRevision)
-				)});
+				) });
 				return;
 			}
 		}
@@ -624,9 +624,9 @@ export class RPGHttpServer {
 				return;
 			}
 			if (method === 'POST' && action === 'nickname') {
-				this.json(res, 200, {teamBuilder: this.login.renamePokemonFromTeamBuilder(
+				this.json(res, 200, { teamBuilder: this.login.renamePokemonFromTeamBuilder(
 					this.token(req), characterId, pokemonId, this.string(body.nickname), Number(body.expectedRevision)
-				)});
+				) });
 				return;
 			}
 		}
@@ -675,7 +675,7 @@ export class RPGHttpServer {
 				this.json(res, 200, {
 					box: this.login.updateBoxPokemonMetadata(
 						this.token(req), characterId, pokemonId,
-						(body.metadata || {}) as import('./box-management').RPGBoxPokemonMetadata,
+						(body.metadata || {}),
 						Number(body.expectedRevision)
 					),
 				});
@@ -711,7 +711,7 @@ export class RPGHttpServer {
 				this.json(res, 200, {
 					box: this.login.masterEditBoxPokemon(
 						this.token(req), this.string(body.characterId), pokemonId,
-						(body.edit || {}) as import('./box-management').RPGBoxMasterEdit,
+						(body.edit || {}),
 						Number(body.expectedRevision)
 					),
 				});
@@ -749,114 +749,112 @@ export class RPGHttpServer {
 		}
 
 		if (method === 'GET' && url.pathname === '/api/rpg/nursery') {
-			this.json(res, 200, {nursery: this.login.getNursery(
+			this.json(res, 200, { nursery: this.login.getNursery(
 				this.token(req), url.searchParams.get('characterId') || undefined
-			)});
+			) });
 			return;
 		}
-		const nurseryAction = new RegExp(
-			'^/api/rpg/nursery/(create|master-slot1|accept|master-slot2|master-cancel|withdraw-slot2|confirm|cancel|collect-parent|collect|collect-local|insert|remove|portable-start|portable-stop|restore-released|delete-released|shop-buy|hatch)$'
-		).exec(url.pathname);
+		const nurseryAction = /^\/api\/rpg\/nursery\/(create|master-slot1|accept|master-slot2|master-cancel|withdraw-slot2|confirm|cancel|collect-parent|collect|collect-local|insert|remove|portable-start|portable-stop|restore-released|delete-released|shop-buy|hatch)$/.exec(url.pathname);
 		if (method === 'POST' && nurseryAction) {
 			const body = await this.body(req);
 			const characterId = typeof body.characterId === 'string' ? body.characterId : undefined;
 			let result;
 			switch (nurseryAction[1]) {
-			case 'create':
-				result = {nursery: this.login.createNurseryProject(
-					this.token(req), characterId, this.string(body.pokemonId)
-				)};
-				break;
-			case 'master-slot1':
-				result = {nursery: this.login.createMasterNurseryProject(this.token(req), {
-					npcName: this.string(body.npcName),
-					species: this.string(body.species),
-					sex: this.string(body.sex) as import('./nursery').RPGNurseryMasterSlot1Input['sex'],
-					level: Number(body.level),
-					ivs: body.ivs as import('./nursery').RPGNurseryMasterSlot1Input['ivs'],
-					item: this.string(body.item) as import('./nursery').RPGNurseryMasterSlot1Input['item'],
-				})};
-				break;
-			case 'accept':
-				result = {nursery: this.login.acceptNurseryInvitation(
-					this.token(req), this.string(body.projectId), this.string(body.pokemonId)
-				)};
-				break;
-			case 'master-slot2':
-				result = {nursery: this.login.setMasterNurserySlot2(this.token(req), {
-					projectId: this.string(body.projectId),
-					species: this.string(body.species),
-					level: Number(body.level),
-					ivs: body.ivs as import('./nursery').RPGNurseryMasterSlot2Input['ivs'],
-					item: this.string(body.item) as import('./nursery').RPGNurseryMasterSlot2Input['item'],
-				})};
-				break;
-			case 'master-cancel':
-				result = {nursery: this.login.cancelMasterNurseryProject(
-					this.token(req), this.string(body.projectId)
-				)};
-				break;
-			case 'withdraw-slot2':
-				result = {nursery: this.login.withdrawNurserySlot2(
-					this.token(req), this.string(body.projectId)
-				)};
-				break;
-			case 'confirm':
-				result = {nursery: this.login.confirmNurseryProject(
-					this.token(req), this.string(body.projectId),
-					body.requestedPokecoins === undefined ? undefined : Number(body.requestedPokecoins)
-				)};
-				break;
-			case 'cancel':
-				result = {nursery: this.login.cancelNurseryProject(this.token(req), this.string(body.projectId))};
-				break;
-			case 'collect-parent':
-				result = {nursery: this.login.collectNurseryParent(this.token(req), this.string(body.projectId))};
-				break;
-			case 'collect':
-				result = {nursery: this.login.collectNurseryEgg(this.token(req), this.string(body.projectId))};
-				break;
-			case 'collect-local':
-				result = {nursery: this.login.collectNurseryEggToLocal(
-					this.token(req), this.string(body.projectId), this.string(body.incubatorId)
-				)};
-				break;
-			case 'insert':
-				result = {nursery: this.login.insertNurseryEgg(
-					this.token(req), this.string(body.eggId), this.string(body.incubatorId)
-				)};
-				break;
-			case 'portable-start':
-				result = {nursery: this.login.startPortableNurseryIncubator(
-					this.token(req), this.string(body.eggId)
-				)};
-				break;
-			case 'portable-stop':
-				result = {nursery: this.login.stopPortableNurseryIncubator(
-					this.token(req), this.string(body.eggId)
-				)};
-				break;
-			case 'remove':
-				result = {nursery: this.login.removeNurseryEgg(this.token(req), this.string(body.eggId))};
-				break;
-			case 'restore-released':
-				result = this.login.restoreReleasedNurseryPokemon(
-					this.token(req), this.string(body.releasedId)
-				);
-				break;
-			case 'delete-released':
-				result = this.login.deleteReleasedNurseryPokemon(
-					this.token(req), this.string(body.releasedId)
-				);
-				break;
-			case 'shop-buy':
-				result = {nursery: this.login.purchaseNurseryItem(
-					this.token(req), characterId, this.string(body.itemId),
-					Number(body.quantity), Number(body.expectedBagRevision)
-				)};
-				break;
-			default:
-				result = this.login.hatchNurseryEgg(this.token(req), this.string(body.eggId));
+				case 'create':
+					result = { nursery: this.login.createNurseryProject(
+						this.token(req), characterId, this.string(body.pokemonId)
+					) };
+					break;
+				case 'master-slot1':
+					result = { nursery: this.login.createMasterNurseryProject(this.token(req), {
+						npcName: this.string(body.npcName),
+						species: this.string(body.species),
+						sex: this.string(body.sex) as import('./nursery').RPGNurseryMasterSlot1Input['sex'],
+						level: Number(body.level),
+						ivs: body.ivs as import('./nursery').RPGNurseryMasterSlot1Input['ivs'],
+						item: this.string(body.item) as import('./nursery').RPGNurseryMasterSlot1Input['item'],
+					}) };
+					break;
+				case 'accept':
+					result = { nursery: this.login.acceptNurseryInvitation(
+						this.token(req), this.string(body.projectId), this.string(body.pokemonId)
+					) };
+					break;
+				case 'master-slot2':
+					result = { nursery: this.login.setMasterNurserySlot2(this.token(req), {
+						projectId: this.string(body.projectId),
+						species: this.string(body.species),
+						level: Number(body.level),
+						ivs: body.ivs as import('./nursery').RPGNurseryMasterSlot2Input['ivs'],
+						item: this.string(body.item) as import('./nursery').RPGNurseryMasterSlot2Input['item'],
+					}) };
+					break;
+				case 'master-cancel':
+					result = { nursery: this.login.cancelMasterNurseryProject(
+						this.token(req), this.string(body.projectId)
+					) };
+					break;
+				case 'withdraw-slot2':
+					result = { nursery: this.login.withdrawNurserySlot2(
+						this.token(req), this.string(body.projectId)
+					) };
+					break;
+				case 'confirm':
+					result = { nursery: this.login.confirmNurseryProject(
+						this.token(req), this.string(body.projectId),
+						body.requestedPokecoins === undefined ? undefined : Number(body.requestedPokecoins)
+					) };
+					break;
+				case 'cancel':
+					result = { nursery: this.login.cancelNurseryProject(this.token(req), this.string(body.projectId)) };
+					break;
+				case 'collect-parent':
+					result = { nursery: this.login.collectNurseryParent(this.token(req), this.string(body.projectId)) };
+					break;
+				case 'collect':
+					result = { nursery: this.login.collectNurseryEgg(this.token(req), this.string(body.projectId)) };
+					break;
+				case 'collect-local':
+					result = { nursery: this.login.collectNurseryEggToLocal(
+						this.token(req), this.string(body.projectId), this.string(body.incubatorId)
+					) };
+					break;
+				case 'insert':
+					result = { nursery: this.login.insertNurseryEgg(
+						this.token(req), this.string(body.eggId), this.string(body.incubatorId)
+					) };
+					break;
+				case 'portable-start':
+					result = { nursery: this.login.startPortableNurseryIncubator(
+						this.token(req), this.string(body.eggId)
+					) };
+					break;
+				case 'portable-stop':
+					result = { nursery: this.login.stopPortableNurseryIncubator(
+						this.token(req), this.string(body.eggId)
+					) };
+					break;
+				case 'remove':
+					result = { nursery: this.login.removeNurseryEgg(this.token(req), this.string(body.eggId)) };
+					break;
+				case 'restore-released':
+					result = this.login.restoreReleasedNurseryPokemon(
+						this.token(req), this.string(body.releasedId)
+					);
+					break;
+				case 'delete-released':
+					result = this.login.deleteReleasedNurseryPokemon(
+						this.token(req), this.string(body.releasedId)
+					);
+					break;
+				case 'shop-buy':
+					result = { nursery: this.login.purchaseNurseryItem(
+						this.token(req), characterId, this.string(body.itemId),
+						Number(body.quantity), Number(body.expectedBagRevision)
+					) };
+					break;
+				default:
+					result = this.login.hatchNurseryEgg(this.token(req), this.string(body.eggId));
 			}
 			this.json(res, 200, result);
 			return;
@@ -941,61 +939,61 @@ export class RPGHttpServer {
 		}
 		if (method === 'GET' && url.pathname === '/api/rpg/contest-moves') {
 			this.login.getSession(this.token(req));
-			this.json(res, 200, {moves: getRPGContestMoveCatalog()});
+			this.json(res, 200, { moves: getRPGContestMoveCatalog() });
 			return;
 		}
 		if (url.pathname === '/api/rpg/tournaments') {
 			const token = this.token(req);
-			if (method === 'GET') { this.json(res, 200, {tournaments: this.login.listTournaments(token)}); return; }
-			if (method === 'POST') { const body = await this.body(req); this.json(res, 201, {tournament: this.login.createTournament(token, body as never)}); return; }
+			if (method === 'GET') { this.json(res, 200, { tournaments: this.login.listTournaments(token) }); return; }
+			if (method === 'POST') { const body = await this.body(req); this.json(res, 201, { tournament: this.login.createTournament(token, body as never) }); return; }
 		}
 		const tournamentMatch = /^\/api\/rpg\/tournaments\/([^/]+)(?:\/(start|report|launch|cancel|roster))?$/.exec(url.pathname);
 		if (tournamentMatch) {
 			const token = this.token(req); const id = decodeURIComponent(tournamentMatch[1]); const action = tournamentMatch[2];
-			if (method === 'GET' && !action) { this.json(res, 200, {tournament: this.login.getTournament(token, id)}); return; }
-			if (method === 'POST' && action === 'start') { this.json(res, 200, {tournament: this.login.startTournament(token, id)}); return; }
-			if (method === 'POST' && action === 'roster') { const body = await this.body(req); this.json(res, 200, {tournament: this.login.setTournamentRoster(token, id, Array.isArray(body.pokemonIds) ? body.pokemonIds.map(value => this.string(value)) : [])}); return; }
-			if (method === 'POST' && action === 'report') { const body = await this.body(req); this.json(res, 200, {tournament: this.login.reportTournamentMatch(token, id, this.string(body.matchId), this.string(body.winnerId))}); return; }
+			if (method === 'GET' && !action) { this.json(res, 200, { tournament: this.login.getTournament(token, id) }); return; }
+			if (method === 'POST' && action === 'start') { this.json(res, 200, { tournament: this.login.startTournament(token, id) }); return; }
+			if (method === 'POST' && action === 'roster') { const body = await this.body(req); this.json(res, 200, { tournament: this.login.setTournamentRoster(token, id, Array.isArray(body.pokemonIds) ? body.pokemonIds.map(value => this.string(value)) : []) }); return; }
+			if (method === 'POST' && action === 'report') { const body = await this.body(req); this.json(res, 200, { tournament: this.login.reportTournamentMatch(token, id, this.string(body.matchId), this.string(body.winnerId)) }); return; }
 			if (method === 'POST' && action === 'launch') { const body = await this.body(req); this.json(res, 200, this.login.launchTournamentMatch(token, id, this.string(body.matchId), body.npcSelections && typeof body.npcSelections === 'object' ? body.npcSelections as Record<string, number[]> : {})); return; }
-			if (method === 'POST' && action === 'cancel') { this.json(res, 200, {tournament: this.login.cancelTournament(token, id)}); return; }
+			if (method === 'POST' && action === 'cancel') { this.json(res, 200, { tournament: this.login.cancelTournament(token, id) }); return; }
 		}
 		if (method === 'GET' && url.pathname === '/api/rpg/contest-pokemon-moves') {
 			this.login.getSession(this.token(req));
-			this.json(res, 200, {moves: getRPGContestPokemonMoveCatalog(
+			this.json(res, 200, { moves: getRPGContestPokemonMoveCatalog(
 				url.searchParams.get('species') || '', Number(url.searchParams.get('level') || 1)
-			)});
+			) });
 			return;
 		}
 		if (url.pathname === '/api/rpg/contest-combos') {
 			const token = this.token(req);
 			if (method === 'GET') {
-				this.json(res, 200, {combos: this.login.listContestCombos(token)});
+				this.json(res, 200, { combos: this.login.listContestCombos(token) });
 				return;
 			}
 			if (method === 'POST') {
 				const body = await this.body(req);
-				this.json(res, 201, {combo: this.login.createContestCombo(token, body as never)});
+				this.json(res, 201, { combo: this.login.createContestCombo(token, body as never) });
 				return;
 			}
 		}
 		const contestComboMatch = /^\/api\/rpg\/contest-combos\/([^/]+)$/.exec(url.pathname);
 		if (contestComboMatch && method === 'DELETE') {
-			this.json(res, 200, {deleted: this.login.deleteContestCombo(
+			this.json(res, 200, { deleted: this.login.deleteContestCombo(
 				this.token(req), decodeURIComponent(contestComboMatch[1])
-			)});
+			) });
 			return;
 		}
 		if (url.pathname === '/api/rpg/contest-sessions') {
 			const token = this.token(req);
 			if (method === 'GET') {
-				this.json(res, 200, {contestSessions: this.login.listContestSessions(token)});
+				this.json(res, 200, { contestSessions: this.login.listContestSessions(token) });
 				return;
 			}
 			if (method === 'POST') {
 				const body = await this.body(req);
-				this.json(res, 201, {contestSession: this.login.createContestSession(token, {
+				this.json(res, 201, { contestSession: this.login.createContestSession(token, {
 					name: typeof body.name === 'string' ? body.name : undefined,
-				})});
+				}) });
 				return;
 			}
 		}
@@ -1005,44 +1003,44 @@ export class RPGHttpServer {
 			const contestSessionId = decodeURIComponent(contestMatch[1]);
 			const action = contestMatch[2];
 			if (method === 'GET' && !action) {
-				this.json(res, 200, {contestSession: this.login.getContestSession(token, contestSessionId)});
+				this.json(res, 200, { contestSession: this.login.getContestSession(token, contestSessionId) });
 				return;
 			}
 			if (method === 'PATCH' && !action) {
 				const body = await this.body(req);
-				this.json(res, 200, {contestSession: this.login.updateContestSession(
-					token, contestSessionId, body as unknown as RPGUpdateContestSessionRequest
-				)});
+				this.json(res, 200, { contestSession: this.login.updateContestSession(
+					token, contestSessionId, body
+				) });
 				return;
 			}
 			if (method === 'DELETE' && !action) {
-				this.json(res, 200, {contestSession: this.login.cancelContestSession(token, contestSessionId)});
+				this.json(res, 200, { contestSession: this.login.cancelContestSession(token, contestSessionId) });
 				return;
 			}
 			if (method === 'POST' && action === 'invite') {
-				this.json(res, 200, {contestSession: this.login.inviteContestSession(token, contestSessionId)});
+				this.json(res, 200, { contestSession: this.login.inviteContestSession(token, contestSessionId) });
 				return;
 			}
 			if (method === 'POST' && action === 'selection') {
 				const body = await this.body(req);
 				const teamIndexes = Array.isArray(body.teamIndexes) ? body.teamIndexes.map(Number) : Number(body.teamIndex);
-				this.json(res, 200, {contestSession: this.login.selectContestPokemon(
+				this.json(res, 200, { contestSession: this.login.selectContestPokemon(
 					token, contestSessionId, teamIndexes
-				)});
+				) });
 				return;
 			}
 			if (method === 'POST' && action === 'response') {
 				const body = await this.body(req);
-				this.json(res, 200, {contestSession: this.login.respondToContestInvitation(
+				this.json(res, 200, { contestSession: this.login.respondToContestInvitation(
 					token, contestSessionId, this.string(body.response) as 'accepted' | 'declined'
-				)});
+				) });
 				return;
 			}
 			if (method === 'POST' && action === 'start') {
 				const contestSession = this.login.startContestSession(token, contestSessionId);
 				try {
 					const contest = this.contestRuntimeManager.start(contestSession);
-					this.json(res, 200, {contestSession, contest});
+					this.json(res, 200, { contestSession, contest });
 				} catch (error) {
 					this.login.rollbackContestSessionStart(contestSessionId);
 					throw error;
@@ -1057,7 +1055,7 @@ export class RPGHttpServer {
 					characterId: account.mode === 'player' ? (account.characterId || account.viewAsCharacterId) : undefined,
 				});
 				if (contest.status === 'ended') this.login.completeContestSession(contestSessionId);
-				this.json(res, 200, {contest});
+				this.json(res, 200, { contest });
 				return;
 			}
 			if (method === 'POST' && action === 'action') {
@@ -1071,7 +1069,7 @@ export class RPGHttpServer {
 					}
 				);
 				if (contest.status === 'ended') this.login.completeContestSession(contestSessionId);
-				this.json(res, 200, {contest});
+				this.json(res, 200, { contest });
 				return;
 			}
 		}
@@ -1100,7 +1098,7 @@ export class RPGHttpServer {
 			if (method === 'PATCH' && !action) {
 				const body = await this.body(req);
 				const battleSession = this.login.updateBattleSession(
-					token, battleSessionId, body as unknown as RPGUpdateBattleSessionRequest
+					token, battleSessionId, body
 				);
 				this.json(res, 200, { battleSession });
 				return;

@@ -35,11 +35,11 @@ export class RPGStateCodec {
 	}
 
 	static deserializePokemon(serialized: string): RPGPokemonState {
-		return this.migratePokemon(this.parse(serialized, 'Pokemon') as RPGPokemonState);
+		return this.migratePokemon(this.parse(serialized, 'Pokemon'));
 	}
 
 	static deserializeBattle(serialized: string): RPGBattleState {
-		return this.migrateBattle(this.parse(serialized, 'battle') as RPGBattleState);
+		return this.migrateBattle(this.parse(serialized, 'battle'));
 	}
 
 	static canReadVersion(version: number | undefined): boolean {
@@ -55,12 +55,12 @@ export class RPGStateCodec {
 
 		while (version < RPG_STATE_VERSION) {
 			switch (version) {
-			case 1:
-				migrated = this.migrateVersion1To2(migrated);
-				version = 2;
-				break;
-			default:
-				throw new Error(`No RPG ${label} state migration from version ${version}`);
+				case 1:
+					migrated = this.migrateVersion1To2(migrated);
+					version = 2;
+					break;
+				default:
+					throw new Error(`No RPG ${label} state migration from version ${version}`);
 			}
 		}
 		return structuredClone(migrated);

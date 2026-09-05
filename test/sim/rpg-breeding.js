@@ -57,7 +57,6 @@ describe('RPG breeding foundation', () => {
 		assert.equal(canRPGPokemonEvolve('Snorunt', 'F'), true);
 	});
 
-
 	it('validates sex, family and first-stage restrictions', () => {
 		assert.equal(checkRPGBreedingCompatibility(
 			{ species: 'Gardevoir', sex: 'F' }, { species: 'Gallade', sex: 'M' }

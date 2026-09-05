@@ -187,7 +187,7 @@
 				}
 			} else if (egg) {
 				const image = deps.eggVisual ? deps.eggVisual(egg, 'box-pokemon-image box-pokemon-sprite') :
-					pokemonImage(deps, {name: 'Egg', species: 'Egg'});
+					pokemonImage(deps, { name: 'Egg', species: 'Egg' });
 				slot.append(image, el('strong', '', 'Egg'), el('small', 'box-egg-locked', 'Não pode ser movido'));
 				slot.disabled = true;
 				slot.setAttribute('aria-label', 'Egg no slot ' + (position + 1) + '. Não pode ser movido para a Box.');
@@ -646,7 +646,7 @@
 		identity.append(el('strong', 'box-compact-level', 'Lv. ' + pokemon.level));
 		if (pokemon.metadata?.breeding) identity.append(el('span', 'box-breeding-lock', 'Em procriação'));
 		hpHeading.append(identity);
-		const track = el('div', 'box-hp-track' + (pokemon.hp <= 0 ? ' empty' : '')); 
+		const track = el('div', 'box-hp-track' + (pokemon.hp <= 0 ? ' empty' : ''));
 		const hpRatio = pokemon.maxHP > 0 ? pokemon.hp / pokemon.maxHP : 0;
 		const hpColor = pokemon.hp <= 0 ? ' empty' : hpRatio <= 0.25 ? ' low' : hpRatio <= 0.5 ? ' medium' : '';
 		const fill = el('span', 'box-hp-fill' + hpColor);

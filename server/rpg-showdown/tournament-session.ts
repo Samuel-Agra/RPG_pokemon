@@ -1,7 +1,7 @@
-import {existsSync, mkdirSync, readFileSync, renameSync, writeFileSync} from 'node:fs';
-import {dirname, resolve} from 'node:path';
-import {toID} from '../../sim/dex-data';
-import {RPGTournamentSystem, type RPGTournamentParticipant as CoreParticipant} from '../../sim/rpg-showdown/systems/tournament';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { toID } from '../../sim/dex-data';
+import { RPGTournamentSystem, type RPGTournamentParticipant as CoreParticipant } from '../../sim/rpg-showdown/systems/tournament';
 
 export type RPGTournamentActivity = 'battle' | 'contest';
 export type RPGTournamentStatus = 'draft' | 'active' | 'ended' | 'cancelled';
@@ -29,7 +29,7 @@ export class RPGTournamentSessionService {
 	private tournaments = new Map<string, RPGTournament>();
 	constructor(readonly filePath = resolve('config/rpg-tournaments.json'), private readonly random = Math.random) {
 		if (!existsSync(filePath)) return;
-		const stored = JSON.parse(readFileSync(filePath, 'utf8')) as {version?: number; tournaments?: RPGTournament[]};
+		const stored = JSON.parse(readFileSync(filePath, 'utf8')) as { version?: number, tournaments?: RPGTournament[] };
 		if (stored.version !== 1 || !Array.isArray(stored.tournaments)) throw new Error('Invalid RPG tournament persistence file');
 		for (const tournament of stored.tournaments) this.tournaments.set(toID(tournament.id), structuredClone(tournament));
 	}
@@ -43,8 +43,8 @@ export class RPGTournamentSessionService {
 		const participants = input.participants.map(entry => this.normalize(entry));
 		if (new Set(participants.map(entry => entry.id)).size !== participants.length) throw new Error('Participante duplicado no torneio');
 		const now = Date.now(); const id = toID(input.name) + '-' + now.toString(36);
-		const teams = Array.from({length: input.bracketSize}, (_, index) => participants.slice(index * teamSize, index * teamSize + teamSize).map(entry => entry.id));
-		const tournament: RPGTournament = {...structuredClone(input), participants, teams, version: 1, id, status: 'draft', matches: [], currentRound: 0, createdAt: now, updatedAt: now};
+		const teams = Array.from({ length: input.bracketSize }, (_, index) => participants.slice(index * teamSize, index * teamSize + teamSize).map(entry => entry.id));
+		const tournament: RPGTournament = { ...structuredClone(input), participants, teams, version: 1, id, status: 'draft', matches: [], currentRound: 0, createdAt: now, updatedAt: now };
 		this.tournaments.set(toID(id), tournament); this.persist(); return structuredClone(tournament);
 	}
 	start(id: string) {
@@ -55,7 +55,7 @@ export class RPGTournamentSessionService {
 		// teams are drawn into bracket positions; partners are never separated.
 		const teamSize = tournament.format === 'multi' ? 2 : 1;
 		const registeredTeams = tournament.teams?.length ? tournament.teams : Array.from(
-			{length: tournament.bracketSize},
+			{ length: tournament.bracketSize },
 			(_, index) => tournament.participants.slice(index * teamSize, index * teamSize + teamSize).map(entry => entry.id)
 		);
 		const randomized = registeredTeams.map(team => [...team]);
@@ -89,7 +89,7 @@ export class RPGTournamentSessionService {
 		match.status = 'playing'; match.linkedSessionId = sessionId; this.save(tournament); return structuredClone(tournament);
 	}
 	linked(activity: RPGTournamentActivity, sessionId: string) {
-		for (const tournament of this.tournaments.values()) { const match = tournament.matches.find(entry => entry.linkedSessionId === sessionId && entry.status === 'playing'); if (match && tournament.activity === activity) return {tournament: structuredClone(tournament), match: structuredClone(match)}; }
+		for (const tournament of this.tournaments.values()) { const match = tournament.matches.find(entry => entry.linkedSessionId === sessionId && entry.status === 'playing'); if (match && tournament.activity === activity) return { tournament: structuredClone(tournament), match: structuredClone(match) }; }
 		return null;
 	}
 	repairOrphanedMatches(battleSessionIds: ReadonlySet<string>, contestSessionIds: ReadonlySet<string>) {
@@ -109,16 +109,16 @@ export class RPGTournamentSessionService {
 	cancel(id: string) { const tournament = this.require(id); if (tournament.status !== 'draft') throw new Error('Somente torneios que ainda não começaram podem ser cancelados'); tournament.status = 'cancelled'; this.save(tournament); return structuredClone(tournament); }
 	private normalize(entry: RPGTournamentParticipant): RPGTournamentParticipant {
 		const source = entry.source; if (!['player', 'temporary', 'registered'].includes(source)) throw new Error('Origem de participante inválida');
-		const core = RPGTournamentSystem.normalizeParticipant({...entry, type: source === 'player' ? 'player' : 'npc', npcClass: source === 'registered' ? 'special' : source === 'temporary' ? 'generic' : undefined});
-		return {...structuredClone(entry), ...core, source};
+		const core = RPGTournamentSystem.normalizeParticipant({ ...entry, type: source === 'player' ? 'player' : 'npc', npcClass: source === 'registered' ? 'special' : source === 'temporary' ? 'generic' : undefined });
+		return { ...structuredClone(entry), ...core, characterId: entry.characterId ? toID(entry.characterId) : undefined, source };
 	}
-	private createRound(tournament: RPGTournament, teams: string[][]) { for (let index = 0; index < teams.length; index += 2) { const sideA = teams[index]; const sideB = teams[index + 1]; const p1 = this.participant(tournament, sideA[0]); const p2 = this.participant(tournament, sideB[0]); const automatic = [...sideA,...sideB].every(id => this.participant(tournament,id).type === 'npc'); tournament.matches.push({id: `${tournament.id}-r${tournament.currentRound}-m${index / 2 + 1}`, round: tournament.currentRound, position: index / 2, participant1Id: p1.id, participant2Id: p2.id, participant1Ids:sideA, participant2Ids:sideB, status: 'ready', automatic}); } }
-	private createThirdPlaceMatch(tournament: RPGTournament, teams: string[][]) { const sideA=teams[0]; const sideB=teams[1]; const p1=this.participant(tournament,sideA[0]); const p2=this.participant(tournament,sideB[0]); const automatic=[...sideA,...sideB].every(id=>this.participant(tournament,id).type==='npc'); tournament.matches.push({id:`${tournament.id}-third-place`,round:tournament.currentRound,position:1,placement:'third-place',participant1Id:p1.id,participant2Id:p2.id,participant1Ids:sideA,participant2Ids:sideB,status:'ready',automatic}); }
-	private resolveAutomatic(tournament: RPGTournament) { for (const match of tournament.matches.filter(entry => entry.round === tournament.currentRound && entry.status === 'ready' && entry.automatic)) { const representative = (ids: string[], captain: string) => { const members = ids.map(id => this.participant(tournament,id)); return {id:captain,name:members.map(entry=>entry.name).join(' + '),type:'npc' as const,npcClass:(members.some(entry=>entry.npcClass==='special')?'special':'generic') as 'special'|'generic',strength:members.reduce((sum,entry)=>sum+(entry.strength||1),0)}; }; const p1 = representative(match.participant1Ids || [match.participant1Id],match.participant1Id); const p2 = representative(match.participant2Ids || [match.participant2Id],match.participant2Id); const result = RPGTournamentSystem.resolveNPCMatch(match.id, p1, p2, this.random); this.finishMatch(match, result.winnerId, result.resolution === 'special-priority' ? 'registered-priority' : 'weighted-random'); } this.advance(tournament); }
-	private advance(tournament: RPGTournament) { const round = tournament.matches.filter(entry => entry.round === tournament.currentRound); if (!round.length || round.some(entry => entry.status !== 'ended')) return; const totalRounds=Math.log2(tournament.bracketSize); if(tournament.currentRound===totalRounds){ const final=round.find(entry=>!entry.placement); const thirdPlace=round.find(entry=>entry.placement==='third-place'); tournament.status='ended'; tournament.championId=final?.winnerId; tournament.thirdPlaceId=thirdPlace?.winnerId; return; } const winners=round.map(entry=>entry.winnerId===entry.participant1Id?(entry.participant1Ids||[entry.participant1Id]):(entry.participant2Ids||[entry.participant2Id])); const semifinalLosers=tournament.currentRound===totalRounds-1?round.map(entry=>entry.winnerId===entry.participant1Id?(entry.participant2Ids||[entry.participant2Id]):(entry.participant1Ids||[entry.participant1Id])):null; tournament.currentRound++; this.createRound(tournament,winners); if(semifinalLosers) this.createThirdPlaceMatch(tournament,semifinalLosers); this.resolveAutomatic(tournament); }
+	private createRound(tournament: RPGTournament, teams: string[][]) { for (let index = 0; index < teams.length; index += 2) { const sideA = teams[index]; const sideB = teams[index + 1]; const p1 = this.participant(tournament, sideA[0]); const p2 = this.participant(tournament, sideB[0]); const automatic = [...sideA, ...sideB].every(id => this.participant(tournament, id).type === 'npc'); tournament.matches.push({ id: `${tournament.id}-r${tournament.currentRound}-m${index / 2 + 1}`, round: tournament.currentRound, position: index / 2, participant1Id: p1.id, participant2Id: p2.id, participant1Ids: sideA, participant2Ids: sideB, status: 'ready', automatic }); } }
+	private createThirdPlaceMatch(tournament: RPGTournament, teams: string[][]) { const sideA = teams[0]; const sideB = teams[1]; const p1 = this.participant(tournament, sideA[0]); const p2 = this.participant(tournament, sideB[0]); const automatic = [...sideA, ...sideB].every(id => this.participant(tournament, id).type === 'npc'); tournament.matches.push({ id: `${tournament.id}-third-place`, round: tournament.currentRound, position: 1, placement: 'third-place', participant1Id: p1.id, participant2Id: p2.id, participant1Ids: sideA, participant2Ids: sideB, status: 'ready', automatic }); }
+	private resolveAutomatic(tournament: RPGTournament) { for (const match of tournament.matches.filter(entry => entry.round === tournament.currentRound && entry.status === 'ready' && entry.automatic)) { const representative = (ids: string[], captain: string) => { const members = ids.map(id => this.participant(tournament, id)); return { id: captain, name: members.map(entry => entry.name).join(' + '), type: 'npc' as const, npcClass: (members.some(entry => entry.npcClass === 'special') ? 'special' : 'generic') as 'special' | 'generic', strength: members.reduce((sum, entry) => sum + (entry.strength || 1), 0) }; }; const p1 = representative(match.participant1Ids || [match.participant1Id], match.participant1Id); const p2 = representative(match.participant2Ids || [match.participant2Id], match.participant2Id); const result = RPGTournamentSystem.resolveNPCMatch(match.id, p1, p2, this.random); this.finishMatch(match, result.winnerId, result.resolution === 'special-priority' ? 'registered-priority' : 'weighted-random'); } this.advance(tournament); }
+	private advance(tournament: RPGTournament) { const round = tournament.matches.filter(entry => entry.round === tournament.currentRound); if (!round.length || round.some(entry => entry.status !== 'ended')) return; const totalRounds = Math.log2(tournament.bracketSize); if (tournament.currentRound === totalRounds) { const final = round.find(entry => !entry.placement); const thirdPlace = round.find(entry => entry.placement === 'third-place'); tournament.status = 'ended'; tournament.championId = final?.winnerId; tournament.thirdPlaceId = thirdPlace?.winnerId; return; } const winners = round.map(entry => entry.winnerId === entry.participant1Id ? (entry.participant1Ids || [entry.participant1Id]) : (entry.participant2Ids || [entry.participant2Id])); const semifinalLosers = tournament.currentRound === totalRounds - 1 ? round.map(entry => entry.winnerId === entry.participant1Id ? (entry.participant2Ids || [entry.participant2Id]) : (entry.participant1Ids || [entry.participant1Id])) : null; tournament.currentRound++; this.createRound(tournament, winners); if (semifinalLosers) this.createThirdPlaceMatch(tournament, semifinalLosers); this.resolveAutomatic(tournament); }
 	private finishMatch(match: RPGTournamentMatch, winnerId: string, resolution: RPGTournamentMatch['resolution']) { match.status = 'ended'; match.winnerId = winnerId; match.loserId = winnerId === match.participant1Id ? match.participant2Id : match.participant1Id; match.resolution = resolution; }
 	private participant(tournament: RPGTournament, id: string) { const value = tournament.participants.find(entry => entry.id === toID(id)); if (!value) throw new Error('Participante do torneio não encontrado'); return value; }
 	private require(id: string) { const value = this.tournaments.get(toID(id)); if (!value) throw new Error('Torneio não encontrado'); return value; }
 	private save(tournament: RPGTournament) { tournament.updatedAt = Date.now(); this.tournaments.set(toID(tournament.id), tournament); this.persist(); }
-	private persist() { mkdirSync(dirname(this.filePath), {recursive: true}); const temporary = this.filePath + '.tmp'; writeFileSync(temporary, JSON.stringify({version: 1, tournaments: [...this.tournaments.values()]}, null, '\t') + '\n'); renameSync(temporary, this.filePath); }
+	private persist() { mkdirSync(dirname(this.filePath), { recursive: true }); const temporary = this.filePath + '.tmp'; writeFileSync(temporary, JSON.stringify({ version: 1, tournaments: [...this.tournaments.values()] }, null, '\t') + '\n'); renameSync(temporary, this.filePath); }
 }

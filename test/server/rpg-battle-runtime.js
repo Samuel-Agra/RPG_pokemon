@@ -537,7 +537,7 @@ describe('RPG private battle runtime', () => {
 			return { manager, session, state, initialHP };
 		};
 
-		let clear = runSolarBeam('');
+		const clear = runSolarBeam('');
 		let charizard = clear.state.sides[0].pokemon[0];
 		assert.equal(clear.state.turn, 2);
 		assert.equal(clear.state.sides[1].pokemon[0].hp, clear.initialHP);

@@ -48,7 +48,7 @@ export class RPGTournamentSystem {
 			name,
 			type: participant.type,
 			...(participant.type === 'npc' ? { npcClass: participant.npcClass } : {}),
-			...(participant.type === 'npc' ? {strength: Math.max(1, Number(participant.strength) || 1)} : {}),
+			...(participant.type === 'npc' ? { strength: Math.max(1, Number(participant.strength) || 1) } : {}),
 		};
 	}
 

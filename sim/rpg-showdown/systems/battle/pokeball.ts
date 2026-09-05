@@ -82,163 +82,163 @@ export class RPGGen9PokeballCalculator {
 		const ultraBeast = context.isUltraBeast ?? (targetSpecies ? ULTRA_BEASTS.has(targetSpecies) : undefined);
 
 		switch (id) {
-		case 'greatball':
-			fixedModifier = 6144;
-			conditions.push('great-ball');
-			break;
-		case 'ultraball':
-			fixedModifier = 8192;
-			conditions.push('ultra-ball');
-			break;
-		case 'masterball':
-			guaranteed = true;
-			conditions.push('master-ball');
-			break;
-		case 'netball': {
-			if (need('targetTypes', context.targetTypes)) {
-				const types = context.targetTypes!.map(type => this.normalize(type));
-				if (types.includes('water') || types.includes('bug')) {
+			case 'greatball':
+				fixedModifier = 6144;
+				conditions.push('great-ball');
+				break;
+			case 'ultraball':
+				fixedModifier = 8192;
+				conditions.push('ultra-ball');
+				break;
+			case 'masterball':
+				guaranteed = true;
+				conditions.push('master-ball');
+				break;
+			case 'netball': {
+				if (need('targetTypes', context.targetTypes)) {
+					const types = context.targetTypes!.map(type => this.normalize(type));
+					if (types.includes('water') || types.includes('bug')) {
+						fixedModifier = 14336;
+						conditions.push('water-or-bug');
+					}
+				}
+				break;
+			}
+			case 'nestball':
+				if (need('targetLevel', context.targetLevel)) {
+					const level = this.level(context.targetLevel!);
+					if (level < 30) {
+						fixedModifier = Math.floor(((41 - level) * FIXED_POINT + 0.5) / 10);
+						conditions.push('target-below-level-30');
+					}
+				}
+				break;
+			case 'diveball':
+				if (need('isInWater', context.isInWater) && context.isInWater) {
 					fixedModifier = 14336;
-					conditions.push('water-or-bug');
+					conditions.push('target-in-water');
 				}
-			}
-			break;
-		}
-		case 'nestball':
-			if (need('targetLevel', context.targetLevel)) {
-				const level = this.level(context.targetLevel!);
-				if (level < 30) {
-					fixedModifier = Math.floor(((41 - level) * FIXED_POINT + 0.5) / 10);
-					conditions.push('target-below-level-30');
+				break;
+			case 'repeatball':
+				if (need('alreadyCaught', context.alreadyCaught) && context.alreadyCaught) {
+					fixedModifier = 14336;
+					conditions.push('species-already-caught');
 				}
+				break;
+			case 'timerball':
+				if (need('turnNumber', context.turnNumber)) {
+					const turnsPassed = Math.max(0, Math.trunc(context.turnNumber!) - 1);
+					fixedModifier = Math.min(16384, FIXED_POINT + 1229 * turnsPassed);
+					if (turnsPassed) conditions.push('turns-passed');
+				}
+				break;
+			case 'quickball':
+				if (need('turnNumber', context.turnNumber) && Math.trunc(context.turnNumber!) === 1) {
+					fixedModifier = 20480;
+					conditions.push('first-turn');
+				}
+				break;
+			case 'duskball': {
+				const knownDark = context.isNight === true || context.isCave === true;
+				if (!knownDark) {
+					need('isNight', context.isNight);
+					need('isCave', context.isCave);
+				}
+				if (knownDark) {
+					fixedModifier = 12288;
+					conditions.push(context.isCave ? 'cave' : 'night');
+				}
+				break;
 			}
-			break;
-		case 'diveball':
-			if (need('isInWater', context.isInWater) && context.isInWater) {
-				fixedModifier = 14336;
-				conditions.push('target-in-water');
-			}
-			break;
-		case 'repeatball':
-			if (need('alreadyCaught', context.alreadyCaught) && context.alreadyCaught) {
-				fixedModifier = 14336;
-				conditions.push('species-already-caught');
-			}
-			break;
-		case 'timerball':
-			if (need('turnNumber', context.turnNumber)) {
-				const turnsPassed = Math.max(0, Math.trunc(context.turnNumber!) - 1);
-				fixedModifier = Math.min(16384, FIXED_POINT + 1229 * turnsPassed);
-				if (turnsPassed) conditions.push('turns-passed');
-			}
-			break;
-		case 'quickball':
-			if (need('turnNumber', context.turnNumber) && Math.trunc(context.turnNumber!) === 1) {
-				fixedModifier = 20480;
-				conditions.push('first-turn');
-			}
-			break;
-		case 'duskball': {
-			const knownDark = context.isNight === true || context.isCave === true;
-			if (!knownDark) {
-				need('isNight', context.isNight);
-				need('isCave', context.isCave);
-			}
-			if (knownDark) {
-				fixedModifier = 12288;
-				conditions.push(context.isCave ? 'cave' : 'night');
-			}
-			break;
-		}
-		case 'fastball':
-			if (need('targetBaseSpeed', context.targetBaseSpeed) && context.targetBaseSpeed! >= 100) {
-				fixedModifier = 16384;
-				conditions.push('base-speed-at-least-100');
-			}
-			break;
-		case 'levelball':
-			if (need('targetLevel', context.targetLevel) && need('userLevel', context.userLevel)) {
-				const targetLevel = this.level(context.targetLevel!);
-				const userLevel = this.level(context.userLevel!);
-				if (Math.floor(userLevel / 4) >= targetLevel) {
-					fixedModifier = 32768;
-					conditions.push('user-level-at-least-four-times-target');
-				} else if (Math.floor(userLevel / 2) >= targetLevel) {
+			case 'fastball':
+				if (need('targetBaseSpeed', context.targetBaseSpeed) && context.targetBaseSpeed! >= 100) {
 					fixedModifier = 16384;
-					conditions.push('user-level-at-least-twice-target');
-				} else if (userLevel > targetLevel) {
-					fixedModifier = 8192;
-					conditions.push('user-level-above-target');
+					conditions.push('base-speed-at-least-100');
 				}
+				break;
+			case 'levelball':
+				if (need('targetLevel', context.targetLevel) && need('userLevel', context.userLevel)) {
+					const targetLevel = this.level(context.targetLevel!);
+					const userLevel = this.level(context.userLevel!);
+					if (Math.floor(userLevel / 4) >= targetLevel) {
+						fixedModifier = 32768;
+						conditions.push('user-level-at-least-four-times-target');
+					} else if (Math.floor(userLevel / 2) >= targetLevel) {
+						fixedModifier = 16384;
+						conditions.push('user-level-at-least-twice-target');
+					} else if (userLevel > targetLevel) {
+						fixedModifier = 8192;
+						conditions.push('user-level-above-target');
+					}
+				}
+				break;
+			case 'loveball': {
+				const hasContext = need('targetSpecies', context.targetSpecies) &&
+					need('userSpecies', context.userSpecies) &&
+					need('targetGender', context.targetGender) &&
+					need('userGender', context.userGender);
+				const targetGender = (context.targetGender || '').toUpperCase();
+				const userGender = (context.userGender || '').toUpperCase();
+				if (hasContext && targetSpecies === this.normalize(context.userSpecies!) &&
+					(targetGender === 'M' || targetGender === 'F') &&
+					(userGender === 'M' || userGender === 'F') && targetGender !== userGender) {
+					fixedModifier = 32768;
+					conditions.push('same-species-opposite-gender');
+				}
+				break;
 			}
-			break;
-		case 'loveball': {
-			const hasContext = need('targetSpecies', context.targetSpecies) &&
-				need('userSpecies', context.userSpecies) &&
-				need('targetGender', context.targetGender) &&
-				need('userGender', context.userGender);
-			const targetGender = (context.targetGender || '').toUpperCase();
-			const userGender = (context.userGender || '').toUpperCase();
-			if (hasContext && targetSpecies === this.normalize(context.userSpecies!) &&
-				(targetGender === 'M' || targetGender === 'F') &&
-				(userGender === 'M' || userGender === 'F') && targetGender !== userGender) {
-				fixedModifier = 32768;
-				conditions.push('same-species-opposite-gender');
+			case 'lureball':
+				if (need('isInWater', context.isInWater) && context.isInWater) {
+					fixedModifier = 16384;
+					conditions.push('target-in-or-directly-above-water');
+				}
+				break;
+			case 'moonball': {
+				let evolves = context.evolvesWithMoonStone;
+				if (evolves === undefined) {
+					if (need('targetSpecies', context.targetSpecies)) evolves = MOON_STONE_TARGETS.has(targetSpecies);
+				}
+				if (evolves) {
+					fixedModifier = 16384;
+					conditions.push('moon-stone-evolution');
+				}
+				break;
 			}
-			break;
-		}
-		case 'lureball':
-			if (need('isInWater', context.isInWater) && context.isInWater) {
-				fixedModifier = 16384;
-				conditions.push('target-in-or-directly-above-water');
+			case 'heavyball':
+				if (need('targetWeightKg', context.targetWeightKg)) {
+					const weight = Math.max(0, context.targetWeightKg!);
+					catchRateAdd = weight >= 300 ? 30 : weight >= 200 ? 20 : weight >= 100 ? 0 : -20;
+					conditions.push('weight-based-catch-rate');
+				}
+				break;
+			case 'beastball':
+				if (need('isUltraBeast', ultraBeast)) {
+					fixedModifier = ultraBeast ? 20480 : ULTRA_BEAST_PENALTY;
+					conditions.push(ultraBeast ? 'ultra-beast' : 'non-ultra-beast');
+				}
+				break;
+			case 'dreamball': {
+				const asleep = context.targetStatus === 'slp';
+				const comatose = this.normalize(context.targetAbility || '') === 'comatose';
+				if (!asleep && !comatose) {
+					need('targetStatus', context.targetStatus);
+					need('targetAbility', context.targetAbility);
+				}
+				if (asleep || comatose) {
+					fixedModifier = 16384;
+					conditions.push(asleep ? 'target-asleep' : 'target-comatose');
+				}
+				break;
 			}
-			break;
-		case 'moonball': {
-			let evolves = context.evolvesWithMoonStone;
-			if (evolves === undefined) {
-				if (need('targetSpecies', context.targetSpecies)) evolves = MOON_STONE_TARGETS.has(targetSpecies);
-			}
-			if (evolves) {
-				fixedModifier = 16384;
-				conditions.push('moon-stone-evolution');
-			}
-			break;
-		}
-		case 'heavyball':
-			if (need('targetWeightKg', context.targetWeightKg)) {
-				const weight = Math.max(0, context.targetWeightKg!);
-				catchRateAdd = weight >= 300 ? 30 : weight >= 200 ? 20 : weight >= 100 ? 0 : -20;
-				conditions.push('weight-based-catch-rate');
-			}
-			break;
-		case 'beastball':
-			if (need('isUltraBeast', ultraBeast)) {
-				fixedModifier = ultraBeast ? 20480 : ULTRA_BEAST_PENALTY;
-				conditions.push(ultraBeast ? 'ultra-beast' : 'non-ultra-beast');
-			}
-			break;
-		case 'dreamball': {
-			const asleep = context.targetStatus === 'slp';
-			const comatose = this.normalize(context.targetAbility || '') === 'comatose';
-			if (!asleep && !comatose) {
-				need('targetStatus', context.targetStatus);
-				need('targetAbility', context.targetAbility);
-			}
-			if (asleep || comatose) {
-				fixedModifier = 16384;
-				conditions.push(asleep ? 'target-asleep' : 'target-comatose');
-			}
-			break;
-		}
-		case 'healball':
-			postCaptureEffects.push('heal');
-			break;
-		case 'friendball':
-			postCaptureEffects.push('friendship-start');
-			break;
-		case 'luxuryball':
-			postCaptureEffects.push('friendship-growth');
-			break;
+			case 'healball':
+				postCaptureEffects.push('heal');
+				break;
+			case 'friendball':
+				postCaptureEffects.push('friendship-start');
+				break;
+			case 'luxuryball':
+				postCaptureEffects.push('friendship-growth');
+				break;
 		}
 
 		if (id !== 'masterball' && id !== 'beastball') {

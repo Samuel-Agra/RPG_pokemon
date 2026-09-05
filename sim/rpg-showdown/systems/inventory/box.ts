@@ -26,6 +26,8 @@ export const RPG_BOX_TIERS: Readonly<Record<RPGBoxTierId, RPGBoxTierDefinition>>
 export interface RPGStoredPokemon {
 	pokemonId: string;
 	pokemon: RPGCapturedPokemon;
+	/** Persistent RPG-only state managed by the server Box layer. */
+	metadata?: any;
 }
 
 export interface RPGPokemonBox {

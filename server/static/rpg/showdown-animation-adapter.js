@@ -389,7 +389,7 @@ if (!window.$) {
 		], { duration: duration(520), delay: duration(delay), easing: easing('ballistic2'), fill: 'both' });
 		const spriteAnimation = anchor.sprite.animate([
 			{ transform: 'translate3d(0, 0, 0) scale(1)', opacity: 1, filter: 'brightness(1)' },
-			{ transform: 'translate3d(0, -12px, 0) scale(.72)', opacity: .85, filter: 'brightness(2.2)', offset: .35 },
+			{ transform: 'translate3d(0, -12px, 0) scale(.72)', opacity: 0.85, filter: 'brightness(2.2)', offset: 0.35 },
 			{ transform: 'translate3d(0, -40px, 0) scale(0)', opacity: 0, filter: 'brightness(3)' },
 		], { duration: duration(400), delay: duration(delay + 480), easing: 'ease-in', fill: 'both' });
 		const closeAnimation = ball.animate([
@@ -411,7 +411,7 @@ if (!window.$) {
 		anchor.sprite.style.opacity = '0';
 		const spriteAnimation = anchor.sprite.animate([
 			{ transform: 'translate3d(0, 18px, 0) scale(.88)', opacity: 0 },
-			{ transform: 'translate3d(0, -5px, 0) scale(1.03)', opacity: 1, offset: .72 },
+			{ transform: 'translate3d(0, -5px, 0) scale(1.03)', opacity: 1, offset: 0.72 },
 			{ transform: 'translate3d(0, 0, 0) scale(1)', opacity: 1 },
 		], { duration: duration(760), delay: duration(delay), easing: 'ease-out', fill: 'both' });
 		await spriteAnimation.ready.catch(() => undefined);
@@ -419,10 +419,10 @@ if (!window.$) {
 		anchor.sprite.style.removeProperty('opacity');
 		const leaf = (effect, x, y, rotation, leafDelay) => scene.showEffect(effect, {
 			x: scene.attacker.x + x, y: scene.attacker.y + y, z: scene.attacker.z,
-			scale: .55, opacity: 0, time: delay + leafDelay,
+			scale: 0.55, opacity: 0, time: delay + leafDelay,
 		}, {
 			x: scene.attacker.x + x * 1.6, y: scene.attacker.y + y + 42, z: scene.attacker.z,
-			scale: .85, opacity: 1, time: delay + leafDelay + 380,
+			scale: 0.85, opacity: 1, time: delay + leafDelay + 380,
 		}, 'decel', 'fade', { transform: `rotate(${rotation}deg)` });
 		leaf('leaf1', -28, -18, -35, 0);
 		leaf('leaf2', 24, -12, 32, 70);
@@ -443,18 +443,18 @@ if (!window.$) {
 			window.BattleOtherAnims.megaevo.anim(scene, [scene.attacker]);
 			const effectTime = scene.play();
 			const collapse = oldSurface.animate([
-				{transform: 'scale(1)', opacity: 1, filter: 'brightness(1)'},
-				{transform: 'scale(.05)', opacity: .35, filter: 'brightness(8)'},
-			], {duration: duration(300), easing: 'ease-in', fill: 'forwards'});
+				{ transform: 'scale(1)', opacity: 1, filter: 'brightness(1)' },
+				{ transform: 'scale(.05)', opacity: 0.35, filter: 'brightness(8)' },
+			], { duration: duration(300), easing: 'ease-in', fill: 'forwards' });
 			await new Promise(resolve => setTimeout(resolve, duration(300)));
 			try { collapse.cancel(); } catch {}
 			const nextSurface = options.onTransform?.() ||
 				pokemonElement.querySelector('.rpg-showdown-sprite') || pokemonElement;
 			const reveal = nextSurface.animate([
-				{transform: 'scale(.05)', opacity: .35, filter: 'brightness(8)'},
-				{transform: 'scale(1.08)', opacity: 1, filter: 'brightness(1.5)', offset: .78},
-				{transform: 'scale(1)', opacity: 1, filter: 'brightness(1)'},
-			], {duration: duration(360), easing: 'ease-out', fill: 'both'});
+				{ transform: 'scale(.05)', opacity: 0.35, filter: 'brightness(8)' },
+				{ transform: 'scale(1.08)', opacity: 1, filter: 'brightness(1.5)', offset: 0.78 },
+				{ transform: 'scale(1)', opacity: 1, filter: 'brightness(1)' },
+			], { duration: duration(360), easing: 'ease-out', fill: 'both' });
 			await new Promise(resolve => setTimeout(resolve, Math.max(duration(390), duration(effectTime - 300 + 80))));
 			try { reveal.cancel(); } catch {}
 		} finally {
@@ -502,12 +502,12 @@ if (!window.$) {
 			const glow = options.color || '#d96a6a';
 			const reaction = surface.animate([
 				{ transform: 'translate3d(0, 0, 0) rotate(0)', filter: 'none' },
-				{ transform: 'translate3d(-9px, 2px, 0) rotate(-2deg)', filter: `${tint} drop-shadow(0 0 15px ${glow})`, offset: .22 },
-				{ transform: 'translate3d(8px, -2px, 0) rotate(2deg)', filter: `${tint} drop-shadow(0 0 20px ${glow})`, offset: .42 },
-				{ transform: 'translate3d(-5px, 1px, 0) rotate(-1deg)', filter: `${tint} drop-shadow(0 0 12px ${glow})`, offset: .62 },
+				{ transform: 'translate3d(-9px, 2px, 0) rotate(-2deg)', filter: `${tint} drop-shadow(0 0 15px ${glow})`, offset: 0.22 },
+				{ transform: 'translate3d(8px, -2px, 0) rotate(2deg)', filter: `${tint} drop-shadow(0 0 20px ${glow})`, offset: 0.42 },
+				{ transform: 'translate3d(-5px, 1px, 0) rotate(-1deg)', filter: `${tint} drop-shadow(0 0 12px ${glow})`, offset: 0.62 },
 				{ transform: 'translate3d(0, 0, 0) rotate(0)', filter: 'none' },
 			], { duration: duration(totalTime), easing: 'ease-in-out', fill: 'both' });
-			const impactAt = duration(Math.min(520, Math.max(240, totalTime * .45)));
+			const impactAt = duration(Math.min(520, Math.max(240, totalTime * 0.45)));
 			const impact = new Promise(resolve => setTimeout(() => {
 				try { options.onImpact?.(); } finally { resolve(); }
 			}, impactAt));
@@ -533,14 +533,14 @@ if (!window.$) {
 		const throwAnimation = ball.animate([
 			{ left: ballLeft(actor.x), top: ballTop(actor.y - 10), opacity: 0, transform: 'rotate(-20deg) scale(.8)' },
 			{ left: ballLeft((actor.x + target.x) / 2), top: ballTop(Math.min(actor.y, target.y) - 105), opacity: 1,
-				transform: 'rotate(420deg) scale(1.15)', offset: .55 },
+				transform: 'rotate(420deg) scale(1.15)', offset: 0.55 },
 			{ left: ballLeft(target.x), top: ballTop(target.y - 12), opacity: 1, transform: 'rotate(760deg) scale(1)' },
 		], { duration: duration(760), easing: easing('ballistic2'), fill: 'both' });
 		await new Promise(resolve => setTimeout(resolve, duration(790)));
 		options.onClose?.();
 		const absorbAnimation = target.sprite.animate([
 			{ transform: 'translate3d(0, 0, 0) scale(1)', opacity: 1, filter: 'brightness(1)' },
-			{ transform: 'translate3d(0, -28px, 0) scale(.45)', opacity: .78, filter: 'brightness(2.4)', offset: .45 },
+			{ transform: 'translate3d(0, -28px, 0) scale(.45)', opacity: 0.78, filter: 'brightness(2.4)', offset: 0.45 },
 			{ transform: 'translate3d(0, -42px, 0) scale(0)', opacity: 0, filter: 'brightness(3)' },
 		], { duration: duration(520), easing: 'ease-in', fill: 'both' });
 		const dropAnimation = ball.animate([
@@ -553,8 +553,8 @@ if (!window.$) {
 			options.onShake?.(shake);
 			const shakeAnimation = ball.animate([
 				{ left: ballLeft(target.x), top: ballTop(target.y + 28), transform: 'rotate(0deg)' },
-				{ left: ballLeft(target.x - 9), top: ballTop(target.y + 27), transform: 'rotate(-24deg)', offset: .25 },
-				{ left: ballLeft(target.x + 9), top: ballTop(target.y + 27), transform: 'rotate(24deg)', offset: .72 },
+				{ left: ballLeft(target.x - 9), top: ballTop(target.y + 27), transform: 'rotate(-24deg)', offset: 0.25 },
+				{ left: ballLeft(target.x + 9), top: ballTop(target.y + 27), transform: 'rotate(24deg)', offset: 0.72 },
 				{ left: ballLeft(target.x), top: ballTop(target.y + 28), transform: 'rotate(0deg)' },
 			], { duration: duration(360), easing: 'ease-in-out', fill: 'both' });
 			await new Promise(resolve => setTimeout(resolve, duration(410)));
@@ -579,7 +579,7 @@ if (!window.$) {
 			options.onFailure?.();
 			const escapeAnimation = target.sprite.animate([
 				{ transform: 'translate3d(0, -42px, 0) scale(0)', opacity: 0, filter: 'brightness(3)' },
-				{ transform: 'translate3d(0, 24px, 0) scale(1.08)', opacity: 1, filter: 'brightness(1.5)', offset: .72 },
+				{ transform: 'translate3d(0, 24px, 0) scale(1.08)', opacity: 1, filter: 'brightness(1.5)', offset: 0.72 },
 				{ transform: 'translate3d(0, 0, 0) scale(1)', opacity: 1, filter: 'brightness(1)' },
 			], { duration: duration(850), easing: 'ease-out', fill: 'both' });
 			const ballOpen = ball.animate([
@@ -610,7 +610,7 @@ if (!window.$) {
 				entry.anim(scene, [scene.attacker, ...scene.defenders]);
 				if (!scene.visualCount) throw new Error('A animação não produziu efeito visual');
 				const totalTime = scene.play();
-				const impactAt = duration(Math.min(900, Math.max(180, totalTime * .55)));
+				const impactAt = duration(Math.min(900, Math.max(180, totalTime * 0.55)));
 				const impact = !options.onImpact ? Promise.resolve() : new Promise(resolve => setTimeout(() => {
 					try { options.onImpact?.(); } finally { resolve(); }
 				}, impactAt));

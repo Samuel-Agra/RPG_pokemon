@@ -1,13 +1,13 @@
-import {existsSync, mkdirSync, readFileSync, renameSync, writeFileSync} from 'node:fs';
-import {dirname, resolve} from 'node:path';
+import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 
 import {
 	RPGBagSystem, RPGInventorySystem, RPGItems, RPGShopSystem,
 	type RPGInventoryState, type RPGItemDefinition, type RPGShopTransaction,
 } from '../../sim/rpg-showdown';
-import {Dex} from '../../sim/dex';
-import {getRPGItemIconPath} from './item-icons';
-import {RPGBagManagement} from './bag-management';
+import { Dex } from '../../sim/dex';
+import { getRPGItemIconPath } from './item-icons';
+import { RPGBagManagement } from './bag-management';
 
 export const RPG_COMMERCE_VERSION = 1;
 export type RPGShopType = 'poke-mart' | 'equipment' | 'evolution' | 'tm' | 'mega-stone' | 'farm' | 'thrift';
@@ -87,17 +87,17 @@ export interface RPGCommerceRepository {
 }
 
 const SHOP_DEFINITIONS: readonly Omit<RPGCommerceShopState, 'version' | 'revision' | 'offers'>[] = [
-	{id: 'poke-mart-central', type: 'poke-mart', name: 'Poké Mart', description: 'Pokébolas e medicamentos.'},
-	{id: 'equipment-central', type: 'equipment', name: 'Loja de Equipamentos', description: 'Held Items para batalhas.'},
-	{id: 'evolution-central', type: 'evolution', name: 'Loja Evolutiva', description: 'Itens de evolução e Teracristalização.'},
-	{id: 'tm-central', type: 'tm', name: 'Loja de TMs', description: 'Máquinas Técnicas e golpes.'},
-	{id: 'mega-stone-central', type: 'mega-stone', name: 'Loja de Mega Pedras', description: 'Mega Stones para Pokémon compatíveis.'},
-	{id: 'farm-central', type: 'farm', name: 'Fazenda', description: 'Berries e produtos agrícolas.'},
-	{id: 'thrift-central', type: 'thrift', name: 'Brechó', description: 'Tesouros, fósseis e itens diversos.'},
+	{ id: 'poke-mart-central', type: 'poke-mart', name: 'Poké Mart', description: 'Pokébolas e medicamentos.' },
+	{ id: 'equipment-central', type: 'equipment', name: 'Loja de Equipamentos', description: 'Held Items para batalhas.' },
+	{ id: 'evolution-central', type: 'evolution', name: 'Loja Evolutiva', description: 'Itens de evolução e Teracristalização.' },
+	{ id: 'tm-central', type: 'tm', name: 'Loja de TMs', description: 'Máquinas Técnicas e golpes.' },
+	{ id: 'mega-stone-central', type: 'mega-stone', name: 'Loja de Mega Pedras', description: 'Mega Stones para Pokémon compatíveis.' },
+	{ id: 'farm-central', type: 'farm', name: 'Fazenda', description: 'Berries e produtos agrícolas.' },
+	{ id: 'thrift-central', type: 'thrift', name: 'Brechó', description: 'Tesouros, fósseis e itens diversos.' },
 ];
 
 function defaultShop(definition: typeof SHOP_DEFINITIONS[number]): RPGCommerceShopState {
-	return {version: 1, ...definition, revision: 0, offers: []};
+	return { version: 1, ...definition, revision: 0, offers: [] };
 }
 
 function initialShops(): RPGCommerceShopState[] {
@@ -108,27 +108,27 @@ function normalizedId(value: string): string {
 	return String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
 }
 
-function itemGroup(item: RPGItemDefinition): {shopType?: RPGShopType, category: string} {
+function itemGroup(item: RPGItemDefinition): { shopType?: RPGShopType, category: string } {
 	const tags = new Set(item.tags || []);
-	if (tags.has('breeding') || tags.has('nursery') || tags.has('incubator')) return {category: 'nursery'};
-	if (item.category === 'ball') return {shopType: 'poke-mart', category: 'pokeballs'};
+	if (tags.has('breeding') || tags.has('nursery') || tags.has('incubator')) return { category: 'nursery' };
+	if (item.category === 'ball') return { shopType: 'poke-mart', category: 'pokeballs' };
 	if (['healing', 'status', 'pp', 'revive'].includes(item.category)) {
-		return {shopType: 'poke-mart', category: 'medicines'};
+		return { shopType: 'poke-mart', category: 'medicines' };
 	}
-	if (item.category === 'tm') return {shopType: 'tm', category: 'tms'};
-	if (tags.has('megastone')) return {shopType: 'mega-stone', category: 'mega-stones'};
-	if (tags.has('berry')) return {shopType: 'farm', category: 'berries'};
+	if (item.category === 'tm') return { shopType: 'tm', category: 'tms' };
+	if (tags.has('megastone')) return { shopType: 'mega-stone', category: 'mega-stones' };
+	if (tags.has('berry')) return { shopType: 'farm', category: 'berries' };
 	if (tags.has('contestterastalization') || tags.has('terastal') || tags.has('teracrystal')) {
-		return {shopType: 'evolution', category: 'terastalization'};
+		return { shopType: 'evolution', category: 'terastalization' };
 	}
-	if (item.category === 'held') return {shopType: 'equipment', category: 'held-items'};
-	if (item.category === 'evolution') return {shopType: 'evolution', category: 'evolution-items'};
-	if (tags.has('fossil')) return {shopType: 'thrift', category: 'fossils'};
-	if (tags.has('treasure')) return {shopType: 'thrift', category: 'treasures'};
+	if (item.category === 'held') return { shopType: 'equipment', category: 'held-items' };
+	if (item.category === 'evolution') return { shopType: 'evolution', category: 'evolution-items' };
+	if (tags.has('fossil')) return { shopType: 'thrift', category: 'fossils' };
+	if (tags.has('treasure')) return { shopType: 'thrift', category: 'treasures' };
 	if (item.price && (item.price.buy !== undefined || item.price.sell !== undefined)) {
-		return {shopType: 'thrift', category: 'other'};
+		return { shopType: 'thrift', category: 'other' };
 	}
-	return {category: 'unassigned'};
+	return { category: 'unassigned' };
 }
 
 function normalizeShop(input: RPGCommerceShopState): RPGCommerceShopState {
@@ -140,7 +140,7 @@ function normalizeShop(input: RPGCommerceShopState): RPGCommerceShopState {
 	if (new Set(offers.map(offer => offer.itemId)).size !== offers.length) {
 		throw new Error('RPG commerce establishment has duplicated offers');
 	}
-	return {version: 1, ...definition, revision: input.revision, offers};
+	return { version: 1, ...definition, revision: input.revision, offers };
 }
 
 function normalizePrice(value: number | undefined, label: string): number | undefined {
@@ -161,53 +161,52 @@ function normalizeOffer(input: RPGCommerceOffer, shopType: RPGShopType): RPGComm
 		itemId: item.id, stock: input.stock, buyMode: input.buyMode,
 		buyEnabled: input.buyEnabled ?? (input.buyMode === 'available' && buyPrice !== undefined),
 		sellEnabled: input.sellEnabled ?? sellPrice !== undefined,
-		...(buyPrice === undefined ? {} : {buyPrice}),
-		...(sellPrice === undefined ? {} : {sellPrice}),
+		...(buyPrice === undefined ? {} : { buyPrice }),
+		...(sellPrice === undefined ? {} : { sellPrice }),
 	};
 }
 
-function basePrices(item: RPGItemDefinition): {buy: number, sell: number} {
-	return {buy: item.price?.buy ?? 0, sell: item.price?.sell ?? 0};
+function basePrices(item: RPGItemDefinition): { buy: number, sell: number } {
+	return { buy: item.price?.buy ?? 0, sell: item.price?.sell ?? 0 };
 }
 
 function effectFilters(item: RPGItemDefinition, shopType: RPGShopType, category: string) {
 	if (shopType === 'poke-mart') {
 		const group = item.category === 'ball' ? 'Pokébolas' : item.category === 'revive' ? 'Revives' :
 			item.category === 'status' ? 'Status' : 'Curas';
-		return {effectGroup: group};
+		return { effectGroup: group };
 	}
 	if (shopType === 'evolution') {
-		return {effectGroup: category === 'terastalization' ? 'Teracristalização' : 'Itens de evolução'};
+		return { effectGroup: category === 'terastalization' ? 'Teracristalização' : 'Itens de evolução' };
 	}
 	if (shopType === 'tm') {
 		const moveId = typeof item.effect?.move === 'string' ? item.effect.move : '';
 		const move = Dex.moves.get(moveId);
-		const categories = {Physical: 'Físico', Special: 'Especial', Status: 'Status'};
+		const categories = { Physical: 'Físico', Special: 'Especial', Status: 'Status' };
 		return {
-			effectGroup: categories[move.category as keyof typeof categories] || 'Status',
+			effectGroup: categories[move.category] || 'Status',
 			effectType: move.type || 'Normal',
 		};
 	}
 	if (shopType === 'farm') {
 		const offensive = /apicot|custap|lansat|liechi|micle|petaya|salac|starf/i.test(item.id);
-		return {effectGroup: offensive ? 'Ofensivo' : 'Defensivo'};
+		return { effectGroup: offensive ? 'Ofensivo' : 'Defensivo' };
 	}
 	if (shopType === 'equipment') {
 		const tags = new Set(item.tags || []);
 		if (tags.has('consumable') || /herb|policy|seed|orb|sash|button|pack|card|service/i.test(item.name)) {
-			return {effectGroup: 'Uso único por batalha'};
+			return { effectGroup: 'Uso único por batalha' };
 		}
 		if (/vest|shield|eviolite|helmet|boots|cloak|goggles|umbre|pads|band|leftovers|sludge/i.test(item.name)) {
-			return {effectGroup: 'Defensivo'};
+			return { effectGroup: 'Defensivo' };
 		}
 		if (/choice|belt|glasses|lens|claw|fang|plate|charcoal|magnet|water|sand|spoon|scarf|feather|ice/i.test(item.name)) {
-			return {effectGroup: 'Ofensivo'};
+			return { effectGroup: 'Ofensivo' };
 		}
-		return {effectGroup: 'Utilidade'};
+		return { effectGroup: 'Utilidade' };
 	}
 	return {};
 }
-
 
 const POKEBALL_ORDER = [
 	'pokeball', 'greatball', 'ultraball',
@@ -229,7 +228,7 @@ const POKE_MART_SECTION_ORDER = ['pokeballs', 'healing', 'revive', 'status', 'pp
 const EVOLUTION_SECTION_ORDER = ['evolution-items', 'terastalization'] as const;
 const THRIFT_SECTION_ORDER = ['fossils', 'treasures', 'other'] as const;
 const RPG_ITEM_CATALOG_ORDER = new Map(RPGItems.list().map((item, index) => [item.id, index]));
-const POKE_MART_PROGRESSION = new Map(POKE_MART_ITEM_ORDER.map((id, index) => [id, index]));
+const POKE_MART_PROGRESSION = new Map<string, number>(POKE_MART_ITEM_ORDER.map((id, index) => [id, index]));
 
 function rankIn(order: readonly string[], value: string): number {
 	const rank = order.indexOf(value);
@@ -330,9 +329,9 @@ export class RPGFileCommerceRepository implements RPGCommerceRepository {
 		return this.memory.list();
 	}
 	private persist(): void {
-		mkdirSync(dirname(this.filePath), {recursive: true});
+		mkdirSync(dirname(this.filePath), { recursive: true });
 		const temporary = this.filePath + '.tmp';
-		const data: RPGCommerceState = {version: 1, shops: this.memory.list()};
+		const data: RPGCommerceState = { version: 1, shops: this.memory.list() };
 		writeFileSync(temporary, JSON.stringify(data, null, '\t') + '\n', 'utf8');
 		renameSync(temporary, this.filePath);
 	}
@@ -341,8 +340,8 @@ export class RPGFileCommerceRepository implements RPGCommerceRepository {
 export class RPGCommerceManagement {
 	constructor(readonly repository: RPGCommerceRepository = new RPGMemoryCommerceRepository()) {}
 
-	directory(): {version: number, shops: ReturnType<RPGCommerceManagement['summary']>[]} {
-		return {version: RPG_COMMERCE_VERSION, shops: this.repository.list().map(shop => this.summary(shop))};
+	directory(): { version: number, shops: ReturnType<RPGCommerceManagement['summary']>[] } {
+		return { version: RPG_COMMERCE_VERSION, shops: this.repository.list().map(shop => this.summary(shop)) };
 	}
 
 	summary(shop: RPGCommerceShopState) {
@@ -378,7 +377,7 @@ export class RPGCommerceManagement {
 			offers,
 			filters: [...new Set(offers.map(offer => offer.effectGroup).filter(Boolean))],
 			typeFilters: [...new Set(offers.map(offer => offer.effectType).filter(Boolean))],
-			...(master ? {candidates} : {}),
+			...(master ? { candidates } : {}),
 		};
 	}
 
@@ -396,7 +395,7 @@ export class RPGCommerceManagement {
 			const base = basePrices(item);
 			const buyEnabled = input.buyEnabled ?? (input.buyMode !== undefined ?
 				input.buyMode === 'available' : existing?.buyEnabled ??
-				(existing?.buyMode === 'available' && existing.buyPrice !== undefined));
+					(existing?.buyMode === 'available' && existing.buyPrice !== undefined));
 			const sellEnabled = input.sellEnabled ?? existing?.sellEnabled ?? existing?.sellPrice !== undefined;
 			const buyPrice = input.buyPrice ?? existing?.buyPrice ?? base.buy;
 			const sellPrice = input.sellPrice ?? existing?.sellPrice ?? base.sell;
@@ -428,16 +427,16 @@ export class RPGCommerceManagement {
 		shop.offers = this.materializeOffers(shop).map(offer => {
 			const item = RPGItems.require(offer.itemId);
 			const base = basePrices(item);
-			if (input.action === 'enable-buy') return {...offer, buyEnabled: true, buyMode: 'available' as const};
-			if (input.action === 'disable-buy') return {...offer, buyEnabled: false, buyMode: 'hidden' as const};
-			if (input.action === 'enable-sell') return {...offer, sellEnabled: true};
-			if (input.action === 'disable-sell') return {...offer, sellEnabled: false};
-			if (input.action === 'reset-prices') return {...offer, buyPrice: base.buy, sellPrice: base.sell};
+			if (input.action === 'enable-buy') return { ...offer, buyEnabled: true, buyMode: 'available' as const };
+			if (input.action === 'disable-buy') return { ...offer, buyEnabled: false, buyMode: 'hidden' as const };
+			if (input.action === 'enable-sell') return { ...offer, sellEnabled: true };
+			if (input.action === 'disable-sell') return { ...offer, sellEnabled: false };
+			if (input.action === 'reset-prices') return { ...offer, buyPrice: base.buy, sellPrice: base.sell };
 			if (input.action === 'increase-stock') {
-				return offer.buyEnabled ? {...offer, stock: offer.stock + 1} : offer;
+				return offer.buyEnabled ? { ...offer, stock: offer.stock + 1 } : offer;
 			}
 			if (input.action === 'decrease-stock') {
-				return offer.buyEnabled ? {...offer, stock: Math.max(0, offer.stock - 1)} : offer;
+				return offer.buyEnabled ? { ...offer, stock: Math.max(0, offer.stock - 1) } : offer;
 			}
 			const multiplier = input.action === 'increase-prices' ? 1.1 : 0.9;
 			return {
@@ -453,7 +452,7 @@ export class RPGCommerceManagement {
 
 	prepareTrade(
 		shopId: string, character: RPGCommerceCharacter, request: RPGCommerceTradeRequest
-	): {character: RPGCommerceCharacter, shop: RPGCommerceShopState, transactions: RPGShopTransaction[]} {
+	): { character: RPGCommerceCharacter, shop: RPGCommerceShopState, transactions: RPGShopTransaction[] } {
 		const shop = this.requireShop(shopId);
 		if (!request.actionId?.trim()) throw new Error('A transação requer um identificador');
 		if (!Array.isArray(request.lines) || !request.lines.length || request.lines.length > 100) {
@@ -498,7 +497,7 @@ export class RPGCommerceManagement {
 		return {
 			character: {
 				...character, money: account.balance,
-				inventory: {...RPGInventorySystem.migrate(character.inventory), bag: account.bag},
+				inventory: { ...RPGInventorySystem.migrate(character.inventory), bag: account.bag },
 				shopRevision: account.revision, shopTransactions: account.transactions,
 			},
 			shop: nextShop, transactions,
@@ -516,8 +515,8 @@ export class RPGCommerceManagement {
 			if (buyPrice === undefined && sellPrice === undefined) return [];
 			return [{
 				itemId: offer.itemId, stock: offer.stock,
-				...(buyPrice === undefined ? {} : {buyPrice}),
-				...(sellPrice === undefined ? {} : {sellPrice}),
+				...(buyPrice === undefined ? {} : { buyPrice }),
+				...(sellPrice === undefined ? {} : { sellPrice }),
 			}];
 		});
 		return RPGShopSystem.createCatalog(shop.id, offers, {

@@ -181,7 +181,7 @@ export function checkRPGBreedingCompatibility(
 export function getRPGBreedingOffspringSpecies(familyId: RPGBreedingFamilyId, sex: RPGPokemonSex): string {
 	const special = RPG_SPECIAL_BREEDING_FAMILIES[familyId];
 	if (special) {
-		const offspring = special.offspringBySex[sex];
+		const offspring = sex === 'N' ? undefined : special.offspringBySex[sex];
 		if (!offspring) throw new Error(`RPG breeding family ${familyId} has no offspring for sex ${sex}`);
 		return offspring;
 	}

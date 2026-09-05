@@ -9,58 +9,58 @@
 	const LOCAL_AUDIO_VERSION = '20260901-17';
 	const localAudioUrl = file => LOCAL_AUDIO_ROOT + file + '?v=' + LOCAL_AUDIO_VERSION;
 	const EFFECTS = Object.freeze({
-		click: {file: 'ui-click.wav', gain: .55}, impact: {file: 'impact.wav', gain: 1.1},
-		residual: {file: 'residual-damage.wav', gain: .9}, heal: {file: 'heal.wav', gain: .85},
-		captureSuccess: {file: 'capture-success.wav', gain: 1}, victory: {file: 'victory.wav', gain: 1},
-		defeat: {file: 'defeat.wav', gain: .95}, evolution: {file: 'evolution.wav', gain: 1},
-		captureThrow: {file: 'capture-throw.wav', gain: .8},
-		captureClose: {file: 'capture-close.wav', gain: .85},
-		captureShake: {file: 'capture-shake.wav', gain: .75},
-		eggShake: {file: 'capture-shake.wav', gain: .48},
-		captureFailure: {file: 'capture-failure.wav', gain: .9},
-		faint: {file: 'faint.wav', gain: .9},
-		fleeSuccess: {file: 'flee-success.wav', gain: .85},
-		fleeBlocked: {file: 'flee-blocked.wav', gain: .85},
-		moveBlocked: {file: 'move-blocked.wav', gain: .9},
-		statusBurn: {file: 'status-burn.wav', gain: .78},
-		statusPoison: {file: 'status-poison.wav', gain: .8},
-		statusParalysis: {file: 'status-paralysis.wav', gain: .72},
-		statusSleep: {file: 'status-sleep.wav', gain: .68},
-		statusFreeze: {file: 'status-freeze.wav', gain: .82},
-		berryBite: {file: 'berry-bite.wav', gain: .72},
-		heldItemActivate: {file: 'held-item-activate.wav', gain: .72},
-		levelUp: {file: 'level-up.wav', gain: .9},
-		pokemonCenterHeal: {file: 'pokemon-center-heal.wav', gain: .78},
-		shinySparkle: {file: 'shiny-sparkle.wav', gain: .62},
-		contestAudience1: {file: 'contest-audience-1.wav', gain: .55},
-		contestAudience2: {file: 'contest-audience-2.wav', gain: .62},
-		contestAudience3: {file: 'contest-audience-3.wav', gain: .72},
-		contestAudience4: {file: 'contest-audience-4.wav', gain: .82},
-		contestAudience5: {file: 'contest-audience-5.wav', gain: .92},
-		contestAudience6: {file: 'contest-audience-6.wav', gain: 1},
+		click: { file: 'ui-click.wav', gain: 0.55 }, impact: { file: 'impact.wav', gain: 1.1 },
+		residual: { file: 'residual-damage.wav', gain: 0.9 }, heal: { file: 'heal.wav', gain: 0.85 },
+		captureSuccess: { file: 'capture-success.wav', gain: 1 }, victory: { file: 'victory.wav', gain: 1 },
+		defeat: { file: 'defeat.wav', gain: 0.95 }, evolution: { file: 'evolution.wav', gain: 1 },
+		captureThrow: { file: 'capture-throw.wav', gain: 0.8 },
+		captureClose: { file: 'capture-close.wav', gain: 0.85 },
+		captureShake: { file: 'capture-shake.wav', gain: 0.75 },
+		eggShake: { file: 'capture-shake.wav', gain: 0.48 },
+		captureFailure: { file: 'capture-failure.wav', gain: 0.9 },
+		faint: { file: 'faint.wav', gain: 0.9 },
+		fleeSuccess: { file: 'flee-success.wav', gain: 0.85 },
+		fleeBlocked: { file: 'flee-blocked.wav', gain: 0.85 },
+		moveBlocked: { file: 'move-blocked.wav', gain: 0.9 },
+		statusBurn: { file: 'status-burn.wav', gain: 0.78 },
+		statusPoison: { file: 'status-poison.wav', gain: 0.8 },
+		statusParalysis: { file: 'status-paralysis.wav', gain: 0.72 },
+		statusSleep: { file: 'status-sleep.wav', gain: 0.68 },
+		statusFreeze: { file: 'status-freeze.wav', gain: 0.82 },
+		berryBite: { file: 'berry-bite.wav', gain: 0.72 },
+		heldItemActivate: { file: 'held-item-activate.wav', gain: 0.72 },
+		levelUp: { file: 'level-up.wav', gain: 0.9 },
+		pokemonCenterHeal: { file: 'pokemon-center-heal.wav', gain: 0.78 },
+		shinySparkle: { file: 'shiny-sparkle.wav', gain: 0.62 },
+		contestAudience1: { file: 'contest-audience-1.wav', gain: 0.55 },
+		contestAudience2: { file: 'contest-audience-2.wav', gain: 0.62 },
+		contestAudience3: { file: 'contest-audience-3.wav', gain: 0.72 },
+		contestAudience4: { file: 'contest-audience-4.wav', gain: 0.82 },
+		contestAudience5: { file: 'contest-audience-5.wav', gain: 0.92 },
+		contestAudience6: { file: 'contest-audience-6.wav', gain: 1 },
 	});
-	const PROGRESSION_MUSIC = Object.freeze({file: 'progression-theme.wav', gain: .22});
+	const PROGRESSION_MUSIC = Object.freeze({ file: 'progression-theme.wav', gain: 0.22 });
 	const ENVIRONMENTS = Object.freeze({
-		raindance: {file: 'weather-rain.wav', gain: .5}, rain: {file: 'weather-rain.wav', gain: .5},
-		sunnyday: {file: 'weather-sun.wav'}, sun: {file: 'weather-sun.wav'},
-		sandstorm: {file: 'weather-sand.wav'}, sand: {file: 'weather-sand.wav'},
-		snow: {file: 'weather-snow.wav'}, hail: {file: 'weather-snow.wav'},
-		electricterrain: {file: 'terrain-electric.wav', gain: .38}, electric: {file: 'terrain-electric.wav', gain: .38},
-		grassyterrain: {file: 'terrain-grassy.wav', gain: .4}, grassy: {file: 'terrain-grassy.wav', gain: .4},
-		psychicterrain: {file: 'terrain-psychic.wav'}, psychic: {file: 'terrain-psychic.wav'},
-		mistyterrain: {file: 'terrain-misty.wav', gain: .36}, misty: {file: 'terrain-misty.wav', gain: .36},
+		raindance: { file: 'weather-rain.wav', gain: 0.5 }, rain: { file: 'weather-rain.wav', gain: 0.5 },
+		sunnyday: { file: 'weather-sun.wav' }, sun: { file: 'weather-sun.wav' },
+		sandstorm: { file: 'weather-sand.wav' }, sand: { file: 'weather-sand.wav' },
+		snow: { file: 'weather-snow.wav' }, hail: { file: 'weather-snow.wav' },
+		electricterrain: { file: 'terrain-electric.wav', gain: 0.38 }, electric: { file: 'terrain-electric.wav', gain: 0.38 },
+		grassyterrain: { file: 'terrain-grassy.wav', gain: 0.4 }, grassy: { file: 'terrain-grassy.wav', gain: 0.4 },
+		psychicterrain: { file: 'terrain-psychic.wav' }, psychic: { file: 'terrain-psychic.wav' },
+		mistyterrain: { file: 'terrain-misty.wav', gain: 0.36 }, misty: { file: 'terrain-misty.wav', gain: 0.36 },
 	});
 	const TRACKS = Object.freeze({
-		npc: {name: 'DPP Trainer', file: 'dpp-trainer.mp3', loopStart: 13.440, loopEnd: 96.959},
-		player: {name: 'BW Rival', file: 'bw-rival.mp3', loopStart: 19.180, loopEnd: 57.373},
-		gymLeader: {name: 'BW2 Kanto Gym Leader', file: 'bw2-kanto-gym-leader.mp3', loopStart: 14.626, loopEnd: 58.986},
-		tournament: {name: 'XY Trainer', file: 'xy-trainer.mp3', loopStart: 7.802, loopEnd: 82.469},
-		tournamentFinal: {name: 'ORAS Rival', file: 'oras-rival.mp3', loopStart: 14.303, loopEnd: 69.149},
-		performance: {name: 'BW2 Homika/Dogars', file: 'bw2-homika-dogars.mp3', loopStart: 1.661, loopEnd: 68.131},
-		eliteFour: {name: 'SPL Elite 4', file: 'spl-elite4.mp3', loopStart: 3.962, loopEnd: 152.509},
-		boss: {name: 'HGSS Kanto Trainer', file: 'hgss-kanto-trainer.mp3', loopStart: 13.003, loopEnd: 94.656},
-		horde: {name: 'HGSS Johto Trainer', file: 'hgss-johto-trainer.mp3', loopStart: 23.731, loopEnd: 125.086},
-		wild: {name: 'BW Trainer', file: 'bw-trainer.mp3', loopStart: 14.629, loopEnd: 110.109},
+		npc: { name: 'DPP Trainer', file: 'dpp-trainer.mp3', loopStart: 13.440, loopEnd: 96.959 },
+		player: { name: 'BW Rival', file: 'bw-rival.mp3', loopStart: 19.180, loopEnd: 57.373 },
+		gymLeader: { name: 'BW2 Kanto Gym Leader', file: 'bw2-kanto-gym-leader.mp3', loopStart: 14.626, loopEnd: 58.986 },
+		tournament: { name: 'XY Trainer', file: 'xy-trainer.mp3', loopStart: 7.802, loopEnd: 82.469 },
+		tournamentFinal: { name: 'ORAS Rival', file: 'oras-rival.mp3', loopStart: 14.303, loopEnd: 69.149 },
+		performance: { name: 'BW2 Homika/Dogars', file: 'bw2-homika-dogars.mp3', loopStart: 1.661, loopEnd: 68.131 },
+		eliteFour: { name: 'SPL Elite 4', file: 'spl-elite4.mp3', loopStart: 3.962, loopEnd: 152.509 },
+		boss: { name: 'HGSS Kanto Trainer', file: 'hgss-kanto-trainer.mp3', loopStart: 13.003, loopEnd: 94.656 },
+		horde: { name: 'HGSS Johto Trainer', file: 'hgss-johto-trainer.mp3', loopStart: 23.731, loopEnd: 125.086 },
+		wild: { name: 'BW Trainer', file: 'bw-trainer.mp3', loopStart: 14.629, loopEnd: 110.109 },
 	});
 	function normalized(value) {
 		return String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
@@ -76,10 +76,6 @@
 			return stored === null ? DEFAULT_VOLUME : clampVolume(stored);
 		} catch {
 			return DEFAULT_VOLUME;
-		}
-		if (progressionAudio) {
-			progressionAudio.rpgTargetVolume = Math.min(.07, volume * PROGRESSION_MUSIC.gain);
-			progressionAudio.volume = progressionAudio.rpgTargetVolume;
 		}
 	}
 	function npcDescriptor(session) {
@@ -102,7 +98,7 @@
 			return TRACKS.eliteFour;
 		}
 		if (progressionAudio) {
-			progressionAudio.rpgTargetVolume = Math.min(.07, volume * PROGRESSION_MUSIC.gain);
+			progressionAudio.rpgTargetVolume = Math.min(0.07, volume * PROGRESSION_MUSIC.gain);
 			progressionAudio.volume = progressionAudio.rpgTargetVolume;
 		}
 		if (npc.includes('gymleader') || npc.includes('liderdeginasio')) return TRACKS.gymLeader;
@@ -132,7 +128,7 @@
 			fadeTimers.delete(target.rpgFadeTimer);
 		}
 		if (progressionAudio) {
-			progressionAudio.rpgTargetVolume = Math.min(.07, volume * PROGRESSION_MUSIC.gain);
+			progressionAudio.rpgTargetVolume = Math.min(0.07, volume * PROGRESSION_MUSIC.gain);
 			progressionAudio.volume = progressionAudio.rpgTargetVolume;
 		}
 		const initial = Number(target.volume) || 0;
@@ -167,8 +163,8 @@
 				removeUnlockHandler();
 				if (audio && volume) void audio.play().catch(() => undefined);
 			};
-			document.addEventListener('pointerdown', unlockHandler, {once: true});
-			document.addEventListener('keydown', unlockHandler, {once: true});
+			document.addEventListener('pointerdown', unlockHandler, { once: true });
+			document.addEventListener('keydown', unlockHandler, { once: true });
 		});
 	}
 	function cryIdentifier(value) {
@@ -185,14 +181,14 @@
 			const attempt = () => {
 				if (candidate >= ids.length || effectsMuted) return;
 				const cry = new Audio(window.RPGAssets.url('audio/cries/' + ids[candidate++] + '.mp3'));
-				cry.volume = Math.min(0.35, DEFAULT_EFFECT_VOLUME * .8);
+				cry.volume = Math.min(0.35, DEFAULT_EFFECT_VOLUME * 0.8);
 				cryAudios.add(cry);
 				const cleanup = () => cryAudios.delete(cry);
-				cry.addEventListener('ended', cleanup, {once: true});
+				cry.addEventListener('ended', cleanup, { once: true });
 				cry.addEventListener('error', () => {
 					cleanup();
 					attempt();
-				}, {once: true});
+				}, { once: true });
 				void cry.play().catch(cleanup);
 			};
 			attempt();
@@ -208,11 +204,11 @@
 		if (!definition || effectsMuted) return null;
 		const effect = new Audio(localAudioUrl(definition.file));
 		effect.preload = 'auto';
-		effect.volume = Math.min(.5, DEFAULT_EFFECT_VOLUME * definition.gain);
+		effect.volume = Math.min(0.5, DEFAULT_EFFECT_VOLUME * definition.gain);
 		effectAudios.add(effect);
 		const cleanup = () => effectAudios.delete(effect);
-		effect.addEventListener('ended', cleanup, {once: true});
-		effect.addEventListener('error', cleanup, {once: true});
+		effect.addEventListener('ended', cleanup, { once: true });
+		effect.addEventListener('error', cleanup, { once: true });
 		void effect.play().catch(cleanup);
 		return effect;
 	}
@@ -224,7 +220,7 @@
 			else finish();
 		}
 		if (progressionAudio) {
-			progressionAudio.rpgTargetVolume = Math.min(.07, volume * PROGRESSION_MUSIC.gain);
+			progressionAudio.rpgTargetVolume = Math.min(0.07, volume * PROGRESSION_MUSIC.gain);
 			progressionAudio.volume = progressionAudio.rpgTargetVolume;
 		}
 		environmentAudios.clear();
@@ -235,25 +231,25 @@
 			.filter(id => id && id !== 'none' && ENVIRONMENTS[id]))];
 		const signature = ids.join('|');
 		if (signature === environmentSignature) return signature;
-		stopEnvironment({fade: true});
+		stopEnvironment({ fade: true });
 		environmentSignature = signature;
 		for (const id of ids) {
 			const ambience = new Audio(localAudioUrl(ENVIRONMENTS[id].file));
 			ambience.loop = true; ambience.preload = 'auto';
-			ambience.rpgGain = ENVIRONMENTS[id].gain || .32;
-			ambience.rpgTargetVolume = Math.min(.14, volume * ambience.rpgGain);
+			ambience.rpgGain = ENVIRONMENTS[id].gain || 0.32;
+			ambience.rpgTargetVolume = Math.min(0.14, volume * ambience.rpgGain);
 			ambience.volume = 0;
 			environmentAudios.set(id, ambience);
 			if (volume) {
 				void ambience.play().then(() => fadeAudio(ambience, ambience.rpgTargetVolume, 750)).catch(() => undefined);
 			}
-		if (progressionAudio) {
-			progressionAudio.rpgTargetVolume = Math.min(.07, volume * PROGRESSION_MUSIC.gain);
-			progressionAudio.volume = progressionAudio.rpgTargetVolume;
+			if (progressionAudio) {
+				progressionAudio.rpgTargetVolume = Math.min(0.07, volume * PROGRESSION_MUSIC.gain);
+				progressionAudio.volume = progressionAudio.rpgTargetVolume;
+			}
 		}
-		}
 		if (progressionAudio) {
-			progressionAudio.rpgTargetVolume = Math.min(.07, volume * PROGRESSION_MUSIC.gain);
+			progressionAudio.rpgTargetVolume = Math.min(0.07, volume * PROGRESSION_MUSIC.gain);
 			progressionAudio.volume = progressionAudio.rpgTargetVolume;
 		}
 		return signature;
@@ -264,7 +260,7 @@
 		progressionAudio.loop = true;
 		progressionAudio.preload = 'auto';
 		progressionAudio.volume = 0;
-		progressionAudio.rpgTargetVolume = Math.min(.07, volume * PROGRESSION_MUSIC.gain);
+		progressionAudio.rpgTargetVolume = Math.min(0.07, volume * PROGRESSION_MUSIC.gain);
 		if (volume) void progressionAudio.play().then(() => {
 			fadeAudio(progressionAudio, progressionAudio.rpgTargetVolume, 900);
 		}).catch(() => undefined);
@@ -285,7 +281,7 @@
 			return track;
 		}
 		if (progressionAudio) {
-			progressionAudio.rpgTargetVolume = Math.min(.07, volume * PROGRESSION_MUSIC.gain);
+			progressionAudio.rpgTargetVolume = Math.min(0.07, volume * PROGRESSION_MUSIC.gain);
 			progressionAudio.volume = progressionAudio.rpgTargetVolume;
 		}
 		if (audio && currentFile === track.file) {
@@ -294,7 +290,7 @@
 			return track;
 		}
 		if (progressionAudio) {
-			progressionAudio.rpgTargetVolume = Math.min(.07, volume * PROGRESSION_MUSIC.gain);
+			progressionAudio.rpgTargetVolume = Math.min(0.07, volume * PROGRESSION_MUSIC.gain);
 			progressionAudio.volume = progressionAudio.rpgTargetVolume;
 		}
 		stop();
@@ -318,11 +314,11 @@
 		try { return window.localStorage?.getItem(EFFECTS_STORAGE_KEY) === 'true'; } catch { return false; }
 	}
 	function playForContest() {
-		return playForBattle({musicContext: {activity: 'performance'}, participants: []});
+		return playForBattle({ musicContext: { activity: 'performance' }, participants: [] });
 	}
 	function stop() {
 		removeUnlockHandler();
-		stopEnvironment({fade: true});
+		stopEnvironment({ fade: true });
 		for (const timer of cryTimers) clearTimeout(timer);
 		cryTimers.clear();
 		for (const cry of cryAudios) {
@@ -330,7 +326,7 @@
 			cry.currentTime = 0;
 		}
 		if (progressionAudio) {
-			progressionAudio.rpgTargetVolume = Math.min(.07, volume * PROGRESSION_MUSIC.gain);
+			progressionAudio.rpgTargetVolume = Math.min(0.07, volume * PROGRESSION_MUSIC.gain);
 			progressionAudio.volume = progressionAudio.rpgTargetVolume;
 		}
 		cryAudios.clear();
@@ -339,7 +335,7 @@
 			audio.currentTime = 0;
 		}
 		if (progressionAudio) {
-			progressionAudio.rpgTargetVolume = Math.min(.07, volume * PROGRESSION_MUSIC.gain);
+			progressionAudio.rpgTargetVolume = Math.min(0.07, volume * PROGRESSION_MUSIC.gain);
 			progressionAudio.volume = progressionAudio.rpgTargetVolume;
 		}
 		audio = null;
@@ -353,17 +349,17 @@
 			else audio.pause();
 		}
 		if (progressionAudio) {
-			progressionAudio.rpgTargetVolume = Math.min(.07, volume * PROGRESSION_MUSIC.gain);
+			progressionAudio.rpgTargetVolume = Math.min(0.07, volume * PROGRESSION_MUSIC.gain);
 			progressionAudio.volume = progressionAudio.rpgTargetVolume;
 		}
 		for (const ambience of environmentAudios.values()) {
-			ambience.rpgTargetVolume = Math.min(.14, volume * (ambience.rpgGain || .32));
+			ambience.rpgTargetVolume = Math.min(0.14, volume * (ambience.rpgGain || 0.32));
 			ambience.volume = ambience.rpgTargetVolume;
 			if (volume && ambience.paused) void ambience.play().catch(() => undefined);
 			else if (!volume) ambience.pause();
 		}
 		if (progressionAudio) {
-			progressionAudio.rpgTargetVolume = Math.min(.07, volume * PROGRESSION_MUSIC.gain);
+			progressionAudio.rpgTargetVolume = Math.min(0.07, volume * PROGRESSION_MUSIC.gain);
 			progressionAudio.volume = progressionAudio.rpgTargetVolume;
 		}
 		try {
@@ -433,7 +429,7 @@
 			panel.classList.toggle('hidden'); update();
 			if (opening) {
 				document.addEventListener('pointerdown', closeOutside, true);
-				slider.focus({preventScroll: true});
+				slider.focus({ preventScroll: true });
 			} else document.removeEventListener('pointerdown', closeOutside, true);
 		});
 		slider.addEventListener('input', () => { setVolume(Number(slider.value) / 100); update(); });

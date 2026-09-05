@@ -1,15 +1,15 @@
-import {Dex} from '../../sim/dex';
-import {toID} from '../../sim/dex-data';
-import type {PokemonSet} from '../../sim/teams';
-import {getRPGPokemonSizeClass, type RPGPokemonSizeClass} from '../../sim/rpg-showdown';
-import {getRPGContestMove, RPG_CONTEST_NO_PP_ACTION} from './contest-move-catalog';
-import {getRPGContestItemClassification} from './contest-item-catalog';
+import { Dex } from '../../sim/dex';
+import { toID } from '../../sim/dex-data';
+import type { PokemonSet } from '../../sim/teams';
+import { getRPGPokemonSizeClass, type RPGPokemonSizeClass } from '../../sim/rpg-showdown';
+import { getRPGContestMove, RPG_CONTEST_NO_PP_ACTION } from './contest-move-catalog';
+import { getRPGContestItemClassification } from './contest-item-catalog';
 import {
 	applyRPGContestSecondRoundCreativity, applyRPGContestWithinRoundRepetition,
 	RPG_DEFAULT_CONTEST_COMBOS, scoreRPGContestRound,
 	type RPGContestComboDefinition, type RPGContestRoundMechanicalScore,
 } from './contest-scoring';
-import type {RPGContestParticipant, RPGContestSession} from './contest-session';
+import type { RPGContestParticipant, RPGContestSession } from './contest-session';
 import {
 	getRPGContestPerformance, getRPGContestPerformanceBonus, rankRPGContestParticipants,
 	type RPGContestPlacement,
@@ -45,8 +45,8 @@ export interface RPGContestRuntimePokemon {
 	status: string;
 	ability: string;
 	moves: {
-		id: string; name: string; type: string; battleCategory: string; basePower: number | null;
-		battleStatus: string; tags: string[]; changesField: boolean; pp: number; maxPP: number;
+		id: string, name: string, type: string, battleCategory: string, basePower: number | null,
+		battleStatus: string, tags: string[], changesField: boolean, pp: number, maxPP: number,
 	}[];
 	movesFrozen: boolean;
 	megaEligible: boolean;
@@ -162,8 +162,8 @@ export interface RPGContestFinalHighlights {
 }
 
 export type RPGContestRuntimeAction =
-	{type: 'select-move', moveId: string, pokemonIndex?: number, activateMega?: boolean} |
-	{type: 'abandon'} |
+	{ type: 'select-move', moveId: string, pokemonIndex?: number, activateMega?: boolean } |
+	{ type: 'abandon' } |
 	{
 		type: 'submit-judging', criteria: RPGContestJudgingScores, mechanicalCorrection?: number,
 		correctionJustification?: string, copyPenalty?: 0 | -3 | -6 | -10 | -15 | -20,
@@ -227,7 +227,7 @@ export class RPGContestRuntimeManager {
 		this.pruneEndedRuntimes();
 		const sessionId = toID(session.id);
 		if (session.status !== 'started') throw new Error('RPG contest session has not started');
-		if (this.runtimes.has(sessionId)) return this.snapshot(sessionId, {master: true});
+		if (this.runtimes.has(sessionId)) return this.snapshot(sessionId, { master: true });
 		if (session.presentationOrder.length !== session.participants.length) {
 			throw new Error('RPG contest presentation order is incomplete');
 		}
@@ -240,7 +240,7 @@ export class RPGContestRuntimeManager {
 		this.emit(state, 'contest-started');
 		this.emit(state, 'round-started');
 		this.emit(state, 'participant-enter', this.currentId(state));
-		return this.snapshot(sessionId, {master: true});
+		return this.snapshot(sessionId, { master: true });
 	}
 
 	has(sessionId: string): boolean {
@@ -376,7 +376,7 @@ export class RPGContestRuntimeManager {
 				const active = item.canScore && ((item.scoringMode === 'tera-matching-moves' && matchingTeraMoves >= 2) ||
 					(item.category === state.session.category && (item.scoringMode === 'passive' ||
 						(item.scoringMode === 'mega-activation' && pokemon.megaActivated))));
-				return {item, active, bonus: active ? item.points : 0};
+				return { item, active, bonus: active ? item.points : 0 };
 			});
 			score.itemId = participant.pokemonTeam.map(pokemon => toID(pokemon.item)).filter(Boolean).join(',');
 			score.itemCategory = itemBonuses.find(entry => entry.active)?.item.category || null;
@@ -486,7 +486,7 @@ export class RPGContestRuntimeManager {
 
 	private submitJudging(
 		state: RPGContestRuntimeState,
-		action: Extract<RPGContestRuntimeAction, {type: 'submit-judging'}>
+		action: Extract<RPGContestRuntimeAction, { type: 'submit-judging' }>
 	): void {
 		const participant = this.current(state);
 		const criteria = {} as RPGContestJudgingScores;
@@ -529,7 +529,7 @@ export class RPGContestRuntimeManager {
 		participant.judgeComments[state.round - 1] = this.judgingComments(criteria);
 		const reaction = this.audienceReaction(totalAfterJudging, mechanical, comment);
 		participant.audienceReactions[state.round - 1] = reaction;
-		this.emit(state, 'judging-complete', participant.id, {audienceReaction: reaction});
+		this.emit(state, 'judging-complete', participant.id, { audienceReaction: reaction });
 	}
 
 	private judgingComments(criteria: RPGContestJudgingScores): RPGContestJudgingComments {
@@ -564,7 +564,7 @@ export class RPGContestRuntimeManager {
 		total: number, score: RPGContestRoundMechanicalScore, comment: string
 	): RPGContestAudienceReaction {
 		const level = (total < 12 ? 1 : total < 22 ? 2 : total < 33 ? 3 :
-			total < 43 ? 4 : total < 53 ? 5 : 6) as RPGContestAudienceReaction['level'];
+			total < 43 ? 4 : total < 53 ? 5 : 6);
 		const labels = ['', 'silêncio ou desconforto', 'aplausos discretos', 'público animado',
 			'grande entusiasmo', 'público em êxtase', 'reação histórica'];
 		const emojis = ['', '😐', '🙂', '👏', '👏👏', '👏👏👏', '👏👏👏👏'];
@@ -574,7 +574,7 @@ export class RPGContestRuntimeManager {
 		if (score.scenarioMoveScore >= 2) comments.push('O cenário valorizou a apresentação!');
 		if (comment) comments.push(comment);
 		if (!comments.length) comments.push(level >= 4 ? 'A apresentação empolgou o público!' : 'Os jurados observam atentamente.');
-		return {level, label: labels[level], emoji: emojis[level], comments};
+		return { level, label: labels[level], emoji: emojis[level], comments };
 	}
 
 	private participantSets(participant: RPGContestParticipant): PokemonSet[] {
@@ -677,19 +677,19 @@ export class RPGContestRuntimeManager {
 		score.comboScore += increase;
 		score.total += increase;
 		for (const combo of matched) {
-			if (!score.matchedCombos.some(entry => entry.id === combo.id)) score.matchedCombos.push({id: combo.id, name: combo.name});
+			if (!score.matchedCombos.some(entry => entry.id === combo.id)) score.matchedCombos.push({ id: combo.id, name: combo.name });
 		}
 	}
 
 	private emit(
 		state: RPGContestRuntimeState, type: RPGContestRuntimeEventType, participantId?: string,
 		extra: Partial<Pick<RPGContestRuntimeEvent,
-			'moveIndex' | 'moveId' | 'moveName' | 'pokemonIndex' | 'stageTransformations' | 'stageInteractions' | 'audienceReaction' |
-			'megaActivated' | 'megaSpecies' | 'megaSpriteId' | 'failedReason'>> = {}
+		'moveIndex' | 'moveId' | 'moveName' | 'pokemonIndex' | 'stageTransformations' | 'stageInteractions' | 'audienceReaction' |
+		'megaActivated' | 'megaSpecies' | 'megaSpriteId' | 'failedReason'>> = {}
 	): void {
 		state.events.push({
 			sequence: state.nextSequence++, type, createdAt: this.now(), round: state.round,
-			...(participantId ? {participantId} : {}), ...extra,
+			...(participantId ? { participantId } : {}), ...extra,
 		});
 	}
 

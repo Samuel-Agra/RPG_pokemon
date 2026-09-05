@@ -1,8 +1,6 @@
 'use strict';
 
 /* global document, window, rpgRuntimeItemIcon, rpgRuntimeSprite */
-/* eslint-disable require-atomic-updates */
-
 (function () {
 	function el(tag, className, text) {
 		const node = document.createElement(tag);
@@ -391,7 +389,7 @@
 						mission, expectedRevision: bagData.revision,
 						...(quantity === undefined ? {} : { quantity }),
 						...(note === undefined ? {} : { note }),
-						...(item.linkedEggId ? {linkedEggId: item.linkedEggId} : {}),
+						...(item.linkedEggId ? { linkedEggId: item.linkedEggId } : {}),
 					},
 				});
 				options.toast(mission ? 'Item movido para Itens de Missão.' : 'Item retirado dos Itens de Missão.');
@@ -795,7 +793,7 @@
 						method: 'POST', body: {
 							characterId: options.characterId, itemId: item.id,
 							quantity: Number(quantity.value), expectedRevision: bagData.revision,
-							...(item.linkedEggId ? {linkedEggId: item.linkedEggId} : {}),
+							...(item.linkedEggId ? { linkedEggId: item.linkedEggId } : {}),
 						},
 					});
 					close();
@@ -851,7 +849,7 @@
 									itemId: item.id, quantity: Number(quantity.value),
 									expectedSenderRevision: transfer.senderRevision,
 									expectedTargetRevision: target.revision,
-									...(item.linkedEggId ? {linkedEggId: item.linkedEggId} : {}),
+									...(item.linkedEggId ? { linkedEggId: item.linkedEggId } : {}),
 								},
 							});
 							close();

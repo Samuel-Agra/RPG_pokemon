@@ -6,26 +6,26 @@
 	const id = value => String(value || '').toLowerCase().replace(/[^a-z0-9]+/g, '');
 	const persistentStageSignatures = new Map();
 	const FLOOR_POSITIONS = Object.freeze([
-		[18, 79, .72], [31, 70, .82], [43, 84, .9], [57, 73, .86], [69, 82, .96], [82, 68, .78],
+		[18, 79, 0.72], [31, 70, 0.82], [43, 84, 0.9], [57, 73, 0.86], [69, 82, 0.96], [82, 68, 0.78],
 	]);
 	const PERSISTENT_PROPS = Object.freeze({
-		spikes: {effect: 'caltrop', count: 6, className: 'hazard'},
-		toxicspikes: {effect: 'poisoncaltrop', count: 5, className: 'hazard toxic'},
-		floatingrocks: {effects: ['rock1', 'rock2', 'rock3'], count: 6, className: 'floating-rock'},
-		stickyweb: {effect: 'web', count: 3, className: 'web'},
-		raisedstones: {effects: ['rock1', 'rock2'], count: 5, className: 'stone'},
-		debris: {effects: ['rock1', 'rock2'], count: 4, className: 'debris'},
-		scatteredleaves: {effects: ['leaf1', 'leaf2'], count: 6, className: 'leaf'},
-		frozenstage: {effect: 'iceball', count: 4, className: 'ice'},
-		flamering: {effects: ['fireball', 'wisp'], count: 6, className: 'flame'},
-		whirlpool: {effect: 'waterwisp', count: 6, className: 'water-ring'},
+		spikes: { effect: 'caltrop', count: 6, className: 'hazard' },
+		toxicspikes: { effect: 'poisoncaltrop', count: 5, className: 'hazard toxic' },
+		floatingrocks: { effects: ['rock1', 'rock2', 'rock3'], count: 6, className: 'floating-rock' },
+		stickyweb: { effect: 'web', count: 3, className: 'web' },
+		raisedstones: { effects: ['rock1', 'rock2'], count: 5, className: 'stone' },
+		debris: { effects: ['rock1', 'rock2'], count: 4, className: 'debris' },
+		scatteredleaves: { effects: ['leaf1', 'leaf2'], count: 6, className: 'leaf' },
+		frozenstage: { effect: 'iceball', count: 4, className: 'ice' },
+		flamering: { effects: ['fireball', 'wisp'], count: 6, className: 'flame' },
+		whirlpool: { effect: 'waterwisp', count: 6, className: 'water-ring' },
 	});
 	const PERSISTENT_TEXTURES = Object.freeze([
-		{tags: ['wetstage', 'reflective'], file: 'surf-ripples.png', count: 3, className: 'water'},
-		{tags: ['crackedground'], file: 'earthquake-cracks.png', count: 2, className: 'cracks'},
-		{tags: ['darkenedstage'], file: 'smokescreen-cloud.png', count: 3, className: 'smoke'},
-		{tags: ['mist', 'haze'], file: 'mist-wisps.png', count: 3, className: 'mist'},
-		{tags: ['heatedsand', 'sandvortex'], file: 'sandsear-vortex.png', count: 2, className: 'sand'},
+		{ tags: ['wetstage', 'reflective'], file: 'surf-ripples.png', count: 3, className: 'water' },
+		{ tags: ['crackedground'], file: 'earthquake-cracks.png', count: 2, className: 'cracks' },
+		{ tags: ['darkenedstage'], file: 'smokescreen-cloud.png', count: 3, className: 'smoke' },
+		{ tags: ['mist', 'haze'], file: 'mist-wisps.png', count: 3, className: 'mist' },
+		{ tags: ['heatedsand', 'sandvortex'], file: 'sandsear-vortex.png', count: 2, className: 'sand' },
 	]);
 	const SELF_TAGS = new Set(['calm', 'dance', 'defense', 'expression', 'healing', 'playful', 'status']);
 	const EXPRESSIVE_LINES = [
@@ -65,7 +65,7 @@
 		anchor.className = 'contest-show-target'; stage.append(anchor); return anchor;
 	}
 	function effectUrl(effect) {
-		const data = window.BattleEffects?.[effect] || {url: `${effect}.png`};
+		const data = window.BattleEffects?.[effect] || { url: `${effect}.png` };
 		const url = data.url || `${effect}.png`;
 		return /^https?:|^data:/i.test(url) ? url : window.RPGAssets.url(`fx/${url.replace(/^\//, '')}`);
 	}
@@ -180,7 +180,7 @@
 		const trainerAction = `contest-trainer-action-${trainerChoreography(move)}`;
 		trainer?.classList.add('contest-trainer-presenting', trainerAction);
 		if (event.megaActivated && window.RPGShowdownAnimations?.megaEvolve) {
-			await window.RPGShowdownAnimations.megaEvolve(stage, pokemon, {onTransform: options.onMegaTransform});
+			await window.RPGShowdownAnimations.megaEvolve(stage, pokemon, { onTransform: options.onMegaTransform });
 			await wait(220);
 		}
 		const announcement = expressiveCue(stage, options.pokemonName, move, event, options.contestCategory);
@@ -201,7 +201,7 @@
 					id: move.moveId || move.id, name: move.name, type: move.type,
 					category: move.battleCategory || 'Status', target: personal ? 'self' : 'normal',
 				},
-			}, stage, pokemon, personal ? [pokemon] : [anchor], {onImpact: playMoveSound});
+			}, stage, pokemon, personal ? [pokemon] : [anchor], { onImpact: playMoveSound });
 		} catch (error) {
 			playMoveSound();
 			await fallbackMove(stage, pokemon, move);
@@ -221,19 +221,19 @@
 		const announcement = cue(stage, 'Agora no palco', 'contest-entry-announcement');
 		await Promise.all([
 			trainer?.animate([
-				{opacity: 0, transform: 'translate3d(70px, 8px, 0) scale(.94)'},
-				{opacity: 1, transform: 'translate3d(0, 0, 0) scale(1)'},
-			], {duration: 900, easing: 'ease-out'}).finished.catch(() => undefined),
+				{ opacity: 0, transform: 'translate3d(70px, 8px, 0) scale(.94)' },
+				{ opacity: 1, transform: 'translate3d(0, 0, 0) scale(1)' },
+			], { duration: 900, easing: 'ease-out' }).finished.catch(() => undefined),
 			pokemon?.animate([
-				{opacity: 0, transform: 'translate3d(-50%, 28px, 0) scale(.75)'},
-				{opacity: 1, transform: 'translate3d(-50%, 0, 0) scale(1)'},
-			], {duration: 1000, easing: 'cubic-bezier(.2,.8,.35,1)'}).finished.catch(() => undefined),
+				{ opacity: 0, transform: 'translate3d(-50%, 28px, 0) scale(.75)' },
+				{ opacity: 1, transform: 'translate3d(-50%, 0, 0) scale(1)' },
+			], { duration: 1000, easing: 'cubic-bezier(.2,.8,.35,1)' }).finished.catch(() => undefined),
 		].filter(Boolean));
 		await wait(250); announcement.remove(); stage.classList.remove('contest-participant-entering');
 	}
 	function altariaSprite() {
 		if (typeof window.rpgRuntimeSprite === 'function') {
-			return window.rpgRuntimeSprite({name: 'Altaria', species: 'Altaria', spriteId: 'altaria'});
+			return window.rpgRuntimeSprite({ name: 'Altaria', species: 'Altaria', spriteId: 'altaria' });
 		}
 		const image = document.createElement('img'); image.src = window.RPGAssets.url('sprites/ani/altaria.gif'); image.alt = 'Altaria';
 		return image;
@@ -290,5 +290,5 @@
 		announcement.remove(); stage.classList.remove('contest-participant-exiting');
 	}
 
-	window.RPGContestAnimations = Object.freeze({playMove, entrance, reaction, disqualify, cleanupStage, renderPersistentStage});
+	window.RPGContestAnimations = Object.freeze({ playMove, entrance, reaction, disqualify, cleanupStage, renderPersistentStage });
 })();

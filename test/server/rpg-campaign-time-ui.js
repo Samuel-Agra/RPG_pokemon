@@ -12,7 +12,7 @@ describe('RPG campaign clock frontend', () => {
 	const http = fs.readFileSync(path.resolve(__dirname, '../../server/rpg-showdown/http.ts'), 'utf8');
 
 	it('renders exclusive Master controls for one-hour and eight-hour advances', () => {
-		assert(ui.includes("section('Relógio da campanha')"));
+		assert(ui.includes("const celestial = createElement('div', 'master-campaign-celestial')"));
 		assert(ui.includes('for (const hours of [1, 8])'));
 		assert(ui.includes("api('/campaign/time/advance'"));
 		assert(css.includes('.campaign-clock-actions'));

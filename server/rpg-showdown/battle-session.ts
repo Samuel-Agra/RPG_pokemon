@@ -182,11 +182,11 @@ export interface RPGUpdateBattleSessionRequest {
 	opponentType?: RPGBattleOpponentType;
 	participants?: RPGBattleParticipant[];
 	conditions?: Partial<RPGBattlePreparationConditions> & {
-		weather?: Partial<RPGBattleFieldCondition>;
-		terrain?: Partial<RPGBattleFieldCondition>;
-		initialHazards?: Partial<Record<RPGBattleTeam, Partial<RPGInitialHazardSide>>>;
-		initialBuffs?: Partial<Record<RPGBattleTeam, Partial<RPGInitialBuffSide>>>;
-		initialGlobalEffects?: Partial<RPGInitialGlobalEffects>;
+		weather?: Partial<RPGBattleFieldCondition>,
+		terrain?: Partial<RPGBattleFieldCondition>,
+		initialHazards?: Partial<Record<RPGBattleTeam, Partial<RPGInitialHazardSide>>>,
+		initialBuffs?: Partial<Record<RPGBattleTeam, Partial<RPGInitialBuffSide>>>,
+		initialGlobalEffects?: Partial<RPGInitialGlobalEffects>,
 	};
 	rules?: Partial<RPGBattlePreparationRules>;
 }
@@ -204,10 +204,10 @@ export interface RPGBattleLaunchRequest {
 	controllers: RPGBattleParticipantController[];
 	rpg: RPGBattleState;
 	captureContext: {
-		turnNumber: number;
-		isNight: boolean;
-		isCave: boolean;
-		isInWater: boolean;
+		turnNumber: number,
+		isNight: boolean,
+		isCave: boolean,
+		isInWater: boolean,
 	};
 	allowSwitching: boolean;
 	initialHazards: RPGInitialHazards;
@@ -512,9 +512,9 @@ export class RPGBattleSessionService {
 			for (const choice of participant.pokemon) {
 				if (!choice.set) continue;
 				if (session.format === 'raid' || session.format === 'boss') {
-					choice.set.ivs = {hp: 31, atk: 31, def: 31, spa: 31, spd: 31, spe: 31};
+					choice.set.ivs = { hp: 31, atk: 31, def: 31, spa: 31, spd: 31, spe: 31 };
 				} else {
-					choice.set.ivs ||= {hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0};
+					choice.set.ivs ||= { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 };
 				}
 			}
 		}
@@ -569,7 +569,7 @@ export class RPGBattleSessionService {
 			if (!set || !bossIds.has(toID(set.species))) {
 				throw new Error('RPG Boss accepts only eligible legendary or pseudo-legendary Pokemon');
 			}
-			if (!Number.isSafeInteger(set.level) || set.level! < 1 || set.level! > 999) {
+			if (!Number.isSafeInteger(set.level) || set.level < 1 || set.level > 999) {
 				throw new Error('RPG Boss level must be between 1 and 999');
 			}
 		}
@@ -586,7 +586,7 @@ export class RPGBattleSessionService {
 				throw new Error('RPG wild Pokemon count does not match the battle format');
 			}
 			if (controlledPokemon.some(choice => !Number.isSafeInteger(choice.set?.level) ||
-				choice.set!.level! < 1 || choice.set!.level! > 100)) {
+				choice.set!.level < 1 || choice.set!.level > 100)) {
 				throw new Error('RPG regular wild Pokemon level must be between 1 and 100');
 			}
 		}
@@ -688,7 +688,7 @@ export class RPGBattleSessionService {
 		set.level = level;
 		set.name ||= species.name;
 		if (set.gender) {
-			if (!getRPGAllowedSexes(species.name).includes(set.gender)) {
+			if (!getRPGAllowedSexes(species.name).includes(set.gender as import('../../sim/rpg-showdown').RPGPokemonSex)) {
 				throw new Error('RPG controlled Pokemon gender is not allowed for this species');
 			}
 		} else {

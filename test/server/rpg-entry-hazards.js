@@ -82,7 +82,7 @@ describe('RPG entry hazard synchronization', () => {
 		assert(source.includes("pendingAnimations.some(event => event.type === 'entry')"));
 		assert(
 			source.indexOf('animationQueue = animationQueue.catch(() => undefined).then(animateSwitches);') <
-			source.indexOf('queueAnimations(pendingAnimations);', source.indexOf("pendingAnimations.some(event => event.type === 'entry')"))
+				source.indexOf('queueAnimations(pendingAnimations);', source.indexOf("pendingAnimations.some(event => event.type === 'entry')"))
 		);
 	});
 });

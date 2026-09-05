@@ -1,20 +1,20 @@
 'use strict';
 
 const assert = require('assert').strict;
-const {RPGLoginService, RPGMemoryCharacterRepository} = require('../../dist/server/rpg-showdown');
+const { RPGLoginService, RPGMemoryCharacterRepository } = require('../../dist/server/rpg-showdown');
 
-const stats = value => ({hp: value, atk: value, def: value, spa: value, spd: value, spe: value});
+const stats = value => ({ hp: value, atk: value, def: value, spa: value, spd: value, spe: value });
 function set(species, gender, ability, item = '') {
 	return {
 		name: species, species, level: 50, gender, shiny: false, item,
 		ability, nature: 'Hardy', moves: ['tackle'], evs: stats(0), ivs: stats(16),
-		rpg: {version: 1, level: 50, friendship: 50, item, captureBall: 'pokeball'},
+		rpg: { version: 1, level: 50, friendship: 50, item, captureBall: 'pokeball' },
 	};
 }
 function create(service, name) {
 	service.createCharacter({
 		characterName: name, playerName: name, avatar: 'lucas', password: '1234',
-		initialMoney: 100000, starter: {species: 'Squirtle', gender: 'M'},
+		initialMoney: 100000, starter: { species: 'Squirtle', gender: 'M' },
 	});
 }
 describe('RPG connected Nursery and Incubation flow', () => {
@@ -100,7 +100,7 @@ describe('RPG connected Nursery and Incubation flow', () => {
 		const record = repository.get('samuel');
 		record.state.nursery = {
 			version: 1, projects: [],
-			incubators: [{id: 'samuel:incubator:1', ownerId: 'samuel', kind: 'local', eggId: 'ghost-egg'}],
+			incubators: [{ id: 'samuel:incubator:1', ownerId: 'samuel', kind: 'local', eggId: 'ghost-egg' }],
 		};
 		repository.set(record);
 		const player = service.loginPlayer('samuel', '1234');
@@ -139,7 +139,7 @@ describe('RPG connected Nursery and Incubation flow', () => {
 		assert.equal(project.slot1.ownerId, 'samuel');
 		assert.equal(project.slot2, undefined);
 		assert.equal(project.slot2OwnerId, undefined);
-		assert.deepEqual(project.confirmed, {samuel: false});
+		assert.deepEqual(project.confirmed, { samuel: false });
 		assert.equal(view.pokemon.find(pokemon => pokemon.pokemonId === marinaPokemon).busy, false);
 		assert.equal(service.getNursery(samuel.token).projects.find(entry => entry.id === projectId).status, 'inviting');
 		assert.throws(() => service.withdrawNurserySlot2(samuel.token, projectId), /Slot 2/);
@@ -219,11 +219,11 @@ describe('RPG connected Nursery and Incubation flow', () => {
 		view = service.confirmNurseryProject(samuel.token, projectId, 0);
 		let project = view.projects.find(entry => entry.id === projectId);
 		assert.equal(project.status, 'awaiting_confirmation');
-		assert.deepEqual(project.slotConfirmations, {slot1: false, slot2: true});
+		assert.deepEqual(project.slotConfirmations, { slot1: false, slot2: true });
 		view = service.confirmNurseryProject(samuel.token, projectId);
 		project = view.projects.find(entry => entry.id === projectId);
 		assert.equal(project.status, 'breeding');
-		assert.deepEqual(project.slotConfirmations, {slot1: true, slot2: true});
+		assert.deepEqual(project.slotConfirmations, { slot1: true, slot2: true });
 		assert.equal(service.getCharacter(samuel.token).money, 95000, 'a cobrança própria se anula, mas a taxa permanece');
 	});
 
@@ -239,7 +239,7 @@ describe('RPG connected Nursery and Incubation flow', () => {
 		service.replaceCharacterTeam(master.token, 'marina', [set('Charizard', 'F', 'Blaze')]);
 		const marina = service.loginPlayer('marina', '1234');
 		const playerPokemonId = service.getCharacter(marina.token).box.party[0].pokemonId;
-		const ivs = {hp: 31, atk: 30, def: 29, spa: 28, spd: 27, spe: 26};
+		const ivs = { hp: 31, atk: 30, def: 29, spa: 28, spd: 27, spe: 26 };
 
 		let view = service.createMasterNurseryProject(master.token, {
 			npcName: 'L\u00edder Blaine', species: 'Charizard', sex: 'M', level: 65, ivs, item: 'everstone',
@@ -340,7 +340,7 @@ describe('RPG connected Nursery and Incubation flow', () => {
 			'powerbelt', 'powerlens', 'powerband', 'poweranklet',
 		]);
 
-		const ivs = {hp: 31, atk: 30, def: 29, spa: 28, spd: 27, spe: 26};
+		const ivs = { hp: 31, atk: 30, def: 29, spa: 28, spd: 27, spe: 26 };
 		const configured = service.setMasterNurserySlot2(master.token, {
 			projectId, species: 'Gallade', level: 72, ivs, item: 'destinyknot',
 		});
@@ -393,7 +393,7 @@ describe('RPG connected Nursery and Incubation flow', () => {
 			projectId, species: 'Gallade', level: 101, ivs: validIvs, item: '',
 		}), /entre 1 e 100/);
 		assert.throws(() => service.setMasterNurserySlot2(master.token, {
-			projectId, species: 'Gallade', level: 50, ivs: {...validIvs, hp: 32}, item: '',
+			projectId, species: 'Gallade', level: 50, ivs: { ...validIvs, hp: 32 }, item: '',
 		}), /IV deve estar entre 0 e 31/);
 		assert.throws(() => service.setMasterNurserySlot2(master.token, {
 			projectId, species: 'Gallade', level: 50, ivs: validIvs, item: 'leftovers',
@@ -458,7 +458,7 @@ describe('RPG connected Nursery and Incubation flow', () => {
 		assert.equal(service.getCharacter(samuel.token).box.party[0].metadata.breeding, true);
 		assert.throws(() => service.moveBoxPokemon(samuel.token, undefined, {
 			pokemonId: samuelPokemon,
-			destination: {destination: 'box', boxIndex: 0, slot: 0},
+			destination: { destination: 'box', boxIndex: 0, slot: 0 },
 			expectedRevision: breedingBox.revision,
 		}), /deve permanecer na equipe/);
 		assert.throws(() => service.createPokemonReleaseChallenge(
@@ -467,10 +467,10 @@ describe('RPG connected Nursery and Incubation flow', () => {
 		const blockedBattle = service.createBattleSession(master.token);
 		assert.throws(() => service.updateBattleSession(master.token, blockedBattle.id, {
 			format: 'singles', opponentType: 'wild', participants: [
-				{id: 'samuel', team: 'A', kind: 'player', characterId: 'samuel',
-					displayName: 'Samuel', selectionLimit: 1, pokemon: [{teamIndex: 0}]},
-				{id: 'wild', team: 'B', kind: 'wild', displayName: 'Pidgey',
-					selectionLimit: 1, pokemon: [{set: {species: 'Pidgey', level: 5, moves: ['tackle']}}]},
+				{ id: 'samuel', team: 'A', kind: 'player', characterId: 'samuel',
+					displayName: 'Samuel', selectionLimit: 1, pokemon: [{ teamIndex: 0 }] },
+				{ id: 'wild', team: 'B', kind: 'wild', displayName: 'Pidgey',
+					selectionLimit: 1, pokemon: [{ set: { species: 'Pidgey', level: 5, moves: ['tackle'] } }] },
 			],
 		}), /indisponível/);
 		assert.equal(service.getCharacter(samuel.token).box.party[0].pokemonId, samuelPokemon);
@@ -595,7 +595,6 @@ describe('RPG connected Nursery and Incubation flow', () => {
 		assert.equal(fallback.hatch.pokemon.rpg.captureBall, 'greatball');
 		assert.equal(service.getBag(samuel.token).items.find(item => item.id === 'greatball'), undefined);
 	});
-
 
 	it('keeps a ready local hatch in the Incubator when another Egg reserves the last Team slot', () => {
 		let byte = 90;
@@ -798,7 +797,7 @@ describe('RPG connected Nursery and Incubation flow', () => {
 		const samuelReleased = masterView.releasedPokemon.find(entry => entry.ownerId === 'samuel');
 		const marinaReleased = masterView.releasedPokemon.find(entry => entry.ownerId === 'marina');
 
-		service.replaceCharacterTeam(master.token, 'samuel', Array.from({length: 6}, () =>
+		service.replaceCharacterTeam(master.token, 'samuel', Array.from({ length: 6 }, () =>
 			set('Squirtle', 'M', 'Torrent')));
 		const restored = service.restoreReleasedNurseryPokemon(master.token, samuelReleased.id);
 		assert.equal(restored.destination, 'box');

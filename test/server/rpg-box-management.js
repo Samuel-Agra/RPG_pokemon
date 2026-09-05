@@ -302,7 +302,7 @@ describe('RPG Box management backend', () => {
 		assert(added);
 		assert.throws(() => service.masterAddBoxPokemon(player.token, 'samuel', starter), /master session required/);
 
-		let destination = service.getBox(master.token, 'carlos');
+		const destination = service.getBox(master.token, 'carlos');
 		const transfer = service.transferBoxPokemon(
 			master.token, 'samuel', 'carlos', added.pokemonId, source.revision, destination.revision
 		);

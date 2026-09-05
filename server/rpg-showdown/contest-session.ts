@@ -1,5 +1,5 @@
-import {toID} from '../../sim/dex-data';
-import type {PokemonSet} from '../../sim/teams';
+import { toID } from '../../sim/dex-data';
+import type { PokemonSet } from '../../sim/teams';
 
 export const RPG_CONTEST_SESSION_VERSION = 1;
 export const RPG_CONTEST_MIN_PARTICIPANTS = 2;
@@ -141,7 +141,7 @@ export class RPGContestSessionService {
 			mode: 'solo',
 			category: 'beauty',
 			rank: 'normal',
-			scenario: {id: 'classic-stage', name: 'Palco clássico', tags: [], backgroundId: 'classic-hall', weather: '', terrain: ''},
+			scenario: { id: 'classic-stage', name: 'Palco clássico', tags: [], backgroundId: 'classic-hall', weather: '', terrain: '' },
 			participants: [],
 			invitations: [],
 			presentationOrder: [],
@@ -189,7 +189,7 @@ export class RPGContestSessionService {
 		this.validateConfiguration(session, false);
 		const characterIds = session.participants.filter(participant => participant.kind === 'player')
 			.map(participant => participant.characterId!);
-		session.invitations = characterIds.map(characterId => ({characterId, response: 'pending'}));
+		session.invitations = characterIds.map(characterId => ({ characterId, response: 'pending' }));
 		session.status = session.invitations.length ? 'inviting' : 'ready';
 		session.updatedAt = this.now();
 		this.repository.set(session);
@@ -224,7 +224,7 @@ export class RPGContestSessionService {
 			}
 			if ((team[teamIndex].rpg?.hp ?? 1) <= 0) throw new Error('A fainted Pokemon cannot enter an RPG contest');
 		}
-		participant.pokemonTeam = indexes.map(teamIndex => ({teamIndex}));
+		participant.pokemonTeam = indexes.map(teamIndex => ({ teamIndex }));
 		participant.pokemon = participant.pokemonTeam[0];
 		session.updatedAt = this.now();
 		this.repository.set(session);
@@ -357,7 +357,7 @@ export class RPGContestSessionService {
 				const characterId = toID(entry.characterId || '');
 				if (!characterId || !this.getCharacterTeam(characterId)) throw new Error('Unknown RPG contest Player');
 				const allowedTeamIndexes = entry.allowedTeamIndexes?.filter(teamIndex => Number.isSafeInteger(teamIndex) && teamIndex >= 0);
-				return {id, kind, displayName, characterId, avatar: entry.avatar, ...(allowedTeamIndexes?.length ? {allowedTeamIndexes} : {})};
+				return { id, kind, displayName, characterId, avatar: entry.avatar, ...(allowedTeamIndexes?.length ? { allowedTeamIndexes } : {}) };
 			}
 			const selections = entry.pokemonTeam || (entry.pokemon ? [entry.pokemon] : []);
 			if (!selections.length) throw new Error('RPG contest NPC requires Pokemon');
@@ -366,9 +366,9 @@ export class RPGContestSessionService {
 				if (!set?.species || !Array.isArray(set.moves) || !set.moves.length || set.moves.length > 4) {
 					throw new Error('Invalid RPG contest NPC Pokemon');
 				}
-				return {set};
+				return { set };
 			});
-			return {id, kind, displayName, avatar: entry.avatar, pokemon: pokemonTeam[0], pokemonTeam};
+			return { id, kind, displayName, avatar: entry.avatar, pokemon: pokemonTeam[0], pokemonTeam };
 		});
 		if (new Set(participants.map(entry => entry.id)).size !== participants.length) {
 			throw new Error('RPG contest participant ids must be unique');
@@ -392,7 +392,7 @@ export class RPGContestSessionService {
 			this.enumValue(input.weather, ['', 'sun', 'rain', 'sand', 'snow'] as const, 'contest scenario weather');
 		const terrain = input.terrain === undefined ? current.terrain || '' :
 			this.enumValue(input.terrain, ['', 'electric', 'grassy', 'psychic', 'misty'] as const, 'contest scenario terrain');
-		return {id, name, tags, backgroundId, weather, terrain};
+		return { id, name, tags, backgroundId, weather, terrain };
 	}
 
 	private name(value?: string): string {

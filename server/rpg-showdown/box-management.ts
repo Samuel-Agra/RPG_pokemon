@@ -304,13 +304,13 @@ export class RPGBoxManagement {
 		if (ids.some(id => !id) || new Set(ids).size !== ids.length) {
 			throw new Error('A equipe salva possui Pok\u00e9mon repetidos ou inv\u00e1lidos');
 		}
-		if (character.box.party.some(entry => (entry as RPGManagedStoredPokemon).metadata?.evTraining)) {
+		if (character.box.party.some(entry => (entry).metadata?.evTraining)) {
 			throw new Error('Pok\u00e9mon em treinamento deve permanecer na equipe at\u00e9 a conclus\u00e3o');
 		}
 		const all = new Map<string, RPGManagedStoredPokemon>();
-		for (const entry of character.box.party) all.set(entry.pokemonId, entry as RPGManagedStoredPokemon);
+		for (const entry of character.box.party) all.set(entry.pokemonId, entry);
 		for (const box of character.box.boxes) {
-			for (const entry of box.slots) if (entry) all.set(entry.pokemonId, entry as RPGManagedStoredPokemon);
+			for (const entry of box.slots) if (entry) all.set(entry.pokemonId, entry);
 		}
 		const selected = ids.map(id => {
 			const entry = all.get(id);
@@ -319,11 +319,11 @@ export class RPGBoxManagement {
 		});
 		const selectedIds = new Set(ids);
 		const outgoing = character.box.party.filter(entry => !selectedIds.has(entry.pokemonId));
-		const availableSlots: {boxIndex: number, slot: number}[] = [];
+		const availableSlots: { boxIndex: number, slot: number }[] = [];
 		for (const box of character.box.boxes) {
 			for (let slot = 0; slot < box.slots.length; slot++) {
 				const entry = box.slots[slot];
-				if (!entry || selectedIds.has(entry.pokemonId)) availableSlots.push({boxIndex: box.index, slot});
+				if (!entry || selectedIds.has(entry.pokemonId)) availableSlots.push({ boxIndex: box.index, slot });
 			}
 		}
 		if (outgoing.length > availableSlots.length) {
@@ -955,7 +955,7 @@ export class RPGBoxManagement {
 		this.revision(character, expectedRevision);
 		const location = this.location(character.box, pokemonId);
 		if (!location) throw new Error('Unknown RPG Box Pokemon');
-		const entry = this.remove(character.box, location) as RPGManagedStoredPokemon;
+		const entry = this.remove(character.box, location);
 		character.box.placements = character.box.placements.filter(value => value.pokemonId !== pokemonId);
 		this.commit(character);
 		return entry;
@@ -964,11 +964,11 @@ export class RPGBoxManagement {
 	private static entries(character: RPGBoxCharacterData) {
 		const result: { entry: RPGManagedStoredPokemon, location: RPGBoxLocation }[] = [];
 		character.box.party.forEach((entry, position) => result.push({
-			entry: entry as RPGManagedStoredPokemon, location: { destination: 'party', position },
+			entry, location: { destination: 'party', position },
 		}));
 		for (const box of character.box.boxes) box.slots.forEach((entry, slot) => {
 			if (entry) result.push({
-				entry: entry as RPGManagedStoredPokemon,
+				entry,
 				location: { destination: 'box', boxIndex: box.index, slot },
 			});
 		});
@@ -997,9 +997,9 @@ export class RPGBoxManagement {
 		const metadata = {
 			favorite: !!stored.entry.metadata?.favorite,
 			...(stored.entry.metadata?.favorite ?
-				{ favoriteMarker: stored.entry.metadata.favoriteMarker || 'star' as RPGBoxFavoriteMarker } : {}),
+				{ favoriteMarker: stored.entry.metadata.favoriteMarker || 'star' } : {}),
 			companion: !!stored.entry.metadata?.companion,
-			training: stored.entry.metadata?.training || 'none' as RPGBoxTrainingState,
+			training: stored.entry.metadata?.training || 'none',
 			...(stored.entry.metadata?.lastBattleAt === undefined ? {} :
 			{ lastBattleAt: stored.entry.metadata.lastBattleAt }),
 			...(stored.entry.metadata?.ot === undefined ? {} : { ot: stored.entry.metadata.ot }),

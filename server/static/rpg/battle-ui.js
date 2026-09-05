@@ -74,7 +74,7 @@ function rpgBattleCard(session, characters) {
 	title.append(
 		createElement('strong', '', session.name || 'Batalha sem nome'),
 		createElement('small', '', (session.format || 'Formato pendente') + ' \u00b7 ' +
-			(session.opponentType || 'advers\u00e1rio pendente'))
+		(session.opponentType || 'advers\u00e1rio pendente'))
 	);
 	head.append(title, createElement('span', rpgBattleStatusClass(session.status), rpgBattleStatus(session.status)));
 	card.append(head);
@@ -518,7 +518,7 @@ function rpgPlayerPokemonSelection(session, character) {
 		if (!selected.size || selected.size > participant.selectionLimit) {
 			throw new Error('Escolha entre 1 e ' + participant.selectionLimit + ' Pokémon.');
 		}
-		return [...selected].map(teamIndex => ({teamIndex}));
+		return [...selected].map(teamIndex => ({ teamIndex }));
 	};
 	panel.append(grid);
 	return panel;
@@ -565,7 +565,7 @@ async function renderPlayerBattles(character) {
 					try {
 						if (response === 'accepted' && selection?.getPokemonSelection) {
 							await api('/battle-sessions/' + encodeURIComponent(session.id) + '/selection', {
-								method: 'POST', body: {pokemon: selection.getPokemonSelection()},
+								method: 'POST', body: { pokemon: selection.getPokemonSelection() },
 							});
 						}
 						await api('/battle-sessions/' + encodeURIComponent(session.id) + '/response', {

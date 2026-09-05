@@ -50,9 +50,9 @@ import {
 	type RPGContestComboDefinition,
 	type RPGContestComboRepository,
 } from './contest-scoring';
-import {applyRPGContestPerformance, type RPGContestPlacement} from './contest-progression';
-import {classifyRPGContestItem, type RPGContestItemClassification} from './contest-item-catalog';
-import {RPGTournamentSessionService, type RPGTournament} from './tournament-session';
+import { applyRPGContestPerformance, type RPGContestPlacement } from './contest-progression';
+import { classifyRPGContestItem, type RPGContestItemClassification } from './contest-item-catalog';
+import { RPGTournamentSessionService, type RPGTournament } from './tournament-session';
 import {
 	RPGBoxManagement,
 	type RPGBoxManagementView,
@@ -176,7 +176,7 @@ export interface RPGTeamPreset {
 	id: string;
 	name: string;
 	species: string[];
-	pokemonIds?: Array<string | null>;
+	pokemonIds?: (string | null)[];
 	createdAt: number;
 	updatedAt: number;
 }
@@ -215,7 +215,7 @@ export interface RPGCharacterState extends RPGCharacterSelection {
 	teamPresets?: RPGTeamPreset[];
 	/** Presentation-only Eggs that reserve party slots; never persisted as battle Pokémon. */
 	teamEggs?: RPGTeamEggView[];
-	portableIncubators?: {id: string, loaded: boolean, eggId?: string, mission?: boolean}[];
+	portableIncubators?: { id: string, loaded: boolean, eggId?: string, mission?: boolean }[];
 	box: RPGBoxState;
 	inventory: RPGInventoryState;
 	fossilLab?: RPGFossilLabState;
@@ -263,7 +263,7 @@ export interface RPGSession {
 	expiresAt: number;
 }
 
-type RPGInternalSession = Omit<RPGSession, 'token'> & {lastSeenAt: number; activeArea?: string};
+type RPGInternalSession = Omit<RPGSession, 'token'> & { lastSeenAt: number, activeArea?: string };
 
 export interface RPGCharacterDeletionChallenge {
 	challengeId: string;
@@ -423,23 +423,23 @@ export interface RPGTrainerProfile {
 	version: 1;
 	tagline: string;
 	stats: {
-		wins: number;
-		losses: number;
-		fleeAttempts: number;
-		pokemonCaptured: number;
-		pokemonReleased: number;
-		itemsUsed: number;
-		pokeballsThrown: number;
-		contestsEntered: number;
-		contestsWon: number;
-		pokemonDefeated: number;
-		evolutions: number;
-		eggsHatched: number;
-		fossilsRestored: number;
-		currentWinStreak: number;
-		longestWinStreak: number;
+		wins: number,
+		losses: number,
+		fleeAttempts: number,
+		pokemonCaptured: number,
+		pokemonReleased: number,
+		itemsUsed: number,
+		pokeballsThrown: number,
+		contestsEntered: number,
+		contestsWon: number,
+		pokemonDefeated: number,
+		evolutions: number,
+		eggsHatched: number,
+		fossilsRestored: number,
+		currentWinStreak: number,
+		longestWinStreak: number,
 	};
-	pokedex: {seen: string[]; caught: string[]};
+	pokedex: { seen: string[], caught: string[] };
 	badges: Record<string, string[]>;
 }
 
@@ -505,9 +505,9 @@ export class RPGFileContestComboRepository implements RPGContestComboRepository 
 		}
 	}
 	private persist(): void {
-		mkdirSync(dirname(this.filePath), {recursive: true});
+		mkdirSync(dirname(this.filePath), { recursive: true });
 		const temporary = this.filePath + '.tmp';
-		writeFileSync(temporary, JSON.stringify({version: 1, combos: [...this.combos.values()]}, null, '\t') + '\n', 'utf8');
+		writeFileSync(temporary, JSON.stringify({ version: 1, combos: [...this.combos.values()] }, null, '\t') + '\n', 'utf8');
 		renameSync(temporary, this.filePath);
 	}
 }
@@ -561,9 +561,9 @@ export class RPGFileContestSessionRepository implements RPGContestSessionReposit
 		return [...this.sessions.values()].map(session => structuredClone(session));
 	}
 	private persist(): void {
-		mkdirSync(dirname(this.filePath), {recursive: true});
+		mkdirSync(dirname(this.filePath), { recursive: true });
 		const temporary = this.filePath + '.tmp';
-		const data: RPGContestSessionFileData = {version: 1, sessions: [...this.sessions.values()]};
+		const data: RPGContestSessionFileData = { version: 1, sessions: [...this.sessions.values()] };
 		writeFileSync(temporary, JSON.stringify(data, null, '\t') + '\n', 'utf8');
 		renameSync(temporary, this.filePath);
 	}
@@ -670,8 +670,8 @@ export class RPGLoginService {
 	private playerDocuments: Record<string, Record<string, unknown>> = {};
 	private readonly campaignSettingsFile?: string;
 	private campaignSettings: {
-		name: string; currentDateTime: string; quickNotes: string; events: RPGCampaignEvent[];
-		playerNotes: Record<string, string>;
+		name: string, currentDateTime: string, quickNotes: string, events: RPGCampaignEvent[],
+		playerNotes: Record<string, string>,
 	};
 
 	constructor(options: RPGLoginServiceOptions) {
@@ -710,7 +710,7 @@ export class RPGLoginService {
 				this.campaignSettings.currentDateTime = new Date(stored.currentDateTime).toISOString();
 			}
 			if (typeof stored.quickNotes === 'string') this.campaignSettings.quickNotes = stored.quickNotes.slice(0, 50_000);
-			if (Array.isArray(stored.events)) this.campaignSettings.events = stored.events.slice(-200) as RPGCampaignEvent[];
+			if (Array.isArray(stored.events)) this.campaignSettings.events = stored.events.slice(-200);
 			if (stored.playerNotes && typeof stored.playerNotes === 'object' && !Array.isArray(stored.playerNotes)) {
 				this.campaignSettings.playerNotes = Object.fromEntries(Object.entries(stored.playerNotes)
 					.filter((entry): entry is [string, string] => typeof entry[1] === 'string')
@@ -791,7 +791,7 @@ export class RPGLoginService {
 			party: [{
 				pokemonId: id + ':starter:1', pokemon: captured,
 				metadata: { ot: characterName, training: 'none' },
-			} as RPGManagedStoredPokemon],
+			}],
 		});
 		const inventory = RPGInventorySystem.create(RPGBagSystem.createForTier(id, 'starter'));
 		const state: RPGCharacterState = {
@@ -800,7 +800,7 @@ export class RPGLoginService {
 				bank: true, bag: true, box: true, training: true, center: true, fossils: true, nursery: true, shops: true,
 			},
 			shopAccess: Object.fromEntries(this.commerce.directory().shops.map(shop => [shop.id, true])),
-			money: request.initialMoney, bank: {version: 1, balance: 0, revision: 0},
+			money: request.initialMoney, bank: { version: 1, balance: 0, revision: 0 },
 			profile: this.createTrainerProfile(starter.species), team: [starter], box, inventory,
 			createdAt: now, updatedAt: now,
 		};
@@ -958,7 +958,7 @@ export class RPGLoginService {
 			const completingTrainings = [
 				...record.state.box.party,
 				...record.state.box.boxes.flatMap(box => box.slots).filter((entry): entry is NonNullable<typeof entry> => !!entry),
-			].map(entry => entry as RPGManagedStoredPokemon).filter(entry => {
+			].map(entry => entry).filter(entry => {
 				const job = entry.metadata?.evTraining;
 				return job && (job.remainingMs ?? Math.max(0, (job.completesAt ?? now) - now)) <= milliseconds;
 			});
@@ -978,8 +978,8 @@ export class RPGLoginService {
 				addEvent(record, 'fossil', 'Restauração concluída',
 					`O projeto de ${project.species} terminou no laboratório paleontológico.`);
 			}
-			const breedings = {advanced: 0, completed: 0};
-			const incubations = {advanced: 0, completed: 0};
+			const breedings = { advanced: 0, completed: 0 };
+			const incubations = { advanced: 0, completed: 0 };
 			let nurseryChanged = false;
 			for (const project of record.state.nursery?.projects || []) {
 				let completedNow = false;
@@ -1145,7 +1145,7 @@ export class RPGLoginService {
 		if (!library || typeof library !== 'object' || Array.isArray(library)) throw new Error('Invalid RPG master NPC library');
 		this.masterNPCLibrary = structuredClone(library as Record<string, unknown>);
 		if (this.masterNPCLibraryFile) {
-			mkdirSync(dirname(this.masterNPCLibraryFile), {recursive: true});
+			mkdirSync(dirname(this.masterNPCLibraryFile), { recursive: true });
 			const temporary = this.masterNPCLibraryFile + '.tmp';
 			writeFileSync(temporary, JSON.stringify(this.masterNPCLibrary, null, '\t') + '\n', 'utf8');
 			renameSync(temporary, this.masterNPCLibraryFile);
@@ -1182,7 +1182,7 @@ export class RPGLoginService {
 	reportTournamentMatch(token: string, id: string, matchId: string, winnerId: string): RPGTournament {
 		this.requireMasterMode(token); return this.tournaments.report(id, matchId, winnerId);
 	}
-	launchTournamentMatch(token: string, id: string, matchId: string, npcSelections: Record<string, number[]> = {}): {tournament: RPGTournament; sessionId: string; activity: string} {
+	launchTournamentMatch(token: string, id: string, matchId: string, npcSelections: Record<string, number[]> = {}): { tournament: RPGTournament, sessionId: string, activity: string } {
 		this.requireMasterMode(token);
 		const tournament = this.tournaments.get(id);
 		const match = tournament.matches.find(entry => entry.id === matchId);
@@ -1193,7 +1193,7 @@ export class RPGLoginService {
 		const temporarySet = (participant: typeof entrants[number]): PokemonSet => {
 			const speciesPool = Dex.mod('gen9').species.all().filter(species => species.exists && species.num > 0 && !species.isNonstandard && !species.forme);
 			const species = speciesPool[Math.floor(this.random() * speciesPool.length)] || Dex.mod('gen9').species.get('Eevee');
-			return {name: species.name, species: species.name, level: Math.max(1, Math.min(100, Math.round(participant.strength || 50))), ability: species.abilities[0], nature: 'Hardy', gender: '', item: '', moves: ['tackle'], evs: {hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0}, ivs: {hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0}};
+			return { name: species.name, species: species.name, level: Math.max(1, Math.min(100, Math.round(participant.strength || 50))), ability: species.abilities[0], nature: 'Hardy', gender: '', item: '', moves: ['tackle'], evs: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 }, ivs: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 } };
 		};
 		const pokemonLimit = Math.max(1, Math.min(6, Number(tournament.conditions.pokemonLimit) || 1));
 		const battlePokemonLimit = tournament.activity === 'battle' ? Math.max(1, Math.min(pokemonLimit, Number(tournament.conditions.battlePokemonLimit) || pokemonLimit)) : pokemonLimit;
@@ -1206,26 +1206,26 @@ export class RPGLoginService {
 		};
 		const pokemon = (participant: typeof entrants[number]) => (participant.pokemon?.length ? participant.pokemon.slice(0, pokemonLimit) : [temporarySet(participant)]).map(storedSet => {
 			const set = structuredClone(storedSet as PokemonSet);
-			set.rpg = {...set.rpg, hp: undefined, pp: undefined, status: '', sleepTurns: undefined, item: set.item || ''};
-			return {set};
+			set.rpg = { ...set.rpg, hp: undefined, pp: undefined, status: '', sleepTurns: undefined, item: set.item || '' };
+			return { set };
 		});
 		const selectedNPCPokemon = (participant: typeof entrants[number]) => {
-			const available=pokemon(participant); const indexes=Array.isArray(npcSelections[participant.id])?npcSelections[participant.id]:[];
-			if(indexes.length!==battlePokemonLimit||new Set(indexes).size!==indexes.length||indexes.some(index=>!Number.isSafeInteger(index)||index<0||index>=available.length)) throw new Error(`Escolha exatamente ${battlePokemonLimit} Pokémon de ${participant.name}`);
-			return indexes.map(index=>available[index]!);
+			const available = pokemon(participant); const indexes = Array.isArray(npcSelections[participant.id]) ? npcSelections[participant.id] : [];
+			if (indexes.length !== battlePokemonLimit || new Set(indexes).size !== indexes.length || indexes.some(index => !Number.isSafeInteger(index) || index < 0 || index >= available.length)) throw new Error(`Escolha exatamente ${battlePokemonLimit} Pokémon de ${participant.name}`);
+			return indexes.map(index => available[index]);
 		};
 		let sessionId: string;
 		if (tournament.activity === 'battle') {
-			let session = this.battleSessions.create({name: `${tournament.name} · Rodada ${match.round}`}); sessionId = session.id;
-			session = this.battleSessions.update(sessionId, {format: tournament.format as import('./battle-session').RPGBattleFormat, opponentType: entrants.some(entry => entry.type === 'npc') ? 'npc' : 'player', participants: entrants.map((entry, index) => { const registeredIndexes=entry.type === 'player' ? rosterIndexes(entry) : []; return {id: `${entry.id}-${index}`, team: index < sideAIds.length ? 'A' : 'B', kind: entry.type === 'player' ? 'player' : 'npc', characterId: entry.characterId, avatar: entry.avatar, displayName: entry.name, npcRole: entry.type === 'npc' ? 'generic' : undefined, selectionLimit: battlePokemonLimit, allowedTeamIndexes: entry.type === 'player' ? registeredIndexes : undefined, pokemon: entry.type === 'player' ? registeredIndexes.slice(0,battlePokemonLimit).map(teamIndex => ({teamIndex})) : selectedNPCPokemon(entry)}; }), conditions: {...tournament.conditions, weather: {id: tournament.conditions.weather || '', duration: tournament.conditions.weatherDuration || 'temporary', turns: 5}, terrain: {id: tournament.conditions.terrain || '', duration: tournament.conditions.terrainDuration || 'temporary', turns: 5}} as never, rules: {...(tournament.conditions.rules as object || {}), canFlee: false, playersChoosePokemon: false}});
+			let session = this.battleSessions.create({ name: `${tournament.name} · Rodada ${match.round}` }); sessionId = session.id;
+			session = this.battleSessions.update(sessionId, { format: tournament.format as import('./battle-session').RPGBattleFormat, opponentType: entrants.some(entry => entry.type === 'npc') ? 'npc' : 'player', participants: entrants.map((entry, index) => { const registeredIndexes = entry.type === 'player' ? rosterIndexes(entry) : []; return { id: `${entry.id}-${index}`, team: index < sideAIds.length ? 'A' : 'B', kind: entry.type === 'player' ? 'player' : 'npc', characterId: entry.characterId, avatar: entry.avatar, displayName: entry.name, npcRole: entry.type === 'npc' ? 'generic' : undefined, selectionLimit: battlePokemonLimit, allowedTeamIndexes: entry.type === 'player' ? registeredIndexes : undefined, pokemon: entry.type === 'player' ? registeredIndexes.slice(0, battlePokemonLimit).map(teamIndex => ({ teamIndex })) : selectedNPCPokemon(entry) }; }), conditions: { ...tournament.conditions, weather: { id: tournament.conditions.weather || '', duration: tournament.conditions.weatherDuration || 'temporary', turns: 5 }, terrain: { id: tournament.conditions.terrain || '', duration: tournament.conditions.terrainDuration || 'temporary', turns: 5 } } as never, rules: { ...(tournament.conditions.rules as object || {}), canFlee: false, playersChoosePokemon: false } });
 			this.battleSessions.invite(session.id);
 		} else {
-			let session = this.contestSessions.create({name: `${tournament.name} · Rodada ${match.round}`}); sessionId = session.id;
+			let session = this.contestSessions.create({ name: `${tournament.name} · Rodada ${match.round}` }); sessionId = session.id;
 			const presentationSize = tournament.format === 'trio' ? 3 : tournament.format === 'duo' ? 2 : 1;
-			session = this.contestSessions.update(sessionId, {mode: tournament.format as import('./contest-session').RPGContestMode, category: (tournament.conditions.category || 'beauty') as import('./contest-session').RPGContestCategory, rank: (tournament.conditions.rank || 'normal') as import('./contest-session').RPGContestRank, scenario: {weather: String(tournament.conditions.weather || '').replace(/day$/, '') as never, terrain: String(tournament.conditions.terrain || '').replace(/terrain$/, '') as never}, participants: entrants.map(entry => ({id: entry.id, kind: entry.type === 'player' ? 'player' : 'npc', characterId: entry.characterId, avatar: entry.avatar, displayName: entry.name, ...(entry.type === 'player' ? {allowedTeamIndexes: rosterIndexes(entry)} : {pokemonTeam: pokemon(entry).slice(0, presentationSize)})})) as never});
+			session = this.contestSessions.update(sessionId, { mode: tournament.format as import('./contest-session').RPGContestMode, category: (tournament.conditions.category || 'beauty') as import('./contest-session').RPGContestCategory, rank: (tournament.conditions.rank || 'normal') as import('./contest-session').RPGContestRank, scenario: { weather: String(tournament.conditions.weather || '').replace(/day$/, '') as never, terrain: String(tournament.conditions.terrain || '').replace(/terrain$/, '') as never }, participants: entrants.map(entry => ({ id: entry.id, kind: entry.type === 'player' ? 'player' : 'npc', characterId: entry.characterId, avatar: entry.avatar, displayName: entry.name, ...(entry.type === 'player' ? { allowedTeamIndexes: rosterIndexes(entry) } : { pokemonTeam: pokemon(entry).slice(0, presentationSize) }) })) as never });
 			this.contestSessions.invite(session.id);
 		}
-		return {tournament: this.tournaments.link(id, matchId, sessionId), sessionId, activity: tournament.activity};
+		return { tournament: this.tournaments.link(id, matchId, sessionId), sessionId, activity: tournament.activity };
 	}
 	cancelTournament(token: string, id: string): RPGTournament { this.requireMasterMode(token); return this.tournaments.cancel(id); }
 
@@ -1239,7 +1239,7 @@ export class RPGLoginService {
 		if (!library || typeof library !== 'object' || Array.isArray(library)) throw new Error('Invalid RPG player documents');
 		this.playerDocuments[characterId] = structuredClone(library as Record<string, unknown>);
 		if (this.playerDocumentsFile) {
-			mkdirSync(dirname(this.playerDocumentsFile), {recursive: true});
+			mkdirSync(dirname(this.playerDocumentsFile), { recursive: true });
 			const temporary = this.playerDocumentsFile + '.tmp';
 			writeFileSync(temporary, JSON.stringify(this.playerDocuments, null, '\t') + '\n', 'utf8');
 			renameSync(temporary, this.playerDocumentsFile);
@@ -1248,9 +1248,9 @@ export class RPGLoginService {
 	}
 
 	getCampaignSettings(token: string): {
-		name: string; currentDateTime: string; quickNotes: string;
-		onlinePlayers: number; onlinePlayerNames: string[];
-		onlinePlayerAreas: {characterId: string; nick: string; characterName: string; avatar: string; area: string}[];
+		name: string, currentDateTime: string, quickNotes: string,
+		onlinePlayers: number, onlinePlayerNames: string[],
+		onlinePlayerAreas: { characterId: string, nick: string, characterName: string, avatar: string, area: string }[],
 	} {
 		this.requireMasterRole(token);
 		const onlineCharacterIds = new Set<string>();
@@ -1279,59 +1279,59 @@ export class RPGLoginService {
 		};
 	}
 
-	getCampaignClock(token: string): {currentDateTime: string} {
+	getCampaignClock(token: string): { currentDateTime: string } {
 		this.getSession(token);
-		return {currentDateTime: this.campaignSettings.currentDateTime};
+		return { currentDateTime: this.campaignSettings.currentDateTime };
 	}
 
-	updatePlayerPresence(token: string, area: unknown): {online: boolean; area: string} {
+	updatePlayerPresence(token: string, area: unknown): { online: boolean, area: string } {
 		const key = this.tokenKey(token);
 		const publicSession = this.getSession(token);
-		if (publicSession.role !== 'player') return {online: false, area: ''};
+		if (publicSession.role !== 'player') return { online: false, area: '' };
 		const allowedAreas = new Set(['center', 'fossils', 'nursery', 'shops', 'box']);
 		const activeArea = typeof area === 'string' && allowedAreas.has(area) ? area : '';
 		const session = this.sessions.get(key)!;
 		session.activeArea = activeArea;
 		this.sessions.set(key, session);
-		return {online: true, area: activeArea};
+		return { online: true, area: activeArea };
 	}
 
-	setCampaignSettings(token: string, input: unknown): {name: string; currentDateTime: string} {
+	setCampaignSettings(token: string, input: unknown): { name: string, currentDateTime: string } {
 		this.requireMasterRole(token);
 		if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('Configuração de campanha inválida');
-		const value = input as {name?: unknown; currentDateTime?: unknown};
+		const value = input as { name?: unknown, currentDateTime?: unknown };
 		const name = String(value.name || '').trim().replace(/\s+/g, ' ').slice(0, 80);
 		const date = new Date(String(value.currentDateTime || ''));
 		if (!name) throw new Error('Informe o nome da campanha');
 		if (!Number.isFinite(date.getTime())) throw new Error('Informe uma data e hora válidas');
-		this.campaignSettings = {...this.campaignSettings, name, currentDateTime: date.toISOString()};
+		this.campaignSettings = { ...this.campaignSettings, name, currentDateTime: date.toISOString() };
 		this.persistCampaignSettings();
 		return structuredClone(this.campaignSettings);
 	}
 
-	setCampaignQuickNotes(token: string, notes: unknown): {quickNotes: string} {
+	setCampaignQuickNotes(token: string, notes: unknown): { quickNotes: string } {
 		this.requireMasterRole(token);
 		if (typeof notes !== 'string') throw new Error('Anotação rápida inválida');
 		this.campaignSettings.quickNotes = notes.slice(0, 50_000);
 		this.persistCampaignSettings();
-		return {quickNotes: this.campaignSettings.quickNotes};
+		return { quickNotes: this.campaignSettings.quickNotes };
 	}
 
-	dismissCampaignEvent(token: string, eventId: unknown): {events: RPGCampaignEvent[]} {
+	dismissCampaignEvent(token: string, eventId: unknown): { events: RPGCampaignEvent[] } {
 		this.requireMasterRole(token);
 		if (typeof eventId !== 'string' || !eventId) throw new Error('Evento inválido');
 		this.campaignSettings.events = this.campaignSettings.events.filter(event => event.id !== eventId);
 		this.persistCampaignSettings();
-		return {events: structuredClone(this.campaignSettings.events)};
+		return { events: structuredClone(this.campaignSettings.events) };
 	}
 
-	setCampaignPlayerNote(token: string, characterId: unknown, note: unknown): {note: string} {
+	setCampaignPlayerNote(token: string, characterId: unknown, note: unknown): { note: string } {
 		this.requireMasterRole(token);
 		if (typeof characterId !== 'string' || !this.repository.get(characterId)) throw new Error('Player inválido');
 		if (typeof note !== 'string') throw new Error('Anotação inválida');
 		this.campaignSettings.playerNotes[characterId] = note.slice(0, 20_000);
 		this.persistCampaignSettings();
-		return {note: this.campaignSettings.playerNotes[characterId]};
+		return { note: this.campaignSettings.playerNotes[characterId] };
 	}
 
 	setCharacterShopAccess(token: string, characterId: string, shopId: string, allowed: boolean): RPGCharacterState {
@@ -1341,7 +1341,7 @@ export class RPGLoginService {
 			throw new Error('Loja RPG inválida');
 		}
 		const record = this.requireCharacter(characterId);
-		record.state.shopAccess = {...this.characterShopAccess(record.state), [id]: allowed};
+		record.state.shopAccess = { ...this.characterShopAccess(record.state), [id]: allowed };
 		record.state.version = RPG_ACCOUNT_VERSION;
 		record.state.updatedAt = this.now();
 		this.repository.set(record);
@@ -1359,7 +1359,7 @@ export class RPGLoginService {
 
 	getBank(token: string, characterId?: string): RPGBankView {
 		const record = this.requireBankRecord(token, characterId, 'money:read');
-		return {...this.bankAccount(record.state), money: record.state.money};
+		return { ...this.bankAccount(record.state), money: record.state.money };
 	}
 
 	adjustCharacterMoney(
@@ -1421,7 +1421,7 @@ export class RPGLoginService {
 		bank.revision++;
 		record.state.updatedAt = this.now();
 		this.repository.set(record);
-		return {...bank, money: record.state.money};
+		return { ...bank, money: record.state.money };
 	}
 
 	redeemBank(token: string, characterId: string | undefined, amount: number, expectedRevision: number): RPGBankView {
@@ -1435,11 +1435,11 @@ export class RPGLoginService {
 		bank.revision++;
 		record.state.updatedAt = this.now();
 		this.repository.set(record);
-		return {...bank, money: record.state.money};
+		return { ...bank, money: record.state.money };
 	}
 
 	createTeamPreset(token: string, characterId: string | undefined, input: {
-		name: string, species: string[], pokemonIds?: Array<string | null>
+		name: string, species: string[], pokemonIds?: (string | null)[],
 	}): RPGCharacterState {
 		const record = this.requireTeamPresetRecord(token, characterId);
 		const presets = record.state.teamPresets ||= [];
@@ -1457,7 +1457,7 @@ export class RPGLoginService {
 
 	updateTeamPreset(
 		token: string, characterId: string | undefined, presetId: string, input: {
-			name: string, species: string[], pokemonIds?: Array<string | null>
+			name: string, species: string[], pokemonIds?: (string | null)[],
 		}
 	): RPGCharacterState {
 		const record = this.requireTeamPresetRecord(token, characterId);
@@ -1500,7 +1500,7 @@ export class RPGLoginService {
 			const linkedId = preset.pokemonIds?.[index] || '';
 			const match = linkedId ? available.find(entry => entry && !used.has(entry.pokemonId) &&
 				entry.pokemonId === linkedId) : available.find(entry => entry && !used.has(entry.pokemonId) &&
-				toID(entry.pokemon.species) === toID(speciesName));
+					toID(entry.pokemon.species) === toID(speciesName));
 			if (!match) throw new Error(`Voc\u00ea n\u00e3o possui um ${speciesName} dispon\u00edvel para esta equipe`);
 			if (linkedId && this.teamPresetEvolutionRoot(match.pokemon.species) !== this.teamPresetEvolutionRoot(speciesName)) {
 				throw new Error(`O Pok\u00e9mon vinculado a ${speciesName} n\u00e3o pertence mais \u00e0 mesma linha evolutiva`);
@@ -1508,7 +1508,7 @@ export class RPGLoginService {
 			used.add(match.pokemonId);
 			return match.pokemonId;
 		});
-		RPGBoxManagement.applyParty(record.state, {pokemonIds, expectedRevision});
+		RPGBoxManagement.applyParty(record.state, { pokemonIds, expectedRevision });
 		this.persistBoxRecord(record);
 		return this.characterView(record);
 	}
@@ -1586,9 +1586,9 @@ export class RPGLoginService {
 		const record = this.requireBagRecord(token, requestedCharacterId, 'bag:read', true);
 		this.requireCommerceAccess(token, record);
 		const access = this.characterShopAccess(record.state);
-		return {...directory, shops: directory.shops.map(shop => ({
+		return { ...directory, shops: directory.shops.map(shop => ({
 			...shop, allowed: access[shop.id] !== false,
-		}))};
+		})) };
 	}
 
 	getCommerceShop(token: string, shopId: string, characterId?: string) {
@@ -1669,13 +1669,13 @@ export class RPGLoginService {
 		const offers = RPG_NURSERY_SHOP_ITEM_IDS.map(offerId => {
 			const item = RPGItems.require(offerId);
 			if (item.price?.buy === undefined) throw new Error('Item do Berçário sem preço de compra: ' + item.name);
-			return {itemId: item.id, buyPrice: item.price.buy};
+			return { itemId: item.id, buyPrice: item.price.buy };
 		});
-		const catalog = RPGShopSystem.createCatalog('nursery-shop', offers, {bagUpgrades: []});
+		const catalog = RPGShopSystem.createCatalog('nursery-shop', offers, { bagUpgrades: [] });
 		const account = RPGShopSystem.createAccount(record.state.id, record.state.money, inventory.bag);
 		const purchase = RPGShopSystem.buy(account, catalog, {
 			actionId: 'nursery-shop:' + this.bytes(18).toString('base64url'), itemId: id, quantity,
-		}, {account: account.revision, bag: expectedBagRevision, catalog: catalog.revision});
+		}, { account: account.revision, bag: expectedBagRevision, catalog: catalog.revision });
 		const capacity = RPGBagSystem.getCapacity(purchase.account.bag);
 		const reservedEggSlots = this.activeEggs(record).length * 5;
 		if (capacity.maxSlots !== undefined && capacity.usedSlots + reservedEggSlots > capacity.maxSlots) {
@@ -1723,8 +1723,8 @@ export class RPGLoginService {
 			slot2ParticipantType: 'player',
 			eggOwnerId: ownerId,
 			status: 'inviting',
-			confirmed: {[ownerId]: true},
-			slotConfirmations: {slot1: true, slot2: false},
+			confirmed: { [ownerId]: true },
+			slotConfirmations: { slot1: true, slot2: false },
 			createdAt: this.now(),
 		};
 		const host = records[0];
@@ -1751,8 +1751,8 @@ export class RPGLoginService {
 			slot2ParticipantType: 'player',
 			eggOwnerId: owner.state.id,
 			status: 'inviting',
-			confirmed: {[owner.state.id]: false},
-			slotConfirmations: {slot1: false, slot2: false},
+			confirmed: { [owner.state.id]: false },
+			slotConfirmations: { slot1: false, slot2: false },
 			createdAt: now,
 		};
 		this.ensureNursery(owner).projects.push(project);
@@ -1792,7 +1792,7 @@ export class RPGLoginService {
 			[found.project.slot1.ownerId]: npcRequest,
 			[found.project.slot2.ownerId]: false,
 		};
-		found.project.slotConfirmations = {slot1: npcRequest, slot2: false};
+		found.project.slotConfirmations = { slot1: npcRequest, slot2: false };
 		this.persistNurseryRecord(found.record);
 		return this.nurseryView(actor);
 	}
@@ -1828,7 +1828,7 @@ export class RPGLoginService {
 			[project.slot1.ownerId]: false,
 			[project.slot2.ownerId]: true,
 		};
-		project.slotConfirmations = {slot1: false, slot2: true};
+		project.slotConfirmations = { slot1: false, slot2: true };
 		this.persistNurseryRecord(found.record);
 		return this.nurseryView();
 	}
@@ -1870,8 +1870,8 @@ export class RPGLoginService {
 		delete project.requestedPokecoins;
 		delete project.paymentTransferredAt;
 		project.status = 'inviting';
-		project.confirmed = {[project.slot1.ownerId]: project.slot1.participantType === 'npc'};
-		project.slotConfirmations = {slot1: project.slot1.participantType === 'npc', slot2: false};
+		project.confirmed = { [project.slot1.ownerId]: project.slot1.participantType === 'npc' };
+		project.slotConfirmations = { slot1: project.slot1.participantType === 'npc', slot2: false };
 		this.persistNurseryRecord(found.record);
 		return this.nurseryView(actor);
 	}
@@ -2029,7 +2029,7 @@ export class RPGLoginService {
 			}
 			nursery.releasedPokemon!.splice(index, 1);
 			this.persistNurseryRecord(owner);
-			return {nursery: this.nurseryView(), destination, ownerId: owner.state.id};
+			return { nursery: this.nurseryView(), destination, ownerId: owner.state.id };
 		}
 		throw new Error('Pokémon libertado não encontrado');
 	}
@@ -2042,7 +2042,7 @@ export class RPGLoginService {
 			if (index < 0) continue;
 			const [released] = nursery.releasedPokemon!.splice(index, 1);
 			this.persistNurseryRecord(owner);
-			return {nursery: this.nurseryView(), deletedPokemonId: released.entry.pokemonId};
+			return { nursery: this.nurseryView(), deletedPokemonId: released.entry.pokemonId };
 		}
 		throw new Error('Pokémon libertado não encontrado');
 	}
@@ -2168,12 +2168,12 @@ export class RPGLoginService {
 		RPGBoxManagement.insertParty(working, {
 			pokemonId: working.id + ':hatch:' + workingEgg.id,
 			pokemon: result.pokemon,
-			metadata: {ot: working.characterName, training: 'none'},
+			metadata: { ot: working.characterName, training: 'none' },
 		});
 		this.trainerProfile(working).stats.eggsHatched++;
 		actor.state = working;
 		this.persistNurseryRecord(actor);
-		return {hatch: result, nursery: this.nurseryView(actor)};
+		return { hatch: result, nursery: this.nurseryView(actor) };
 	}
 
 	getBag(
@@ -2397,7 +2397,7 @@ export class RPGLoginService {
 		record.state.inventory.bag = RPGBagSystem.remove(
 			record.state.inventory.bag, item.id, quantity, expectedRevision
 		).bag;
-		if (loaded) this.removePortableEggProject(record, linkedEggId!);
+		if (loaded) this.removePortableEggProject(record, linkedEggId);
 		this.persistBoxRecord(record);
 		return this.managedBagView(record);
 	}
@@ -2939,7 +2939,7 @@ export class RPGLoginService {
 			if (!allowedAbilities.has(toID(candidate.ability))) {
 				throw new Error('Esta Ability não está disponível para este Pokémon');
 			}
-			const allowedMoves = new Set(current.moves.map(toID));
+			const allowedMoves = new Set<string>(current.moves.map(toID));
 			for (const data of dex.species.getFullLearnset(species.id)) {
 				for (const [move, sources] of Object.entries(data.learnset)) {
 					if (sources.some(source => source.startsWith("9"))) allowedMoves.add(move);
@@ -3379,7 +3379,7 @@ export class RPGLoginService {
 			set.ability = target.abilities[0];
 		}
 		stored.pokemon = this.toCapturedPokemon(set);
-		stored.metadata = {...(stored.metadata || {}), lastBattleAt: this.now()};
+		stored.metadata = { ...(stored.metadata || {}), lastBattleAt: this.now() };
 		record.state.box.revision++;
 		const profile = this.trainerProfile(record.state);
 		profile.stats.evolutions++;
@@ -3604,7 +3604,7 @@ export class RPGLoginService {
 
 	createContestCombo(
 		token: string,
-		input: Omit<RPGContestComboDefinition, 'id' | 'source'> & {id?: string}
+		input: Omit<RPGContestComboDefinition, 'id' | 'source'> & { id?: string }
 	): RPGContestComboDefinition {
 		this.requireMasterMode(token);
 		return this.contestCombos.create(input);
@@ -3647,14 +3647,14 @@ export class RPGLoginService {
 	}
 
 	private ensureNursery(record: RPGStoredCharacter): RPGNurseryCharacterState {
-		const createLocalIncubators = () => Array.from({length: 3}, (_, groupIndex) =>
-			Array.from({length: 3}, (_, slotIndex) => ({
+		const createLocalIncubators = () => Array.from({ length: 3 }, (_, groupIndex) =>
+			Array.from({ length: 3 }, (_, slotIndex) => ({
 				id: record.state.id + ':incubator:' + (groupIndex + 1) + ':' + (slotIndex + 1),
 				ownerId: record.state.id, kind: 'local' as const, group: groupIndex + 1, slot: slotIndex + 1,
 			}))
 		).flat();
 		if (!record.state.nursery || record.state.nursery.version !== 1) {
-			record.state.nursery = {version: 1, projects: [], incubators: createLocalIncubators(), releasedPokemon: []};
+			record.state.nursery = { version: 1, projects: [], incubators: createLocalIncubators(), releasedPokemon: [] };
 		}
 		if (!Array.isArray(record.state.nursery.projects)) record.state.nursery.projects = [];
 		if (!Array.isArray(record.state.nursery.releasedPokemon)) record.state.nursery.releasedPokemon = [];
@@ -3678,7 +3678,7 @@ export class RPGLoginService {
 					if (project.egg?.incubatorId === source.id) project.egg.incubatorId = target.id;
 				}
 			}
-			return {...target, eggId: source.eggId};
+			return { ...target, eggId: source.eggId };
 		});
 		const eggs = record.state.nursery.projects.map(project => project.egg);
 		for (const incubator of record.state.nursery.incubators) {
@@ -3699,15 +3699,17 @@ export class RPGLoginService {
 
 	private characterView(record: RPGStoredCharacter): RPGCharacterState {
 		const view = structuredClone(record.state);
-		view.bank = {...this.bankAccount(record.state)};
+		view.bank = { ...this.bankAccount(record.state) };
 		view.profile = structuredClone(this.trainerProfile(record.state));
 		view.shopAccess = this.characterShopAccess(record.state);
 		for (const entry of view.box.party) {
 			if (!this.isPokemonBreeding(record.state.id, entry.pokemonId)) continue;
-			entry.metadata = {...entry.metadata, breeding: true};
+			entry.metadata = { ...entry.metadata, breeding: true };
 		}
 		view.teamEggs = this.activeEggs(record).map(egg => ({
-			...RPGIncubation.view(egg), name: 'Egg', species: 'Egg', virtual: true as const,
+			...RPGIncubation.view(egg),
+			status: egg.status as RPGTeamEggView['status'],
+			name: 'Egg', species: 'Egg', virtual: true as const,
 		}));
 		view.portableIncubators = this.portableIncubatorSlots(record);
 		return view;
@@ -3723,7 +3725,7 @@ export class RPGLoginService {
 				pokemonDefeated: 0, evolutions: 0, eggsHatched: 0, fossilsRestored: 0,
 				currentWinStreak: 0, longestWinStreak: 0,
 			},
-			pokedex: {seen: starter ? [starter] : [], caught: starter ? [starter] : []}, badges: {},
+			pokedex: { seen: starter ? [starter] : [], caught: starter ? [starter] : [] }, badges: {},
 		};
 	}
 
@@ -3755,7 +3757,7 @@ export class RPGLoginService {
 		const bank = character.bank;
 		if (bank && bank.version === 1 && Number.isSafeInteger(bank.balance) && bank.balance >= 0 &&
 			Number.isSafeInteger(bank.revision) && bank.revision >= 0) return bank;
-		return character.bank = {version: 1, balance: 0, revision: 0};
+		return character.bank = { version: 1, balance: 0, revision: 0 };
 	}
 
 	private validateBankTransfer(amount: number, expectedRevision: number, bank: RPGBankAccount): void {
@@ -3766,7 +3768,7 @@ export class RPGLoginService {
 	}
 
 	private requireBankRecord(token: string, characterId: string | undefined, permission: 'money:read' | 'money:edit'):
-		RPGStoredCharacter {
+	RPGStoredCharacter {
 		const session = this.getSession(token);
 		const target = toID(characterId || session.characterId || session.viewAsCharacterId || '');
 		this.requirePermission(token, permission, target);
@@ -3788,7 +3790,7 @@ export class RPGLoginService {
 
 	private persistCampaignSettings(): void {
 		if (!this.campaignSettingsFile) return;
-		mkdirSync(dirname(this.campaignSettingsFile), {recursive: true});
+		mkdirSync(dirname(this.campaignSettingsFile), { recursive: true });
 		const temporary = this.campaignSettingsFile + '.tmp';
 		writeFileSync(temporary, JSON.stringify(this.campaignSettings, null, '\t') + '\n', 'utf8');
 		renameSync(temporary, this.campaignSettingsFile);
@@ -3836,7 +3838,7 @@ export class RPGLoginService {
 				}
 				const matching = loaded.filter(project => !!project.egg?.portableIncubatorMission === item.mission);
 				const emptyQuantity = Math.max(0, item.quantity - matching.length);
-				if (emptyQuantity) expanded.push({...item, quantity: emptyQuantity});
+				if (emptyQuantity) expanded.push({ ...item, quantity: emptyQuantity });
 				for (const project of matching) {
 					expanded.push({
 						...item, name: 'Incubadora Portátil carregada', quantity: 1,
@@ -3848,7 +3850,6 @@ export class RPGLoginService {
 				}
 			}
 			view.items = expanded;
-
 		}
 		return view;
 	}
@@ -3865,9 +3866,9 @@ export class RPGLoginService {
 		const loaded = this.portableEggProjects(record).map(project => ({
 			id: project.egg!.portableIncubatorId || record.state.id + ':portable:' + project.egg!.id,
 			loaded: true, eggId: project.egg!.id,
-			...(project.egg!.portableIncubatorMission ? {mission: true} : {}),
+			...(project.egg!.portableIncubatorMission ? { mission: true } : {}),
 		}));
-		return [...loaded, ...Array.from({length: Math.max(0, total - loaded.length)}, (_, index) => ({
+		return [...loaded, ...Array.from({ length: Math.max(0, total - loaded.length) }, (_, index) => ({
 			id: record.state.id + ':portable:empty:' + (index + 1), loaded: false,
 		}))];
 	}
@@ -3981,7 +3982,7 @@ export class RPGLoginService {
 				busy: !!entry.metadata?.evTraining || this.isPokemonBreeding(record.state.id, entry.pokemonId),
 			})) : [],
 			projects,
-			...(releasedPokemon ? {releasedPokemon} : {}),
+			...(releasedPokemon ? { releasedPokemon } : {}),
 			eggs,
 			teamEggs: activeEggs.map(egg => ({
 				...RPGIncubation.view(egg), name: 'Egg', species: 'Egg', virtual: true as const,
@@ -3990,8 +3991,8 @@ export class RPGLoginService {
 				...incubator, kind: 'local' as const,
 				egg: incubator.eggId ? eggs.find(egg => egg.eggId === incubator.eggId) : undefined,
 			})) : [],
-			breedingItems: RPG_NURSERY_BREEDING_ITEMS.map(item => ({...item})),
-			...(nurseryShop ? {shop: nurseryShop} : {}),
+			breedingItems: RPG_NURSERY_BREEDING_ITEMS.map(item => ({ ...item })),
+			...(nurseryShop ? { shop: nurseryShop } : {}),
 			masterSlot1Options: record ? [] : RPGNurseryGenetics.masterParentOptions(),
 			portableIncubators: {
 				total: portableTotal, inUse: portableInUse, available: Math.max(0, portableTotal - portableInUse),
@@ -4026,7 +4027,7 @@ export class RPGLoginService {
 				throw new Error('Cada IV deve estar entre 0 e 31');
 			}
 			return [stat, value];
-		})) as RPGCapturedPokemon['ivs'];
+		})) as unknown as RPGCapturedPokemon['ivs'];
 		const species = Dex.mod('gen9').species.get(input.species);
 		if (!species.exists || !getRPGAllowedSexes(species.name).includes(sex)) {
 			throw new Error('O g\u00eanero autom\u00e1tico n\u00e3o \u00e9 v\u00e1lido para esta esp\u00e9cie');
@@ -4038,8 +4039,8 @@ export class RPGLoginService {
 		return {
 			name: species.name, species: species.name, level, gender: sex, shiny: false,
 			item, ability, nature, moves: ['tackle'],
-			evs: {hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0}, ivs,
-			rpg: {version: RPG_STATE_VERSION, level, friendship: 50, item, captureBall: 'pokeball'},
+			evs: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 }, ivs,
+			rpg: { version: RPG_STATE_VERSION, level, friendship: 50, item, captureBall: 'pokeball' },
 		};
 	}
 
@@ -4047,6 +4048,7 @@ export class RPGLoginService {
 		project: RPGNurseryProject, recordsById: Map<string, RPGStoredCharacter>, changedIds: Set<string>
 	): void {
 		for (const parent of [project.slot1, project.slot2]) {
+			if (!parent) continue;
 			if (parent.item !== 'destinyknot') continue;
 			parent.item = '';
 			if (parent.participantType !== 'player') continue;
@@ -4080,10 +4082,10 @@ export class RPGLoginService {
 		return record;
 	}
 
-	private requireNurseryProject(projectId: string): {record: RPGStoredCharacter, project: RPGNurseryProject} {
+	private requireNurseryProject(projectId: string): { record: RPGStoredCharacter, project: RPGNurseryProject } {
 		for (const record of this.repository.list()) {
 			const project = record.state.nursery?.projects?.find(value => value.id === projectId);
-			if (project) return {record, project};
+			if (project) return { record, project };
 		}
 		throw new Error('Projeto de procriação desconhecido');
 	}
@@ -4208,10 +4210,10 @@ export class RPGLoginService {
 		});
 	}
 
-	private teamPresetPokemonIds(input: Array<string | null> | undefined, size: number): Array<string | null> {
+	private teamPresetPokemonIds(input: (string | null)[] | undefined, size: number): (string | null)[] {
 		if (input === undefined) return Array(size).fill(null);
 		if (!Array.isArray(input) || input.length > 6) throw new Error('V\u00ednculos inv\u00e1lidos da equipe salva');
-		return Array.from({length: size}, (_, index) => {
+		return Array.from({ length: size }, (_, index) => {
 			const value = input[index];
 			return typeof value === 'string' && value.trim() ? value.trim().slice(0, 128) : null;
 		});
@@ -4761,9 +4763,9 @@ const TEST_READY_EGG_INCUBATION_TIME_MS = 72 * 60 * 60 * 1000;
 
 /** Adds each visual Egg fixture once. Hatched fixtures remain consumed after a restart. */
 function ensureReadyTestEggs(record: RPGStoredCharacter): boolean {
-	const nursery = record.state.nursery ||= {
+	const nursery: RPGNurseryCharacterState = record.state.nursery ||= {
 		version: 1, projects: [], releasedPokemon: [],
-		incubators: Array.from({length: TEST_READY_EGG_FIXTURE_COUNT}, (_, index) => ({
+		incubators: Array.from({ length: TEST_READY_EGG_FIXTURE_COUNT }, (_, index) => ({
 			id: record.state.id + ':incubator:' + (Math.floor(index / 3) + 1) + ':' + (index % 3 + 1),
 			ownerId: record.state.id, kind: 'local' as const,
 			group: Math.floor(index / 3) + 1, slot: index % 3 + 1,
@@ -4793,16 +4795,16 @@ function ensureReadyTestEggs(record: RPGStoredCharacter): boolean {
 				ownerId: fixtureOwnerId, ownerName: 'Fixture de Eclosão', participantType: 'npc',
 				pokemonId: fixtureOwnerId + ':parent:' + (index + 1), species: 'Charizard', name: 'Charizard',
 				sex: 'M', level: 50, evolutionStage: 3, nature: 'Hardy', ability: 'Blaze', item: '',
-				ivs: {hp: 31, atk: 31, def: 31, spa: 31, spd: 31, spe: 31}, moves: ['flamethrower'],
+				ivs: { hp: 31, atk: 31, def: 31, spa: 31, spd: 31, spe: 31 }, moves: ['flamethrower'],
 			},
 			slot2ParticipantType: 'npc', eggOwnerId: record.state.id, status: 'collected',
-			confirmed: {}, createdAt, parentCollected: {[fixtureOwnerId]: true},
+			confirmed: {}, createdAt, parentCollected: { [fixtureOwnerId]: true },
 			egg: {
 				id: eggId, ownerId: record.state.id, status: 'ready_to_hatch', createdAt,
 				genetics: {
 					species: 'Charmander', sex: index % 2 ? 'F' : 'M', nature: 'Hardy', ability: 'Blaze',
-					ivs: {hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0},
-					ivOrigins: {hp: 'random', atk: 'random', def: 'random', spa: 'random', spd: 'random', spe: 'random'},
+					ivs: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 },
+					ivOrigins: { hp: 'random', atk: 'random', def: 'random', spa: 'random', spd: 'random', spe: 'random' },
 					moves: ['scratch', 'growl'], eggMoves: [], shiny: false,
 					family: 'EVOLUTION_CHARMANDER', lineage: 'CHARMANDER',
 					parentIds: [fixtureOwnerId + ':parent:1', fixtureOwnerId + ':parent:2'],
@@ -5075,7 +5077,7 @@ function migrateCharacterBanks(service: RPGLoginService): void {
 		const bank = record.state.bank;
 		if (bank?.version === 1 && Number.isSafeInteger(bank.balance) && bank.balance >= 0 &&
 			Number.isSafeInteger(bank.revision) && bank.revision >= 0) continue;
-		record.state.bank = {version: 1, balance: 0, revision: 0};
+		record.state.bank = { version: 1, balance: 0, revision: 0 };
 		record.state.version = RPG_ACCOUNT_VERSION;
 		record.state.updatedAt = Date.now();
 		service.repository.set(record);
@@ -5090,11 +5092,11 @@ function migrateCharacterProfiles(service: RPGLoginService): void {
 		].map(entry => toID(entry!.pokemon.species)).filter(Boolean);
 		record.state.profile = {
 			version: 1, tagline: 'A aventura está apenas começando.',
-			stats: {wins: 0, losses: 0, fleeAttempts: 0, pokemonCaptured: 0, pokemonReleased: 0,
+			stats: { wins: 0, losses: 0, fleeAttempts: 0, pokemonCaptured: 0, pokemonReleased: 0,
 				itemsUsed: 0, pokeballsThrown: 0, contestsEntered: 0, contestsWon: 0,
 				pokemonDefeated: 0, evolutions: 0, eggsHatched: 0, fossilsRestored: 0,
-				currentWinStreak: 0, longestWinStreak: 0},
-			pokedex: {seen: [...new Set(owned)], caught: [...new Set(owned)]}, badges: {},
+				currentWinStreak: 0, longestWinStreak: 0 },
+			pokedex: { seen: [...new Set(owned)], caught: [...new Set(owned)] }, badges: {},
 		};
 		record.state.version = RPG_ACCOUNT_VERSION;
 		record.state.updatedAt = Date.now();
@@ -5117,8 +5119,8 @@ function migrateCharacterBoxes(service: RPGLoginService): void {
 			Array.isArray(record.state.box.placements)) {
 			const storedPokemonIds = new Set([
 				...record.state.box.party.map(entry => entry.pokemonId),
-				...record.state.box.boxes.flatMap(box => box.slots || [])
-					.filter(Boolean).map(entry => entry.pokemonId),
+				...record.state.box.boxes.flatMap(box => (box.slots || [])
+					.flatMap(entry => entry ? [entry.pokemonId] : [])),
 			]);
 			record.state.box.placements = record.state.box.placements.filter(placement =>
 				storedPokemonIds.has(placement.pokemonId)

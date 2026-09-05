@@ -81,6 +81,6 @@ describe('RPG player battle selection', () => {
 		battle = login.inviteBattleSession(master.token, battle.id);
 		assert.throws(() => login.selectBattleSessionPokemon(
 			player.token, battle.id, [{ teamIndex: 0 }]
-		), /est.* em treinamento/);
+		), /est.* indispon.*vel/);
 	});
 });

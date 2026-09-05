@@ -1,7 +1,7 @@
 'use strict';
 
 const assert = require('assert').strict;
-const {RPGLoginService, RPGMemoryCharacterRepository} = require('../../dist/server/rpg-showdown');
+const { RPGLoginService, RPGMemoryCharacterRepository } = require('../../dist/server/rpg-showdown');
 
 function service() {
 	let byte = 0;
@@ -15,9 +15,9 @@ function setup() {
 	const login = service();
 	login.createCharacter({
 		characterName: 'Samuel', playerName: 'Samuel real', avatar: 'lucas', password: 'senha-rpg',
-		initialMoney: 3000, starter: {species: 'Squirtle', gender: 'M', level: 10},
+		initialMoney: 3000, starter: { species: 'Squirtle', gender: 'M', level: 10 },
 	});
-	return {login, player: login.loginPlayer('samuel', 'senha-rpg'), master: login.loginMaster('14081998')};
+	return { login, player: login.loginPlayer('samuel', 'senha-rpg'), master: login.loginMaster('14081998') };
 }
 
 function addSpecies(login, master, species) {
@@ -29,7 +29,7 @@ function addSpecies(login, master, species) {
 
 describe('RPG saved teams', () => {
 	it('saves a planned team even when the Player does not own its Pokemon', () => {
-		const {login, player} = setup();
+		const { login, player } = setup();
 		const character = login.createTeamPreset(player.token, undefined, {
 			name: 'Sol', species: ['Charizard', 'Venusaur'],
 		});
@@ -39,7 +39,7 @@ describe('RPG saved teams', () => {
 	});
 
 	it('moves exact owned Pokemon into the saved team and sends former members to the Box', () => {
-		const {login, player, master} = setup();
+		const { login, player, master } = setup();
 		let box = addSpecies(login, master, 'Bulbasaur');
 		box = addSpecies(login, master, 'Charmander');
 		const before = new Map(box.results.map(pokemon => [pokemon.species, pokemon.pokemonId]));
@@ -56,7 +56,7 @@ describe('RPG saved teams', () => {
 	});
 
 	it('does not alter the team when Pokemon are missing or Box access is blocked', () => {
-		const {login, player, master} = setup();
+		const { login, player, master } = setup();
 		let character = login.createTeamPreset(player.token, undefined, {
 			name: 'Futuro', species: ['Squirtle', 'Pikachu'],
 		});
@@ -71,14 +71,14 @@ describe('RPG saved teams', () => {
 	});
 
 	it('keeps a specifically linked Pokemon after it evolves within the planned lineage', () => {
-		const {login, player, master} = setup();
+		const { login, player, master } = setup();
 		let box = addSpecies(login, master, 'Eevee');
 		const eevee = box.results.find(pokemon => pokemon.species === 'Eevee');
 		const character = login.createTeamPreset(player.token, undefined, {
 			name: 'Noturno', species: ['Umbreon'], pokemonIds: [eevee.pokemonId],
 		});
 		login.applyTeamPreset(player.token, undefined, character.teamPresets[0].id, box.revision);
-		let record = login.repository.get('samuel');
+		const record = login.repository.get('samuel');
 		const linked = record.state.box.party.find(pokemon => pokemon.pokemonId === eevee.pokemonId);
 		linked.pokemon.species = linked.pokemon.name = 'Umbreon';
 		login.repository.set(record);

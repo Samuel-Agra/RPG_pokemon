@@ -92,11 +92,11 @@ export class RPGBattleRulesSystem {
 	private static inferSideRole(type: RPGBattleType, side: SideID, wildSide?: SideID): RPGSideRole {
 		if (side === 'p1') return 'player';
 		switch (type) {
-		case 'wild': return side === (wildSide || 'p2') ? 'wild' : 'player';
-		case 'npc': return 'npc';
-		case 'boss': return 'boss';
-		case 'gym': return 'gym';
-		default: return 'trainer';
+			case 'wild': return side === (wildSide || 'p2') ? 'wild' : 'player';
+			case 'npc': return 'npc';
+			case 'boss': return 'boss';
+			case 'gym': return 'gym';
+			default: return 'trainer';
 		}
 	}
 }

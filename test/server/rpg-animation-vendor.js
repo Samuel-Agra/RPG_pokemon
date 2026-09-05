@@ -261,5 +261,5 @@ describe('RPG official Showdown animation vendor', () => {
 			}
 		}
 		assert.deepEqual(incompatible, [], 'every official move choreography must be compatible with the RPG scene');
-		});
+	});
 });

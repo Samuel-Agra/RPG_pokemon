@@ -7,9 +7,9 @@ function pokemon(species, gender, level, nature, ability, item = '') {
 	return {
 		name: species, species, gender, level, nature, ability, item,
 		moves: ['tackle'],
-		evs: {hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0},
-		ivs: {hp: 1, atk: 2, def: 3, spa: 28, spd: 29, spe: 30},
-		rpg: {version: 1, level, friendship: 50, item, captureBall: 'pokeball'},
+		evs: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 },
+		ivs: { hp: 1, atk: 2, def: 3, spa: 28, spd: 29, spe: 30 },
+		rpg: { version: 1, level, friendship: 50, item, captureBall: 'pokeball' },
 	};
 }
 
@@ -149,7 +149,6 @@ describe('RPG Pokemon Nursery genetics backend', () => {
 			assert.equal(Object.values(egg.genetics.ivOrigins).filter(origin => origin !== 'random').length, 4);
 		}
 	});
-
 
 	it('rejects first-stage pairs and supports two neutral compatible Pokemon', () => {
 		const raltsF = RPGNurseryGenetics.parent(

@@ -216,38 +216,38 @@ export class RPGItemUseSystem {
 		const effect = item.effect;
 		if (!effect) return undefined;
 		switch (effect.type) {
-		case 'heal-hp':
-			return {
-				origin: 'item',
-				hp: {
-					full: effect.full === true,
-					amount: this.numberEffect(item, 'amount'),
-					fraction: this.numberEffect(item, 'fraction'),
-				},
-				cureStatus: effect.cureStatus === true,
-			};
-		case 'restore-pp': {
-			const allMoves = effect.allMoves === true;
-			if (!allMoves && (!Number.isSafeInteger(move) || move! < 0)) return undefined;
-			return {
-				origin: 'item',
-				pp: {
-					full: effect.full === true,
-					amount: this.numberEffect(item, 'amount'),
-					move: allMoves ? undefined : move,
-				},
-			};
-		}
-		case 'cure-status': {
-			const statuses = Array.isArray(effect.statuses) ?
-				effect.statuses.filter((status): status is string => typeof status === 'string') : undefined;
-			return {
-				origin: 'item',
-				cureStatus: !!currentStatus && (!statuses || statuses.includes(currentStatus)),
-			};
-		}
-		default:
-			return undefined;
+			case 'heal-hp':
+				return {
+					origin: 'item',
+					hp: {
+						full: effect.full === true,
+						amount: this.numberEffect(item, 'amount'),
+						fraction: this.numberEffect(item, 'fraction'),
+					},
+					cureStatus: effect.cureStatus === true,
+				};
+			case 'restore-pp': {
+				const allMoves = effect.allMoves === true;
+				if (!allMoves && (!Number.isSafeInteger(move) || move! < 0)) return undefined;
+				return {
+					origin: 'item',
+					pp: {
+						full: effect.full === true,
+						amount: this.numberEffect(item, 'amount'),
+						move: allMoves ? undefined : move,
+					},
+				};
+			}
+			case 'cure-status': {
+				const statuses = Array.isArray(effect.statuses) ?
+					effect.statuses.filter((status): status is string => typeof status === 'string') : undefined;
+				return {
+					origin: 'item',
+					cureStatus: !!currentStatus && (!statuses || statuses.includes(currentStatus)),
+				};
+			}
+			default:
+				return undefined;
 		}
 	}
 

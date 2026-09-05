@@ -1,6 +1,6 @@
-import {toID} from '../../sim/dex-data';
-import {getRPGContestMove, RPG_CONTEST_NO_PP_ACTION, type RPGContestMoveDefinition} from './contest-move-catalog';
-import type {RPGContestCategory} from './contest-session';
+import { toID } from '../../sim/dex-data';
+import { getRPGContestMove, RPG_CONTEST_NO_PP_ACTION, type RPGContestMoveDefinition } from './contest-move-catalog';
+import type { RPGContestCategory } from './contest-session';
 
 export interface RPGContestComboDefinition {
 	id: string;
@@ -27,7 +27,7 @@ export interface RPGContestRoundMechanicalScore {
 	creativityScore: number;
 	repetitionPenaltyRate: number;
 	repetitionPenalty: number;
-	matchedCombos: {id: string, name: string}[];
+	matchedCombos: { id: string, name: string }[];
 	discoveredInteractions: string[];
 	itemId: string;
 	itemCategory: RPGContestCategory | null;
@@ -49,7 +49,7 @@ export function applyRPGContestWithinRoundRepetition(
 	if (!repetitionPenaltyRate) return score;
 	const beforeRepetition = score.total + score.repetitionPenalty;
 	const repetitionPenalty = Number((beforeRepetition * repetitionPenaltyRate).toFixed(1));
-	return {...score, repetitionPenaltyRate, repetitionPenalty, total: beforeRepetition - repetitionPenalty};
+	return { ...score, repetitionPenaltyRate, repetitionPenalty, total: beforeRepetition - repetitionPenalty };
 }
 
 export function applyRPGContestSecondRoundCreativity(
@@ -76,8 +76,8 @@ export function applyRPGContestSecondRoundCreativity(
 	const creativityScore = novelMoveBonus + originalityScore + inventiveInteractionScore;
 	const beforeRepetition = score.total + creativityScore;
 	const repetitionPenalty = Number((beforeRepetition * repetitionPenaltyRate).toFixed(1));
-	return {...score, novelMoveBonus, originalityScore, inventiveInteractionScore, creativityScore,
-		repetitionPenaltyRate, repetitionPenalty, total: beforeRepetition - repetitionPenalty};
+	return { ...score, novelMoveBonus, originalityScore, inventiveInteractionScore, creativityScore,
+		repetitionPenaltyRate, repetitionPenalty, total: beforeRepetition - repetitionPenalty };
 }
 
 export interface RPGContestComboRepository {
@@ -190,7 +190,7 @@ export class RPGContestComboService {
 			.sort((a, b) => a.name.localeCompare(b.name));
 	}
 
-	create(input: Omit<RPGContestComboDefinition, 'id' | 'source'> & {id?: string}): RPGContestComboDefinition {
+	create(input: Omit<RPGContestComboDefinition, 'id' | 'source'> & { id?: string }): RPGContestComboDefinition {
 		const id = toID(input.id || input.name);
 		if (!id || RPG_DEFAULT_CONTEST_COMBOS.some(combo => combo.id === id) || this.repository.list().some(combo => combo.id === id)) {
 			throw new Error('Invalid or duplicate RPG contest combo id');
@@ -205,7 +205,7 @@ export class RPGContestComboService {
 		if (!Number.isSafeInteger(bonus) || bonus < 1 || bonus > 6) throw new Error('RPG contest combo bonus must be between 1 and 6');
 		const description = String(input.description || '').trim();
 		if (description.length > 300) throw new Error('RPG contest combo description is too long');
-		const combo: RPGContestComboDefinition = {id, name, sequence, bonus, source: 'master', description};
+		const combo: RPGContestComboDefinition = { id, name, sequence, bonus, source: 'master', description };
 		this.repository.set(combo);
 		return structuredClone(combo);
 	}
@@ -250,7 +250,7 @@ export function scoreRPGContestRound(
 		comboScore, fieldInteractionScore: 0, scenarioMoveScore: 0,
 		novelMoveBonus: 0, originalityScore: 0, inventiveInteractionScore: 0, creativityScore: 0,
 		repetitionPenaltyRate: 0, repetitionPenalty: 0,
-		matchedCombos: matched.map(combo => ({id: combo.id, name: combo.name})),
+		matchedCombos: matched.map(combo => ({ id: combo.id, name: combo.name })),
 		discoveredInteractions: allRelations, total: moveBaseScore + comboScore,
 		itemId: '', itemCategory: null, itemBonus: 0, itemBonusActive: false,
 	};

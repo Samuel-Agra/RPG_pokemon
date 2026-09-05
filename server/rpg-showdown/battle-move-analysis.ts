@@ -21,8 +21,8 @@ export type RPGMoveApplicability = 'applies' | 'immune-type' | 'immune-ability' 
 export interface RPGMoveTargetAnalysis {
 	side: 'p1' | 'p2'; activeSlot: number; teamPosition: number; name: string; species: string; spriteId: string;
 	targetLoc: number; inField: boolean; selectable: boolean; affected: boolean;
-	damage: { applicable: boolean; multiplier: number | null; stage: number | null; outcome: RPGMoveApplicability; reason: string };
-	effect: { applicable: boolean; outcome: RPGMoveApplicability; reason: string; statuses: string[] };
+	damage: { applicable: boolean, multiplier: number | null, stage: number | null, outcome: RPGMoveApplicability, reason: string };
+	effect: { applicable: boolean, outcome: RPGMoveApplicability, reason: string, statuses: string[] };
 }
 
 const FLAGS: Record<string, [string, string]> = {
@@ -89,14 +89,14 @@ function isSelectable(source: Pokemon, target: Pokemon, move: Move): boolean {
 function isAffected(source: Pokemon, target: Pokemon, move: Move): boolean {
 	const ally = source.isAlly(target);
 	switch (move.target) {
-	case 'all': return true;
-	case 'allAdjacent': return source !== target && source.isAdjacent(target);
-	case 'allAdjacentFoes': return !ally && source.isAdjacent(target);
-	case 'allies': case 'allySide': case 'allyTeam': return ally;
-	case 'foeSide': return !ally;
-	case 'self': return source === target;
-	case 'randomNormal': case 'scripted': return !ally && source.isAdjacent(target);
-	default: return source.battle.validTarget(target, source, move.target);
+		case 'all': return true;
+		case 'allAdjacent': return source !== target && source.isAdjacent(target);
+		case 'allAdjacentFoes': return !ally && source.isAdjacent(target);
+		case 'allies': case 'allySide': case 'allyTeam': return ally;
+		case 'foeSide': return !ally;
+		case 'self': return source === target;
+		case 'randomNormal': case 'scripted': return !ally && source.isAdjacent(target);
+		default: return source.battle.validTarget(target, source, move.target);
 	}
 }
 function damage(source: Pokemon, target: Pokemon, move: Move, affected: boolean) {
@@ -136,7 +136,7 @@ function damage(source: Pokemon, target: Pokemon, move: Move, affected: boolean)
 	if (!ignoresAbility && target.hasAbility('wonderguard') && stage <= 0) {
 		return immune('Wonder Guard bloqueia golpes que não são superefetivos.', 'immune-ability');
 	}
-	const multiplier = Math.pow(2, stage);
+	const multiplier = 2 ** stage;
 	return { applicable: true, multiplier, stage, outcome: 'applies' as const,
 		reason: multiplier === 1 ? 'Dano neutro.' : `Multiplicador de dano por tipo: ${multiplier}x.` };
 }

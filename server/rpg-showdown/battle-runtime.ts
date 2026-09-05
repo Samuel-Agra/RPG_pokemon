@@ -43,16 +43,16 @@ import { getRPGStatusPresentation, type RPGStatusPresentation } from './status-d
 
 export type RPGBattleRuntimeStatus = 'active' | 'ended';
 export type RPGBattleRuntimeSlotAction =
-	| { type: 'move', move: number, target?: number, mega?: boolean }
-	| { type: 'switch', pokemon: number }
-	| { type: 'item', item: string, target: number, move?: number, actionId: string, expectedRevision?: number }
-	| { type: 'capture', ball: string, target?: number, actionId: string, expectedRevision?: number }
-	| { type: 'pass' };
+	| { type: 'move', move: number, target?: number, mega?: boolean } |
+	{ type: 'switch', pokemon: number } |
+	{ type: 'item', item: string, target: number, move?: number, actionId: string, expectedRevision?: number } |
+	{ type: 'capture', ball: string, target?: number, actionId: string, expectedRevision?: number } |
+	{ type: 'pass' };
 export type RPGBattleRuntimeAction =
-	| { type: 'move', move: number, active?: number, target?: number, mega?: boolean }
-	| { type: 'switch', pokemon: number }
-	| { type: 'turn', choices: RPGBattleRuntimeSlotAction[] }
-	| { type: 'flee' };
+	| { type: 'move', move: number, active?: number, target?: number, mega?: boolean } |
+	{ type: 'switch', pokemon: number } |
+	{ type: 'turn', choices: RPGBattleRuntimeSlotAction[] } |
+	{ type: 'flee' };
 
 export interface RPGRuntimeMove extends RPGMoveMetadata {
 	id: string;
@@ -76,7 +76,7 @@ export interface RPGRuntimeVisualUpdate {
 	hpFraction?: number;
 	hpChange?: 'damage' | 'heal';
 	status?: string;
-	boost?: { stat: RPGRuntimeBoostStat; delta: number };
+	boost?: { stat: RPGRuntimeBoostStat, delta: number };
 	active?: boolean;
 }
 
@@ -88,11 +88,11 @@ export interface RPGRuntimeMoveAnimationEvent {
 	updates: RPGRuntimeVisualUpdate[];
 	feedback?: 'blocked' | 'miss' | 'immune';
 	move: {
-		id: string;
-		name: string;
-		type: string;
-		category: string;
-		target: string;
+		id: string,
+		name: string,
+		type: string,
+		category: string,
+		target: string,
 	};
 }
 
@@ -104,14 +104,14 @@ export interface RPGRuntimeMegaAnimationEvent {
 	updates: RPGRuntimeVisualUpdate[];
 	feedback?: 'blocked' | 'miss' | 'immune';
 	transformation: {
-		fromSpecies: string;
-		fromSpriteId: string;
-		toSpecies: string;
-		toSpriteId: string;
-		baseSpriteId: string;
-		types: string[];
-		ability: string;
-		abilityDescription: string;
+		fromSpecies: string,
+		fromSpriteId: string,
+		toSpecies: string,
+		toSpriteId: string,
+		baseSpriteId: string,
+		types: string[],
+		ability: string,
+		abilityDescription: string,
 	};
 }
 
@@ -133,11 +133,11 @@ export interface RPGRuntimeResidualAnimationEvent {
 	feedback?: 'blocked' | 'miss' | 'immune';
 	appliedSequence: number;
 	residual: {
-		id: string;
-		name: string;
-		moveId: string;
-		theme: string;
-		color: string;
+		id: string,
+		name: string,
+		moveId: string,
+		theme: string,
+		color: string,
 	};
 }
 
@@ -159,7 +159,7 @@ export interface RPGRuntimeItemAnimationEvent {
 	updates: RPGRuntimeVisualUpdate[];
 	feedback?: 'blocked' | 'miss' | 'immune';
 	animate: boolean;
-	item: { id: string; name: string; sprite: number | null };
+	item: { id: string, name: string, sprite: number | null };
 }
 export interface RPGRuntimeHeldItemAnimationEvent {
 	sequence: number;
@@ -178,7 +178,7 @@ export interface RPGRuntimeCaptureAnimationEvent {
 	targets: RPGRuntimeBattleRef[];
 	updates: RPGRuntimeVisualUpdate[];
 	feedback?: 'blocked' | 'miss' | 'immune';
-	ball: { id: string; name: string; sprite: number | null };
+	ball: { id: string, name: string, sprite: number | null };
 	success: boolean;
 	shakes: number;
 }
@@ -194,7 +194,7 @@ export interface RPGMegaPreview {
 	types: string[];
 	ability: string;
 	abilityDescription: string;
-	stats: Record<RPGMegaPreviewStat, { normal: number; mega: number }>;
+	stats: Record<RPGMegaPreviewStat, { normal: number, mega: number }>;
 }
 
 export interface RPGItemPresentation {
@@ -323,13 +323,13 @@ export interface RPGBattleRuntimeSnapshot {
 	log: string[];
 	animations: RPGRuntimeAnimationEvent[];
 	field: {
-		weather: string;
-		weatherTurns: number | null;
-		terrain: string;
-		terrainTurns: number | null;
-		weatherDetails: RPGRuntimeHUDEffect | null;
-		terrainDetails: RPGRuntimeHUDEffect | null;
-		globalEffects: RPGRuntimeHUDEffect[];
+		weather: string,
+		weatherTurns: number | null,
+		terrain: string,
+		terrainTurns: number | null,
+		weatherDetails: RPGRuntimeHUDEffect | null,
+		terrainDetails: RPGRuntimeHUDEffect | null,
+		globalEffects: RPGRuntimeHUDEffect[],
 	};
 	result?: RPGBattleResult;
 	lastAction?: RPGCaptureResult | RPGFleeResult;
@@ -767,11 +767,11 @@ export class RPGBattleRuntimeManager {
 		}
 		for (const [activeSlot, choice] of incoming) pending.slots.set(activeSlot, { choice });
 		pending.submittedViewers.add(viewerKey);
-		if (actionableSlots.some((actionable, activeSlot) => actionable && !pending!.slots.has(activeSlot))) {
+		if (actionableSlots.some((actionable, activeSlot) => actionable && !pending.slots.has(activeSlot))) {
 			return undefined;
 		}
 		const combined = side.active.map((_, activeSlot) =>
-			actionableSlots[activeSlot] ? pending!.slots.get(activeSlot)!.choice : { type: 'pass' as const }
+			actionableSlots[activeSlot] ? pending.slots.get(activeSlot)!.choice : { type: 'pass' as const }
 		);
 		runtime.pendingSideTurns.delete(side.id);
 		return this.turnChoice(runtime, side, combined, persistInventory);
@@ -1238,7 +1238,7 @@ export class RPGBattleRuntimeManager {
 			let blockedReason = '';
 			if (!current) blockedReason = 'Não há Pokémon nesta posição ativa.';
 			else if (!required && !allowSwitching) blockedReason = 'As regras desta batalha não permitem trocas voluntárias.';
-			else if (trapped) blockedReason = this.trappedSwitchReason(activePokemon!);
+			else if (trapped) blockedReason = this.trappedSwitchReason(activePokemon);
 			else if (!availablePokemonPositions.length) blockedReason = 'Este treinador não possui uma reserva apta para entrar.';
 			return {
 				activeSlot,
@@ -1667,7 +1667,7 @@ export class RPGBattleRuntimeManager {
 				const duplicate = actor && previous?.type === 'entry' &&
 					previous.actor.side === actor.side && previous.actor.activeSlot === actor.activeSlot &&
 					previous.actor.name === actor.name;
-				entering = duplicate ? previous as RPGRuntimeEntryAnimationEvent : actor ? {
+				entering = duplicate ? previous : actor ? {
 					sequence, type: 'entry', actor, targets: [actor], updates: [], hazards: [],
 				} : undefined;
 				if (entering && !duplicate) events.push(entering);

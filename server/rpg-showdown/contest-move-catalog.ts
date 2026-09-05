@@ -1,8 +1,8 @@
-import {Dex} from '../../sim/dex';
-import {toID} from '../../sim/dex-data';
-import type {Move} from '../../sim/dex-moves';
-import {getRPGMoveMetadata} from './battle-move-analysis';
-import type {RPGContestCategory} from './contest-session';
+import { Dex } from '../../sim/dex';
+import { toID } from '../../sim/dex-data';
+import type { Move } from '../../sim/dex-moves';
+import { getRPGMoveMetadata } from './battle-move-analysis';
+import type { RPGContestCategory } from './contest-session';
 
 export interface RPGContestMoveDefinition {
 	moveId: string;
@@ -20,7 +20,7 @@ export interface RPGContestMoveDefinition {
 	alwaysHits: boolean;
 	target: string;
 	targetLabel: string;
-	flags: {id: string, label: string, description: string}[];
+	flags: { id: string, label: string, description: string }[];
 	pp: number;
 	description: string;
 }
@@ -55,22 +55,22 @@ const TYPE_TAGS: Readonly<Record<string, readonly string[]>> = Object.freeze({
 });
 
 const MOVE_OVERRIDES: Readonly<Record<string, RPGContestMoveOverride>> = Object.freeze({
-	quiverdance: {baseScore: 8, category: 'beauty', tags: ['dance', 'elegant', 'colorful', 'movement', 'grand']},
-	petaldance: {baseScore: 8, category: 'beauty', tags: ['plant', 'flower', 'dance', 'elegant', 'colorful', 'movement']},
-	dazzlinggleam: {baseScore: 7, category: 'beauty', tags: ['fairy', 'light', 'colorful', 'magic', 'grand']},
-	surf: {baseScore: 6, category: 'beauty', tags: ['water', 'wave', 'ocean', 'grand', 'movement', 'field-change'], changesField: true},
-	icebeam: {baseScore: 6, category: 'beauty', tags: ['ice', 'cold', 'light', 'beam', 'elegant']},
-	charm: {baseScore: 6, category: 'cute', tags: ['cute', 'emotion', 'playful', 'expression']},
-	raindance: {baseScore: 5, category: 'beauty', tags: ['rain', 'water', 'sky', 'dance', 'movement', 'weather', 'field-change'], changesField: true},
-	sunnyday: {baseScore: 5, category: 'beauty', tags: ['sun', 'light', 'heat', 'sky', 'weather', 'field-change'], changesField: true},
-	recover: {baseScore: 4, category: 'smart', tags: ['healing', 'calm', 'light']},
-	earthquake: {baseScore: 2, category: 'tough', tags: ['ground', 'earth', 'impact', 'power', 'aggressive', 'field-change'], changesField: true},
-	rockslide: {baseScore: 3, category: 'tough', tags: ['rock', 'earth', 'movement', 'impact', 'field-change'], changesField: true},
-	blizzard: {baseScore: 6, category: 'beauty', tags: ['ice', 'snow', 'wind', 'grand', 'field-change'], changesField: true},
-	leafstorm: {baseScore: 7, category: 'beauty', tags: ['plant', 'leaf', 'wind', 'grand', 'field-change'], changesField: true},
-	thief: {baseScore: -1, category: 'smart', tags: ['dark', 'trick', 'movement'], penalties: ['dishonest']},
-	explosion: {baseScore: -3, category: 'tough', tags: ['explosion', 'fire', 'impact', 'power', 'grand'], penalties: ['self-ko', 'destructive']},
-	selfdestruct: {baseScore: -4, category: 'tough', tags: ['explosion', 'impact', 'power'], penalties: ['self-ko', 'destructive']},
+	quiverdance: { baseScore: 8, category: 'beauty', tags: ['dance', 'elegant', 'colorful', 'movement', 'grand'] },
+	petaldance: { baseScore: 8, category: 'beauty', tags: ['plant', 'flower', 'dance', 'elegant', 'colorful', 'movement'] },
+	dazzlinggleam: { baseScore: 7, category: 'beauty', tags: ['fairy', 'light', 'colorful', 'magic', 'grand'] },
+	surf: { baseScore: 6, category: 'beauty', tags: ['water', 'wave', 'ocean', 'grand', 'movement', 'field-change'], changesField: true },
+	icebeam: { baseScore: 6, category: 'beauty', tags: ['ice', 'cold', 'light', 'beam', 'elegant'] },
+	charm: { baseScore: 6, category: 'cute', tags: ['cute', 'emotion', 'playful', 'expression'] },
+	raindance: { baseScore: 5, category: 'beauty', tags: ['rain', 'water', 'sky', 'dance', 'movement', 'weather', 'field-change'], changesField: true },
+	sunnyday: { baseScore: 5, category: 'beauty', tags: ['sun', 'light', 'heat', 'sky', 'weather', 'field-change'], changesField: true },
+	recover: { baseScore: 4, category: 'smart', tags: ['healing', 'calm', 'light'] },
+	earthquake: { baseScore: 2, category: 'tough', tags: ['ground', 'earth', 'impact', 'power', 'aggressive', 'field-change'], changesField: true },
+	rockslide: { baseScore: 3, category: 'tough', tags: ['rock', 'earth', 'movement', 'impact', 'field-change'], changesField: true },
+	blizzard: { baseScore: 6, category: 'beauty', tags: ['ice', 'snow', 'wind', 'grand', 'field-change'], changesField: true },
+	leafstorm: { baseScore: 7, category: 'beauty', tags: ['plant', 'leaf', 'wind', 'grand', 'field-change'], changesField: true },
+	thief: { baseScore: -1, category: 'smart', tags: ['dark', 'trick', 'movement'], penalties: ['dishonest'] },
+	explosion: { baseScore: -3, category: 'tough', tags: ['explosion', 'fire', 'impact', 'power', 'grand'], penalties: ['self-ko', 'destructive'] },
+	selfdestruct: { baseScore: -4, category: 'tough', tags: ['explosion', 'impact', 'power'], penalties: ['self-ko', 'destructive'] },
 });
 
 const FIELD_CHANGE_MOVES = new Set([
@@ -182,10 +182,14 @@ function moveDefinition(move: Move): RPGContestMoveDefinition {
 let cachedCatalog: readonly RPGContestMoveDefinition[] | undefined;
 
 export function getRPGContestMoveCatalog(): readonly RPGContestMoveDefinition[] {
-	cachedCatalog ||= Object.freeze(Dex.mod('gen9').moves.all()
-		.filter(move => move.exists && !['CAP', 'Custom', 'Future'].includes(move.isNonstandard || ''))
-		.map(moveDefinition)
-		.sort((a, b) => a.name.localeCompare(b.name)));
+	if (!cachedCatalog) {
+		const uniqueMoves = new Map<string, RPGContestMoveDefinition>();
+		for (const move of Dex.mod('gen9').moves.all()) {
+			if (!move.exists || ['CAP', 'Custom', 'Future'].includes(move.isNonstandard || '')) continue;
+			uniqueMoves.set(move.id, moveDefinition(move));
+		}
+		cachedCatalog = Object.freeze([...uniqueMoves.values()].sort((a, b) => a.name.localeCompare(b.name)));
+	}
 	return cachedCatalog.map(move => structuredClone(move));
 }
 

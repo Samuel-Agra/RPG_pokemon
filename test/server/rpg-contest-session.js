@@ -10,22 +10,22 @@ function pokemon(species, hp = 20) {
 	return {
 		name: species, species, item: '', ability: 'Overgrow', moves: ['tackle', 'growl'],
 		nature: 'Jolly', gender: 'M', evs: {}, ivs: {}, level: 20,
-		rpg: {version: 1, hp, friendship: 100},
+		rpg: { version: 1, hp, friendship: 100 },
 	};
 }
 
 function participant(id, characterId) {
-	return {id, kind: 'player', displayName: characterId, characterId};
+	return { id, kind: 'player', displayName: characterId, characterId };
 }
 
 describe('RPG contest preparation sessions', () => {
 	it('allows concurrent contests and exposes active contests to spectators', () => {
 		let sequence = 0;
-		const service = new RPGContestSessionService({createId: () => `contest-${++sequence}`});
-		const npc = id => ({id, kind: 'npc', displayName: id, pokemon: {set: pokemon('Eevee')}});
+		const service = new RPGContestSessionService({ createId: () => `contest-${++sequence}` });
+		const npc = id => ({ id, kind: 'npc', displayName: id, pokemon: { set: pokemon('Eevee') } });
 		for (let index = 0; index < 2; index++) {
 			const contest = service.create();
-			service.update(contest.id, {participants: [npc(`a-${index}`), npc(`b-${index}`)]});
+			service.update(contest.id, { participants: [npc(`a-${index}`), npc(`b-${index}`)] });
 			service.invite(contest.id);
 			assert.equal(service.start(contest.id).status, 'started');
 		}
@@ -45,12 +45,12 @@ describe('RPG contest preparation sessions', () => {
 			random: () => 0,
 			getCharacterTeam: id => teams.get(id),
 		});
-		let contest = service.create({name: 'Festival de Flores'});
+		let contest = service.create({ name: 'Festival de Flores' });
 		assert.equal(contest.id, 'grandfestival1');
 		assert.equal(contest.mode, 'solo');
 		contest = service.update(contest.id, {
 			category: 'beauty', rank: 'great',
-			scenario: {id: 'flower-festival', name: 'Festival de Flores', tags: ['Flower', 'Dance']},
+			scenario: { id: 'flower-festival', name: 'Festival de Flores', tags: ['Flower', 'Dance'] },
 			participants: [participant('may-entry', 'may'), participant('dawn-entry', 'dawn')],
 		});
 		assert.deepEqual(contest.scenario.tags, ['flower', 'dance']);
@@ -70,15 +70,15 @@ describe('RPG contest preparation sessions', () => {
 	});
 
 	it('supports Master-controlled NPCs and enforces the 2 to 10 participant limits', () => {
-		const service = new RPGContestSessionService({createId: () => 'npc-contest'});
+		const service = new RPGContestSessionService({ createId: () => 'npc-contest' });
 		const contest = service.create();
 		const npc = index => ({
 			id: `npc-${index}`, kind: 'npc', displayName: `NPC ${index}`,
-			pokemon: {set: pokemon(index === 1 ? 'Pikachu' : 'Eevee')},
+			pokemon: { set: pokemon(index === 1 ? 'Pikachu' : 'Eevee') },
 		});
-		assert.throws(() => service.update(contest.id, {participants: [npc(1)]}) && service.invite(contest.id),
+		assert.throws(() => service.update(contest.id, { participants: [npc(1)] }) && service.invite(contest.id),
 			/between 2 and 10/);
-		service.update(contest.id, {participants: [npc(1), npc(2)]});
+		service.update(contest.id, { participants: [npc(1), npc(2)] });
 		const ready = service.invite(contest.id);
 		assert.equal(ready.status, 'ready');
 		assert.deepEqual(ready.invitations, []);
@@ -98,7 +98,7 @@ describe('RPG contest preparation sessions', () => {
 		assert.throws(() => service.update(contest.id, {
 			participants: [participant('a', 'may'), participant('b', 'may')],
 		}), /only once/);
-		service.update(contest.id, {participants: [participant('a', 'may'), participant('b', 'dawn')]});
+		service.update(contest.id, { participants: [participant('a', 'may'), participant('b', 'dawn')] });
 		service.invite(contest.id);
 		assert.throws(() => service.selectPokemon(contest.id, 'may', 0), /fainted/);
 		assert.throws(() => service.selectPokemon(contest.id, 'may', 1), /unavailable/);

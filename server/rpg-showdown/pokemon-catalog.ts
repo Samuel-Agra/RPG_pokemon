@@ -1,6 +1,6 @@
 import { Dex } from '../../sim/dex';
-import {getRPGAllowedSexes} from '../../sim/rpg-showdown';
-import {getRPGAbilityDescriptionPTBR} from './ability-descriptions-pt-br';
+import { getRPGAllowedSexes } from '../../sim/rpg-showdown';
+import { getRPGAbilityDescriptionPTBR } from './ability-descriptions-pt-br';
 
 export interface RPGBattlePokemonCatalogEntry {
 	id: string;
@@ -11,9 +11,9 @@ export interface RPGBattlePokemonCatalogEntry {
 	prevo: string | null;
 	types: string[];
 	abilities: string[];
-	abilityDetails: {id: string, name: string, description: string, hidden: boolean}[];
+	abilityDetails: { id: string, name: string, description: string, hidden: boolean }[];
 	genders: string[];
-	baseStats: {hp: number, atk: number, def: number, spa: number, spd: number, spe: number};
+	baseStats: { hp: number, atk: number, def: number, spa: number, spd: number, spe: number };
 	legendary: boolean;
 	mythical: boolean;
 	pseudoLegendary: boolean;
@@ -74,7 +74,7 @@ export function getRPGBattlePokemonCatalog(): RPGBattlePokemonCatalogEntry[] {
 			const abilityDetails = Object.entries(species.abilities).filter((entry): entry is [string, string] => !!entry[1])
 				.map(([slot, name]) => {
 					const ability = dex.abilities.get(name);
-					return {id: ability.id, name: ability.name, description: getRPGAbilityDescriptionPTBR(ability.id), hidden: slot === 'H'};
+					return { id: ability.id, name: ability.name, description: getRPGAbilityDescriptionPTBR(ability.id), hidden: slot === 'H' };
 				});
 			return {
 				id: species.id,
@@ -83,7 +83,7 @@ export function getRPGBattlePokemonCatalog(): RPGBattlePokemonCatalogEntry[] {
 				abilities: [...new Set(abilityDetails.map(ability => ability.name))],
 				abilityDetails,
 				genders: [...getRPGAllowedSexes(species.name)],
-				baseStats: {...species.baseStats},
+				baseStats: { ...species.baseStats },
 				num: species.num,
 				spriteId: species.spriteid,
 				baseSpriteId: dex.species.get(species.baseSpecies).spriteid,
@@ -111,15 +111,15 @@ export function getRPGPokedexMoves(speciesName: string, includeCapturedMoves: bo
 		Flying: 6, Poison: 7, Rock: 8, Ground: 9, Ice: 10, Fighting: 11,
 		Psychic: 12, Ghost: 13, Dragon: 14, Dark: 15, Steel: 16, Fairy: 17,
 	};
-	const categoryOrder: Record<string, number> = {Physical: 0, Special: 1, Status: 2};
+	const categoryOrder: Record<string, number> = { Physical: 0, Special: 1, Status: 2 };
 	const order = (a: RPGPokedexMoveEntry, b: RPGPokedexMoveEntry) =>
 		(typeOrder[a.type] ?? 18) - (typeOrder[b.type] ?? 18) ||
 		(categoryOrder[a.category] ?? 3) - (categoryOrder[b.category] ?? 3) ||
-		a.name.localeCompare(b.name, 'en', {sensitivity: 'base'});
+		a.name.localeCompare(b.name, 'en', { sensitivity: 'base' });
 	const entry = (moveId: string): RPGPokedexMoveEntry | null => {
 		const move = dex.moves.get(moveId);
 		if (!move.exists || move.isNonstandard === 'CAP' || move.isNonstandard === 'Future') return null;
-		return {id: move.id, name: move.name, type: move.type, category: move.category};
+		return { id: move.id, name: move.name, type: move.type, category: move.category };
 	};
 	for (const learnsetData of dex.species.getFullLearnset(species.id)) {
 		for (const [moveId, sources] of Object.entries(learnsetData.learnset)) {
@@ -132,7 +132,7 @@ export function getRPGPokedexMoves(speciesName: string, includeCapturedMoves: bo
 			if (levels.length) {
 				const learnedAt = Math.min(...levels);
 				const current = level.get(move.id);
-				if (!current || learnedAt < (current.level ?? Infinity)) level.set(move.id, {...move, level: learnedAt});
+				if (!current || learnedAt < (current.level ?? Infinity)) level.set(move.id, { ...move, level: learnedAt });
 			}
 			if (!includeCapturedMoves) continue;
 			if (sources.some(source => source.startsWith('9M'))) tm.set(move.id, move);
