@@ -40,6 +40,7 @@ const state = {
 	dismissedBattleSessionIds: new Set(),
 	expandedShopAccessIds: new Set(),
 	expandedMasterPlayerIds: new Set(),
+	dashboardHistory: [],
 };
 let battleSessionSyncBusy = false;
 let battleSessionSyncTimer = null;
@@ -123,6 +124,7 @@ function saveSession(session) {
 	if (identityChanged) {
 		state.battleSessions = [];
 		state.dismissedBattleSessionIds.clear();
+		state.dashboardHistory = [];
 		masterNPCLibraryLoadedFromServer = false;
 	}
 	if (session) {
@@ -696,6 +698,7 @@ function dashboardNav(isMaster) {
 		item.setAttribute('aria-disabled', String(blocked));
 		item.addEventListener('click', () => {
 			if (blocked) return;
+			if (view !== state.dashboardView) state.dashboardHistory.push(state.dashboardView);
 			if (view === 'team-builder') state.teamBuilderReturnView = 'team';
 			state.dashboardView = view;
 			if (state.session?.role === 'player') void api('/presence', {method: 'POST', body: {area: view}}).catch(() => {});
@@ -4516,6 +4519,113 @@ for (const back of document.querySelectorAll('[data-back]')) {
 		else show(back.dataset.back);
 	});
 }
+
+function visibleElement(element) {
+	if (!element || element.disabled || element.classList.contains('hidden')) return false;
+	const style = window.getComputedStyle(element);
+	return style.display !== 'none' && style.visibility !== 'hidden' && element.getClientRects().length > 0;
+}
+
+function clickDashboardReturnControl() {
+	const dashboard = $('#dashboard-body');
+	if (!dashboard) return false;
+	const breadcrumbs = dashboard.querySelector('.master-npc-breadcrumbs');
+	if (visibleElement(breadcrumbs)) {
+		const crumbs = [...breadcrumbs.querySelectorAll('button')].filter(control =>
+			!control.classList.contains('master-npc-folder-collapse-toggle'));
+		if (crumbs.length > 1) {
+			crumbs[crumbs.length - 2].click();
+			return true;
+		}
+	}
+	const selectors = [
+		'.rpg-leave-room', '.shop-back', '.pokemon-center-hardware-back',
+		'.registered-npc-back', 'button[aria-label="Voltar"]', 'button[data-back]',
+	];
+	for (const selector of selectors) {
+		const control = [...dashboard.querySelectorAll(selector)].find(visibleElement);
+		if (control) {
+			control.click();
+			return true;
+		}
+	}
+	const cancel = [...dashboard.querySelectorAll('button')].find(control =>
+		visibleElement(control) && control.textContent.trim() === 'Cancelar');
+	if (!cancel) return false;
+	cancel.click();
+	return true;
+}
+
+function handleEscapeNavigation(event) {
+	if (event.key !== 'Escape' || event.defaultPrevented || event.repeat) return;
+	if (document.querySelector('.overview-pokedex-layer')) return;
+	if (!$('#delete-modal').classList.contains('hidden')) {
+		event.preventDefault();
+		closeDeleteDialog();
+		return;
+	}
+	const visibleScreen = screens.find(screen => !screen.classList.contains('hidden'))?.id;
+	if (visibleScreen === 'create-screen') {
+		if ($('#avatar-picker-toggle').getAttribute('aria-expanded') === 'true') {
+			event.preventDefault();
+			setAvatarPickerOpen(false);
+			return;
+		}
+		if ($('#starter-picker-toggle').getAttribute('aria-expanded') === 'true') {
+			event.preventDefault();
+			setStarterPickerOpen(false);
+			return;
+		}
+	}
+	if (visibleScreen === 'master-screen' || visibleScreen === 'player-screen') {
+		event.preventDefault();
+		show('entry');
+		return;
+	}
+	if (visibleScreen === 'create-screen') {
+		event.preventDefault();
+		void loadCharacters();
+		return;
+	}
+	if (visibleScreen !== 'dashboard-screen') return;
+	const openDialog = [...document.querySelectorAll('.modal-backdrop:not(.hidden), [role="dialog"]:not(.hidden)')]
+		.find(visibleElement);
+	if (openDialog) {
+		const dismiss = [...openDialog.querySelectorAll('button')].find(control => {
+			if (!visibleElement(control)) return false;
+			const label = (control.getAttribute('aria-label') || control.textContent).trim().toLowerCase();
+			return label.includes('fechar') || label === 'cancelar' || label === 'voltar';
+		});
+		if (dismiss) {
+			event.preventDefault();
+			dismiss.click();
+		}
+		return;
+	}
+	if (clickDashboardReturnControl()) {
+		event.preventDefault();
+		return;
+	}
+	if (state.dashboardView === 'team-builder') {
+		event.preventDefault();
+		state.dashboardView = state.teamBuilderReturnView || 'team';
+		state.teamBuilderPokemonId = null;
+		void renderDashboard();
+		return;
+	}
+	if (state.session?.role === 'master' && state.session.mode !== 'master') {
+		event.preventDefault();
+		void exitPlayerView();
+		return;
+	}
+	if (state.dashboardView === 'overview') return;
+	event.preventDefault();
+	const previous = state.dashboardHistory.pop();
+	state.dashboardView = previous && previous !== state.dashboardView ? previous : 'overview';
+	void renderDashboard();
+}
+
+window.addEventListener('keydown', handleEscapeNavigation);
 
 for (const toggle of document.querySelectorAll('.password-toggle')) {
 	toggle.addEventListener('click', () => {
