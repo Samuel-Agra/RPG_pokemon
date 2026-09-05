@@ -710,7 +710,7 @@ window.RPGContestUI = (() => {
 				const itemChoices = usefulItems.filter(entry => entry.contest.points === desiredPoints);
 				const avatar = avatarCatalog[Math.floor(Math.random() * avatarCatalog.length)] || {id: 'lucas-contest', name: 'Lucas'};
 				const index = participants.length + 1; const id = `npc-random-${index}-${avatar.id}`;
-				const required = profile.contestMode?.() === 'trio' ? 3 : profile.contestMode?.() === 'duo' ? 2 : 1;
+				const required = Math.max(1, Math.min(6, Number(profile.tournamentTeamSize?.()) || (profile.contestMode?.() === 'trio' ? 3 : profile.contestMode?.() === 'duo' ? 2 : 1)));
 				const pokemonTeam = [];
 				for (let slot = 0; slot < required; slot++) {
 					let pokemon = null; let legalMoves = [];
@@ -841,7 +841,7 @@ window.RPGContestUI = (() => {
 		}
 		function renderCreator() {
 			creator.replaceChildren(); const title = el('div', 'contest-npc-coordinator-bar');
-			const requiredPokemon = profile.scope === 'contest' ? (profile.contestMode?.() === 'trio' ? 3 : profile.contestMode?.() === 'duo' ? 2 : 1) : 6;
+			const requiredPokemon = profile.scope === 'contest' ? Math.max(1, Math.min(6, Number(profile.tournamentTeamSize?.()) || (profile.contestMode?.() === 'trio' ? 3 : profile.contestMode?.() === 'duo' ? 2 : 1))) : 6;
 			const nextPokemonNumber = (pendingNpcBuild?.pokemonTeam.length || 0) + 1;
 			const creatorTitle = profile.scope === 'battle' ? `Criar NPC temporário · Pokémon ${nextPokemonNumber} de até 6` :
 				(requiredPokemon > 1 ? `Criar NPC temporário · Pokémon ${nextPokemonNumber} de ${requiredPokemon}` : 'Criar NPC temporário');
@@ -1610,8 +1610,8 @@ window.RPGContestUI = (() => {
 		const registeredCards = el('div', 'contest-registered-selected-cards');
 		renderCards(); root.append(creator, cards); return {root, registeredCards, participants: () => structuredClone(participants)};
 	}
-	function contestTemporaryNPCEditor(context, initialParticipants, contestCategory, contestRank, contestMode) {
-		return buildTemporaryNPCEditor(context, initialParticipants, {...temporaryNPCProfiles.contest, contestCategory, contestRank, contestMode});
+	function contestTemporaryNPCEditor(context, initialParticipants, contestCategory, contestRank, contestMode, tournamentTeamSize) {
+		return buildTemporaryNPCEditor(context, initialParticipants, {...temporaryNPCProfiles.contest, contestCategory, contestRank, contestMode, tournamentTeamSize});
 	}
 	function battleTemporaryNPCEditor(context, initialParticipants, battleTeamSize, canAddParticipant) {
 		return buildTemporaryNPCEditor(context, initialParticipants, {...temporaryNPCProfiles.battle, battleTeamSize, canAddParticipant});
@@ -1858,6 +1858,7 @@ window.RPGContestUI = (() => {
 		const grid = el('div', 'pokemon-choice-grid');
 		const selected = new Set((participant.pokemonTeam || (participant.pokemon ? [participant.pokemon] : [])).map(entry => entry.teamIndex));
 		for (const [index, pokemon] of (context.character.team || []).entries()) {
+			if (participant.allowedTeamIndexes?.length && !participant.allowedTeamIndexes.includes(index)) continue;
 			const metadata = context.character.box?.party?.[index]?.metadata || {};
 			const fainted = (pokemon.rpg?.hp ?? 1) <= 0; const unavailable = fainted || !!metadata.evTraining || !!metadata.breeding;
 			const label = el('label', `battle-check pokemon-choice${unavailable ? ' unavailable' : ''}`); const input = el('input');
@@ -2009,5 +2010,5 @@ window.RPGContestUI = (() => {
 		schedulePreContestRefresh(context, page, sessions);
 		return page;
 	}
-	return {render, battleTemporaryNPCEditor, savedNPCSelector, stopAudio: () => window.RPGBattleAudio?.stop()};
+	return {render, battleTemporaryNPCEditor, contestTemporaryNPCEditor, savedNPCSelector, stopAudio: () => window.RPGBattleAudio?.stop()};
 })();

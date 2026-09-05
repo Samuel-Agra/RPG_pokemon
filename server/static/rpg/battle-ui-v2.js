@@ -736,34 +736,40 @@ function rpgPlayerPokemonSelection(session, character) {
 	const invitation = session.invitations.find(item => item.characterId === character.id);
 	if (invitation?.response !== 'pending') return null;
 	const panel = createElement('div', 'player-battle-selection');
-	panel.append(createElement('strong', '', 'Escolha quais Pok\u00e9mon levar (m\u00e1ximo: ' + participant.selectionLimit + ')'));
-	const selected = new Set(participant.pokemon.map(choice => choice.teamIndex));
+	const tournamentSelection=Array.isArray(participant.allowedTeamIndexes)&&participant.allowedTeamIndexes.length>0;
+	panel.append(createElement('strong', '', tournamentSelection ? `Escolha e ordene ${participant.selectionLimit} dos Pokémon inscritos` : 'Escolha quais Pok\u00e9mon levar (m\u00e1ximo: ' + participant.selectionLimit + ')'));
+	const selected = tournamentSelection ? [] : participant.pokemon.map(choice => choice.teamIndex);
 	const grid = createElement('div', 'pokemon-choice-grid');
+	const choices=[];
+	const refreshOrder=()=>choices.forEach(({index,badge,input})=>{ const position=selected.indexOf(index); input.checked=position>=0; badge.textContent=position>=0?String(position+1):''; badge.classList.toggle('hidden',position<0); });
 	for (const [index, pokemon] of (character.team || []).entries()) {
+		if(tournamentSelection&&!participant.allowedTeamIndexes.includes(index)) continue;
 		const training = character.box?.party?.[index]?.metadata?.evTraining;
 		const breeding = character.box?.party?.[index]?.metadata?.breeding;
 		const unavailable = !!training || !!breeding;
-		if (unavailable) selected.delete(index);
-		const choice = rpgBattleCheck('', !unavailable && selected.has(index));
+		if (unavailable) { const position=selected.indexOf(index); if(position>=0) selected.splice(position,1); }
+		const choice = rpgBattleCheck('', !unavailable && selected.includes(index));
 		choice.wrapper.classList.add('pokemon-choice');
 		if (training) choice.wrapper.classList.add('is-training');
 		if (breeding) choice.wrapper.classList.add('is-breeding');
 		choice.input.disabled = unavailable;
-		choice.wrapper.append(pokemonSprite(pokemon));
+		const badge=createElement('span','tournament-order-badge hidden'); choice.wrapper.append(badge,pokemonSprite(pokemon));
 		const info = createElement('span');
 		info.append(createElement('strong', '', pokemon.name || pokemon.species), createElement('small', '', (pokemon.species || '') + ' \u00b7 Nv. ' + (pokemon.level || 1)));
 		if (training) info.append(createElement('small', 'training-time', 'Em treinamento \u00b7 Restam ' + rpgTrainingDuration(training.remainingMs)));
 		if (breeding) info.append(createElement('small', 'breeding-time', 'Em procria\u00e7\u00e3o \u00b7 Indispon\u00edvel para batalha'));
 		choice.wrapper.append(info);
-		choice.input.addEventListener('change', () => { if (choice.input.checked) selected.add(index); else selected.delete(index); });
+		choice.input.addEventListener('change', () => { const position=selected.indexOf(index); if(choice.input.checked&&position<0&&selected.length<participant.selectionLimit) selected.push(index); else if(!choice.input.checked&&position>=0) selected.splice(position,1); refreshOrder(); });
+		choices.push({index,badge,input:choice.input});
 		grid.append(choice.wrapper);
 	}
 	panel.getPokemonSelection = () => {
-		if (!selected.size || selected.size > participant.selectionLimit) throw new Error('Escolha entre 1 e ' + participant.selectionLimit + ' Pokémon.');
-		return [...selected].map(teamIndex => ({teamIndex}));
+		if (tournamentSelection && selected.length !== participant.selectionLimit) throw new Error(`Escolha e ordene exatamente ${participant.selectionLimit} Pokémon inscritos.`);
+		if (!selected.length || selected.length > participant.selectionLimit) throw new Error('Escolha entre 1 e ' + participant.selectionLimit + ' Pokémon.');
+		return selected.map(teamIndex => ({teamIndex}));
 	};
 
-	panel.append(grid);
+	panel.append(grid); refreshOrder();
 	return panel;
 }
 

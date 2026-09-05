@@ -944,6 +944,21 @@ export class RPGHttpServer {
 			this.json(res, 200, {moves: getRPGContestMoveCatalog()});
 			return;
 		}
+		if (url.pathname === '/api/rpg/tournaments') {
+			const token = this.token(req);
+			if (method === 'GET') { this.json(res, 200, {tournaments: this.login.listTournaments(token)}); return; }
+			if (method === 'POST') { const body = await this.body(req); this.json(res, 201, {tournament: this.login.createTournament(token, body as never)}); return; }
+		}
+		const tournamentMatch = /^\/api\/rpg\/tournaments\/([^/]+)(?:\/(start|report|launch|cancel|roster))?$/.exec(url.pathname);
+		if (tournamentMatch) {
+			const token = this.token(req); const id = decodeURIComponent(tournamentMatch[1]); const action = tournamentMatch[2];
+			if (method === 'GET' && !action) { this.json(res, 200, {tournament: this.login.getTournament(token, id)}); return; }
+			if (method === 'POST' && action === 'start') { this.json(res, 200, {tournament: this.login.startTournament(token, id)}); return; }
+			if (method === 'POST' && action === 'roster') { const body = await this.body(req); this.json(res, 200, {tournament: this.login.setTournamentRoster(token, id, Array.isArray(body.pokemonIds) ? body.pokemonIds.map(value => this.string(value)) : [])}); return; }
+			if (method === 'POST' && action === 'report') { const body = await this.body(req); this.json(res, 200, {tournament: this.login.reportTournamentMatch(token, id, this.string(body.matchId), this.string(body.winnerId))}); return; }
+			if (method === 'POST' && action === 'launch') { const body = await this.body(req); this.json(res, 200, this.login.launchTournamentMatch(token, id, this.string(body.matchId), body.npcSelections && typeof body.npcSelections === 'object' ? body.npcSelections as Record<string, number[]> : {})); return; }
+			if (method === 'POST' && action === 'cancel') { this.json(res, 200, {tournament: this.login.cancelTournament(token, id)}); return; }
+		}
 		if (method === 'GET' && url.pathname === '/api/rpg/contest-pokemon-moves') {
 			this.login.getSession(this.token(req));
 			this.json(res, 200, {moves: getRPGContestPokemonMoveCatalog(

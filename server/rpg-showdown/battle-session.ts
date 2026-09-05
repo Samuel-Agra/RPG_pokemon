@@ -57,6 +57,8 @@ export interface RPGBattleParticipant {
 	/** Role used by encounter rules and presentation for NPCs. */
 	npcRole?: RPGNPCBattleRole;
 	selectionLimit: number;
+	/** Positions admitted before this battle, used for a tournament roster. */
+	allowedTeamIndexes?: number[];
 	pokemon: RPGBattleParticipantPokemon[];
 }
 
@@ -403,6 +405,10 @@ export class RPGBattleSessionService {
 		if (new Set(indexes).size !== indexes.length) {
 			throw new Error('RPG character team Pokemon cannot be selected twice');
 		}
+		if (participant.allowedTeamIndexes?.length &&
+			(indexes.length !== participant.selectionLimit || indexes.some(index => !participant.allowedTeamIndexes!.includes(index!)))) {
+			throw new Error('Ordene somente todos os Pokémon inscritos neste torneio');
+		}
 		for (const teamIndex of indexes) this.requireAvailablePlayerPokemon(normalizedCharacter, teamIndex!);
 		participant.pokemon = indexes.map(teamIndex => ({ teamIndex }));
 		session.updatedAt = this.now();
@@ -620,6 +626,7 @@ export class RPGBattleSessionService {
 			const characterId = raw.characterId && toID(raw.characterId);
 			const pokemon = Array.isArray(raw.pokemon) ? structuredClone(raw.pokemon) : [];
 			if (pokemon.length > selectionLimit) throw new Error('RPG battle Pokemon selection exceeds its limit');
+			let allowedTeamIndexes: number[] | undefined;
 			if (kind === 'player') {
 				if (!characterId) throw new Error('RPG player participant requires a character');
 				const selectedIndexes = pokemon.map(choice => choice.teamIndex!);
@@ -635,6 +642,11 @@ export class RPGBattleSessionService {
 					this.requireAvailablePlayerPokemon(characterId, choice.teamIndex!);
 					delete choice.set;
 					delete choice.shinyMode;
+				}
+				allowedTeamIndexes = Array.isArray(raw.allowedTeamIndexes) ? raw.allowedTeamIndexes.map(value =>
+					this.integer(value, 0, teamSets.length - 1, 'allowed team index')) : undefined;
+				if (allowedTeamIndexes?.length && new Set(allowedTeamIndexes).size !== allowedTeamIndexes.length) {
+					throw new Error('RPG allowed character Pokemon cannot be repeated');
 				}
 			} else {
 				for (const choice of pokemon) {
@@ -656,7 +668,7 @@ export class RPGBattleSessionService {
 				npcRole: kind === 'npc' ? this.enumValue(
 					raw.npcRole || 'generic', ['generic', 'gym-leader', 'elite-four'] as const, 'NPC battle role'
 				) : undefined,
-				selectionLimit, pokemon,
+				selectionLimit, allowedTeamIndexes, pokemon,
 			};
 		});
 	}

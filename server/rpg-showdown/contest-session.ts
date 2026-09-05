@@ -27,6 +27,8 @@ export interface RPGContestParticipant {
 	avatar?: string;
 	pokemon?: RPGContestPokemonSelection;
 	pokemonTeam?: RPGContestPokemonSelection[];
+	/** Team positions registered for a tournament; presentation choices must stay inside this roster. */
+	allowedTeamIndexes?: number[];
 }
 
 export interface RPGContestInvitation {
@@ -211,6 +213,9 @@ export class RPGContestSessionService {
 		}
 		const team = this.getCharacterTeam(normalized);
 		for (const teamIndex of indexes) {
+			if (participant.allowedTeamIndexes?.length && !participant.allowedTeamIndexes.includes(teamIndex)) {
+				throw new Error('Este Pokémon não foi inscrito no torneio');
+			}
 			if (!team || !Number.isSafeInteger(teamIndex) || teamIndex < 0 || teamIndex >= team.length) {
 				throw new Error('Invalid RPG contest Pokemon selection');
 			}
@@ -322,6 +327,7 @@ export class RPGContestSessionService {
 				const team = this.getCharacterTeam(participant.characterId!);
 				for (const selection of selections) {
 					const teamIndex = selection.teamIndex!;
+					if (participant.allowedTeamIndexes?.length && !participant.allowedTeamIndexes.includes(teamIndex)) throw new Error('A selected Pokemon is outside the tournament roster');
 					if (!Number.isSafeInteger(teamIndex) || !team?.[teamIndex] || !this.isCharacterPokemonAvailable(participant.characterId!, teamIndex)) {
 						throw new Error('A selected Pokemon became unavailable for the RPG contest');
 					}
@@ -350,7 +356,8 @@ export class RPGContestSessionService {
 			if (kind === 'player') {
 				const characterId = toID(entry.characterId || '');
 				if (!characterId || !this.getCharacterTeam(characterId)) throw new Error('Unknown RPG contest Player');
-				return {id, kind, displayName, characterId, avatar: entry.avatar};
+				const allowedTeamIndexes = entry.allowedTeamIndexes?.filter(teamIndex => Number.isSafeInteger(teamIndex) && teamIndex >= 0);
+				return {id, kind, displayName, characterId, avatar: entry.avatar, ...(allowedTeamIndexes?.length ? {allowedTeamIndexes} : {})};
 			}
 			const selections = entry.pokemonTeam || (entry.pokemon ? [entry.pokemon] : []);
 			if (!selections.length) throw new Error('RPG contest NPC requires Pokemon');

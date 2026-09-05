@@ -8,6 +8,8 @@ export interface RPGTournamentParticipant {
 	name: string;
 	type: RPGTournamentParticipantType;
 	npcClass?: RPGTournamentNPCClass;
+	/** Relative team quality used only to weight automatic NPC matches. */
+	strength?: number;
 }
 
 export interface RPGTournamentAutomaticResult {
@@ -46,6 +48,7 @@ export class RPGTournamentSystem {
 			name,
 			type: participant.type,
 			...(participant.type === 'npc' ? { npcClass: participant.npcClass } : {}),
+			...(participant.type === 'npc' ? {strength: Math.max(1, Number(participant.strength) || 1)} : {}),
 		};
 	}
 
@@ -77,7 +80,8 @@ export class RPGTournamentSystem {
 		if (!Number.isFinite(roll) || roll < 0 || roll >= 1) {
 			throw new Error('RPG Tournament random value must be between 0 and 1');
 		}
-		const winner = roll < 0.5 ? p1 : p2;
+		const firstChance = (p1.strength || 1) / ((p1.strength || 1) + (p2.strength || 1));
+		const winner = roll < firstChance ? p1 : p2;
 		return {
 			winner,
 			loser: winner === p1 ? p2 : p1,

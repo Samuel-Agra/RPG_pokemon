@@ -46,6 +46,7 @@ let battleSessionSyncBusy = false;
 let battleSessionSyncTimer = null;
 let masterPresenceSyncTimer = null;
 let playerPresenceHeartbeatTimer = null;
+let tournamentRefreshTimer = null;
 
 const $ = selector => document.querySelector(selector);
 
@@ -686,6 +687,7 @@ function dashboardNav(isMaster) {
 		['box', 'Box', boxBlocked],
 		['battles', 'Batalhas'],
 		['contests', 'Concursos'],
+		['tournaments', 'Torneios'],
 	];
 	const currentEntry = entries.find(([view]) => view === state.dashboardView);
 	if ((!currentEntry && state.dashboardView !== 'team-builder') || currentEntry?.[2]) {
@@ -3094,6 +3096,289 @@ function readMasterNPCLibrary() {
 	};
 }
 
+function tournamentDataSignature(tournaments) {
+	return JSON.stringify((tournaments || []).map(tournament => [tournament.id,tournament.status,tournament.updatedAt,tournament.championId,
+		tournament.participants.map(participant => [participant.id,participant.rosterPokemonIds]),
+		tournament.matches.map(match => [match.id,match.status,match.winnerId,match.linkedSessionId])]));
+}
+
+function scheduleTournamentRefresh(page, context, signature) {
+	if (tournamentRefreshTimer) window.clearTimeout(tournamentRefreshTimer);
+	const check = async () => {
+		if (!page.isConnected || state.dashboardView !== 'tournaments') return;
+		if (document.hidden) { tournamentRefreshTimer=window.setTimeout(check,1200); return; }
+		try {
+			const data = await api('/tournaments'); const tournaments = data.tournaments || []; const nextSignature=tournamentDataSignature(tournaments);
+			if (nextSignature !== signature) {
+				const fresh = context.master ? await renderMasterTournaments(context.characters,tournaments,false) : await renderPlayerTournaments(context.character,tournaments,false);
+				if (context.master) { const currentList=page.querySelector('.tournament-list'); const nextList=fresh.querySelector('.tournament-list'); if(currentList&&nextList) currentList.replaceWith(nextList); }
+				else page.replaceChildren(...fresh.childNodes);
+				signature=nextSignature;
+			}
+		} catch(error) { if (/sess[aã]o|session/i.test(error.message)) return; }
+		if(page.isConnected) tournamentRefreshTimer=window.setTimeout(check,1200);
+	};
+	tournamentRefreshTimer=window.setTimeout(check,1200);
+}
+
+function tournamentParticipantPokemon(participant, characters) {
+	if (participant.type === 'player') {
+		const character = characters?.find(entry => entry.id === participant.characterId);
+		if (!character) return [];
+		if (participant.rosterPokemonIds?.length) {
+			return participant.rosterPokemonIds.map(pokemonId => {
+				const index=character.box?.party?.findIndex(entry=>entry.pokemonId===pokemonId) ?? -1;
+				return index>=0 ? character.team?.[index] : null;
+			}).filter(Boolean);
+		}
+		return character.team || [];
+	}
+	return participant.pokemon || participant.pokemonTeam?.map(entry => entry.set || entry) || [];
+}
+
+function tournamentParticipantEntry(participant, characters) {
+	if (!participant) return createElement('div', 'tournament-bracket-empty', 'Vaga disponível');
+	const entry = createElement('div', 'tournament-bracket-entrant');
+	const portrait = createElement('span', 'tournament-bracket-trainer');
+	if (participant.avatar && /^[a-z0-9-]+$/i.test(String(participant.avatar).replace(/\.png$/i, ''))) {
+		const image = createElement('img'); image.alt = ''; image.loading = 'lazy';
+		image.src = RPGAssets.url(`sprites/trainers/${String(participant.avatar).replace(/\.png$/i, '')}.png`);
+		image.addEventListener('error', () => { portrait.textContent = initials(participant.name); });
+		portrait.append(image);
+	} else portrait.textContent = initials(participant.name);
+	const identity = createElement('span', 'tournament-bracket-identity');
+	const nameLine = createElement('span', 'tournament-bracket-name');
+	nameLine.append(createElement('strong', '', participant.name));
+	const pokemon = tournamentParticipantPokemon(participant, characters);
+	if (pokemon.length) {
+		const toggle = button('▾', 'tournament-pokemon-toggle'); toggle.type = 'button'; toggle.setAttribute('aria-label', `Ver Pokémon de ${participant.name}`);
+		const popup = createElement('span', 'tournament-pokemon-popup hidden');
+		for (const member of pokemon.slice(0, 6)) popup.append(pokemonSprite(member));
+		document.body.append(popup); toggle._pokemonPopup=popup;
+		toggle.addEventListener('click', event => {
+			event.stopPropagation(); const opening=popup.classList.contains('hidden');
+			document.querySelectorAll('.tournament-pokemon-popup').forEach(node=>node.classList.add('hidden'));
+			if (!opening) return;
+			popup.classList.remove('hidden');
+			const anchor=toggle.getBoundingClientRect(); const bounds=popup.getBoundingClientRect(); const margin=8;
+			let left=anchor.left+anchor.width/2-bounds.width/2;
+			left=Math.max(margin,Math.min(left,window.innerWidth-bounds.width-margin));
+			let top=anchor.bottom+7;
+			if(top+bounds.height>window.innerHeight-margin) top=anchor.top-bounds.height-7;
+			popup.style.left=`${left}px`; popup.style.top=`${Math.max(margin,top)}px`;
+		});
+		popup.addEventListener('click', event => event.stopPropagation()); nameLine.append(toggle);
+	}
+	identity.append(nameLine); entry.append(portrait,identity); return entry;
+}
+
+function renderTournamentBracket(bracketSize, participants, format, matches = [], characters = []) {
+	const bracket = createElement('div', 'tournament-bracket');
+	const teamSize = format === 'multi' ? 2 : 1;
+	const initialTeams = Array.from({length: bracketSize}, (_, index) => participants.slice(index * teamSize, index * teamSize + teamSize));
+	const rounds = Math.max(1, Math.log2(bracketSize));
+	for (let round = 1; round <= rounds + 1; round++) {
+		const thirdPlaceRound=round===rounds+1;
+		const column = createElement('section', `tournament-round${thirdPlaceRound?' tournament-round-third-place':round===rounds?' tournament-round-final':''}`);
+		column.style.setProperty('--round', String(round - 1));
+		column.append(createElement('h3', '', thirdPlaceRound ? 'Disputa pelo 3º lugar' : round === rounds ? 'Final' : `Rodada ${round}`));
+		const matchList = createElement('div', 'tournament-round-matches');
+		const matchCount = thirdPlaceRound ? 1 : bracketSize / (2 ** round);
+		matchList.style.setProperty('--match-count',String(matchCount));
+		for (let position = 0; position < matchCount; position++) {
+			const match = thirdPlaceRound ? matches.find(entry=>entry.placement==='third-place') : matches.find(entry => entry.round === round && entry.position === position && !entry.placement);
+			const card = createElement('article', `tournament-match ${match ? `status-${match.status}` : 'status-empty'}`);
+			let sides;
+			if (match) sides = [match.participant1Ids || [match.participant1Id],match.participant2Ids || [match.participant2Id]].map(ids=>ids.map(id=>participants.find(entry=>entry.id===id)).filter(Boolean));
+			else if (!thirdPlaceRound && round === 1) sides = [initialTeams[position*2] || [],initialTeams[position*2+1] || []];
+			else sides = [[],[]];
+			for (let sideIndex=0; sideIndex<2; sideIndex++) {
+				const sideIds=match ? (sideIndex ? (match.participant2Ids || [match.participant2Id]) : (match.participant1Ids || [match.participant1Id])) : [];
+				const side = createElement('div', `tournament-match-side side-${sideIndex ? 'b' : 'a'}${match?.winnerId && sideIds.includes(match.winnerId) ? ' winner' : ''}`);
+				side.append(createElement('small','tournament-side-label',sideIndex ? 'TIME B' : 'TIME A'));
+				const sideMembers=createElement('div','tournament-side-members');
+				if (sides[sideIndex].length) for (const participant of sides[sideIndex]) sideMembers.append(tournamentParticipantEntry(participant,characters));
+				else sideMembers.append(createElement('div','tournament-bracket-empty','A definir'));
+				side.append(sideMembers); card.append(side);
+			}
+			if (match?.automatic) card.append(createElement('small','tournament-match-result',match.resolution === 'registered-priority' ? 'NPC predefinido avançou' : 'Resultado automático ponderado'));
+			matchList.append(card);
+		}
+		column.append(matchList); bracket.append(column);
+	}
+	const bracketPopups=[...bracket.querySelectorAll('.tournament-pokemon-toggle')].map(node=>node._pokemonPopup).filter(Boolean);
+	const closePopups = event => {
+		if (!bracket.isConnected) {
+			document.removeEventListener('pointerdown',closePopups); bracketPopups.forEach(node=>node.remove()); return;
+		}
+		if (!event.target.closest('.tournament-pokemon-toggle,.tournament-pokemon-popup')) document.querySelectorAll('.tournament-pokemon-popup').forEach(node=>node.classList.add('hidden'));
+	};
+	document.addEventListener('pointerdown',closePopups); return bracket;
+}
+
+async function renderMasterTournaments(characters, suppliedTournaments = null, enableSync = true) {
+	const root = createElement('div', 'tournament-page');
+	const tournaments = suppliedTournaments || (await api('/tournaments')).tournaments || [];
+	const tournamentType = createElement('section', 'panel tournament-type-picker');
+	tournamentType.append(createElement('h2', '', 'Qual torneio deseja criar?'));
+	const typeActions = createElement('div', 'tournament-type-actions'); tournamentType.append(typeActions); root.append(tournamentType);
+	const form = createElement('form', 'panel tournament-editor hidden');
+	form.append(createElement('h2', '', 'Criar torneio'));
+	const fields = createElement('div', 'tournament-fields');
+	const namedSelect = (label, values) => {
+		const wrapper = createElement('label', 'field'); wrapper.append(createElement('span', '', label));
+		const control = createElement('select');
+		for (const [value, text] of values) { const option = createElement('option', '', text); option.value = value; control.append(option); }
+		wrapper.append(control); fields.append(wrapper); return control;
+	};
+	const nameField = createElement('label', 'field'); nameField.append(createElement('span', '', 'Nome'));
+	const name = createElement('input'); name.required = true; name.maxLength = 80; name.placeholder = 'Nome do torneio'; nameField.append(name); fields.append(nameField);
+	const activity = namedSelect('Tipo de torneio', [['battle', 'Batalha'], ['contest', 'Concurso']]); activity.closest('.field').remove();
+	const format = namedSelect('Formato', [['singles', 'Singles'], ['doubles', 'Duplas'], ['triples', 'Trios']]);
+	const pokemonLimit = namedSelect('Quantidade de Pokémon', Array.from({length:6},(_,index)=>[String(index+1),String(index+1)]));
+	const battlePokemonLimit = namedSelect('Pokémon por batalha', Array.from({length:6},(_,index)=>[String(index+1),String(index+1)]));
+	const refreshBattlePokemonLimit=()=>{ const maximum=Number(pokemonLimit.value); const current=Math.min(Number(battlePokemonLimit.value)||1,maximum); battlePokemonLimit.replaceChildren(...Array.from({length:maximum},(_,index)=>{ const option=createElement('option','',String(index+1)); option.value=String(index+1); return option; })); battlePokemonLimit.value=String(current); };
+	pokemonLimit.addEventListener('change',refreshBattlePokemonLimit); refreshBattlePokemonLimit();
+	const bracketSize = namedSelect('Tamanho da chave', [4, 8, 16, 32, 64].map(value => [String(value), `${value} participantes`]));
+	const weather = namedSelect('Clima inicial', [['', 'Nenhum'], ['sunnyday', 'Sol'], ['raindance', 'Chuva'], ['sandstorm', 'Areia'], ['snow', 'Neve']]);
+	const terrain = namedSelect('Terreno inicial', [['', 'Nenhum'], ['electricterrain', 'Elétrico'], ['grassyterrain', 'Grama'], ['psychicterrain', 'Psíquico'], ['mistyterrain', 'Névoa']]);
+	const category = namedSelect('Categoria', [['beauty', 'Beleza'], ['cute', 'Fofura'], ['cool', 'Carisma'], ['smart', 'Inteligência'], ['tough', 'Força']]);
+	const rank = namedSelect('Rank', [['normal', 'Normal'], ['great', 'Great'], ['super', 'Super'], ['hyper', 'Hyper'], ['master', 'Master']]);
+	form.append(fields);
+	const bracketPreview = createElement('section','tournament-bracket-preview');
+	bracketPreview.append(createElement('h3','','Chaveamento'));
+	const bracketPreviewBody = createElement('div'); bracketPreview.append(bracketPreviewBody);
+	const battleConditions = createElement('div', 'tournament-initial-conditions');
+	battleConditions.append(createElement('h3', '', 'Condições iniciais de todas as batalhas'));
+	const conditionInputs = {};
+	const conditionPanel = (title, className = '') => { const panel = createElement('section', `tournament-condition-panel ${className}`); panel.append(createElement('h4', '', title)); battleConditions.append(panel); return panel; };
+	const addCondition = (parent, id, label) => { const wrapper = createElement('label', 'battle-check'); const input = createElement('input'); input.type = 'checkbox'; conditionInputs[id] = input; wrapper.append(input, createElement('span', '', label)); parent.append(wrapper); };
+	const environmentPanel = conditionPanel('Efeitos globais iniciais', 'tournament-global-conditions');
+	const environmentFields = createElement('div', 'tournament-condition-columns');
+	weather.closest('.field').remove(); terrain.closest('.field').remove();
+	const weatherDuration = namedSelect('Duração do clima', [['temporary','5 turnos'],['permanent','Permanente']]);
+	const terrainDuration = namedSelect('Duração do terreno', [['temporary','5 turnos'],['permanent','Permanente']]);
+	for (const control of [weather, weatherDuration, terrain, terrainDuration]) { control.closest('.field').remove(); environmentFields.append(control.closest('.field')); }
+	environmentPanel.append(environmentFields);
+	const globalChoices = createElement('div', 'tournament-condition-grid'); environmentPanel.append(globalChoices);
+	for (const [id, label] of [['trickRoom','Trick Room'],['magicRoom','Magic Room'],['wonderRoom','Wonder Room'],['gravity','Gravity'],['mudSport','Mud Sport'],['waterSport','Water Sport'],['fairyLock','Fairy Lock'],['ionDeluge','Ion Deluge']]) addCondition(globalChoices, id, label);
+	const hazardsPanel = conditionPanel('Hazards iniciais');
+	const hazardColumns = createElement('div', 'tournament-condition-columns'); hazardsPanel.append(hazardColumns);
+	for (const side of ['A','B']) { const group = createElement('fieldset', 'tournament-condition-side'); group.append(createElement('legend', '', `No campo da Equipe ${side}`)); const spikes = namedSelect('Spikes', [['0','Nenhum'],['1','1 camada'],['2','2 camadas'],['3','3 camadas']]); const toxic = namedSelect('Toxic Spikes', [['0','Nenhum'],['1','1 camada'],['2','2 camadas']]); for (const control of [spikes,toxic]) control.closest('.field').remove(); conditionInputs['spikes'+side] = spikes; conditionInputs['toxicSpikes'+side] = toxic; group.append(spikes.closest('.field')); addCondition(group, 'stealthRock'+side, 'Stealth Rock'); group.append(toxic.closest('.field')); hazardColumns.append(group); }
+	const buffsPanel = conditionPanel('Buffs iniciais');
+	const buffColumns = createElement('div', 'tournament-condition-columns'); buffsPanel.append(buffColumns);
+	for (const side of ['A','B']) { const group = createElement('fieldset', 'tournament-condition-side'); group.append(createElement('legend', '', `Na Equipe ${side}`)); for (const [id,label] of [['tailwind','Tailwind'],['reflect','Reflect'],['lightScreen','Light Screen'],['auroraVeil','Aurora Veil'],['safeguard','Safeguard'],['mist','Mist']]) addCondition(group,id+side,label); buffColumns.append(group); }
+	form.append(battleConditions);
+	const selected = new Map();
+	const participants = createElement('div', 'tournament-participant-picker');
+	const count = createElement('strong', 'tournament-selection-count');
+	const playerChoices = createElement('div', 'tournament-participant-grid');
+	const registeredChoices = createElement('div', 'tournament-participant-grid');
+	const requiredParticipants = () => Number(bracketSize.value) * (activity.value === 'battle' && format.value === 'multi' ? 2 : 1);
+	let battleRandomNPCs; let contestRandomNPCs;
+	const randomParticipants = () => (activity.value === 'contest' ? contestRandomNPCs : battleRandomNPCs)?.participants?.() || [];
+	const previewParticipants = () => [...selected.values(),...randomParticipants().map((entry,index)=>({id:entry.id||`preview-${index}`,name:entry.displayName||`NPC ${index+1}`,type:'npc',source:'temporary',avatar:entry.avatar,pokemonTeam:entry.pokemonTeam||[]}))];
+	const refreshBracketPreview = () => bracketPreviewBody.replaceChildren(renderTournamentBracket(Number(bracketSize.value),previewParticipants(),format.value,[],characters));
+	const refreshCount = () => { const maximum = requiredParticipants(); const total = selected.size + randomParticipants().length; count.textContent = `${total}/${maximum} participantes`; participants.querySelectorAll('.tournament-participant').forEach(control => { if (!control.classList.contains('selected')) control.disabled = total >= maximum; }); refreshBracketPreview(); };
+	const participantButton = participant => {
+		const control = button('', 'tournament-participant'); control.dataset.id = participant.id;
+		control.append(createElement('strong', '', participant.name), createElement('small', '', participant.source === 'player' ? 'Player' : participant.source === 'registered' ? 'NPC predefinido' : `NPC temporário · força ${participant.strength}`));
+		control.addEventListener('click', () => { if (selected.has(participant.id)) selected.delete(participant.id); else selected.set(participant.id, participant); control.classList.toggle('selected', selected.has(participant.id)); refreshCount(); });
+		(participant.source === 'player' ? playerChoices : registeredChoices).append(control);
+	};
+	for (const character of characters) participantButton({id: `player-${character.id}`, name: character.characterName, type: 'player', source: 'player', characterId: character.id, avatar: character.avatar});
+	await loadMasterNPCLibraryFromServer();
+	for (const npc of (readMasterNPCLibrary().npcs || [])) participantButton({id: `registered-${npc.id}`, name: npc.name, type: 'npc', source: 'registered', npcClass: 'special', strength: Math.max(1, (npc.team || []).reduce((sum, pokemon) => sum + Number(pokemon.level || 1), 0)), avatar: npc.sprite, pokemon: npc.team || []});
+	const playerSection = createElement('section','tournament-participant-section'); playerSection.append(createElement('h4','','Players'),playerChoices);
+	const registeredSection = createElement('section','tournament-participant-section'); registeredSection.append(createElement('h4','','NPCs predefinidos'),registeredChoices);
+	const battleRandomHost = createElement('section','tournament-participant-section'); const contestRandomHost = createElement('section','tournament-participant-section');
+	const canAddRandom = () => selected.size + randomParticipants().length < requiredParticipants();
+	battleRandomNPCs = window.RPGContestUI.battleTemporaryNPCEditor({api}, [], () => Number(pokemonLimit.value), canAddRandom);
+	contestRandomNPCs = window.RPGContestUI.contestTemporaryNPCEditor({api}, [], () => category.value, () => rank.value, () => format.value, () => Number(pokemonLimit.value));
+	battleRandomHost.append(createElement('h4','','NPCs aleatórios'),battleRandomNPCs.root); contestRandomHost.append(createElement('h4','','NPCs aleatórios'),contestRandomNPCs.root);
+	for (const editor of [battleRandomNPCs,contestRandomNPCs]) new MutationObserver(refreshCount).observe(editor.root,{childList:true,subtree:true});
+	participants.append(createElement('h3', '', 'Participantes'), count, playerSection, registeredSection, battleRandomHost, contestRandomHost); form.append(participants,bracketPreview);
+	activity.addEventListener('change', () => { const contest = activity.value === 'contest'; form.querySelector('h2').textContent = contest ? 'Criar torneio de concurso' : 'Criar torneio de batalha'; category.closest('.field').classList.toggle('hidden', !contest); rank.closest('.field').classList.toggle('hidden', !contest); battlePokemonLimit.closest('.field').classList.toggle('hidden',contest); battleConditions.classList.toggle('hidden', contest); battleRandomHost.classList.toggle('hidden',contest); contestRandomHost.classList.toggle('hidden',!contest); format.replaceChildren(...(contest ? [['solo','Solo'],['duo','Dupla'],['trio','Trio']] : [['singles','Singles'],['doubles','Duplas'],['triples','Trios'],['multi','Multi']]).map(([value,text]) => { const option = createElement('option','',text); option.value=value; return option; })); refreshCount(); });
+	for (const [value,label] of [['battle','Torneio de batalha'],['contest','Torneio de concurso']]) { const choose = button(label,'button primary tournament-type-button'); choose.addEventListener('click',()=>{ activity.value=value; activity.dispatchEvent(new Event('change')); tournamentType.classList.add('hidden'); form.classList.remove('hidden'); }); typeActions.append(choose); }
+	activity.dispatchEvent(new Event('change')); bracketSize.addEventListener('change', refreshCount); format.addEventListener('change',refreshCount); refreshCount();
+	const error = createElement('p', 'form-error hidden'); const create = button('Criar torneio', 'button primary'); create.type = 'submit'; form.append(error, create);
+	form.addEventListener('submit', async event => { event.preventDefault(); error.classList.add('hidden'); try { const size = Number(bracketSize.value); const limit=Number(pokemonLimit.value); const perBattle=Number(battlePokemonLimit.value); if(activity.value==='battle'&&perBattle>limit) throw new Error('A quantidade por batalha não pode superar os Pokémon levados ao torneio.'); const presentationSize=format.value==='trio'?3:format.value==='duo'?2:1; if(activity.value==='contest'&&limit<presentationSize) throw new Error(`O formato exige ao menos ${presentationSize} Pokémon inscritos.`); const generated = randomParticipants().map((entry,index) => ({id: entry.id || `temporary-${Date.now()}-${index}`, name: entry.displayName, type:'npc', source:'temporary', npcClass:'generic', avatar:entry.avatar, strength:Math.max(1,(entry.pokemonTeam||[]).reduce((sum,p)=>sum+Number(p.set?.level||1),0)), pokemon:(entry.pokemonTeam||[]).map(p=>p.set||p).slice(0,limit)})); const allParticipants = [...selected.values(),...generated].map(entry=>entry.type==='npc'?{...entry,pokemon:(entry.pokemon||[]).slice(0,limit)}:entry); const required = requiredParticipants(); if (allParticipants.length !== required) throw new Error(`Selecione exatamente ${required} participantes.`); const incompleteNPC=allParticipants.find(entry=>entry.type==='npc'&&(entry.pokemon||[]).length<limit); if(incompleteNPC) throw new Error(`${incompleteNPC.name} precisa ter ${limit} Pokémon inscritos.`); const active = id => !!conditionInputs[id]?.checked; const value = id => Number(conditionInputs[id]?.value)||0; const buff = side => ({tailwind:active('tailwind'+side),reflect:active('reflect'+side),lightScreen:active('lightScreen'+side),auroraVeil:active('auroraVeil'+side),safeguard:active('safeguard'+side),mist:active('mist'+side)}); const conditions = {pokemonLimit:limit,battlePokemonLimit:activity.value==='battle'?perBattle:limit,rules:{canFlee:false},weather: weather.value,weatherDuration:weatherDuration.value, terrain: terrain.value,terrainDuration:terrainDuration.value, category: category.value, rank: rank.value, initialHazards: {A:{spikes:value('spikesA'),stealthRock:active('stealthRockA'),toxicSpikes:value('toxicSpikesA')},B:{spikes:value('spikesB'),stealthRock:active('stealthRockB'),toxicSpikes:value('toxicSpikesB')}},initialBuffs:{A:buff('A'),B:buff('B')},initialGlobalEffects:Object.fromEntries(['trickRoom','magicRoom','wonderRoom','gravity','mudSport','waterSport','fairyLock','ionDeluge'].map(id=>[id,active(id)]))}; await api('/tournaments', {method: 'POST', body: {name: name.value, activity: activity.value, bracketSize: size, format: format.value, participants: allParticipants, conditions}}); await renderDashboard(); } catch (failure) { error.textContent = failure.message; error.classList.remove('hidden'); } });
+	root.append(form);
+	const list = createElement('div', 'tournament-list');
+	for (const tournament of tournaments.filter(entry => entry.status === 'draft' || entry.status === 'active').slice().reverse()) {
+		const panel = createElement('section', 'panel tournament-card'); const heading = createElement('div', 'tournament-card-heading');
+		heading.append(createElement('div', '', ''), createElement('strong', '', tournament.name)); heading.firstChild.replaceWith(createElement('span', 'tag', tournament.activity === 'battle' ? 'BATALHA' : 'CONCURSO'));
+		const actions = createElement('div', 'tournament-card-actions');
+		if (tournament.status === 'draft') { const limit=Math.max(1,Number(tournament.conditions?.pokemonLimit)||1); const pending=tournament.participants.filter(entry=>entry.type==='player'&&entry.rosterPokemonIds?.length!==limit); const start = button(pending.length ? `Aguardando inscrições (${pending.length})` : 'Iniciar', 'button primary'); start.disabled=!!pending.length; start.addEventListener('click', async () => { start.disabled=true; try { await api(`/tournaments/${tournament.id}/start`, {method:'POST'}); showToast('Torneio iniciado.'); } catch(failure){ start.disabled=false; showToast(failure.message,true); } }); const cancel=button('Cancelar torneio','button'); let confirming=false; let resetTimer; cancel.addEventListener('click',async()=>{ if(!confirming){ confirming=true; cancel.textContent='Confirmar cancelamento'; cancel.classList.add('danger'); clearTimeout(resetTimer); resetTimer=setTimeout(()=>{confirming=false;cancel.textContent='Cancelar torneio';cancel.classList.remove('danger');},4000); return; } cancel.disabled=true; try { await api(`/tournaments/${tournament.id}/cancel`,{method:'POST'}); showToast('Torneio cancelado.'); } catch(failure){ cancel.disabled=false; showToast(failure.message,true); } }); actions.append(start,cancel); }
+		heading.append(actions); panel.append(heading);
+		const bracket = renderTournamentBracket(tournament.bracketSize,tournament.participants,tournament.format,tournament.matches,characters);
+		const orderedMatches=tournament.matches.slice().sort((a,b)=>a.round-b.round||a.position-b.position);
+		const cards=[...bracket.querySelectorAll('.tournament-match')];
+		for (const match of tournament.matches) {
+			if (!match.automatic && match.status === 'ready') {
+				const card=cards[orderedMatches.indexOf(match)]; const npcSelections={}; const perBattle=Math.max(1,Number(tournament.conditions?.battlePokemonLimit)||Number(tournament.conditions?.pokemonLimit)||1);
+				if(tournament.activity==='battle') {
+					const matchIds=[...(match.participant1Ids||[match.participant1Id]),...(match.participant2Ids||[match.participant2Id])];
+					for(const npc of matchIds.map(id=>tournament.participants.find(entry=>entry.id===id)).filter(entry=>entry?.type==='npc')) {
+						const picker=createElement('div','tournament-npc-battle-picker'); picker.append(createElement('small','',`${npc.name}: escolha ${perBattle}`));
+						const choices=createElement('div','tournament-npc-battle-pokemon'); const selectedIndexes=[]; npcSelections[npc.id]=selectedIndexes;
+						for(const [index,pokemon] of (npc.pokemon||[]).entries()) { const option=button('','tournament-npc-pokemon'); const badge=createElement('span','tournament-order-badge hidden'); option.append(badge,pokemonSprite(pokemon)); option.addEventListener('click',()=>{ const selectedIndex=selectedIndexes.indexOf(index); if(selectedIndex>=0) selectedIndexes.splice(selectedIndex,1); else if(selectedIndexes.length<perBattle) selectedIndexes.push(index); for(const [position,node] of [...choices.children].entries()){ const order=selectedIndexes.indexOf(position); node.classList.toggle('selected',order>=0); const number=node.querySelector('.tournament-order-badge'); number.textContent=order>=0?String(order+1):''; number.classList.toggle('hidden',order<0); } refreshLaunch(); }); choices.append(option); }
+						picker.append(choices); card?.append(picker);
+					}
+				}
+					const launch = button(`Criar ${tournament.activity === 'battle' ? 'batalha' : 'concurso'}`, 'button primary tournament-launch');
+					const refreshLaunch=()=>{ launch.disabled=Object.values(npcSelections).some(indexes=>indexes.length!==perBattle); }; refreshLaunch();
+					launch.addEventListener('click', async () => {
+						try {
+							const launched = await api(`/tournaments/${tournament.id}/launch`, {method: 'POST', body: {matchId: match.id,npcSelections}});
+							state.dashboardHistory.push('tournaments'); state.dashboardView = launched.activity === 'battle' ? 'battles' : 'contests'; await renderDashboard();
+						} catch (failure) { showToast(failure.message, true); }
+					});
+				card?.append(launch);
+			} else if (match.status === 'playing') {
+				cards[orderedMatches.indexOf(match)]?.append(createElement('small','tournament-match-result','Confronto em andamento'));
+			}
+		}
+		panel.append(bracket); if (tournament.championId) panel.append(createElement('div','tournament-champion',`Campeão: ${tournament.participants.find(entry=>entry.id===tournament.championId)?.name || tournament.championId}`)); list.append(panel);
+	}
+	if (!list.children.length) list.append(createElement('div', 'panel empty-state', 'Nenhum torneio criado.'));
+	root.append(list); if(enableSync) scheduleTournamentRefresh(root,{master:true,characters},tournamentDataSignature(tournaments)); return root;
+}
+
+async function renderPlayerTournaments(character, suppliedTournaments = null, enableSync = true) {
+	const root = createElement('div', 'tournament-page player-tournament-page');
+	const tournaments = suppliedTournaments || (await api('/tournaments')).tournaments || [];
+	for (const tournament of tournaments.filter(entry => entry.status === 'draft' || entry.status === 'active').slice().reverse()) {
+		const participant = tournament.participants.find(entry => entry.characterId === character.id);
+		if (!participant) continue;
+		const card = createElement('section','panel player-tournament-card');
+		const heading = createElement('div','tournament-card-heading');
+		heading.append(createElement('span','tag',tournament.activity === 'battle' ? 'BATALHA' : 'CONCURSO'),createElement('strong','',tournament.name)); card.append(heading);
+		const limit = Math.max(1,Number(tournament.conditions?.pokemonLimit)||1);
+		const perBattle=Math.max(1,Number(tournament.conditions?.battlePokemonLimit)||limit);
+		card.append(createElement('p','',`${tournament.format} · ${limit} Pokémon inscritos${tournament.activity==='battle'?` · ${perBattle} por batalha`:''} · chave de ${tournament.bracketSize}`));
+		if (tournament.status === 'draft') {
+			const selection = createElement('div','tournament-roster-picker'); const chosen = new Set(participant.rosterPokemonIds || []);
+			const counter = createElement('strong','tournament-selection-count');
+			const refresh = () => { counter.textContent = `${chosen.size}/${limit} Pokémon`; selection.querySelectorAll('button').forEach(control => { const id=control.dataset.pokemonId; control.classList.toggle('selected',chosen.has(id)); control.disabled=!chosen.has(id)&&chosen.size>=limit; }); save.disabled=chosen.size!==limit; };
+			for (const [index, pokemon] of (character.team || []).entries()) {
+				const stored = character.box?.party?.[index]; if (!stored?.pokemonId) continue;
+				const option = button('','tournament-roster-pokemon'); option.dataset.pokemonId=stored.pokemonId;
+				const sprite = spriteImage(pokemon); option.append(sprite,createElement('strong','',pokemon.name || pokemon.species));
+				option.addEventListener('click',()=>{ if(chosen.has(stored.pokemonId)) chosen.delete(stored.pokemonId); else chosen.add(stored.pokemonId); refresh(); }); selection.append(option);
+			}
+			const save = button(participant.rosterPokemonIds?.length ? 'Atualizar inscrição' : 'Inscrever Pokémon','button primary');
+			save.addEventListener('click',async()=>{ save.disabled=true; try { await api(`/tournaments/${tournament.id}/roster`,{method:'POST',body:{pokemonIds:[...chosen]}}); save.textContent='Atualizar inscrição'; showToast('Pokémon inscritos no torneio.'); } catch(error){ save.disabled=false; showToast(error.message,true); } });
+			card.append(counter,selection,save); refresh();
+		} else card.append(createElement('strong','tournament-roster-locked','Inscrição encerrada'));
+		card.append(renderTournamentBracket(tournament.bracketSize,tournament.participants,tournament.format,tournament.matches,[character]));
+		root.append(card);
+	}
+	if (!root.children.length) root.append(createElement('div','panel empty-state','Nenhum torneio disponível.'));
+	if(enableSync) scheduleTournamentRefresh(root,{master:false,character},tournamentDataSignature(tournaments));
+	return root;
+}
+
 function saveMasterNPCLibrary(library) {
 	const stored = {
 		folders: library.folders.filter(folder => !folder.locked),
@@ -4415,6 +4700,7 @@ async function renderDashboard() {
 				state.dashboardView === 'battles' ? await renderMasterBattles(characters) :
 				state.dashboardView === 'contests' ? await window.RPGContestUI.render({state, api, master: true, characters, rerender: renderDashboard}) :
 				state.dashboardView === 'npcs' ? await renderMasterNPCLibraryDashboard() :
+				state.dashboardView === 'tournaments' ? await renderMasterTournaments(characters) :
 				state.dashboardView === 'nursery' ? await renderNursery() :
 				state.dashboardView === 'shops' ? await renderShops() :
 				await renderMasterBody(characters)
@@ -4434,8 +4720,10 @@ async function renderDashboard() {
 			$('#dashboard-eyebrow').classList.add('hidden');
 			$('#dashboard-title').textContent = state.dashboardView === 'battles' ? 'Convites de batalha' :
 				state.dashboardView === 'contests' ? 'Concursos Pok\u00e9mon' :
+				state.dashboardView === 'tournaments' ? 'Torneios' :
 				state.dashboardView === 'documents' ? 'Documentos' : 'Ol\u00e1, ' + character.characterName;
 			$('#dashboard-description').textContent = state.dashboardView === 'battles' ? 'Participe dos seus combates ou assista aos combates em andamento.' :
+				state.dashboardView === 'tournaments' ? 'Inscreva sua equipe e acompanhe as chaves dos torneios.' :
 				state.dashboardView === 'documents' ? 'Organize suas pastas e blocos de notas.' : 'Sua equipe e seus recursos persistentes.';
 			const viewing = state.session.role === 'master';
 			$('#logout-button').textContent = viewing ? 'Voltar como Mestre' : 'Sair da sess\u00e3o';
@@ -4443,6 +4731,7 @@ async function renderDashboard() {
 			$('#delete-character').classList.toggle('hidden', !viewing);
 			const playerView = state.dashboardView === 'battles' ? await renderPlayerBattles(character) :
 				state.dashboardView === 'contests' ? await window.RPGContestUI.render({state, api, master: false, character, rerender: renderDashboard}) :
+				state.dashboardView === 'tournaments' ? await renderPlayerTournaments(character) :
 				state.dashboardView === 'box' ? await renderPlayerBox(character) :
 				state.dashboardView === 'bag' ? await renderPlayerBag(character) :
 				state.dashboardView === 'team' ? renderPlayerTeamBody(character) :

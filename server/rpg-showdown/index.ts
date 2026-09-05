@@ -52,6 +52,7 @@ import {
 } from './contest-scoring';
 import {applyRPGContestPerformance, type RPGContestPlacement} from './contest-progression';
 import {classifyRPGContestItem, type RPGContestItemClassification} from './contest-item-catalog';
+import {RPGTournamentSessionService, type RPGTournament} from './tournament-session';
 import {
 	RPGBoxManagement,
 	type RPGBoxManagementView,
@@ -639,6 +640,7 @@ export interface RPGLoginServiceOptions {
 	masterNPCLibraryFile?: string;
 	playerDocumentsFile?: string;
 	campaignSettingsFile?: string;
+	tournamentFile?: string;
 	sessionTtlMs?: number;
 	now?: () => number;
 	random?: () => number;
@@ -652,6 +654,7 @@ export class RPGLoginService {
 	readonly contestCombos: RPGContestComboService;
 	readonly customItems: RPGCustomItemRepository;
 	readonly commerce: RPGCommerceManagement;
+	readonly tournaments: RPGTournamentSessionService;
 	private readonly sessions = new Map<string, RPGInternalSession>();
 	private readonly masterCodeHash: Buffer;
 	private readonly deletionChallenges = new Map<string, RPGInternalDeletionChallenge>();
@@ -678,6 +681,7 @@ export class RPGLoginService {
 		this.repository = options.repository || new RPGMemoryCharacterRepository();
 		this.customItems = options.customItemRepository || new RPGMemoryCustomItemRepository();
 		this.commerce = new RPGCommerceManagement(options.commerceRepository || new RPGMemoryCommerceRepository());
+		this.tournaments = new RPGTournamentSessionService(options.tournamentFile || resolve('config/rpg-tournaments.json'), options.random);
 		this.contestCombos = new RPGContestComboService(options.contestComboRepository);
 		for (const item of this.customItems.list()) {
 			const existing = RPGItems.get(item.id);
@@ -1148,6 +1152,82 @@ export class RPGLoginService {
 		}
 		return structuredClone(this.masterNPCLibrary);
 	}
+
+	listTournaments(token: string): RPGTournament[] {
+		const session = this.getSession(token);
+		this.tournaments.repairOrphanedMatches(
+			new Set(this.battleSessions.list().filter(entry => !['ended', 'cancelled'].includes(entry.status)).map(entry => entry.id)),
+			new Set(this.contestSessions.list().filter(entry => !['ended', 'cancelled'].includes(entry.status)).map(entry => entry.id))
+		);
+		const tournaments = this.tournaments.list();
+		if (session.role === 'master') return tournaments;
+		return tournaments.filter(tournament => tournament.participants.some(participant => participant.characterId === session.characterId));
+	}
+	getTournament(token: string, id: string): RPGTournament {
+		const tournament = this.tournaments.get(id);
+		if (!this.listTournaments(token).some(entry => entry.id === tournament.id)) throw new Error('Torneio indisponível');
+		return tournament;
+	}
+	createTournament(token: string, input: Parameters<RPGTournamentSessionService['create']>[0]): RPGTournament {
+		this.requireMasterMode(token); return this.tournaments.create(input);
+	}
+	startTournament(token: string, id: string): RPGTournament { this.requireMasterMode(token); return this.tournaments.start(id); }
+	setTournamentRoster(token: string, id: string, pokemonIds: string[]): RPGTournament {
+		const session = this.getSession(token); if (!session.characterId) throw new Error('Sessão de Player necessária');
+		const record = this.requireCharacter(session.characterId);
+		const available = new Set(record.state.box.party.map(entry => entry.pokemonId));
+		if (!Array.isArray(pokemonIds) || pokemonIds.some(pokemonId => !available.has(pokemonId))) throw new Error('Escolha apenas Pokémon da sua equipe atual');
+		return this.tournaments.setRoster(id, session.characterId, pokemonIds);
+	}
+	reportTournamentMatch(token: string, id: string, matchId: string, winnerId: string): RPGTournament {
+		this.requireMasterMode(token); return this.tournaments.report(id, matchId, winnerId);
+	}
+	launchTournamentMatch(token: string, id: string, matchId: string, npcSelections: Record<string, number[]> = {}): {tournament: RPGTournament; sessionId: string; activity: string} {
+		this.requireMasterMode(token);
+		const tournament = this.tournaments.get(id);
+		const match = tournament.matches.find(entry => entry.id === matchId);
+		if (!match || match.status !== 'ready' || match.automatic) throw new Error('Confronto indisponível');
+		const sideAIds = match.participant1Ids || [match.participant1Id];
+		const sideBIds = match.participant2Ids || [match.participant2Id];
+		const entrants = [...sideAIds, ...sideBIds].map(participantId => tournament.participants.find(entry => entry.id === participantId)!);
+		const temporarySet = (participant: typeof entrants[number]): PokemonSet => {
+			const speciesPool = Dex.mod('gen9').species.all().filter(species => species.exists && species.num > 0 && !species.isNonstandard && !species.forme);
+			const species = speciesPool[Math.floor(this.random() * speciesPool.length)] || Dex.mod('gen9').species.get('Eevee');
+			return {name: species.name, species: species.name, level: Math.max(1, Math.min(100, Math.round(participant.strength || 50))), ability: species.abilities[0], nature: 'Hardy', gender: '', item: '', moves: ['tackle'], evs: {hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0}, ivs: {hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0}};
+		};
+		const pokemonLimit = Math.max(1, Math.min(6, Number(tournament.conditions.pokemonLimit) || 1));
+		const battlePokemonLimit = tournament.activity === 'battle' ? Math.max(1, Math.min(pokemonLimit, Number(tournament.conditions.battlePokemonLimit) || pokemonLimit)) : pokemonLimit;
+		const rosterIndexes = (participant: typeof entrants[number]) => {
+			if (!participant.characterId || !participant.rosterPokemonIds?.length) return [];
+			const record = this.requireCharacter(participant.characterId);
+			const indexes = participant.rosterPokemonIds.map(pokemonId => record.state.box.party.findIndex(entry => entry.pokemonId === pokemonId));
+			if (indexes.some(index => index < 0)) throw new Error(`${participant.name} alterou a equipe inscrita no torneio`);
+			return indexes;
+		};
+		const pokemon = (participant: typeof entrants[number]) => (participant.pokemon?.length ? participant.pokemon.slice(0, pokemonLimit) : [temporarySet(participant)]).map(storedSet => {
+			const set = structuredClone(storedSet as PokemonSet);
+			set.rpg = {...set.rpg, hp: undefined, pp: undefined, status: '', sleepTurns: undefined, item: set.item || ''};
+			return {set};
+		});
+		const selectedNPCPokemon = (participant: typeof entrants[number]) => {
+			const available=pokemon(participant); const indexes=Array.isArray(npcSelections[participant.id])?npcSelections[participant.id]:[];
+			if(indexes.length!==battlePokemonLimit||new Set(indexes).size!==indexes.length||indexes.some(index=>!Number.isSafeInteger(index)||index<0||index>=available.length)) throw new Error(`Escolha exatamente ${battlePokemonLimit} Pokémon de ${participant.name}`);
+			return indexes.map(index=>available[index]!);
+		};
+		let sessionId: string;
+		if (tournament.activity === 'battle') {
+			let session = this.battleSessions.create({name: `${tournament.name} · Rodada ${match.round}`}); sessionId = session.id;
+			session = this.battleSessions.update(sessionId, {format: tournament.format as import('./battle-session').RPGBattleFormat, opponentType: entrants.some(entry => entry.type === 'npc') ? 'npc' : 'player', participants: entrants.map((entry, index) => { const registeredIndexes=entry.type === 'player' ? rosterIndexes(entry) : []; return {id: `${entry.id}-${index}`, team: index < sideAIds.length ? 'A' : 'B', kind: entry.type === 'player' ? 'player' : 'npc', characterId: entry.characterId, avatar: entry.avatar, displayName: entry.name, npcRole: entry.type === 'npc' ? 'generic' : undefined, selectionLimit: battlePokemonLimit, allowedTeamIndexes: entry.type === 'player' ? registeredIndexes : undefined, pokemon: entry.type === 'player' ? registeredIndexes.slice(0,battlePokemonLimit).map(teamIndex => ({teamIndex})) : selectedNPCPokemon(entry)}; }), conditions: {...tournament.conditions, weather: {id: tournament.conditions.weather || '', duration: tournament.conditions.weatherDuration || 'temporary', turns: 5}, terrain: {id: tournament.conditions.terrain || '', duration: tournament.conditions.terrainDuration || 'temporary', turns: 5}} as never, rules: {...(tournament.conditions.rules as object || {}), canFlee: false, playersChoosePokemon: false}});
+			this.battleSessions.invite(session.id);
+		} else {
+			let session = this.contestSessions.create({name: `${tournament.name} · Rodada ${match.round}`}); sessionId = session.id;
+			const presentationSize = tournament.format === 'trio' ? 3 : tournament.format === 'duo' ? 2 : 1;
+			session = this.contestSessions.update(sessionId, {mode: tournament.format as import('./contest-session').RPGContestMode, category: (tournament.conditions.category || 'beauty') as import('./contest-session').RPGContestCategory, rank: (tournament.conditions.rank || 'normal') as import('./contest-session').RPGContestRank, scenario: {weather: String(tournament.conditions.weather || '').replace(/day$/, '') as never, terrain: String(tournament.conditions.terrain || '').replace(/terrain$/, '') as never}, participants: entrants.map(entry => ({id: entry.id, kind: entry.type === 'player' ? 'player' : 'npc', characterId: entry.characterId, avatar: entry.avatar, displayName: entry.name, ...(entry.type === 'player' ? {allowedTeamIndexes: rosterIndexes(entry)} : {pokemonTeam: pokemon(entry).slice(0, presentationSize)})})) as never});
+			this.contestSessions.invite(session.id);
+		}
+		return {tournament: this.tournaments.link(id, matchId, sessionId), sessionId, activity: tournament.activity};
+	}
+	cancelTournament(token: string, id: string): RPGTournament { this.requireMasterMode(token); return this.tournaments.cancel(id); }
 
 	getPlayerDocuments(token: string): Record<string, unknown> | null {
 		const characterId = this.playerDocumentCharacterId(token);
@@ -3227,7 +3307,13 @@ export class RPGLoginService {
 		this.persistBattleRewards(session, result);
 		this.settleBattleWager(session, result);
 		this.persistBattleProfile(session, result);
-		return this.battleSessions.complete(battleSessionId, result);
+		const completed = this.battleSessions.complete(battleSessionId, result);
+		const linked = this.tournaments.linked('battle', battleSessionId);
+		if (linked && result.winnerSide) {
+			const winnerId = result.winnerSide === 'p1' ? linked.match.participant1Id : linked.match.participant2Id;
+			this.tournaments.report(linked.tournament.id, linked.match.id, winnerId);
+		}
+		return completed;
 	}
 
 	evolveBattlePokemon(
@@ -3506,6 +3592,9 @@ export class RPGLoginService {
 			record.state.updatedAt = Date.now();
 			this.repository.set(record);
 		}
+		const linked = this.tournaments.linked('contest', session.id);
+		const winner = results.find(result => result.place === 1);
+		if (linked && winner) this.tournaments.report(linked.tournament.id, linked.match.id, winner.participantId);
 	}
 
 	listContestCombos(token: string): RPGContestComboDefinition[] {
@@ -5071,6 +5160,7 @@ export function createRPGLoginServiceFromConfig(
 		rpgmasternpclibraryfile?: string,
 		rpgplayerdocumentsfile?: string,
 		rpgcampaignsettingsfile?: string,
+		rpgtournamentfile?: string,
 		rpgseedtestaccount?: boolean,
 	} = Config
 ): RPGLoginService {
@@ -5099,6 +5189,7 @@ export function createRPGLoginServiceFromConfig(
 		masterNPCLibraryFile: config.rpgmasternpclibraryfile || resolve('config/rpg-master-npc-library.json'),
 		playerDocumentsFile: config.rpgplayerdocumentsfile || resolve('config/rpg-player-documents.json'),
 		campaignSettingsFile: config.rpgcampaignsettingsfile || resolve('config/rpg-campaign-settings.json'),
+		tournamentFile: config.rpgtournamentfile || resolve('config/rpg-tournaments.json'),
 	});
 	migrateCharacterPageAccess(service);
 	migrateCharacterBanks(service);
