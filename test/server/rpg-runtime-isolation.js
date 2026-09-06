@@ -10,6 +10,10 @@ describe('RPG standalone runtime isolation', () => {
 	const rooms = fs.readFileSync(path.resolve(__dirname, '../../server/rooms.ts'), 'utf8');
 	const ladders = fs.readFileSync(path.resolve(__dirname, '../../server/ladders.ts'), 'utf8');
 	const tournaments = fs.readFileSync(path.resolve(__dirname, '../../server/tournaments/index.ts'), 'utf8');
+	const loginserver = fs.readFileSync(path.resolve(__dirname, '../../server/loginserver.ts'), 'utf8');
+	const verifier = fs.readFileSync(path.resolve(__dirname, '../../server/verifier.ts'), 'utf8');
+	const ipTools = fs.readFileSync(path.resolve(__dirname, '../../server/ip-tools.ts'), 'utf8');
+	const punishments = fs.readFileSync(path.resolve(__dirname, '../../server/punishments.ts'), 'utf8');
 
 	it('does not start chat, rooms, moderation storage, or social workers in RPG mode', () => {
 		assert.match(serverIndex, /const RPG_ONLY = process\.env\.PS_RPG_MODE === '1'/);
@@ -34,5 +38,17 @@ describe('RPG standalone runtime isolation', () => {
 		assert.doesNotMatch(ladders, /ladders-(?:local|remote)/);
 		assert.match(tournaments, /Showdown tournaments are not available in Pokémon RPG/);
 		assert.doesNotMatch(tournaments, /generator-(?:elimination|round-robin)/);
+	});
+
+	it('does not connect Showdown accounts, verification, proxy lists, or moderation storage', () => {
+		assert.match(serverIndex, /if \(!RPG_ONLY\) Verifier\.start/);
+		assert.match(loginserver, /Showdown login server is not available in Pokémon RPG/);
+		assert.doesNotMatch(loginserver, /action\.php|invalidatecss/);
+		assert.match(verifier, /return Promise\.resolve\(false\)/);
+		assert.doesNotMatch(verifier, /createVerify|QueryProcessManager/);
+		assert.match(ipTools, /Proxy databases and DNS blocklists from Showdown are not used/);
+		assert.doesNotMatch(ipTools, /spamhaus|proxies\.csv|hosts\.csv/);
+		assert.match(punishments, /Showdown moderation storage is not part/);
+		assert.doesNotMatch(punishments, /punishments\.tsv|room-punishments\.tsv/);
 	});
 });

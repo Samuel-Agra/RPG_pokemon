@@ -142,7 +142,7 @@ export const readyPromise = cleanupStale().then(() => {
 	}
 
 	if (!RPG_ONLY) Rooms.global.start(Config.subprocessescache);
-	Verifier.start(Config.subprocessescache);
+	if (!RPG_ONLY) Verifier.start(Config.subprocessescache);
 	TeamValidatorAsync.start(Config.subprocessescache);
 	if (!RPG_ONLY) Chat.start(Config.subprocessescache);
 
