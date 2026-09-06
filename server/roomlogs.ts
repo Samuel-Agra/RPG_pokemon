@@ -7,8 +7,8 @@
  * @license MIT
  */
 
-import { FS, Utils, type Streams } from '../lib';
-import { PGDatabase, SQL, type SQLStatement } from '../lib/database';
+import { Utils, type Streams } from '../lib';
+import type { DatabaseTable, PGDatabase } from '../lib/database';
 import type { PartialModlogEntry } from './modlog';
 
 interface RoomlogOptions {
@@ -23,15 +23,11 @@ interface RoomlogRow {
 	userid: string | null;
 	time: Date;
 	log: string;
-	// tsvector, really don't use
 	content: string | null;
 }
 
-export const roomlogDB = (() => {
-	if (!global.Config || !Config.replaysdb || Config.disableroomlogdb) return null;
-	return new PGDatabase(Config.replaysdb);
-})();
-export const roomlogTable = roomlogDB?.getTable<RoomlogRow>('roomlogs');
+export const roomlogDB: PGDatabase | null = null;
+export const roomlogTable: DatabaseTable<RoomlogRow, PGDatabase> | null = null;
 
 /**
  * Most rooms have three logs:
@@ -83,7 +79,7 @@ export class Roomlog {
 	/**
 	 * Takes precedence over roomlogStream if it exists.
 	 */
-	roomlogTable: typeof roomlogTable;
+	roomlogTable: typeof roomlogTable = null;
 	roomlogFilename: string;
 
 	numTruncatedLines: number;
@@ -126,38 +122,7 @@ export class Roomlog {
 		return log.join('\n') + '\n';
 	}
 	setupRoomlogStream() {
-		if (this.roomlogStream === null) return;
-		if (!Config.logchat || this.roomid.startsWith('battle-') || this.roomid.startsWith('game-')) {
-			this.roomlogStream = null;
-			return;
-		}
-		if (roomlogTable) {
-			this.roomlogTable = roomlogTable;
-			this.roomlogStream = null;
-			return;
-		}
-		const date = new Date();
-		const dateString = Chat.toTimestamp(date).split(' ')[0];
-		const monthString = dateString.split('-', 2).join('-');
-		const basepath = `chat/${this.roomid}/`;
-		const relpath = `${monthString}/${dateString}.txt`;
-
-		if (relpath === this.roomlogFilename) return;
-
-		Monitor.logPath(basepath + monthString).mkdirpSync();
-		this.roomlogFilename = relpath;
-		if (this.roomlogStream) void this.roomlogStream.writeEnd();
-		this.roomlogStream = Monitor.logPath(basepath + relpath).createAppendStream();
-		// Create a symlink to today's lobby log.
-		// These operations need to be synchronous, but it's okay
-		// because this code is only executed once every 24 hours.
-		const link0 = basepath + 'today.txt.0';
-		Monitor.logPath(link0).unlinkIfExistsSync();
-		try {
-			Monitor.logPath(link0).symlinkToSync(relpath); // intentionally a relative link
-			Monitor.logPath(link0).renameSync(basepath + 'today.txt');
-		} catch {} // OS might not support symlinks or atomic rename
-		if (!Roomlogs.rollLogTimer) Roomlogs.rollLogs();
+		this.roomlogStream = null;
 	}
 	add(message: string) {
 		this.roomlog(message);
@@ -250,80 +215,13 @@ export class Roomlog {
 			}
 		}
 	}
-	roomlog(message: string, date = new Date()) {
-		if (!Config.logchat) return;
-		message = message.replace(/<img[^>]* src="data:image\/png;base64,[^">]+"[^>]*>/g, '[img]');
-		if (this.roomlogTable) {
-			const chatData = this.parseChatLine(message);
-			const type = message.split('|')[1] || "";
-			void this.insertLog(SQL`INSERT INTO roomlogs (${{
-				type,
-				roomid: this.roomid,
-				userid: toID(chatData?.user) || null,
-				time: SQL`now()`,
-				log: message,
-			}})`);
-
-			const dateStr = Chat.toTimestamp(date).split(' ')[0];
-			void this.insertLog(SQL`INSERT INTO roomlog_dates (${{
-				roomid: this.roomid,
-				month: dateStr.slice(0, -3),
-				date: dateStr,
-			}}) ON CONFLICT (roomid, date) DO NOTHING;`);
-		} else if (this.roomlogStream) {
-			const timestamp = Chat.toTimestamp(date).split(' ')[1] + ' ';
-			void this.roomlogStream.write(timestamp + message + '\n');
-		}
-	}
-	private async insertLog(query: SQLStatement, ignoreFailure = false, retries = 3): Promise<void> {
-		try {
-			await this.roomlogTable?.query(query);
-		} catch (e: any) {
-			if (e?.code === '42P01') { // table not found
-				await roomlogDB!._query(FS('databases/schemas/roomlogs.sql').readSync(), []);
-				return this.insertLog(query, ignoreFailure, retries);
-			}
-			// connection terminated / transient errors
-			if (
-				!ignoreFailure &&
-				retries > 0 &&
-				e.message?.includes('Connection terminated unexpectedly')
-			) {
-				// delay before retrying
-				await new Promise(resolve => { setTimeout(resolve, 2000); });
-				return this.insertLog(query, ignoreFailure, retries - 1);
-			}
-			// crashlog for all other errors
-			const [q, vals] = roomlogDB!._resolveSQL(query);
-			Monitor.crashlog(e, 'a roomlog database query', {
-				query: q, values: vals,
-			});
-		}
-	}
+	roomlog(_message: string, _date = new Date()) {}
 	modlog(entry: PartialModlogEntry, overrideID?: string) {
 		void Rooms.Modlog.write(this.roomid, entry, overrideID);
 	}
 	async rename(newID: RoomID): Promise<true> {
 		await Rooms.Modlog.rename(this.roomid, newID);
-		const roomlogStreamExisted = this.roomlogStream !== null;
 		await this.destroy();
-		if (this.roomlogTable) {
-			await this.roomlogTable.updateAll({ roomid: newID })`WHERE roomid = ${this.roomid}`;
-		} else {
-			const roomlogPath = `chat`;
-			const [roomlogExists, newRoomlogExists] = await Promise.all([
-				Monitor.logPath(roomlogPath + `/${this.roomid}`).exists(),
-				Monitor.logPath(roomlogPath + `/${newID}`).exists(),
-			]);
-			if (roomlogExists && !newRoomlogExists) {
-				await Monitor.logPath(roomlogPath + `/${this.roomid}`).rename(Monitor.logPath(roomlogPath + `/${newID}`).path);
-			}
-			if (roomlogStreamExisted) {
-				this.roomlogStream = undefined;
-				this.roomlogFilename = "";
-				this.setupRoomlogStream();
-			}
-		}
 		Roomlogs.roomlogs.set(newID, this);
 		this.roomid = newID;
 		return true;
@@ -383,8 +281,8 @@ export const Roomlogs = {
 	create: createRoomlog,
 	Roomlog,
 	roomlogs,
-	db: roomlogDB,
-	table: roomlogTable,
+	db: roomlogDB as PGDatabase | null,
+	table: roomlogTable as DatabaseTable<RoomlogRow, PGDatabase> | null,
 
 	rollLogs: Roomlog.rollLogs,
 

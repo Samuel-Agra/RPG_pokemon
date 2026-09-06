@@ -14,6 +14,9 @@ describe('RPG standalone runtime isolation', () => {
 	const verifier = fs.readFileSync(path.resolve(__dirname, '../../server/verifier.ts'), 'utf8');
 	const ipTools = fs.readFileSync(path.resolve(__dirname, '../../server/ip-tools.ts'), 'utf8');
 	const punishments = fs.readFileSync(path.resolve(__dirname, '../../server/punishments.ts'), 'utf8');
+	const replays = fs.readFileSync(path.resolve(__dirname, '../../server/replays.ts'), 'utf8');
+	const modlog = fs.readFileSync(path.resolve(__dirname, '../../server/modlog/index.ts'), 'utf8');
+	const roomlogs = fs.readFileSync(path.resolve(__dirname, '../../server/roomlogs.ts'), 'utf8');
 
 	it('does not start chat, rooms, moderation storage, or social workers in RPG mode', () => {
 		assert.match(serverIndex, /const RPG_ONLY = process\.env\.PS_RPG_MODE === '1'/);
@@ -50,5 +53,14 @@ describe('RPG standalone runtime isolation', () => {
 		assert.doesNotMatch(ipTools, /spamhaus|proxies\.csv|hosts\.csv/);
 		assert.match(punishments, /Showdown moderation storage is not part/);
 		assert.doesNotMatch(punishments, /punishments\.tsv|room-punishments\.tsv/);
+	});
+
+	it('does not persist Showdown replays, staff audits, or chat logs', () => {
+		assert.match(replays, /Showdown replay storage is disabled in RPG mode/);
+		assert.doesNotMatch(replays, /PGDatabase|replayplayers/);
+		assert.match(modlog, /Disabled Pokemon Showdown staff-audit compatibility surface/);
+		assert.doesNotMatch(modlog, /modlog\.db|databases\/schemas\/modlog/);
+		assert.match(roomlogs, /export const roomlogDB: PGDatabase \| null = null/);
+		assert.match(roomlogs, /roomlog\(_message: string, _date = new Date\(\)\) \{\}/);
 	});
 });
