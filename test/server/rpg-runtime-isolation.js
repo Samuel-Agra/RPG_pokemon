@@ -26,7 +26,8 @@ describe('RPG standalone runtime isolation', () => {
 		assert.match(serverIndex, /if \(!RPG_ONLY\) Rooms\.global\.start/);
 		assert.match(serverIndex, /if \(!RPG_ONLY\) Chat\.start/);
 		assert.match(serverIndex, /if \(!RPG_ONLY && Config\.usesqlite\)/);
-		assert.match(rooms, /if \(process\.env\.PS_RPG_MODE === '1'\) this\.settingsList = \[\]/);
+		assert.match(rooms, /if \(process\.env\.PS_RPG_MODE !== '1'\) \{/);
+		assert.match(rooms, /if \(process\.env\.PS_RPG_MODE === '1'\) return;/);
 	});
 
 	it('serves RPG HTTP without installing the Showdown SockJS transport', () => {

@@ -1219,13 +1219,13 @@ export class GlobalRoomState {
 
 	constructor() {
 		this.settingsList = [];
-		try {
-			this.settingsList = require(FS('config/chatrooms.json').path);
-			if (!Array.isArray(this.settingsList)) this.settingsList = [];
-		} catch {} // file doesn't exist [yet]
+		if (process.env.PS_RPG_MODE !== '1') {
+			try {
+				this.settingsList = require(FS('config/chatrooms.json').path);
+				if (!Array.isArray(this.settingsList)) this.settingsList = [];
+			} catch {} // file doesn't exist [yet]
 
-		if (!this.settingsList.length) {
-			this.settingsList = [{
+			if (!this.settingsList.length) this.settingsList = [{
 				title: 'Lobby',
 				auth: {},
 				creationTime: Date.now(),
@@ -1240,7 +1240,6 @@ export class GlobalRoomState {
 				autojoin: true,
 			}];
 		}
-		if (process.env.PS_RPG_MODE === '1') this.settingsList = [];
 
 		this.chatRooms = [];
 
@@ -1438,6 +1437,7 @@ export class GlobalRoomState {
 	}
 
 	writeChatRoomData() {
+		if (process.env.PS_RPG_MODE === '1') return;
 		FS('config/chatrooms.json').writeUpdate(() => (
 			JSON.stringify(this.settingsList)
 				.replace(/\{"title":/g, '\n{"title":')

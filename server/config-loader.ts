@@ -41,6 +41,7 @@ const processTypes: ProcessType[] = [
 ];
 
 const CONFIG_PATH = FS('./config/config.js').path;
+const RPG_ONLY = process.env.PS_RPG_MODE === '1';
 
 const errors: LogEntry[] = [];
 
@@ -56,7 +57,7 @@ export function load(invalidate = false) {
 
 	if (!process.send) {
 		// Automatically stop startup if optional dependencies are enabled yet missing
-		if (config.usesqlite) {
+		if (!RPG_ONLY && config.usesqlite) {
 			try {
 				require.resolve('better-sqlite3');
 			} catch {
