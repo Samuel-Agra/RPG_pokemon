@@ -1,6 +1,7 @@
 "use strict";
 
 const fs = require("fs");
+const path = require("path");
 const child_process = require("child_process");
 const esbuild = require('esbuild');
 
@@ -10,7 +11,9 @@ const copyOverDataJSON = (file = 'data') => {
 		if (fs.statSync(`${file}/${f}`).isDirectory()) {
 			copyOverDataJSON(`${file}/${f}`);
 		} else if (f.endsWith('.json')) {
-			fs.copyFileSync(`${file}/${f}`, require('path').resolve('dist', `${file}/${f}`));
+			const destination = path.resolve('dist', file, f);
+			fs.mkdirSync(path.dirname(destination), {recursive: true});
+			fs.copyFileSync(`${file}/${f}`, destination);
 		}
 	}
 };
@@ -22,34 +25,40 @@ const shouldBeCompiled = file => {
 	return false;
 };
 
-const findFilesForPath = path => {
+const ignoredDirectories = new Set(['.git', '.idea', '.vscode', 'databases', 'dist', 'logs', 'node_modules']);
+
+const findFilesForPath = directory => {
 	const out = [];
-	const files = fs.readdirSync(path);
+	const files = fs.readdirSync(directory, {withFileTypes: true});
 	for (const file of files) {
-		const cur = `${path}/${file}`;
-		// HACK: Logs and databases exclusions are a hack. Logs is too big to
-		// traverse, databases adds/removes files which can lead to a filesystem
-		// race between readdirSync and statSync. Please, at some point someone
-		// fix this function to be more robust.
-		if (cur.includes('node_modules') || cur.includes("/logs") || cur.includes("/databases")) continue;
-		if (fs.statSync(cur).isDirectory()) {
+		if (file.isDirectory() && ignoredDirectories.has(file.name)) continue;
+		const cur = path.join(directory, file.name);
+		if (file.isDirectory()) {
 			out.push(...findFilesForPath(cur));
 		} else if (shouldBeCompiled(cur)) {
-			out.push(cur);
+			out.push(`./${cur.replaceAll('\\', '/')}`);
 		}
 	}
 	return out;
 };
 
 exports.transpile = decl => {
-	esbuild.buildSync({
-		entryPoints: findFilesForPath('./'),
-		outdir: './dist',
-		outbase: '.',
-		format: 'cjs',
-		tsconfig: './tsconfig.json',
-		sourcemap: true,
-	});
+	for (const file of findFilesForPath('.')) {
+		const relativeFile = file.slice(2);
+		const outputFile = path.resolve('dist', relativeFile.replace(/\.tsx?$/, '.js'));
+		const result = esbuild.transformSync(fs.readFileSync(file, 'utf8'), {
+			loader: file.endsWith('.tsx') ? 'tsx' : 'ts',
+			format: 'cjs',
+			target: 'es2020',
+			jsxFactory: 'Chat.h',
+			jsxFragment: 'Chat.Fragment',
+			sourcemap: 'external',
+			sourcefile: relativeFile.replaceAll('\\', '/'),
+		});
+		fs.mkdirSync(path.dirname(outputFile), {recursive: true});
+		fs.writeFileSync(outputFile, `${result.code}//# sourceMappingURL=${path.basename(outputFile)}.map\n`);
+		fs.writeFileSync(`${outputFile}.map`, result.map);
+	}
 	fs.copyFileSync('./config/config-example.js', './dist/config/config-example.js');
 	copyOverDataJSON();
 

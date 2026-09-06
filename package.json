@@ -47,11 +47,11 @@
 	"lint:rpg": "eslint --cache \"server/rpg-showdown/**/*.{ts,tsx,js}\" \"sim/rpg-showdown/**/*.{ts,tsx,js}\" \"server/static/rpg/**/*.js\" \"test/server/rpg-*.js\" \"test/sim/rpg-*.js\"",
     "fix": "eslint --cache --fix",
     "full-lint": "npm run lint",
-    "pretest": "npm run lint",
-    "test": "mocha",
+    "pretest": "npm run lint:rpg -- --max-warnings 0",
+    "test": "npm run test:rpg",
     "posttest": "npm run tsc",
-    "full-test": "eslint --max-warnings 0 && npm run tsc && mocha --timeout 8000 --forbid-only -g \".*\" && npm run test-npm",
-    "full-test-ci": "eslint --max-warnings 0 && tsc && (([ \"$SKIPSIMTESTS\" = true ] && mocha --timeout 8000 --forbid-only -g \".*\" --exclude \"test/{sim,random-battles}/**\") || mocha --timeout 8000 --forbid-only -g \".*\") && npm run test-npm"
+    "full-test": "npm run lint:rpg -- --max-warnings 0 && npm run tsc && npm run test:rpg",
+    "full-test-ci": "npm run full-test"
   },
   "bin": "./pokemon-showdown",
   "license": "MIT",

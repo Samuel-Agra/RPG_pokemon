@@ -80,4 +80,11 @@ describe('RPG standalone runtime isolation', () => {
 		assert.equal(require('../../package.json').name, 'pokemon-rpg');
 		assert.equal(require('../../package.json').scripts.start, 'node server/rpg-showdown/start.js');
 	});
+
+	it('keeps the default test runner scoped to the RPG suite', () => {
+		const mochaConfig = require('../../.mocharc.json');
+		assert.deepEqual(mochaConfig.spec, ['test/server/rpg-*.js', 'test/sim/rpg-*.js']);
+		assert.equal(fs.existsSync(path.resolve(__dirname, '../main.js')), false);
+		assert.equal(fs.existsSync(path.resolve(__dirname, '../random-battles')), false);
+	});
 });
