@@ -1233,6 +1233,7 @@ export class GlobalRoomState {
 				autojoin: true,
 			}];
 		}
+		if (process.env.PS_RPG_MODE === '1') this.settingsList = [];
 
 		this.chatRooms = [];
 

@@ -74,6 +74,8 @@ import { Repl } from '../lib';
 import * as ConfigLoader from './config-loader';
 import { Sockets } from './sockets';
 
+const RPG_ONLY = process.env.PS_RPG_MODE === '1';
+
 function cleanupStale() {
 	return Repl.cleanup();
 }
@@ -121,7 +123,7 @@ function setupGlobals() {
 
 	const { IPTools } = require('./ip-tools');
 	global.IPTools = IPTools;
-	void IPTools.loadHostsAndRanges();
+	if (!RPG_ONLY) void IPTools.loadHostsAndRanges();
 
 	const TeamValidatorAsync = require('./team-validator-async');
 	global.TeamValidatorAsync = TeamValidatorAsync;
@@ -135,14 +137,14 @@ function setupGlobals() {
 export const readyPromise = cleanupStale().then(() => {
 	setupGlobals();
 }).then(() => {
-	if (Config.usesqlite) {
+	if (!RPG_ONLY && Config.usesqlite) {
 		require('./modlog').start(Config.subprocessescache);
 	}
 
-	Rooms.global.start(Config.subprocessescache);
+	if (!RPG_ONLY) Rooms.global.start(Config.subprocessescache);
 	Verifier.start(Config.subprocessescache);
 	TeamValidatorAsync.start(Config.subprocessescache);
-	Chat.start(Config.subprocessescache);
+	if (!RPG_ONLY) Chat.start(Config.subprocessescache);
 
 	/*********************************************************
 	 * Monitor config file and display diagnostics

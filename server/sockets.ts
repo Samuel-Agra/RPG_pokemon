@@ -371,6 +371,18 @@ export class ServerStream extends Streams.ObjectReadWriteStream<string> {
 
 		// This is the main server that handles users connecting to our server
 		// and doing things on our server.
+		process.once('disconnect', () => this.cleanup());
+		process.once('exit', () => this.cleanup());
+
+		if (process.env.PS_RPG_MODE === '1') {
+			this.server.listen(config.port, config.bindaddress);
+			console.log(`RPG worker ${PM.workerid} listening on ${config.bindaddress}:${config.port}`);
+			if (this.serverSsl) {
+				// @ts-expect-error if appssl exists, then `config.ssl` must also exist
+				this.serverSsl.listen(config.ssl.port, config.bindaddress);
+			}
+			return;
+		}
 
 		const sockjs: typeof import('sockjs') = (require as any)('sockjs');
 		const options: import('sockjs').ServerOptions & { faye_server_options?: { [key: string]: any } } = {
@@ -394,9 +406,6 @@ export class ServerStream extends Streams.ObjectReadWriteStream<string> {
 		}
 
 		const server = sockjs.createServer(options);
-
-		process.once('disconnect', () => this.cleanup());
-		process.once('exit', () => this.cleanup());
 
 		// this is global so it can be hotpatched if necessary
 		server.on('connection', connection => this.onConnection(connection));
