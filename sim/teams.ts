@@ -9,7 +9,7 @@
 
 import { Dex, toID } from './dex';
 import type { PRNG, PRNGSeed } from './prng';
-import { RPGPokemonState } from "./rpg-showdown";
+import type { RPGPokemonState } from './rpg-showdown';
 
 interface ExportOptions {
 	hideStats?: boolean;
@@ -117,16 +117,16 @@ export interface PokemonSet {
 	teraType?: string;
 
 	/**
-   * Estado persistente utilizado pelo módulo RPG.
-   *
-   * Essas informações não fazem parte das mecânicas originais do
-   * Pokémon Showdown e são utilizadas para restaurar o estado do
-   * Pokémon entre batalhas.
-	*/
-   rpg?: RPGPokemonState;
+	 * Estado persistente utilizado pelo módulo RPG.
+	 *
+	 * Essas informações não fazem parte das mecânicas originais do
+	 * Pokémon Showdown e são utilizadas para restaurar o estado do
+	 * Pokémon entre batalhas.
+	 */
+	rpg?: RPGPokemonState;
 }
 
-export const Teams = new class Teams {
+export const Teams = new class TeamTools {
 	pack(team: PokemonSet[] | null): string {
 		if (!team) return '';
 
@@ -635,31 +635,17 @@ export const Teams = new class Teams {
 		return sets;
 	}
 
-	getGenerator(format: Format | string, seed: PRNG | PRNGSeed | null = null) {
-		let TeamGenerator;
-		format = Dex.formats.get(format);
-		let mod = format.mod;
-		if (format.mod === 'monkeyspaw') mod = 'gen9';
-		const formatID = toID(format);
-		if (mod === 'gen9ssb') {
-			TeamGenerator = require(`../data/mods/gen9ssb/random-teams`).default;
-		} else if (mod === 'afd') {
-			TeamGenerator = require(`../data/mods/afd/random-teams`).default;
-		} else if (formatID.includes('gen9babyrandombattle')) {
-			TeamGenerator = require(`../data/random-battles/gen9baby/teams`).default;
-		} else if (formatID.includes('gen9randombattle') && format.ruleTable?.has('+tag:cap')) {
-			TeamGenerator = require(`../data/random-battles/gen9cap/teams`).default;
-		} else if (formatID.includes('gen9freeforallrandombattle')) {
-			TeamGenerator = require(`../data/random-battles/gen9ffa/teams`).default;
-		} else {
-			TeamGenerator = require(`../data/random-battles/${mod}/teams`).default;
-		}
-
-		return new TeamGenerator(format, seed);
+	getGenerator(_format: Format | string, _seed: PRNG | PRNGSeed | null = null) {
+		return {
+			setSeed(_nextSeed: PRNGSeed) {},
+			getTeam(_options?: unknown): PokemonSet[] {
+				throw new Error('Showdown random-team generators are not available in Pokémon RPG');
+			},
+		};
 	}
 
-	generate(format: Format | string, options: PlayerOptions | null = null): PokemonSet[] {
-		return this.getGenerator(format, options?.seed).getTeam(options);
+	generate(_format: Format | string, _options: PlayerOptions | null = null): PokemonSet[] {
+		throw new Error('Showdown random-team generators are not available in Pokémon RPG');
 	}
 };
 
