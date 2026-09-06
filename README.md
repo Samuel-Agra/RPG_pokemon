@@ -13,6 +13,7 @@ O servidor possui dois perfis de acesso:
 - npm.
 - [Docker Desktop](https://www.docker.com/products/docker-desktop/) com Docker Compose, para executar o MySQL de forma simples.
 - Git, para baixar e atualizar o projeto.
+- Opcional: `make`, para utilizar os atalhos definidos no `Makefile`.
 
 ## Configuração inicial
 
@@ -22,6 +23,12 @@ Clone o repositório e instale as dependências:
 git clone <URL-DO-REPOSITORIO>
 cd RPG_pokemon
 npm ci
+```
+
+Ou, se o comando `make` estiver instalado:
+
+```bash
+make install
 ```
 
 Crie o arquivo de configuração do banco a partir do exemplo:
@@ -79,16 +86,34 @@ Com o Docker Desktop aberto, inicie o MySQL:
 npm run db:rpg:up
 ```
 
+Com `make`, o comando equivalente é:
+
+```bash
+make db-up
+```
+
 O esquema inicial é aplicado automaticamente na primeira criação do contêiner. Para conferir o estado do banco:
 
 ```bash
 npm run db:rpg:status
 ```
 
+Ou:
+
+```bash
+make db-status
+```
+
 Para encerrar o MySQL sem apagar os dados:
 
 ```bash
 npm run db:rpg:down
+```
+
+Ou:
+
+```bash
+make db-down
 ```
 
 O volume `pokemon-rpg-mysql-data` preserva personagens e campanhas entre reinicializações. Não remova esse volume se quiser manter os dados.
@@ -99,6 +124,12 @@ Com o MySQL ativo, inicie o servidor:
 
 ```bash
 npm start
+```
+
+O atalho equivalente compila e inicia o RPG:
+
+```bash
+make rpg
 ```
 
 Abra no navegador:
@@ -156,6 +187,12 @@ Para executar lint, verificação TypeScript e todos os testes do RPG:
 npm run full-test
 ```
 
+Pelo `Makefile`, execute a suíte do RPG com:
+
+```bash
+make test-rpg
+```
+
 Também estão disponíveis:
 
 ```bash
@@ -163,6 +200,30 @@ npm run lint:rpg
 npm run tsc
 npm run test:rpg
 ```
+
+Os principais comandos equivalentes do `Makefile` são:
+
+```bash
+make build
+make typecheck
+make lint-rpg
+make test-rpg
+```
+
+Também existem testes separados por área:
+
+```bash
+make test-rpg-battle
+make test-rpg-nursery
+make test-rpg-shop
+make test-rpg-inventory
+make test-rpg-team
+make test-rpg-fossil
+make test-rpg-world
+make test-rpg-ui
+```
+
+Use `make help` para visualizar todos os atalhos disponíveis. No Windows, `make` não acompanha o PowerShell por padrão; ele pode ser usado pelo Git Bash, WSL ou por uma instalação própria do GNU Make. Os comandos `npm` continuam funcionando sem `make`.
 
 ## Dados, recursos e licenças
 
