@@ -178,7 +178,7 @@ export const readyPromise = cleanupStale().then(() => {
 	 * Start up the REPL server
 	 *********************************************************/
 
-	Repl.startGlobal('app');
+	if (!RPG_ONLY) Repl.startGlobal('app');
 
 	/*********************************************************
 	 * Fully initialized, run startup hook

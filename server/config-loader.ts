@@ -17,7 +17,7 @@ type InputConfig = Omit<DefaultConfig, 'subprocesses'> & {
 };
 
 type ProcessType = (
-	'localartemis' | 'remoteartemis' | 'battlesearch' | 'datasearch' | 'friends' |
+	'battlesearch' | 'datasearch' |
 	'chatdb' | 'pm' | 'modlog' | 'network' | 'simulator' | 'validator' | 'verifier'
 );
 
@@ -36,7 +36,7 @@ const FLAG_PRESETS = new Map([
 ]);
 
 const processTypes: ProcessType[] = [
-	'localartemis', 'remoteartemis', 'battlesearch', 'datasearch', 'friends',
+	'battlesearch', 'datasearch',
 	'chatdb', 'pm', 'modlog', 'network', 'simulator', 'validator', 'verifier',
 ];
 

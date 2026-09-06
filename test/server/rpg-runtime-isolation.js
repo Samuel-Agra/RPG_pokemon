@@ -72,4 +72,12 @@ describe('RPG standalone runtime isolation', () => {
 		assert.equal(hasFiles(path.resolve(__dirname, '../../server/chat-plugins')), false);
 		assert.equal(hasFiles(path.resolve(__dirname, '../../translations')), false);
 	});
+
+	it('does not ship Showdown social, offline-message, or Artemis services', () => {
+		assert.equal(hasFiles(path.resolve(__dirname, '../../server/artemis')), false);
+		assert.equal(hasFiles(path.resolve(__dirname, '../../server/private-messages')), false);
+		assert.equal(fs.existsSync(path.resolve(__dirname, '../../server/friends.ts')), false);
+		assert.equal(require('../../package.json').name, 'pokemon-rpg');
+		assert.equal(require('../../package.json').scripts.start, 'node server/rpg-showdown/start.js');
+	});
 });

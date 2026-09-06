@@ -1,6 +1,6 @@
 {
-  "name": "pokemon-showdown",
-  "description": "The server for the Pokémon Showdown battle simulator",
+  "name": "pokemon-rpg",
+  "description": "Servidor e interface do Pokémon RPG",
   "version": "0.11.10",
   "main": "dist/sim/index.js",
   "types": "dist/sim/index.d.ts",
@@ -32,7 +32,7 @@
     "node": ">=16.0.0"
   },
   "scripts": {
-    "start": "node pokemon-showdown start",
+    "start": "node server/rpg-showdown/start.js",
     "rpg": "node server/rpg-showdown/start.js",
     "db:rpg:up": "docker compose up -d mysql",
     "db:rpg:down": "docker compose down",
@@ -54,23 +54,6 @@
     "full-test-ci": "eslint --max-warnings 0 && tsc && (([ \"$SKIPSIMTESTS\" = true ] && mocha --timeout 8000 --forbid-only -g \".*\" --exclude \"test/{sim,random-battles}/**\") || mocha --timeout 8000 --forbid-only -g \".*\") && npm run test-npm"
   },
   "bin": "./pokemon-showdown",
-  "homepage": "http://pokemonshowdown.com",
-  "repository": {
-    "type": "git",
-    "url": "https://github.com/smogon/pokemon-showdown.git"
-  },
-  "author": {
-    "name": "Guangcong Luo",
-    "email": "guangcongluo@gmail.com",
-    "url": "http://guangcongluo.com"
-  },
-  "contributors": [
-    {
-      "name": "Bill Meltsner",
-      "email": "bill@meltsner.com",
-      "url": "http://www.meltsner.com"
-    }
-  ],
   "license": "MIT",
   "devDependencies": {
     "@stylistic/eslint-plugin": "^5.2.2",

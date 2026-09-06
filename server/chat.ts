@@ -27,13 +27,12 @@ import type { RoomPermission, GlobalPermission } from './user-groups';
 import type { Punishment } from './punishments';
 import type { PartialModlogEntry } from './modlog';
 import * as ConfigLoader from './config-loader';
-import * as Friends from './friends';
 import { SQL, FS, Utils } from '../lib';
-import * as Artemis from './artemis';
 import { Dex } from '../sim';
-import { PrivateMessages } from './private-messages';
 import * as pathModule from 'path';
 import * as JSX from './chat-jsx';
+
+const RPG_ONLY = process.env.PS_RPG_MODE === '1';
 
 export type PageHandler = (this: PageContext, query: string[], user: User, connection: Connection)
 => Promise<string | null | void | JSX.VNode> | string | null | void | JSX.VNode;
@@ -1535,6 +1534,19 @@ export class CommandContext extends MessageContext {
 	}
 }
 
+const DisabledFriends = {
+	async findFriendship() { return null; },
+};
+const DisabledProcess = {
+	spawn() {},
+	destroy() {},
+};
+const DisabledPrivateMessages = {
+	send(..._args: unknown[]) {},
+	start(..._args: unknown[]) {},
+	destroy() {},
+};
+
 export const Chat = new class {
 	constructor() {
 		void this.loadTranslations().then(() => {
@@ -1548,9 +1560,9 @@ export const Chat = new class {
 	 * which tends to cause unexpected behavior.
 	 */
 	readonly MAX_TIMEOUT_DURATION = 2147483647;
-	readonly Friends = new Friends.FriendsDatabase();
-	readonly FriendsPM = Friends.PM;
-	readonly PrivateMessages = PrivateMessages;
+	readonly Friends = DisabledFriends;
+	readonly FriendsPM = DisabledProcess;
+	readonly PrivateMessages = DisabledPrivateMessages;
 
 	readonly multiLinePattern = new PatternTester();
 
@@ -1561,7 +1573,7 @@ export const Chat = new class {
 	commands!: AnnotatedChatCommands;
 	basePages!: PageTable;
 	pages!: PageTable;
-	readonly destroyHandlers: (() => void)[] = [Artemis.destroy, Friends.destroy];
+	readonly destroyHandlers: (() => void)[] = [];
 	readonly crqHandlers: { [k: string]: CRQHandler } = {};
 	readonly handlers: { [k: string]: ((...args: any) => any)[] } = Object.create(null);
 	/** The key is the name of the plugin. */
@@ -2736,15 +2748,13 @@ if (!PM.isParentProcess) {
 		Monitor.crashlog(err as Error, 'A chat database process');
 	});
 	// eslint-disable-next-line no-eval
-	PM.startRepl(cmd => eval(cmd));
+	if (!RPG_ONLY) PM.startRepl(cmd => eval(cmd));
 }
 
 function start(processCount: ConfigLoader.SubProcessesConfig) {
-	if (Config.usesqlite) {
+	if (!RPG_ONLY && Config.usesqlite) {
 		PM.spawn(processCount['chatdb'] ?? 1);
 		Chat.databaseReadyPromise = Chat.prepareDatabase();
 	}
 	Chat.PrivateMessages.start(processCount);
-	Friends.start(processCount);
-	Artemis.start(processCount);
 }
