@@ -30,6 +30,14 @@ import {
 	type RPGItemDefinition,
 	type RPGShopTransaction,
 } from "../../sim/rpg-showdown";
+/**
+ * Fachada principal do servidor RPG.
+ *
+ * Centraliza autenticação, personagens e a coordenação dos serviços de mundo.
+ * As classes especializadas continuam responsáveis pelas regras de cada área;
+ * este arquivo valida permissões, reúne os estados e delimita as transações que
+ * precisam ser persistidas como uma única operação.
+ */
 import {
 	RPGMemoryBattleSessionRepository,
 	RPGBattleSessionService,

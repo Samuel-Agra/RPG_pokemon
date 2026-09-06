@@ -1,3 +1,4 @@
+/** Resolve capturas no estado real da batalha, validando a Ball antes do sorteio e mantendo o combate se restarem alvos. */
 import type { Battle } from "../../../battle";
 import type { Pokemon } from "../../../pokemon";
 import type { RPGCaptureResult, RPGCapturedPokemon } from "../../state";

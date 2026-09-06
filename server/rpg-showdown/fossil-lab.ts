@@ -1,3 +1,4 @@
+/** Coordena restauração, consumo do fóssil e entrega segura do Pokémon para equipe ou Box. */
 import { Dex } from '../../sim/dex';
 import { toID } from '../../sim/dex-data';
 import {

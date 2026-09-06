@@ -848,6 +848,74 @@ describe('RPG private battle runtime', () => {
 		assert.equal(state.turn, 2);
 		assert(state.sides[0].pokemon.filter(entry => entry.active).every(entry => entry.moves[0].pp < entry.moves[0].maxPP));
 	});
+	it('gives each allied Player one opening slot in Doubles before adding reserves', () => {
+		const { session, launch, character } = setup();
+		session.id = 'runtime-doubles-independent-player-slots';
+		session.format = 'doubles';
+		launch.sessionId = session.id;
+		launch.format = 'doubles';
+		character.team = [
+			{ ...pokemon('Squirtle', ['Tackle']), rpg: { version: 1, level: 5 } },
+			{ ...pokemon('Bulbasaur', ['Tackle']), rpg: { version: 1, level: 5 } },
+		];
+		const allyCharacter = {
+			...character, id: 'ally', characterName: 'Ally',
+			team: [{ ...pokemon('Pikachu', ['Tackle']), rpg: { version: 1, level: 5 } }],
+		};
+		session.participants = [
+			{ ...session.participants[0], selectionLimit: 2, pokemon: [{ teamIndex: 0 }, { teamIndex: 1 }] },
+			{
+				id: 'ally', team: 'A', kind: 'player', characterId: 'ally', displayName: 'Ally',
+				selectionLimit: 1, pokemon: [{ teamIndex: 0 }],
+			},
+			{
+				...session.participants[1], selectionLimit: 2,
+				pokemon: [{ set: pokemon('Pidgey', ['Tackle']) }, { set: pokemon('Rattata', ['Tackle']) }],
+			},
+		];
+		launch.participants = session.participants;
+		const manager = new RPGBattleRuntimeManager();
+		manager.start(session, launch, id => id === 'ally' ? allyCharacter : character);
+		const heroView = manager.snapshot(session.id, { master: false, characterId: 'hero' });
+		const allyView = manager.snapshot(session.id, { master: false, characterId: 'ally' });
+		assert.deepEqual(heroView.sides[0].pokemon.filter(entry => entry.active).map(entry => entry.owner.trainerId), ['hero', 'ally']);
+		assert.deepEqual(heroView.sides[0].pokemon.filter(entry => entry.active).map(entry => entry.controllable), [true, false]);
+		assert.deepEqual(allyView.sides[0].pokemon.filter(entry => entry.active).map(entry => entry.controllable), [false, true]);
+		assert.equal(heroView.sides[0].pokemon.find(entry => !entry.active).owner.trainerId, 'hero');
+	});
+	it('gives each of three allied Players one opening slot in Triples', () => {
+		const { session, launch, character } = setup();
+		session.id = 'runtime-triples-independent-player-slots';
+		session.format = 'triples';
+		launch.sessionId = session.id;
+		launch.format = 'triples';
+		character.team = [
+			{ ...pokemon('Squirtle', ['Tackle']), rpg: { version: 1, level: 5 } },
+			{ ...pokemon('Bulbasaur', ['Tackle']), rpg: { version: 1, level: 5 } },
+		];
+		const allies = ['ally', 'third'].map((id, index) => ({
+			...character, id, characterName: id,
+			team: [{ ...pokemon(index ? 'Eevee' : 'Pikachu', ['Tackle']), rpg: { version: 1, level: 5 } }],
+		}));
+		session.participants = [
+			{ ...session.participants[0], selectionLimit: 2, pokemon: [{ teamIndex: 0 }, { teamIndex: 1 }] },
+			...allies.map(ally => ({
+				id: ally.id, team: 'A', kind: 'player', characterId: ally.id, displayName: ally.characterName,
+				selectionLimit: 1, pokemon: [{ teamIndex: 0 }],
+			})),
+			{
+				...session.participants[1], selectionLimit: 3,
+				pokemon: ['Pidgey', 'Rattata', 'Caterpie'].map(species => ({ set: pokemon(species, ['Tackle']) })),
+			},
+		];
+		launch.participants = session.participants;
+		const manager = new RPGBattleRuntimeManager();
+		const state = manager.start(session, launch, id => allies.find(ally => ally.id === id) || character);
+		assert.deepEqual(
+			state.sides[0].pokemon.filter(entry => entry.active).map(entry => entry.owner.trainerId),
+			['hero', 'ally', 'third']
+		);
+	});
 	it('runs Raid with one simultaneous active Pokemon from each of three Players', () => {
 		const { session, launch, character } = setup();
 		session.id = 'runtime-raid-three-independent-players';

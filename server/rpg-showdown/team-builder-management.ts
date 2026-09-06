@@ -1,3 +1,10 @@
+/**
+ * Adaptação do Team Builder às restrições persistentes do RPG.
+ *
+ * Expõe catálogos de escolhas válidas e aplica edições autorizadas sem permitir
+ * que a interface altere campos bloqueados, Pokémon em treinamento ou recursos
+ * que não pertencem ao personagem.
+ */
 import { Dex } from '../../sim/dex';
 import { toID } from '../../sim/dex-data';
 import {

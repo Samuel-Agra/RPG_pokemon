@@ -1,3 +1,4 @@
+/** Motor atômico de compra, venda e melhoria da Bag, mantendo dinheiro, estoque e capacidade consistentes. */
 import {
 	RPG_BAG_TIERS, RPGBagSystem,
 	type RPGBagState, type RPGBagTier,

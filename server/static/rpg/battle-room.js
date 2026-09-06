@@ -1,5 +1,11 @@
 'use strict';
 
+/**
+ * Apresentação e controles de uma batalha ativa.
+ * Renderiza snapshots autoritativos do servidor e serializa as animações antes
+ * de atualizar os controles. Nunca recalcula dano, alcance ou propriedade dos
+ * Pokémon no cliente.
+ */
 /* global state, api, button, createElement, pokemonSprite, showToast, renderDashboard, RPGAssets */
 
 function rpgRuntimePokemonName(pokemon) {

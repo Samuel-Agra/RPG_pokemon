@@ -1,3 +1,4 @@
+/** Valida sessões versionadas do Team Builder, campos editáveis, limites e conflitos sem depender de HTTP ou persistência. */
 import type { PokemonSet } from "../../teams";
 
 import { getExperienceForLevel, getSpeciesExperience } from "../data/experience";

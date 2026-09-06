@@ -1,3 +1,10 @@
+/**
+ * Operações de equipe e Box com preservação da identidade do Pokémon.
+ *
+ * Movimentações trabalham sobre cópias validadas e usam identificadores
+ * persistentes; assim, trocar equipes, evoluir ou capturar nunca duplica nem
+ * substitui silenciosamente um Pokémon existente.
+ */
 import { Dex } from '../../sim/dex';
 import { toID } from '../../sim/dex-data';
 import type { PokemonSet } from '../../sim/teams';

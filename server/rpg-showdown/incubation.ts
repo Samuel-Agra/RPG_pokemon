@@ -1,3 +1,4 @@
+/** Coordena incubação pelo relógio persistente da campanha, sem depender de temporizadores do navegador. */
 import { Dex } from '../../sim/dex';
 import {
 	getSpeciesExperience, RPG_STATE_VERSION, type RPGCapturedPokemon,

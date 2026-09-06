@@ -1,3 +1,4 @@
+/** Modelo puro do chaveamento e da resolução ponderada de confrontos automáticos entre NPCs. */
 export const RPG_TOURNAMENT_VERSION = 1;
 
 export type RPGTournamentParticipantType = 'player' | 'npc';

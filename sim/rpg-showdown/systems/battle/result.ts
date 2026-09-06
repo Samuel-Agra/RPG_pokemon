@@ -1,3 +1,4 @@
+/** Converte o fim do simulador em vencedores, derrotados, empate ou fuga consumidos pelas recompensas do RPG. */
 import type { Battle } from "../../../battle";
 import { toID } from "../../../dex-data";
 import { getRPGPokemonSizeClass } from "../../data/pokemon-size";

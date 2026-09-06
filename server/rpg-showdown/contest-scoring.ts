@@ -1,3 +1,4 @@
+/** Calcula categorias, contradições, repetição, criatividade e combos sem misturar a avaliação subjetiva do Mestre. */
 import { toID } from '../../sim/dex-data';
 import { getRPGContestMove, RPG_CONTEST_NO_PP_ACTION, type RPGContestMoveDefinition } from './contest-move-catalog';
 import type { RPGContestCategory } from './contest-session';

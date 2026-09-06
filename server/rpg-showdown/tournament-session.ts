@@ -1,3 +1,10 @@
+/**
+ * Orquestra torneios de batalha e concurso.
+ *
+ * Persiste inscrições e chaveamento, encaminha partidas que exigem jogo real e
+ * resolve automaticamente apenas confrontos entre NPCs. O elenco inscrito limita
+ * quais Pokémon podem ser escolhidos em cada etapa.
+ */
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { toID } from '../../sim/dex-data';

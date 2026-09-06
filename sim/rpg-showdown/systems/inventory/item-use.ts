@@ -1,3 +1,4 @@
+/** Reserva, aplica e confirma itens; ações inválidas liberam a reserva e reenvios não repetem o consumo. */
 import type { Pokemon } from "../../../pokemon";
 import type { RPGHealingResult, RPGPokemonState } from "../../state";
 import { HealingSystem, type RPGHealingRequest } from "../battle/healing";

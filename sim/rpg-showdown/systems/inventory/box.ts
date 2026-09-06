@@ -1,3 +1,4 @@
+/** Estrutura versionada da equipe e Box que preserva IDs e posições durante capturas, trocas e migrações. */
 import type { RPGCaptureResult, RPGCapturedPokemon } from "../../state";
 
 export const RPG_BOX_VERSION = 3;

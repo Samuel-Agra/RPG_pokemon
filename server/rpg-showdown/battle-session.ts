@@ -1,3 +1,10 @@
+/**
+ * Preparação e ciclo de vida de uma batalha RPG.
+ *
+ * A sessão guarda convites, participantes, Pokémon escolhidos, cenário e regras.
+ * Ela não executa turnos: ao começar, produz um contrato imutável consumido por
+ * `battle-runtime.ts`, evitando que alterações posteriores mudem a luta ativa.
+ */
 import { Dex } from '../../sim/dex';
 import { toID } from '../../sim/dex-data';
 import type { PokemonSet } from '../../sim/teams';
@@ -526,6 +533,18 @@ export class RPGBattleSessionService {
 		for (const team of ['A', 'B'] as const) {
 			if (!session.participants.some(participant => participant.team === team)) {
 				throw new Error(`RPG battle team ${team} requires a participant`);
+			}
+		}
+		const trainerSlots = session.format === 'triples' ? 3 :
+			session.format === 'doubles' || session.format === 'multi' ? 2 : 1;
+		if (session.format !== 'raid' && session.format !== 'boss') {
+			for (const team of ['A', 'B'] as const) {
+				const players = session.participants.filter(participant =>
+					participant.team === team && participant.kind === 'player'
+				);
+				if (players.length > trainerSlots) {
+					throw new Error(`RPG ${session.format} battles allow at most ${trainerSlots} Player trainers on team ${team}`);
+				}
 			}
 		}
 		const opponents = session.participants.filter(participant => participant.team === 'B');

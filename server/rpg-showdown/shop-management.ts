@@ -1,3 +1,10 @@
+/**
+ * Administração de lojas e transações comerciais do RPG.
+ *
+ * Catálogo, estoque e conta do personagem são validados em conjunto para que uma
+ * compra ou venda seja atômica. Requisições repetidas usam identificadores de
+ * ação e não podem cobrar ou entregar o mesmo item duas vezes.
+ */
 import { existsSync, mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 

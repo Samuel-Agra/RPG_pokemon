@@ -1,3 +1,10 @@
+/**
+ * Núcleo puro e versionado do inventário.
+ *
+ * Reservar antes de consumir permite executar efeitos externos com segurança:
+ * sucesso confirma o consumo e falha libera a reserva. A revisão e o `actionId`
+ * protegem contra concorrência e repetição da mesma requisição.
+ */
 import { RPGBagSystem, type RPGBagState } from "./bag";
 import { RPGItemRegistry, RPGItems } from "./item-registry";
 

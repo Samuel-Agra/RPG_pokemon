@@ -1,3 +1,4 @@
+/** Aplica a fórmula de fuga, suas garantias e o contador de tentativas sem encerrar o confronto quando a tentativa falha. */
 import type { Battle } from "../../../battle";
 import type { Pokemon } from "../../../pokemon";
 import type { RPGFleeResult } from "../../state";

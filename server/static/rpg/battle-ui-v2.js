@@ -1,5 +1,10 @@
 'use strict';
 
+/**
+ * Editor de preparação de batalhas usado pelo Mestre.
+ * Constrói participantes e condições em etapas e envia um único contrato para a
+ * API; a execução da batalha pertence a `battle-room.js` e ao runtime do servidor.
+ */
 /* global state, api, createElement, button, pokemonSprite, spriteImage, characterAvatarBadge, showToast, renderDashboard, RPGAssets */
 /* global rpgBattleField, rpgBattleSelect, rpgBattleCheck, rpgBattleStep, rpgBattleCard, rpgControlledPokemonSet, rpgBattleRoom */
 
@@ -330,6 +335,12 @@ function rpgBattleEditor(characters, existing, onClose) {
 	);
 	form.append(multiAssignmentStep.step);
 	const multiAssignments = new Map();
+	function playerSlotsPerTeam() {
+		if (format.value === 'triples') return 3;
+		if (format.value === 'doubles' || format.value === 'multi') return 2;
+		if (format.value === 'raid') return 3;
+		return 1;
+	}
 	function canAddMultiParticipant() {
 		return format.value !== 'multi' || opponent.value !== 'npc' || multiCandidates().length < 4;
 	}
@@ -359,7 +370,10 @@ function rpgBattleEditor(characters, existing, onClose) {
 		for (const [key, input] of playerInputs) {
 			const teamId = key.slice(0, 1);
 			const selectedOnTeam = [...playerInputs].filter(([entryKey, entryInput]) => entryKey.startsWith(teamId + ':') && entryInput.checked).length;
-			if (!input.checked && !input.closest('.hidden')) input.disabled = multiPlayer ? selectedOnTeam >= 2 : key.startsWith('A:') && full;
+			if (!input.checked && !input.closest('.hidden')) {
+				input.disabled = multiPlayer ? selectedOnTeam >= 2 :
+					(key.startsWith('A:') && full) || selectedOnTeam >= playerSlotsPerTeam();
+			}
 		}
 		for (const control of temporaryNPCs.root.querySelectorAll('.contest-temporary-heading-actions button')) control.disabled = full;
 		savedNPCs.refresh?.();
@@ -527,6 +541,14 @@ function rpgBattleEditor(characters, existing, onClose) {
 		const isNpc = opponent.value === 'npc';
 		const isMultiTrainer = format.value === 'multi' && isNpc;
 		const isWild = opponent.value === 'wild' || opponent.value === 'horde';
+		if (format.value !== 'multi' && format.value !== 'raid') {
+			for (const teamId of ['A', 'B']) {
+				const selected = [...playerInputs].filter(([key, input]) =>
+					key.startsWith(teamId + ':') && input.checked
+				);
+				for (const [, input] of selected.slice(playerSlotsPerTeam())) input.checked = false;
+			}
+		}
 		const wagerAllowed = isPlayer || isNpc;
 		wagerField.classList.toggle('hidden', !wagerAllowed);
 		wagerAmount.disabled = !wagerAllowed;
@@ -601,6 +623,14 @@ function rpgBattleEditor(characters, existing, onClose) {
 			const isMultiPlayer = format.value === 'multi' && opponent.value === 'player';
 			const selectedNPCParticipants = (opponent.value === 'npc' || isMultiTrainer) ?
 				[...savedNPCs.participants(), ...temporaryNPCs.participants()] : [];
+			for (const teamId of ['A', 'B']) {
+				const selectedPlayers = [...playerInputs].filter(([key, input]) =>
+					key.startsWith(teamId + ':') && input.checked
+				).length;
+				if (selectedPlayers > playerSlotsPerTeam()) {
+					throw new Error(`O formato ${format.selectedOptions[0].textContent} aceita no máximo ${playerSlotsPerTeam()} Players na Equipe ${teamId}.`);
+				}
+			}
 			if (isMultiTrainer) {
 				const candidates = multiCandidates();
 				if (candidates.length !== 4) throw new Error('O formato Multi exige exatamente quatro treinadores.');

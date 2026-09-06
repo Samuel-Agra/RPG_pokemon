@@ -75,6 +75,33 @@ function configuration(samuel, marina) {
 }
 
 describe('RPG battle preparation sessions', () => {
+	it('limits allied Player trainers to the active slots in Doubles and Triples', () => {
+		const login = service();
+		const master = login.loginMaster('14081998');
+		const players = ['Um', 'Dois', 'Tres', 'Quatro'].map((name, index) =>
+			character(login, name, `senha-${index}`)
+		);
+		for (const [format, accepted, rejected] of [['doubles', 2, 3], ['triples', 3, 4]]) {
+			let battle = login.createBattleSession(master.token, { name: `Limite ${format}` });
+			const configured = configuration(players[0], players[1]);
+			configured.format = format;
+			configured.opponentType = 'npc';
+			configured.participants = [
+				...players.slice(0, rejected).map((player, index) => ({
+					id: `player-${index}`, team: 'A', kind: 'player', characterId: player.id,
+					displayName: player.characterName, selectionLimit: 1, pokemon: [{ teamIndex: 0 }],
+				})),
+				{
+					id: 'npc', team: 'B', kind: 'npc', displayName: 'NPC', selectionLimit: accepted,
+					pokemon: Array.from({ length: accepted }, () => ({
+						set: { species: 'Pidgey', level: 5, moves: ['tackle'] },
+					})),
+				},
+			];
+			battle = login.updateBattleSession(master.token, battle.id, configured);
+			assert.throws(() => login.inviteBattleSession(master.token, battle.id), new RegExp(`at most ${accepted} Player trainers`));
+		}
+	});
 	it('requires the master to configure and invite before starting', () => {
 		const login = service();
 		const samuel = character(login, 'Samuel', 'senha-samuel');

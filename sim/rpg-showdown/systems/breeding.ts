@@ -1,3 +1,4 @@
+/** Regras puras de reprodução: compatibilidade, espécie resultante e heranças; Box e tempo são coordenados no servidor. */
 import { Dex } from "../../dex";
 import { toID } from "../../dex-data";
 

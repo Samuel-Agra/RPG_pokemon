@@ -1,3 +1,4 @@
+/** Traduz moves em alterações temporárias do palco e mantém esses efeitos até a rodada do participante terminar. */
 import { toID } from '../../sim/dex-data';
 import { getRPGContestMove } from './contest-move-catalog';
 import type { RPGContestScenario } from './contest-session';

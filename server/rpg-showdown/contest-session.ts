@@ -1,3 +1,10 @@
+/**
+ * Contrato persistente de preparação dos concursos.
+ *
+ * Normaliza formato, categoria, rank, participantes e convites antes de entregar
+ * uma cópia validada ao runtime. As escolhas dos Players ficam associadas ao
+ * personagem para que outro usuário não possa responder em seu lugar.
+ */
 import { toID } from '../../sim/dex-data';
 import type { PokemonSet } from '../../sim/teams';
 

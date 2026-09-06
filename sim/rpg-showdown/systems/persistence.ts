@@ -1,3 +1,8 @@
+/**
+ * Sincroniza o estado RPG persistente com um Pokémon temporário do simulador.
+ * `load` prepara o início da batalha; `save` devolve somente os recursos que
+ * devem sobreviver ao combate, como HP, PP, status, item e EVs.
+ */
 import type { Pokemon } from "../../pokemon";
 
 import { EVSystem } from "./battle/ev";

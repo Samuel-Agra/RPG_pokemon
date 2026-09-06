@@ -418,8 +418,8 @@ export class RPGBattleRuntimeManager {
 		};
 		const participantsA = session.participants.filter(participant => participant.team === 'A');
 		const participantsB = session.participants.filter(participant => participant.team === 'B');
-		const teamA = this.resolveRuntimeTeam(participantsA, runtimeCharacter, session.format === 'raid');
-		const teamB = this.resolveRuntimeTeam(participantsB, runtimeCharacter, false);
+		const teamA = this.resolveRuntimeTeam(participantsA, runtimeCharacter, participantsA.length > 1);
+		const teamB = this.resolveRuntimeTeam(participantsB, runtimeCharacter, participantsB.length > 1);
 		const teams = { A: teamA.team, B: teamB.team };
 		if (!teams.A.length || !teams.B.length) throw new Error('RPG battle requires Pokemon on both teams');
 		const trainers = { p1: teamA.trainers, p2: teamB.trainers };

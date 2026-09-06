@@ -1,3 +1,10 @@
+/**
+ * Regras de domínio do berçário.
+ *
+ * Controla compatibilidade, ocupação das vagas, produção do ovo e devolução dos
+ * pais. Os tempos são registrados no relógio da campanha, não em temporizadores
+ * descartáveis do navegador.
+ */
 import { Dex } from '../../sim/dex';
 import { toID } from '../../sim/dex-data';
 import type { RPGCapturedPokemon } from '../../sim/rpg-showdown';

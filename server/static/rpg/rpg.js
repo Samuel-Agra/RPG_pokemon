@@ -1,5 +1,11 @@
 'use strict';
 
+/**
+ * Shell da aplicação no navegador.
+ * Mantém a sessão local, navegação e renderização dos painéis gerais; módulos
+ * especializados assumem telas extensas como Bag, Box, batalha e concurso.
+ * Atualizações devem preservar o DOM estável para não provocar piscadas.
+ */
 /* global document, window, localStorage, RPGAssets, rpgRuntimeSprite, RPG_BATTLE_SCENES, rpgLoadBattleScenes, rpgBattleSceneUrl */
 const STORAGE_KEY = 'rpg-showdown-session-v1';
 const STARTER_SPECIES = [

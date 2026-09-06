@@ -1,3 +1,10 @@
+/**
+ * API HTTP privada da interface RPG.
+ *
+ * Traduz requisições JSON em chamadas da fachada de domínio. Autorização e
+ * regras permanecem nos serviços; esta camada cuida somente de rota, formato,
+ * códigos de resposta e conversão segura dos valores recebidos do navegador.
+ */
 import type * as http from 'node:http';
 
 import { Dex } from '../../sim/dex';

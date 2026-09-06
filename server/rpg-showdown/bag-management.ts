@@ -1,3 +1,10 @@
+/**
+ * Casos de uso da Bag fora e dentro de batalha.
+ *
+ * Esta camada liga o inventário puro aos personagens e à Box, verificando alvo,
+ * permissão, quantidade e contexto antes de persistir qualquer consumo ou troca
+ * de item equipado.
+ */
 import { Dex } from '../../sim/dex';
 import { toID } from '../../sim/dex-data';
 import {

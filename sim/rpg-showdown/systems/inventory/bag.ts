@@ -1,3 +1,4 @@
+/** Estado puro da Bag; capacidade e quantidades são validadas por revisão antes de devolver uma nova versão. */
 import { RPGItemRegistry, RPGItems } from "./item-registry";
 
 export const RPG_BAG_VERSION = 5;

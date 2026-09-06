@@ -1,3 +1,4 @@
+/** Centraliza ganhos e perdas persistentes de amizade para impedir regras divergentes entre batalha, itens e narrativa. */
 import type { Battle } from "../../../battle";
 import type { Pokemon } from "../../../pokemon";
 import type {

@@ -1,5 +1,10 @@
 'use strict';
 
+/**
+ * Interface de preparação, apresentação e resultado dos concursos.
+ * A fila visual respeita a ordem emitida pelo servidor; temporizadores de
+ * atualização são pausados durante animações para impedir reinícios e piscadas.
+ */
 window.RPGContestUI = (() => {
 	let refreshTimer = null;
 	const dismissedContestResults = new Set();

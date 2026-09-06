@@ -1,3 +1,10 @@
+/**
+ * Motor de execução do concurso.
+ *
+ * Mantém rodada, ordem das apresentações, PP, cenário, avaliação e resultado.
+ * O snapshot é filtrado conforme o observador para que apenas o Mestre enxergue
+ * escolhas privadas de NPCs e controles administrativos.
+ */
 import { Dex } from '../../sim/dex';
 import { toID } from '../../sim/dex-data';
 import type { PokemonSet } from '../../sim/teams';
