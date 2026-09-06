@@ -87,4 +87,22 @@ describe('RPG standalone runtime isolation', () => {
 		assert.equal(fs.existsSync(path.resolve(__dirname, '../main.js')), false);
 		assert.equal(fs.existsSync(path.resolve(__dirname, '../random-battles')), false);
 	});
+
+	it('starts directly through the RPG launcher and ships no backup sources', () => {
+		assert.equal(fs.existsSync(path.resolve(__dirname, '../../pokemon-showdown')), false);
+		assert.equal(require('../../package.json').bin, undefined);
+		const trackedRoots = ['server', 'sim'];
+		for (const root of trackedRoots) {
+			const pending = [];
+			const visit = directory => {
+				for (const entry of fs.readdirSync(directory, { withFileTypes: true })) {
+					const target = path.join(directory, entry.name);
+					if (entry.isDirectory()) visit(target);
+					if (entry.isFile() && entry.name.endsWith('.orig')) pending.push(target);
+				}
+			};
+			visit(path.resolve(__dirname, `../../${root}`));
+			assert.deepEqual(pending, []);
+		}
+	});
 });
