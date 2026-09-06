@@ -12,7 +12,7 @@ MOCHA_RPG := $(MOCHA) --no-config --no-package --timeout $(RPG_TIMEOUT)
 
 .DEFAULT_GOAL := help
 
-.PHONY: help install build typecheck lint-rpg rpg \
+.PHONY: help install build typecheck lint-rpg rpg db-up db-down db-import db-status \
 	test-rpg test-rpg-server test-rpg-sim test-rpg-core test-rpg-battle \
 	test-rpg-nursery test-rpg-shop test-rpg-inventory test-rpg-team \
 	test-rpg-fossil test-rpg-world test-rpg-ui
@@ -29,6 +29,10 @@ help:
 	@echo PRIMEIROS PASSOS
 	@echo   install              Instala as dependencias do projeto
 	@echo   rpg                  Compila e inicia o servidor e a interface RPG
+	@echo   db-up                Inicia o MySQL local do RPG
+	@echo   db-down              Encerra o MySQL local sem apagar os dados
+	@echo   db-import            Importa os arquivos JSON atuais para o MySQL
+	@echo   db-status            Mostra a saude do MySQL local
 	@echo.
 	@echo COMPILACAO E VALIDACAO
 	@echo   build                Compila o projeto
@@ -74,6 +78,18 @@ lint-rpg:
 
 rpg: build
 	$(NODE) server/rpg-showdown/start.js
+
+db-up:
+	$(NPM) run db:rpg:up
+
+db-down:
+	$(NPM) run db:rpg:down
+
+db-import:
+	$(NPM) run db:rpg:import
+
+db-status:
+	$(NPM) run db:rpg:status
 
 test-rpg: build
 	$(MOCHA_RPG) "test/server/rpg-*.js"

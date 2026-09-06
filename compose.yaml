@@ -1,0 +1,22 @@
+services:
+  mysql:
+    image: mysql:8.4
+    container_name: pokemon-rpg-mysql
+    restart: unless-stopped
+    env_file:
+      - .env.mysql
+    ports:
+      - "127.0.0.1:3306:3306"
+    volumes:
+      - pokemon-rpg-mysql-data:/var/lib/mysql
+      - ./server/rpg-showdown/database/schema.sql:/docker-entrypoint-initdb.d/001-schema.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "mysqladmin ping -h 127.0.0.1 -u$$MYSQL_USER -p$$MYSQL_PASSWORD --silent"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 20s
+
+volumes:
+  pokemon-rpg-mysql-data:
+    name: pokemon-rpg-mysql-data

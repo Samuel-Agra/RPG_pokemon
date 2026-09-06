@@ -87,10 +87,14 @@ export interface RPGContestSessionRepository {
 
 export class RPGMemoryContestSessionRepository implements RPGContestSessionRepository {
 	private readonly sessions = new Map<string, RPGContestSession>();
+	constructor(sessions: RPGContestSession[] = [], private readonly changed?: (session: RPGContestSession) => void) {
+		for (const session of sessions) this.sessions.set(toID(session.id), structuredClone(session));
+	}
 
 	create(session: RPGContestSession): void {
 		if (this.sessions.has(session.id)) throw new Error('RPG contest session already exists');
 		this.sessions.set(session.id, structuredClone(session));
+		this.changed?.(session);
 	}
 	get(id: string): RPGContestSession | undefined {
 		const session = this.sessions.get(toID(id));
@@ -99,6 +103,7 @@ export class RPGMemoryContestSessionRepository implements RPGContestSessionRepos
 	set(session: RPGContestSession): void {
 		if (!this.sessions.has(session.id)) throw new Error('Unknown RPG contest session');
 		this.sessions.set(session.id, structuredClone(session));
+		this.changed?.(session);
 	}
 	list(): RPGContestSession[] {
 		return [...this.sessions.values()].map(session => structuredClone(session));

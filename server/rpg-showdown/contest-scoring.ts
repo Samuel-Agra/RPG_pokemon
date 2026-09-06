@@ -103,14 +103,21 @@ export function scoreRPGContestMoveForCategory(
 
 export class RPGMemoryContestComboRepository implements RPGContestComboRepository {
 	private readonly combos = new Map<string, RPGContestComboDefinition>();
+	constructor(combos: RPGContestComboDefinition[] = [], private readonly changed?: (combo: RPGContestComboDefinition | null, id: string) => void) {
+		for (const combo of combos) this.combos.set(toID(combo.id), structuredClone(combo));
+	}
 	list(): RPGContestComboDefinition[] {
 		return [...this.combos.values()].map(combo => structuredClone(combo));
 	}
 	set(combo: RPGContestComboDefinition): void {
 		this.combos.set(combo.id, structuredClone(combo));
+		this.changed?.(combo, combo.id);
 	}
 	delete(id: string): boolean {
-		return this.combos.delete(toID(id));
+		const normalized = toID(id);
+		const deleted = this.combos.delete(normalized);
+		if (deleted) this.changed?.(null, normalized);
+		return deleted;
 	}
 }
 

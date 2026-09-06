@@ -6,6 +6,7 @@ import { RPGItems } from '../../sim/rpg-showdown';
 
 import {
 	createRPGLoginServiceFromConfig,
+	createRPGLoginServiceFromConfigAsync,
 	type RPGCharacterGender,
 	type RPGCreateCharacterRequest,
 	type RPGCommerceBulkInput,
@@ -26,6 +27,7 @@ const MAX_BODY_SIZE = 2 * 1024 * 1024;
 
 export class RPGHttpServer {
 	private service?: RPGLoginService;
+	private servicePromise?: Promise<RPGLoginService>;
 	private readonly battleRuntimes = new RPGBattleRuntimeManager();
 	private contestRuntimes?: RPGContestRuntimeManager;
 
@@ -36,13 +38,21 @@ export class RPGHttpServer {
 	handle(req: http.IncomingMessage, res: http.ServerResponse): boolean {
 		const url = new URL(req.url || '/', 'http://localhost');
 		if (!url.pathname.startsWith('/api/rpg/')) return false;
-		void this.route(req, res, url).catch(error => this.error(res, error));
+		void this.route(req, res, url)
+			.then(() => this.service?.flushPersistence())
+			.catch(error => this.error(res, error));
 		return true;
 	}
 
 	private get login(): RPGLoginService {
 		this.service ||= createRPGLoginServiceFromConfig();
 		return this.service;
+	}
+
+	private async initialize(): Promise<void> {
+		if (this.service) return;
+		this.servicePromise ||= createRPGLoginServiceFromConfigAsync();
+		this.service = await this.servicePromise;
 	}
 
 	private get contestRuntimeManager(): RPGContestRuntimeManager {
@@ -57,6 +67,7 @@ export class RPGHttpServer {
 	}
 
 	private async route(req: http.IncomingMessage, res: http.ServerResponse, url: URL): Promise<void> {
+		await this.initialize();
 		const method = req.method || 'GET';
 		if (method === 'OPTIONS') {
 			res.writeHead(204, this.headers());

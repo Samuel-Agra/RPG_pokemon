@@ -39,6 +39,7 @@ tools/set-import/*.js
 # editor temp files
 *~
 .idea/
+.env.mysql
 
 tmp/**/*
 *.lock

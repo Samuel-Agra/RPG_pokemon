@@ -286,7 +286,10 @@ function compareCommerceItems(left: RPGItemDefinition, right: RPGItemDefinition,
 }
 
 export class RPGMemoryCommerceRepository implements RPGCommerceRepository {
-	private readonly shops = new Map(initialShops().map(shop => [shop.id, shop]));
+	private readonly shops: Map<string, RPGCommerceShopState>;
+	constructor(shops: RPGCommerceShopState[] = initialShops(), private readonly changed?: (shop: RPGCommerceShopState) => void) {
+		this.shops = new Map(shops.map(shop => [shop.id, normalizeShop(shop)]));
+	}
 
 	get(shopId: string): RPGCommerceShopState | undefined {
 		const shop = this.shops.get(String(shopId || ''));
@@ -295,6 +298,7 @@ export class RPGMemoryCommerceRepository implements RPGCommerceRepository {
 	set(shop: RPGCommerceShopState): void {
 		const normalized = normalizeShop(shop);
 		this.shops.set(normalized.id, structuredClone(normalized));
+		this.changed?.(normalized);
 	}
 	list(): RPGCommerceShopState[] {
 		return [...this.shops.values()].map(shop => structuredClone(shop));

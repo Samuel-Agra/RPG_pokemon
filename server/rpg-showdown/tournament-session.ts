@@ -27,7 +27,12 @@ export interface RPGTournament {
 
 export class RPGTournamentSessionService {
 	private tournaments = new Map<string, RPGTournament>();
-	constructor(readonly filePath = resolve('config/rpg-tournaments.json'), private readonly random = Math.random) {
+	constructor(readonly filePath = resolve('config/rpg-tournaments.json'), private readonly random = Math.random,
+		initial: RPGTournament[] | null = null, private readonly changed?: (tournament: RPGTournament) => void) {
+		if (initial) {
+			for (const tournament of initial) this.tournaments.set(toID(tournament.id), structuredClone(tournament));
+			return;
+		}
 		if (!existsSync(filePath)) return;
 		const stored = JSON.parse(readFileSync(filePath, 'utf8')) as { version?: number, tournaments?: RPGTournament[] };
 		if (stored.version !== 1 || !Array.isArray(stored.tournaments)) throw new Error('Invalid RPG tournament persistence file');
@@ -120,5 +125,11 @@ export class RPGTournamentSessionService {
 	private participant(tournament: RPGTournament, id: string) { const value = tournament.participants.find(entry => entry.id === toID(id)); if (!value) throw new Error('Participante do torneio não encontrado'); return value; }
 	private require(id: string) { const value = this.tournaments.get(toID(id)); if (!value) throw new Error('Torneio não encontrado'); return value; }
 	private save(tournament: RPGTournament) { tournament.updatedAt = Date.now(); this.tournaments.set(toID(tournament.id), tournament); this.persist(); }
-	private persist() { mkdirSync(dirname(this.filePath), { recursive: true }); const temporary = this.filePath + '.tmp'; writeFileSync(temporary, JSON.stringify({ version: 1, tournaments: [...this.tournaments.values()] }, null, '\t') + '\n'); renameSync(temporary, this.filePath); }
+	private persist() {
+		if (this.changed) {
+			for (const tournament of this.tournaments.values()) this.changed(structuredClone(tournament));
+			return;
+		}
+		mkdirSync(dirname(this.filePath), { recursive: true }); const temporary = this.filePath + '.tmp'; writeFileSync(temporary, JSON.stringify({ version: 1, tournaments: [...this.tournaments.values()] }, null, '\t') + '\n'); renameSync(temporary, this.filePath);
+	}
 }

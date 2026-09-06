@@ -13,6 +13,12 @@ export interface RPGCustomItemRepository {
 
 export class RPGMemoryCustomItemRepository implements RPGCustomItemRepository {
 	private readonly items = new Map<string, RPGItemDefinition>();
+	constructor(items: RPGItemDefinition[] = [], private readonly changed?: (item: RPGItemDefinition) => void) {
+		for (const definition of items) {
+			const item = validateCustomItem(definition);
+			this.items.set(item.id, item);
+		}
+	}
 
 	list(): RPGItemDefinition[] {
 		return [...this.items.values()].map(item => structuredClone(item));
@@ -22,6 +28,7 @@ export class RPGMemoryCustomItemRepository implements RPGCustomItemRepository {
 		const item = validateCustomItem(definition);
 		if (this.items.has(item.id)) throw new Error('RPG custom item already exists: ' + item.id);
 		this.items.set(item.id, item);
+		this.changed?.(item);
 	}
 }
 

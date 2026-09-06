@@ -34,6 +34,10 @@
   "scripts": {
     "start": "node pokemon-showdown start",
     "rpg": "node server/rpg-showdown/start.js",
+    "db:rpg:up": "docker compose up -d mysql",
+    "db:rpg:down": "docker compose down",
+    "db:rpg:import": "node server/rpg-showdown/database/import-json.js",
+    "db:rpg:status": "docker compose ps mysql",
     "test:rpg": "npm run build && mocha --no-config --no-package \"test/server/rpg-*.js\" --timeout 20000 && mocha --no-config --no-package \"test/sim/rpg-*.js\" --timeout 20000",
     "build": "node build",
     "build-npm": "node build && npx tsc sim/global-types.ts sim/index.ts --declaration --emitDeclarationOnly --declarationDir dist/ --target es2020 --strict --moduleResolution node --types node --lib es2020",

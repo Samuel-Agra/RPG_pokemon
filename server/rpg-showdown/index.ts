@@ -31,6 +31,7 @@ import {
 	type RPGShopTransaction,
 } from "../../sim/rpg-showdown";
 import {
+	RPGMemoryBattleSessionRepository,
 	RPGBattleSessionService,
 	type RPGBattleSession,
 	type RPGBattleSessionRepository,
@@ -39,6 +40,7 @@ import {
 	type RPGBattleLaunchRequest,
 } from './battle-session';
 import {
+	RPGMemoryContestSessionRepository,
 	RPGContestSessionService,
 	type RPGContestSession,
 	type RPGContestSessionRepository,
@@ -46,10 +48,12 @@ import {
 	type RPGUpdateContestSessionRequest,
 } from './contest-session';
 import {
+	RPGMemoryContestComboRepository,
 	RPGContestComboService,
 	type RPGContestComboDefinition,
 	type RPGContestComboRepository,
 } from './contest-scoring';
+import { RPGMySQLPersistence, rpgMySQLConfig } from './database/mysql-persistence';
 import { applyRPGContestPerformance, type RPGContestPlacement } from './contest-progression';
 import { classifyRPGContestItem, type RPGContestItemClassification } from './contest-item-catalog';
 import { RPGTournamentSessionService, type RPGTournament } from './tournament-session';
@@ -104,6 +108,7 @@ import {
 	type RPGCommerceBulkInput,
 	type RPGCommerceOfferInput,
 	type RPGCommerceRepository,
+	type RPGCommerceShopState,
 	type RPGCommerceTradeRequest,
 } from './shop-management';
 
@@ -323,10 +328,14 @@ export interface RPGCharacterRepository {
 
 export class RPGMemoryCharacterRepository implements RPGCharacterRepository {
 	private readonly records = new Map<string, RPGStoredCharacter>();
+	constructor(records: RPGStoredCharacter[] = [], private readonly changed?: (record: RPGStoredCharacter | null, id: string) => void) {
+		for (const record of records) this.records.set(toID(record.state.id), structuredClone(record));
+	}
 
 	create(record: RPGStoredCharacter): void {
 		if (this.records.has(record.state.id)) throw new Error('RPG character already exists');
 		this.records.set(record.state.id, structuredClone(record));
+		this.changed?.(record, record.state.id);
 	}
 	get(id: string): RPGStoredCharacter | undefined {
 		const record = this.records.get(toID(id));
@@ -335,9 +344,13 @@ export class RPGMemoryCharacterRepository implements RPGCharacterRepository {
 	set(record: RPGStoredCharacter): void {
 		if (!this.records.has(record.state.id)) throw new Error('Unknown RPG character');
 		this.records.set(record.state.id, structuredClone(record));
+		this.changed?.(record, record.state.id);
 	}
 	delete(id: string): boolean {
-		return this.records.delete(toID(id));
+		const normalized = toID(id);
+		const deleted = this.records.delete(normalized);
+		if (deleted) this.changed?.(null, normalized);
+		return deleted;
 	}
 	list(): RPGStoredCharacter[] {
 		return [...this.records.values()].map(record => structuredClone(record));
@@ -641,6 +654,12 @@ export interface RPGLoginServiceOptions {
 	playerDocumentsFile?: string;
 	campaignSettingsFile?: string;
 	tournamentFile?: string;
+	tournaments?: RPGTournament[];
+	tournamentChanged?: (tournament: RPGTournament) => void;
+	mysqlPersistence?: RPGMySQLPersistence;
+	masterNPCLibrary?: Record<string, unknown> | null;
+	playerDocuments?: Record<string, Record<string, unknown>>;
+	campaignSettings?: Record<string, unknown> | null;
 	sessionTtlMs?: number;
 	now?: () => number;
 	random?: () => number;
@@ -673,15 +692,18 @@ export class RPGLoginService {
 		name: string, currentDateTime: string, quickNotes: string, events: RPGCampaignEvent[],
 		playerNotes: Record<string, string>,
 	};
+	readonly mysqlPersistence?: RPGMySQLPersistence;
 
 	constructor(options: RPGLoginServiceOptions) {
 		if (typeof options.masterCode !== 'string' || !options.masterCode) {
 			throw new Error('RPG master code must be configured');
 		}
 		this.repository = options.repository || new RPGMemoryCharacterRepository();
+		this.mysqlPersistence = options.mysqlPersistence;
 		this.customItems = options.customItemRepository || new RPGMemoryCustomItemRepository();
 		this.commerce = new RPGCommerceManagement(options.commerceRepository || new RPGMemoryCommerceRepository());
-		this.tournaments = new RPGTournamentSessionService(options.tournamentFile || resolve('config/rpg-tournaments.json'), options.random);
+		this.tournaments = new RPGTournamentSessionService(options.tournamentFile || resolve('config/rpg-tournaments.json'),
+			options.random, options.tournaments || null, options.tournamentChanged);
 		this.contestCombos = new RPGContestComboService(options.contestComboRepository);
 		for (const item of this.customItems.list()) {
 			const existing = RPGItems.get(item.id);
@@ -703,8 +725,10 @@ export class RPGLoginService {
 			name: 'Minha campanha', currentDateTime: new Date(this.now()).toISOString(), quickNotes: '', events: [],
 			playerNotes: {},
 		};
-		if (this.campaignSettingsFile && existsSync(this.campaignSettingsFile)) {
-			const stored = JSON.parse(readFileSync(this.campaignSettingsFile, 'utf8')) as Partial<typeof this.campaignSettings>;
+		const initialCampaignSettings = options.campaignSettings || (this.campaignSettingsFile && existsSync(this.campaignSettingsFile) ?
+			JSON.parse(readFileSync(this.campaignSettingsFile, 'utf8')) as Record<string, unknown> : null);
+		if (initialCampaignSettings) {
+			const stored = initialCampaignSettings as Partial<typeof this.campaignSettings>;
 			if (typeof stored.name === 'string' && stored.name.trim()) this.campaignSettings.name = stored.name.trim().slice(0, 80);
 			if (typeof stored.currentDateTime === 'string' && Number.isFinite(Date.parse(stored.currentDateTime))) {
 				this.campaignSettings.currentDateTime = new Date(stored.currentDateTime).toISOString();
@@ -718,14 +742,18 @@ export class RPGLoginService {
 			}
 		}
 		this.masterNPCLibraryFile = options.masterNPCLibraryFile && resolve(options.masterNPCLibraryFile);
-		if (this.masterNPCLibraryFile && existsSync(this.masterNPCLibraryFile)) {
-			const stored = JSON.parse(readFileSync(this.masterNPCLibraryFile, 'utf8')) as unknown;
+		const initialMasterNPCLibrary = options.masterNPCLibrary || (this.masterNPCLibraryFile && existsSync(this.masterNPCLibraryFile) ?
+			JSON.parse(readFileSync(this.masterNPCLibraryFile, 'utf8')) as unknown : null);
+		if (initialMasterNPCLibrary) {
+			const stored = initialMasterNPCLibrary;
 			if (!stored || typeof stored !== 'object' || Array.isArray(stored)) throw new Error('Invalid RPG master NPC library file');
 			this.masterNPCLibrary = structuredClone(stored as Record<string, unknown>);
 		}
 		this.playerDocumentsFile = options.playerDocumentsFile && resolve(options.playerDocumentsFile);
-		if (this.playerDocumentsFile && existsSync(this.playerDocumentsFile)) {
-			const stored = JSON.parse(readFileSync(this.playerDocumentsFile, 'utf8')) as unknown;
+		const initialPlayerDocuments = options.playerDocuments || (this.playerDocumentsFile && existsSync(this.playerDocumentsFile) ?
+			JSON.parse(readFileSync(this.playerDocumentsFile, 'utf8')) as unknown : null);
+		if (initialPlayerDocuments) {
+			const stored = initialPlayerDocuments;
 			if (!stored || typeof stored !== 'object' || Array.isArray(stored)) throw new Error('Invalid RPG player documents file');
 			this.playerDocuments = structuredClone(stored as Record<string, Record<string, unknown>>);
 		}
@@ -1144,7 +1172,9 @@ export class RPGLoginService {
 		if (session.role !== 'master') throw new Error('RPG master session required');
 		if (!library || typeof library !== 'object' || Array.isArray(library)) throw new Error('Invalid RPG master NPC library');
 		this.masterNPCLibrary = structuredClone(library as Record<string, unknown>);
-		if (this.masterNPCLibraryFile) {
+		if (this.mysqlPersistence) {
+			this.mysqlPersistence.upsertSingleton('rpg_master_npc_library', this.masterNPCLibrary);
+		} else if (this.masterNPCLibraryFile) {
 			mkdirSync(dirname(this.masterNPCLibraryFile), { recursive: true });
 			const temporary = this.masterNPCLibraryFile + '.tmp';
 			writeFileSync(temporary, JSON.stringify(this.masterNPCLibrary, null, '\t') + '\n', 'utf8');
@@ -1238,7 +1268,10 @@ export class RPGLoginService {
 		const characterId = this.playerDocumentCharacterId(token);
 		if (!library || typeof library !== 'object' || Array.isArray(library)) throw new Error('Invalid RPG player documents');
 		this.playerDocuments[characterId] = structuredClone(library as Record<string, unknown>);
-		if (this.playerDocumentsFile) {
+		if (this.mysqlPersistence) {
+			this.mysqlPersistence.upsertJSON('rpg_player_documents', 'character_id', characterId,
+				'state', this.playerDocuments[characterId]);
+		} else if (this.playerDocumentsFile) {
 			mkdirSync(dirname(this.playerDocumentsFile), { recursive: true });
 			const temporary = this.playerDocumentsFile + '.tmp';
 			writeFileSync(temporary, JSON.stringify(this.playerDocuments, null, '\t') + '\n', 'utf8');
@@ -3789,11 +3822,19 @@ export class RPGLoginService {
 	}
 
 	private persistCampaignSettings(): void {
+		if (this.mysqlPersistence) {
+			this.mysqlPersistence.upsertSingleton('rpg_campaign', this.campaignSettings);
+			return;
+		}
 		if (!this.campaignSettingsFile) return;
 		mkdirSync(dirname(this.campaignSettingsFile), { recursive: true });
 		const temporary = this.campaignSettingsFile + '.tmp';
 		writeFileSync(temporary, JSON.stringify(this.campaignSettings, null, '\t') + '\n', 'utf8');
 		renameSync(temporary, this.campaignSettingsFile);
+	}
+
+	flushPersistence(): Promise<void> {
+		return this.mysqlPersistence?.flush() || Promise.resolve();
 	}
 
 	private characterShopAccess(character: RPGCharacterState): Record<string, boolean> {
@@ -5202,5 +5243,52 @@ export function createRPGLoginServiceFromConfig(
 	service.recoverInterruptedContestSessions();
 	repairOrphanedBoxPlacements(service);
 	if (config.rpgseedtestaccount !== false) ensurePermanentTestCharacters(service, masterCode);
+	return service;
+}
+
+/** Creates the production RPG service from MySQL when local database configuration is present. */
+export async function createRPGLoginServiceFromConfigAsync(config: Parameters<typeof createRPGLoginServiceFromConfig>[0] = Config):
+Promise<RPGLoginService> {
+	const mysqlConfig = rpgMySQLConfig();
+	if (!mysqlConfig) return createRPGLoginServiceFromConfig(config);
+	const persistence = await RPGMySQLPersistence.connect(mysqlConfig);
+	const snapshot = await persistence.snapshot();
+	const repository = new RPGMemoryCharacterRepository(snapshot.characters as RPGStoredCharacter[], (record, id) => {
+		if (record) persistence.upsertCharacter(record);
+		else persistence.deleteCharacter(id);
+	});
+	const battleSessionRepository = new RPGMemoryBattleSessionRepository(snapshot.battles as RPGBattleSession[], session =>
+		persistence.upsertJSON('rpg_battle_sessions', 'id', session.id, 'state', session,
+			{ status: session.status, updated_at: session.updatedAt || Date.now() }));
+	const contestSessionRepository = new RPGMemoryContestSessionRepository(snapshot.contests as RPGContestSession[], session =>
+		persistence.upsertJSON('rpg_contest_sessions', 'id', session.id, 'state', session,
+			{ status: session.status, updated_at: session.updatedAt || Date.now() }));
+	const contestComboRepository = new RPGMemoryContestComboRepository(snapshot.combos as RPGContestComboDefinition[], (combo, id) => {
+		if (combo) persistence.upsertJSON('rpg_contest_combos', 'id', id, 'definition', combo);
+		else persistence.delete('rpg_contest_combos', 'id', id);
+	});
+	const customItemRepository = new RPGMemoryCustomItemRepository(snapshot.customItems as RPGItemDefinition[], item =>
+		persistence.upsertJSON('rpg_custom_items', 'id', item.id, 'definition', item));
+	const commerceRepository = new RPGMemoryCommerceRepository(snapshot.shops as RPGCommerceShopState[], shop =>
+		persistence.upsertJSON('rpg_shops', 'id', shop.id, 'state', shop,
+			{ shop_type: shop.type, revision: shop.revision }));
+	const service = new RPGLoginService({
+		masterCode: config.rpgmastercode || '', repository, battleSessionRepository, contestSessionRepository,
+		contestComboRepository, customItemRepository, commerceRepository, mysqlPersistence: persistence,
+		masterNPCLibrary: snapshot.masterNPCLibrary, playerDocuments: snapshot.playerDocuments,
+		campaignSettings: snapshot.campaign, tournaments: snapshot.tournaments as RPGTournament[],
+		tournamentChanged: tournament => persistence.upsertJSON('rpg_tournaments', 'id', tournament.id, 'state', tournament,
+			{ activity: tournament.activity, status: tournament.status, updated_at: tournament.updatedAt }),
+	});
+	migrateCharacterPageAccess(service);
+	migrateCharacterBanks(service);
+	migrateCharacterProfiles(service);
+	migrateCharacterBags(service);
+	migrateCharacterBoxes(service);
+	service.recoverInterruptedBattleSessions();
+	service.recoverInterruptedContestSessions();
+	repairOrphanedBoxPlacements(service);
+	if (config.rpgseedtestaccount !== false) ensurePermanentTestCharacters(service, config.rpgmastercode || '');
+	await service.flushPersistence();
 	return service;
 }
