@@ -1135,17 +1135,6 @@ export const Punishments = new class {
 		if (!expireTime) expireTime = Date.now() + BATTLEBAN_DURATION;
 		const punishment = { type: 'BATTLEBAN', id, expireTime, reason: reason.join(' ') } as Punishment;
 
-		// Handle tournaments the user was in before being battle banned
-		for (const games of user.games.keys()) {
-			const game = Rooms.get(games)!.getGame(Tournaments.Tournament);
-			if (!game) continue; // this should never happen
-			if (game.isTournamentStarted) {
-				game.disqualifyUser(user.id, null, null);
-			} else if (!game.isTournamentStarted) {
-				game.removeUser(user.id);
-			}
-		}
-
 		return Punishments.punish(user, punishment, false);
 	}
 	unbattleban(userid: string) {

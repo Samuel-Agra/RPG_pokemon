@@ -8,6 +8,8 @@ describe('RPG standalone runtime isolation', () => {
 	const serverIndex = fs.readFileSync(path.resolve(__dirname, '../../server/index.ts'), 'utf8');
 	const sockets = fs.readFileSync(path.resolve(__dirname, '../../server/sockets.ts'), 'utf8');
 	const rooms = fs.readFileSync(path.resolve(__dirname, '../../server/rooms.ts'), 'utf8');
+	const ladders = fs.readFileSync(path.resolve(__dirname, '../../server/ladders.ts'), 'utf8');
+	const tournaments = fs.readFileSync(path.resolve(__dirname, '../../server/tournaments/index.ts'), 'utf8');
 
 	it('does not start chat, rooms, moderation storage, or social workers in RPG mode', () => {
 		assert.match(serverIndex, /const RPG_ONLY = process\.env\.PS_RPG_MODE === '1'/);
@@ -24,5 +26,13 @@ describe('RPG standalone runtime isolation', () => {
 		assert(sockjs > guard);
 		assert.match(sockets.slice(guard, sockjs), /this\.server\.listen/);
 		assert.match(sockets.slice(guard, sockjs), /return;/);
+	});
+
+	it('keeps Showdown matchmaking and tournaments disabled in the RPG runtime', () => {
+		assert.match(ladders, /Showdown matchmaking is not available in Pokémon RPG/);
+		assert.match(ladders, /disabled: true/);
+		assert.doesNotMatch(ladders, /ladders-(?:local|remote)/);
+		assert.match(tournaments, /Showdown tournaments are not available in Pokémon RPG/);
+		assert.doesNotMatch(tournaments, /generator-(?:elimination|round-robin)/);
 	});
 });
