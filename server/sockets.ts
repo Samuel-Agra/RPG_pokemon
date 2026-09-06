@@ -340,32 +340,19 @@ export class ServerStream extends Streams.ObjectReadWriteStream<string> {
 
 		// Static server
 		try {
-			const roomidRegex = /^\/(?:[A-Za-z0-9][A-Za-z0-9-]*)\/?$/;
-			const cssServer = new StaticServer('./config');
-			const avatarServer = new StaticServer('./config/avatars');
 			const staticServer = new StaticServer('./server/static');
 			const staticRequestHandler = (req: http.IncomingMessage, res: http.ServerResponse) => {
 				// console.log(`static rq: ${req.socket.remoteAddress}:${req.socket.remotePort} -> ${req.socket.localAddress}:${req.socket.localPort} - ${req.method} ${req.url} ${req.httpVersion} - ${req.rawHeaders.join('|')}`);
 				if (RPG_HTTP_SERVER.handle(req, res)) return;
+				if (req.url === '/' || req.url?.startsWith('/index.html')) {
+					req.resume();
+					res.writeHead(302, { Location: '/rpg/' });
+					res.end();
+					return;
+				}
 				req.resume();
 				req.addListener('end', () => {
-					if (config.customhttpresponse?.(req, res)) {
-						return;
-					}
-
-					let server = staticServer;
-					if (req.url) {
-						if (req.url === '/custom.css' || req.url.startsWith('/custom.css?')) {
-							server = cssServer;
-						} else if (req.url.startsWith('/avatars/')) {
-							req.url = req.url.slice(8);
-							server = avatarServer;
-						} else if (roomidRegex.test(req.url) && !/^\/rpg\/?(?:\?.*)?$/.test(req.url)) {
-							req.url = '/';
-						}
-					}
-
-					void server.serve(req, res, e => {
+					void staticServer.serve(req, res, e => {
 						if (e.status === 404) {
 							void staticServer.serveFile('404.html', 404, {}, req, res);
 							return true;
