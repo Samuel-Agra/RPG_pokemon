@@ -5,6 +5,9 @@ const fs = require('fs');
 const path = require('path');
 
 describe('RPG standalone runtime isolation', () => {
+	const hasFiles = directory => fs.existsSync(directory) && fs.readdirSync(directory, { withFileTypes: true }).some(
+		entry => entry.isFile() || (entry.isDirectory() && hasFiles(path.join(directory, entry.name)))
+	);
 	const serverIndex = fs.readFileSync(path.resolve(__dirname, '../../server/index.ts'), 'utf8');
 	const sockets = fs.readFileSync(path.resolve(__dirname, '../../server/sockets.ts'), 'utf8');
 	const rooms = fs.readFileSync(path.resolve(__dirname, '../../server/rooms.ts'), 'utf8');
@@ -62,5 +65,11 @@ describe('RPG standalone runtime isolation', () => {
 		assert.doesNotMatch(modlog, /modlog\.db|databases\/schemas\/modlog/);
 		assert.match(roomlogs, /export const roomlogDB: PGDatabase \| null = null/);
 		assert.match(roomlogs, /roomlog\(_message: string, _date = new Date\(\)\) \{\}/);
+	});
+
+	it('does not ship Showdown chat commands, public-room plugins, or chat translations', () => {
+		assert.equal(hasFiles(path.resolve(__dirname, '../../server/chat-commands')), false);
+		assert.equal(hasFiles(path.resolve(__dirname, '../../server/chat-plugins')), false);
+		assert.equal(hasFiles(path.resolve(__dirname, '../../translations')), false);
 	});
 });

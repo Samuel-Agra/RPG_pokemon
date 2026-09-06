@@ -1756,7 +1756,7 @@ export const Users = {
 	getExact: getExactUser,
 	findUsers,
 	Auth,
-	Avatars: null as typeof import('./chat-commands/avatars').Avatars | null,
+	Avatars: null as { handleLogin(user: User): void } | null,
 	globalAuth,
 	isUsernameKnown,
 	isUsername,

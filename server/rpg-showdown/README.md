@@ -218,17 +218,9 @@ A interface local fica em `/rpg/` e usa HTML, CSS e JavaScript. Recursos visuais
 - convites de batalha para Players, com aceite, recusa e selecao de Pokemon quando permitida;
 - logout e retorno a tela inicial.
 
-O catalogo de avatares do RPG fica em `server/static/rpg/avatars.json`. Ele armazena apenas
-identificadores e nomes obtidos das listas de `server/chat-commands/avatars.tsx`; as imagens
-continuam externas e passam pelo provedor configuravel. O gerador agrupa versoes de geracao,
-roupa e genero da mesma classe, escolhe a ultima versao registrada, remove sprites com duas ou
-mais pessoas e remove avatares que existem somente no catalogo antigo sem versao atualizada.
-As variacoes tematicas `miku-*` permanecem separadas.
-Para atualizar o arquivo depois de mudancas no Showdown:
-
-```sh
-node server/rpg-showdown/scripts/generate-avatar-catalog.js
-```
+O catalogo independente de avatares do RPG fica em `server/static/rpg/avatars.json`.
+Ele armazena os identificadores e nomes utilizados pela interface; as imagens continuam
+externas e passam pelo provedor configuravel.
 
 A camada HTTP fica em `http.ts`:
 

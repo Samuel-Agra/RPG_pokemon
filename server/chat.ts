@@ -86,7 +86,7 @@ interface Handlers {
 		battle: Rooms.RoomBattle, winner: ID, ratings: (AnyObject | null | undefined)[], players: ID[]
 	) => void;
 	onRename: (user: User, oldID: ID, newID: ID) => void;
-	onTicketCreate: (ticket: import('./chat-plugins/helptickets').TicketState, user: User) => void;
+	onTicketCreate: (ticket: AnyObject, user: User) => void;
 	onChallenge: (user: User, targetUser: User, format: string | ID) => void;
 	onMessageOffline: (context: Chat.CommandContext, message: string, targetUserID: ID) => void;
 	onBattleJoin: (slot: string, user: User, battle: RoomBattle) => void;

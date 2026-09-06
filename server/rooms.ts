@@ -29,10 +29,6 @@ const LAST_BATTLE_WRITE_THROTTLE = 10;
 const RETRY_AFTER_LOGIN = null;
 
 import { FS, Utils, Streams } from '../lib';
-import { type RoomSection, RoomSections } from './chat-commands/room-settings';
-import { type QueuedHunt } from './chat-plugins/scavengers';
-import { type ScavengerGameTemplate } from './chat-plugins/scavenger-games';
-import { type RepeatedPhrase } from './chat-plugins/repeats';
 import {
 	PM as RoomBattlePM, RoomBattle, RoomBattlePlayer, RoomBattleTimer, type RoomBattleOptions,
 	start as startBattleProcesses,
@@ -50,6 +46,21 @@ import type { SubProcessesConfig } from './config-loader';
 /*********************************************************
  * the Room object.
  *********************************************************/
+
+type RoomSection = string;
+const RoomSections = {
+	sections: [] as RoomSection[],
+	sectionNames: {} as Record<string, string>,
+};
+type QueuedHunt = AnyObject;
+type ScavengerGameTemplate = AnyObject;
+type RepeatedPhrase = AnyObject;
+type AnnouncementData = AnyObject;
+type PollData = AnyObject;
+type AutoResponder = AnyObject;
+type RoomEvent = AnyObject;
+type RoomEventAlias = AnyObject;
+type RoomEventCategory = AnyObject;
 
 interface MuteEntry {
 	userid: ID;
@@ -152,10 +163,6 @@ export type MessageHandler = (room: BasicRoom, message: string) => void;
 export type Room = GameRoom | ChatRoom;
 export type PrivacySetting = boolean | 'hidden' | 'voice' | 'unlisted';
 
-import type { AnnouncementData } from './chat-plugins/announcements';
-import type { PollData } from './chat-plugins/poll';
-import type { AutoResponder } from './chat-plugins/responder';
-import type { RoomEvent, RoomEventAlias, RoomEventCategory } from './chat-plugins/room-events';
 import type { Tournament, TournamentRoomSettings } from './tournaments/index';
 
 export abstract class BasicRoom {

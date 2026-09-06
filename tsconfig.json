@@ -37,7 +37,5 @@
         "./server/**/*.tsx",
         "./sim/**/*",
         "./tools/set-import/*.ts",
-        "./tools/modlog/*.ts",
-        "./translations/**/*.ts",
     ]
 }
