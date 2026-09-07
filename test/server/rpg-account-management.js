@@ -39,6 +39,24 @@ describe('RPG version 2 accounts and tables backend', () => {
 		assert.deepEqual(events, ['begin', 'antes', 'falhar', 'rollback', 'release']);
 	});
 
+	it('holds and always releases the MySQL cross-process account lock', async () => {
+		const events = [];
+		const connection = {
+			query: async (sql, values) => {
+				events.push([sql, values]);
+				return sql.includes('GET_LOCK') ? [[{ acquired: 1 }]] : [[]];
+			},
+			release: () => events.push(['release']),
+		};
+		const persistence = new RPGMySQLPersistence({ getConnection: async () => connection });
+		await assert.rejects(() => persistence.withAdvisoryLock('contas', async () => {
+			events.push(['action']); throw new Error('falha interna');
+		}), /falha interna/);
+		assert.deepEqual(events.map(event => event[0]), [
+			'SELECT GET_LOCK(?, ?) AS acquired', 'action', 'SELECT RELEASE_LOCK(?)', 'release',
+		]);
+	});
+
 	it('rolls a compound operation back when one repository write fails', () => {
 		let tableWrites = 0;
 		const repository = new RPGMemoryAccountRepository({}, {
@@ -189,6 +207,29 @@ describe('RPG version 2 accounts and tables backend', () => {
 		assert.throws(() => accounts.getActiveTableContext(login.token), /Mesa indisponível/);
 		accounts.selectTable(login.token, first.id);
 		assert.equal(accounts.getActiveTableContext(login.token).table.id, first.id);
+	});
+
+	it('archives only as owner and invalidates selections, invitations, and table operations', () => {
+		const accounts = service();
+		accounts.createAccount('dono-arquivo', 'Dono', 'senha-segura');
+		accounts.createAccount('membro-arquivo', 'Membro', 'senha-segura');
+		accounts.createAccount('visitante-arquivo', 'Visitante', 'senha-segura');
+		const owner = accounts.login('dono-arquivo', 'senha-segura');
+		const member = accounts.login('membro-arquivo', 'senha-segura');
+		const visitor = accounts.login('visitante-arquivo', 'senha-segura');
+		const table = accounts.createTable(owner.token, { name: 'Mesa arquivada' });
+		const memberInvite = accounts.createInvite(owner.token, table.id);
+		accounts.joinByInvite(member.token, memberInvite.code);
+		const pendingInvite = accounts.createInvite(owner.token, table.id);
+		accounts.selectTable(owner.token, table.id); accounts.selectTable(member.token, table.id);
+		assert.throws(() => accounts.archiveTable(member.token, table.id), /Apenas o proprietário/);
+		assert.equal(accounts.archiveTable(owner.token, table.id).status, 'archived');
+		assert.equal(accounts.getSession(owner.token).session.activeTableId, undefined);
+		assert.equal(accounts.getSession(member.token).session.activeTableId, undefined);
+		assert.throws(() => accounts.selectTable(owner.token, table.id), /Mesa indisponível/);
+		assert.throws(() => accounts.createInvite(owner.token, table.id), /Mesa indisponível/);
+		assert.throws(() => accounts.joinByInvite(visitor.token, pendingInvite.code), /inválido ou revogado/);
+		assert.equal(accounts.repository.getInvite(pendingInvite.invite.id).status, 'revoked');
 	});
 
 	it('creates a table and its owner membership atomically at domain level', () => {

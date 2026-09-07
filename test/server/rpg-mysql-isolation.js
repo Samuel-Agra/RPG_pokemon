@@ -5,6 +5,26 @@ const mysql = require('mysql2/promise');
 const { databaseConfig } = require('../../server/rpg-showdown/database/connection');
 
 describe('RPG MySQL persistence and table isolation', () => {
+	it('serializes account mutations between independent database connections', async function () {
+		const config = databaseConfig();
+		if (!config.user || !config.password || !config.database) this.skip();
+		const first = await mysql.createConnection(config); const second = await mysql.createConnection(config);
+		const lock = `pokemon-rpg-test-${process.pid}-${Date.now()}`;
+		try {
+			let [rows] = await first.query('SELECT GET_LOCK(?, 1) AS acquired', [lock]);
+			assert.equal(Number(rows[0].acquired), 1);
+			[rows] = await second.query('SELECT GET_LOCK(?, 0) AS acquired', [lock]);
+			assert.equal(Number(rows[0].acquired), 0);
+			await first.query('SELECT RELEASE_LOCK(?)', [lock]);
+			[rows] = await second.query('SELECT GET_LOCK(?, 1) AS acquired', [lock]);
+			assert.equal(Number(rows[0].acquired), 1);
+		} finally {
+			await first.query('SELECT RELEASE_LOCK(?)', [lock]);
+			await second.query('SELECT RELEASE_LOCK(?)', [lock]);
+			await first.end(); await second.end();
+		}
+	});
+
 	it('keeps equal entity ids in separate tables and rolls the integration fixture back', async function () {
 		const config = databaseConfig();
 		if (!config.user || !config.password || !config.database) this.skip();

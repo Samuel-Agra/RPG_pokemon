@@ -73,6 +73,22 @@ export class RPGMySQLPersistence {
 
 	private constructor(private readonly pool: Pool) {}
 
+	/** Serializes account decisions across every server process connected to this database. */
+	async withAdvisoryLock<T>(name: string, action: () => Promise<T>, timeoutSeconds = 10): Promise<T> {
+		const connection = await this.pool.getConnection();
+		try {
+			const [rows] = await connection.query<RowDataPacket[]>('SELECT GET_LOCK(?, ?) AS acquired', [name, timeoutSeconds]);
+			if (Number(rows[0]?.acquired) !== 1) throw new Error('Não foi possível obter o bloqueio de concorrência do RPG');
+			try {
+				return await action();
+			} finally {
+				await connection.query('SELECT RELEASE_LOCK(?)', [name]);
+			}
+		} finally {
+			connection.release();
+		}
+	}
+
 	static async connect(config: RPGMySQLConfig): Promise<RPGMySQLPersistence> {
 		const pool = mysql.createPool({
 			...config, charset: 'utf8mb4', timezone: 'Z', waitForConnections: true,

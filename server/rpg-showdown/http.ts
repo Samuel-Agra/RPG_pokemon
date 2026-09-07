@@ -39,6 +39,7 @@ export class RPGHttpServer {
 	private service?: RPGLoginService;
 	private servicePromise?: Promise<RPGLoginService>;
 	private readonly scopedService = new AsyncLocalStorage<RPGLoginService>();
+	private readonly accountConcurrencyScope = new AsyncLocalStorage<boolean>();
 	private readonly tableServices = new Map<string, Promise<RPGLoginService>>();
 	private readonly battleRuntimeManagers = new WeakMap<RPGLoginService, RPGBattleRuntimeManager>();
 	private readonly contestRuntimeManagers = new WeakMap<RPGLoginService, RPGContestRuntimeManager>();
@@ -88,6 +89,19 @@ export class RPGHttpServer {
 
 	private async route(req: http.IncomingMessage, res: http.ServerResponse, url: URL): Promise<void> {
 		await this.initialize();
+		if (url.pathname.startsWith('/api/rpg/v2/') && !this.accountConcurrencyScope.getStore() &&
+			this.service!.mysqlPersistence) {
+			return this.service!.mysqlPersistence.withAdvisoryLock('pokemon-rpg:v2:accounts', async () => {
+				const snapshot = await this.service!.mysqlPersistence!.snapshot(this.service!.legacyTableId);
+				this.service!.accounts.reload({
+					accounts: snapshot.platformAccounts, tables: snapshot.campaignTables,
+					members: snapshot.tableMembers, invites: snapshot.tableInvites,
+					recoveryCodes: snapshot.recoveryCodes, loginAttempts: snapshot.loginAttempts,
+					auditEntries: snapshot.auditEntries,
+				}, snapshot.accountSessions);
+				return this.accountConcurrencyScope.run(true, () => this.route(req, res, url));
+			});
+		}
 		if (!this.scopedService.getStore() && !url.pathname.startsWith('/api/rpg/v2/')) {
 			const authorization = req.headers.authorization || '';
 			const match = /^Bearer (.+)$/i.exec(authorization);
@@ -356,6 +370,11 @@ export class RPGHttpServer {
 				this.json(res, 201, { table });
 				return;
 			}
+		}
+		const version2TableArchiveMatch = /^\/api\/rpg\/v2\/tables\/([^/]+)$/.exec(url.pathname);
+		if (method === 'DELETE' && version2TableArchiveMatch) {
+			const table = this.login.accounts.archiveTable(this.token(req), decodeURIComponent(version2TableArchiveMatch[1]));
+			await this.login.flushPersistence(); this.json(res, 200, { table }); return;
 		}
 		const version2PermissionsMatch = /^\/api\/rpg\/v2\/tables\/([^/]+)\/permissions$/.exec(url.pathname);
 		if (method === 'GET' && version2PermissionsMatch) {

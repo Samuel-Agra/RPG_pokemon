@@ -264,6 +264,12 @@ tentativa. Quando uma recuperacao de senha e concluida, todos os bloqueios assoc
 sao removidos dentro da mesma transacao; a nova senha pode ser usada imediatamente em qualquer
 origem sem esperar o prazo normal do limitador.
 
+As rotas de contas e mesas tambem usam um bloqueio consultivo nomeado do MySQL. O bloqueio existe
+no banco, portanto coordena processos e maquinas diferentes que atendam a mesma instalacao. Dentro
+dele, o servidor recarrega o estado global confirmado antes de validar e executar a requisicao; a
+segunda instancia nunca consome um convite ou codigo de recuperacao a partir de um snapshot antigo.
+O bloqueio e liberado em `finally`, inclusive quando validacao, operacao ou persistencia falham.
+
 As contas globais e mesas da versao 2 usam um espaco de rotas separado durante a migracao:
 
 | Metodo e rota | Operacao |
@@ -277,6 +283,7 @@ As contas globais e mesas da versao 2 usam um espaco de rotas separado durante a
 | `DELETE /api/rpg/v2/sessions` | encerra todas as sessoes da conta |
 | `GET /api/rpg/v2/tables` | lista as mesas das quais a conta participa |
 | `POST /api/rpg/v2/tables` | cria uma mesa e torna a conta sua proprietaria |
+| `DELETE /api/rpg/v2/tables/:id` | arquiva uma mesa como seu proprietario |
 | `POST /api/rpg/v2/tables/:id/invites` | cria um convite para a mesa |
 | `GET /api/rpg/v2/tables/:id/invites` | lista convites sem expor seus codigos ou hashes |
 | `DELETE /api/rpg/v2/tables/:id/invites/:inviteId` | revoga um convite |

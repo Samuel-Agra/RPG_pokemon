@@ -144,6 +144,11 @@ export class RPGMemoryAccountRepository implements RPGAccountRepository {
 			auditEntry?: (value: RPGAdminAuditEntry) => void,
 		} = {}
 	) {
+		this.replace(snapshot);
+	}
+	replace(snapshot: RPGAccountRepositorySnapshot): void {
+		this.accounts.clear(); this.tables.clear(); this.members.clear(); this.invites.clear();
+		this.recoveryCodes.clear(); this.loginAttempts.clear(); this.auditEntries.clear();
 		for (const value of snapshot.accounts || []) this.accounts.set(value.id, structuredClone(value));
 		for (const value of snapshot.tables || []) this.tables.set(value.id, structuredClone(value));
 		for (const value of snapshot.members || []) this.members.set(`${value.tableId}:${value.accountId}`, structuredClone(value));
@@ -235,7 +240,11 @@ export class RPGMemoryPlatformSessionRepository {
 	constructor(
 		sessions: RPGStoredPlatformSession[] = [],
 		private readonly changed?: (value: RPGStoredPlatformSession | null, tokenHash: string) => void
-	) { for (const session of sessions) this.sessions.set(session.tokenHash, structuredClone(session)); }
+	) { this.replace(sessions); }
+	replace(sessions: RPGStoredPlatformSession[]): void {
+		this.sessions.clear();
+		for (const session of sessions) this.sessions.set(session.tokenHash, structuredClone(session));
+	}
 	transaction<T>(action: () => T): T {
 		if (this.transactionEffects) return action();
 		const snapshot = structuredClone(this.sessions); this.transactionEffects = [];
@@ -268,6 +277,13 @@ export class RPGAccountManagement {
 		readonly sessionRepository = new RPGMemoryPlatformSessionRepository(),
 		private readonly transaction: <T>(action: () => T) => T = action => action()
 	) {}
+
+	reload(snapshot: RPGAccountRepositorySnapshot, sessions: RPGStoredPlatformSession[]): void {
+		if (!(this.repository instanceof RPGMemoryAccountRepository)) {
+			throw new Error('O repositório de contas não permite atualização de concorrência');
+		}
+		this.repository.replace(snapshot); this.sessionRepository.replace(sessions);
+	}
 
 	createAccount(username: string, displayName: string, password: string): RPGPublicPlatformAccount {
 		const normalized = toID(username);
@@ -415,6 +431,25 @@ export class RPGAccountManagement {
 		});
 	}
 
+	archiveTable(token: string, tableId: string): RPGCampaignTable {
+		const session = this.session(token); const member = this.activeMember(tableId, session.accountId);
+		if (member.role !== 'owner') throw new Error('Apenas o proprietário pode arquivar a mesa');
+		const table = this.repository.getTable(member.tableId)!; const now = this.now();
+		this.atomic(() => {
+			table.status = 'archived'; table.updatedAt = now; table.revision++;
+			this.repository.setTable(table);
+			for (const invite of this.repository.listInvites(table.id)) {
+				if (invite.status !== 'active') continue;
+				invite.status = 'revoked'; this.repository.setInvite(invite);
+			}
+			for (const tableMember of this.repository.listMembershipsForTable(table.id)) {
+				this.clearActiveTable(tableMember.accountId, table.id);
+			}
+			this.audit(member, 'table.archived', 'table', table.id);
+		});
+		return structuredClone(table);
+	}
+
 	listMembers(token: string, tableId: string): RPGTableMemberView[] {
 		const session = this.session(token); const viewer = this.activeMember(tableId, session.accountId);
 		this.requirePermission(viewer, 'members.view');
@@ -511,6 +546,8 @@ export class RPGAccountManagement {
 	joinByInvite(token: string, code: string): RPGTableMember {
 		const session = this.session(token); const invite = this.repository.getInviteByCodeHash(this.tokenHash(code.trim().toUpperCase()));
 		if (!invite || invite.status !== 'active') throw new Error('Convite inválido ou revogado');
+		const table = this.repository.getTable(invite.tableId);
+		if (!table || table.status !== 'active') throw new Error('Mesa indisponível');
 		if (invite.expiresAt !== undefined && invite.expiresAt <= this.now()) {
 			invite.status = 'expired'; this.repository.setInvite(invite); throw new Error('Este convite expirou');
 		}
@@ -616,6 +653,8 @@ export class RPGAccountManagement {
 	}
 	private sessionId(tokenHash: string) { return tokenHash.slice(0, 24); }
 	private activeMember(tableId: string, accountId: string) {
+		const table = this.repository.getTable(tableId);
+		if (!table || table.status !== 'active') throw new Error('Mesa indisponível');
 		const member = this.repository.getMembership(tableId, accountId);
 		if (!member || member.status !== 'active') throw new Error('A conta não participa desta mesa');
 		return member;
