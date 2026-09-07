@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createHash, randomBytes, scryptSync } from 'node:crypto';
-import mysql, { type Pool, type ResultSetHeader, type RowDataPacket } from 'mysql2/promise';
+import mysql, { type Pool, type PoolConnection, type ResultSetHeader, type RowDataPacket } from 'mysql2/promise';
 import type {
 	RPGAdminAuditEntry, RPGCampaignTable, RPGLoginAttempt, RPGPlatformAccount, RPGRecoveryCode,
 	RPGStoredPlatformSession, RPGTableInvite, RPGTableMember,
@@ -501,35 +501,84 @@ export class RPGMySQLPersistence {
 	}
 }
 
+function migrationStatementChecksum(statement: string): string {
+	return createHash('sha256').update(statement).digest('hex');
+}
+
+function recoverableMigrationReplay(error: unknown): boolean {
+	const code = String((error as { code?: string })?.code || '');
+	return new Set([
+		'ER_DUP_FIELDNAME', 'ER_DUP_KEYNAME', 'ER_FK_DUP_NAME', 'ER_MULTIPLE_PRI_KEY',
+		'ER_TABLE_EXISTS_ERROR',
+	]).has(code);
+}
+
+/**
+ * Applies one migration as individually checkpointed statements. MySQL commits
+ * DDL implicitly, so pretending the whole file is transactional would lose the
+ * real state after an interruption. A started DDL replay may report that its
+ * schema object already exists; MySQL 8 atomic DDL guarantees that this means
+ * the earlier execution completed as one statement.
+ */
+export async function runRPGMigrationFile(connection: PoolConnection, version: number, name: string,
+	statements: string[]): Promise<void> {
+	for (let index = 0; index < statements.length; index++) {
+		const statement = statements[index]; const checksum = migrationStatementChecksum(statement);
+		const [stepRows] = await connection.query<RowDataPacket[]>(`SELECT checksum, status
+			FROM rpg_schema_migration_steps WHERE version = ? AND step_index = ?`, [version, index]);
+		const previous = stepRows[0];
+		if (previous && String(previous.checksum) !== checksum) {
+			throw new Error(`A etapa ${index + 1} da migração ${version} foi alterada depois de iniciada`);
+		}
+		if (previous?.status === 'applied') continue;
+		if (!previous) {
+			await connection.execute(`INSERT INTO rpg_schema_migration_steps
+				(version, step_index, checksum, status) VALUES (?, ?, ?, 'started')`, [version, index, checksum]);
+		}
+		try {
+			await connection.query(statement);
+		} catch (error) {
+			if (!previous || !recoverableMigrationReplay(error)) throw error;
+		}
+		await connection.execute(`UPDATE rpg_schema_migration_steps SET status = 'applied', applied_at = CURRENT_TIMESTAMP(3)
+			WHERE version = ? AND step_index = ? AND checksum = ?`, [version, index, checksum]);
+	}
+	await connection.execute('INSERT INTO rpg_schema_migrations (version, name) VALUES (?, ?)', [version, name]);
+}
+
 /** Applies every pending numbered migration before repositories read their snapshots. */
 async function runRPGMigrations(pool: Pool): Promise<void> {
 	const directory = resolve('server/rpg-showdown/database/migrations');
 	if (!existsSync(directory)) return;
-	await pool.query(`CREATE TABLE IF NOT EXISTS rpg_schema_migrations (
-		version INT UNSIGNED NOT NULL, name VARCHAR(160) NOT NULL,
-		applied_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3), PRIMARY KEY (version)
-	) ENGINE=InnoDB`);
-	const files = readdirSync(directory).filter(file => /^\d+[-_].+\.sql$/i.test(file)).sort();
-	for (const file of files) {
-		const version = Number(/^\d+/.exec(file)![0]);
-		const [existing] = await pool.query<RowDataPacket[]>(
-			'SELECT version FROM rpg_schema_migrations WHERE version = ?', [version]
-		);
-		if (existing.length) continue;
-		const statements = readFileSync(resolve(directory, file), 'utf8')
-			.split(';').map(statement => statement.trim()).filter(Boolean);
-		const connection = await pool.getConnection();
+	const connection = await pool.getConnection(); let locked = false;
+	try {
+		const [lockRows] = await connection.query<RowDataPacket[]>(
+			'SELECT GET_LOCK(?, 30) AS acquired', ['pokemon-rpg:schema-migrations']);
+		if (Number(lockRows[0]?.acquired) !== 1) throw new Error('Não foi possível bloquear as migrações do RPG');
+		locked = true;
+		await connection.query(`CREATE TABLE IF NOT EXISTS rpg_schema_migrations (
+			version INT UNSIGNED NOT NULL, name VARCHAR(160) NOT NULL,
+			applied_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3), PRIMARY KEY (version)
+		) ENGINE=InnoDB`);
+		await connection.query(`CREATE TABLE IF NOT EXISTS rpg_schema_migration_steps (
+			version INT UNSIGNED NOT NULL, step_index INT UNSIGNED NOT NULL, checksum CHAR(64) NOT NULL,
+			status VARCHAR(16) NOT NULL, started_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+			applied_at TIMESTAMP(3) NULL, PRIMARY KEY (version, step_index)
+		) ENGINE=InnoDB`);
+		const files = readdirSync(directory).filter(file => /^\d+[-_].+\.sql$/i.test(file)).sort();
+		for (const file of files) {
+			const version = Number(/^\d+/.exec(file)![0]);
+			const [existing] = await connection.query<RowDataPacket[]>(
+				'SELECT version FROM rpg_schema_migrations WHERE version = ?', [version]);
+			if (existing.length) continue;
+			const statements = readFileSync(resolve(directory, file), 'utf8')
+				.split(';').map(statement => statement.trim()).filter(Boolean);
+			await runRPGMigrationFile(connection, version,
+				file.replace(/^\d+[-_]|\.sql$/gi, '').replace(/[-_]+/g, ' '), statements);
+		}
+	} finally {
 		try {
-			await connection.beginTransaction();
-			for (const statement of statements) await connection.query(statement);
-			await connection.execute(
-				'INSERT INTO rpg_schema_migrations (version, name) VALUES (?, ?)',
-				[version, file.replace(/^\d+[-_]|\.sql$/gi, '').replace(/[-_]+/g, ' ')]
-			);
-			await connection.commit();
-		} catch (error) {
-			await connection.rollback();
-			throw error;
+			if (locked) await connection.query('SELECT RELEASE_LOCK(?)', ['pokemon-rpg:schema-migrations']);
 		} finally {
 			connection.release();
 		}

@@ -8,7 +8,7 @@ const {
 	getRPGDefaultTablePermissions,
 } = require('../../dist/server/rpg-showdown');
 const {
-	RPGMySQLPersistence, RPG_SECURITY_RETENTION_MS,
+	RPGMySQLPersistence, RPG_SECURITY_RETENTION_MS, runRPGMigrationFile,
 } = require('../../dist/server/rpg-showdown/database/mysql-persistence');
 
 function service() {
@@ -57,6 +57,52 @@ describe('RPG version 2 accounts and tables backend', () => {
 		assert.deepEqual(events.map(event => event[0]), [
 			'SELECT GET_LOCK(?, ?) AS acquired', 'action', 'SELECT RELEASE_LOCK(?)', 'release',
 		]);
+	});
+
+	it('checkpoints every migration statement instead of relying on non-atomic MySQL DDL transactions', async () => {
+		const events = []; const steps = new Map();
+		const connection = {
+			query: async (sql, values) => {
+				events.push(['query', sql, values]);
+				if (sql.includes('FROM rpg_schema_migration_steps')) {
+					const step = steps.get(values[1]); return [step ? [step] : []];
+				}
+				return [[]];
+			},
+			execute: async (sql, values) => {
+				events.push(['execute', sql, values]);
+				if (sql.includes('INSERT INTO rpg_schema_migration_steps')) {
+					steps.set(values[1], { checksum: values[2], status: 'started' });
+				} else if (sql.includes('UPDATE rpg_schema_migration_steps')) {
+					steps.set(values[1], { checksum: values[2], status: 'applied' });
+				}
+				return [{ affectedRows: 1 }];
+			},
+		};
+		await runRPGMigrationFile(connection, 7, 'teste retomável', [
+			'ALTER TABLE exemplo ADD COLUMN novo INT', 'UPDATE exemplo SET novo = 0',
+		]);
+		assert.deepEqual([...steps.values()].map(step => step.status), ['applied', 'applied']);
+		assert.equal(events.filter(event => event[1] === 'ALTER TABLE exemplo ADD COLUMN novo INT').length, 1);
+		assert.equal(events.filter(event => event[1] === 'UPDATE exemplo SET novo = 0').length, 1);
+		assert(events.some(event => event[1].includes('INSERT INTO rpg_schema_migrations')));
+		assert(!events.some(event => event[1] === 'beginTransaction' || event[1] === 'commit'));
+	});
+
+	it('resumes an interrupted atomic DDL step and rejects changed migration contents', async () => {
+		const statement = 'ALTER TABLE exemplo ADD COLUMN novo INT';
+		const checksum = require('node:crypto').createHash('sha256').update(statement).digest('hex');
+		const connection = {
+			query: async sql => {
+				if (sql.includes('FROM rpg_schema_migration_steps')) return [[{ checksum, status: 'started' }]];
+				const error = new Error('coluna já existe'); error.code = 'ER_DUP_FIELDNAME'; throw error;
+			},
+			execute: async () => [{ affectedRows: 1 }],
+		};
+		await runRPGMigrationFile(connection, 7, 'retomada', [statement]);
+		await assert.rejects(() => runRPGMigrationFile(connection, 7, 'alterada', [
+			'ALTER TABLE exemplo ADD COLUMN diferente INT',
+		]), /foi alterada depois de iniciada/);
 	});
 
 	it('cleans obsolete security data transactionally while preserving active records', async () => {

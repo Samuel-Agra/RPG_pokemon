@@ -11,6 +11,16 @@ CREATE TABLE IF NOT EXISTS rpg_schema_migrations (
   PRIMARY KEY (version)
 ) ENGINE=InnoDB;
 
+CREATE TABLE IF NOT EXISTS rpg_schema_migration_steps (
+  version INT UNSIGNED NOT NULL,
+  step_index INT UNSIGNED NOT NULL,
+  checksum CHAR(64) NOT NULL,
+  status VARCHAR(16) NOT NULL,
+  started_at TIMESTAMP(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
+  applied_at TIMESTAMP(3) NULL,
+  PRIMARY KEY (version, step_index)
+) ENGINE=InnoDB;
+
 CREATE TABLE IF NOT EXISTS rpg_characters (
   id VARCHAR(100) NOT NULL,
   display_name VARCHAR(120) NOT NULL,
