@@ -69,6 +69,7 @@ export class RPGMySQLPersistence {
 	private pending: Promise<void> = Promise.resolve();
 	private failure: Error | null = null;
 	private legacyTableId?: string;
+	private transactionStatements: { sql: string, values: unknown[] }[] | null = null;
 
 	private constructor(private readonly pool: Pool) {}
 
@@ -231,7 +232,8 @@ export class RPGMySQLPersistence {
 			recoveryCodes: recoveryRows[0].map(row => ({ id: String(row.id), accountId: String(row.account_id),
 				codeHash: String(row.code_hash), createdAt: Number(row.created_at),
 				usedAt: row.used_at === null ? undefined : Number(row.used_at) })),
-			loginAttempts: attemptRows[0].map(row => ({ key: String(row.attempt_key), failures: Number(row.failures),
+			loginAttempts: attemptRows[0].map(row => ({ key: String(row.attempt_key),
+				accountKey: row.account_key ? String(row.account_key) : undefined, failures: Number(row.failures),
 				windowStartedAt: Number(row.window_started_at), blockedUntil: row.blocked_until === null ? undefined : Number(row.blocked_until),
 				updatedAt: Number(row.updated_at) })),
 			auditEntries: auditRows[0].map(row => ({ id: String(row.id), tableId: String(row.table_id),
@@ -243,8 +245,48 @@ export class RPGMySQLPersistence {
 	}
 
 	enqueue(sql: string, values: unknown[]): void {
+		if (this.transactionStatements) {
+			this.transactionStatements.push({ sql, values });
+			return;
+		}
 		this.pending = this.pending.then(async () => {
 			await this.pool.execute(sql, values.map(value => value === undefined ? null : value) as any[]);
+		}).catch(error => {
+			this.failure = error instanceof Error ? error : new Error(String(error));
+		});
+	}
+
+	/** Buffers synchronous repository writes and commits them through one MySQL connection. */
+	transaction<T>(action: () => T): T {
+		if (this.transactionStatements) return action();
+		this.transactionStatements = [];
+		try {
+			const result = action(); const statements = this.transactionStatements;
+			this.transactionStatements = null;
+			if (statements.length) this.enqueueTransaction(statements);
+			return result;
+		} catch (error) {
+			this.transactionStatements = null;
+			throw error;
+		}
+	}
+
+	private enqueueTransaction(statements: { sql: string, values: unknown[] }[]): void {
+		this.pending = this.pending.then(async () => {
+			const connection = await this.pool.getConnection();
+			try {
+				await connection.beginTransaction();
+				for (const statement of statements) {
+					await connection.execute(statement.sql,
+						statement.values.map(value => value === undefined ? null : value) as any[]);
+				}
+				await connection.commit();
+			} catch (error) {
+				await connection.rollback();
+				throw error;
+			} finally {
+				connection.release();
+			}
 		}).catch(error => {
 			this.failure = error instanceof Error ? error : new Error(String(error));
 		});
@@ -353,10 +395,10 @@ export class RPGMySQLPersistence {
 	}
 	upsertLoginAttempt(attempt: RPGLoginAttempt): void {
 		this.enqueue(`INSERT INTO rpg_login_attempts
-			(attempt_key, failures, window_started_at, blocked_until, updated_at) VALUES (?, ?, ?, ?, ?)
-			ON DUPLICATE KEY UPDATE failures=VALUES(failures), window_started_at=VALUES(window_started_at),
+			(attempt_key, account_key, failures, window_started_at, blocked_until, updated_at) VALUES (?, ?, ?, ?, ?, ?)
+			ON DUPLICATE KEY UPDATE account_key=VALUES(account_key), failures=VALUES(failures), window_started_at=VALUES(window_started_at),
 			blocked_until=VALUES(blocked_until), updated_at=VALUES(updated_at)`,
-		[attempt.key, attempt.failures, attempt.windowStartedAt, attempt.blockedUntil, attempt.updatedAt]);
+		[attempt.key, attempt.accountKey, attempt.failures, attempt.windowStartedAt, attempt.blockedUntil, attempt.updatedAt]);
 	}
 	deleteLoginAttempt(key: string): void { this.enqueue('DELETE FROM rpg_login_attempts WHERE attempt_key = ?', [key]); }
 	insertAuditEntry(entry: RPGAdminAuditEntry): void {

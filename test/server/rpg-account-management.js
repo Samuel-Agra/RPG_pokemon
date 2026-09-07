@@ -7,6 +7,7 @@ const {
 	RPGAccountManagement, RPGMemoryAccountRepository, RPGMemoryPlatformSessionRepository,
 	getRPGDefaultTablePermissions,
 } = require('../../dist/server/rpg-showdown');
+const { RPGMySQLPersistence } = require('../../dist/server/rpg-showdown/database/mysql-persistence');
 
 function service() {
 	let seed = 0;
@@ -16,6 +17,43 @@ function service() {
 }
 
 describe('RPG version 2 accounts and tables backend', () => {
+	it('commits queued MySQL writes together and rolls the whole batch back on failure', async () => {
+		const events = [];
+		const connection = {
+			beginTransaction: async () => events.push('begin'),
+			execute: async sql => { events.push(sql); if (sql === 'falhar') throw new Error('banco indisponível'); },
+			commit: async () => events.push('commit'), rollback: async () => events.push('rollback'),
+			release: () => events.push('release'),
+		};
+		const persistence = new RPGMySQLPersistence({ getConnection: async () => connection });
+		persistence.transaction(() => {
+			persistence.enqueue('primeira', []); persistence.enqueue('segunda', []);
+		});
+		await persistence.flush();
+		assert.deepEqual(events, ['begin', 'primeira', 'segunda', 'commit', 'release']);
+		events.length = 0;
+		persistence.transaction(() => {
+			persistence.enqueue('antes', []); persistence.enqueue('falhar', []); persistence.enqueue('depois', []);
+		});
+		await assert.rejects(() => persistence.flush(), /banco indisponível/);
+		assert.deepEqual(events, ['begin', 'antes', 'falhar', 'rollback', 'release']);
+	});
+
+	it('rolls a compound operation back when one repository write fails', () => {
+		let tableWrites = 0;
+		const repository = new RPGMemoryAccountRepository({}, {
+			table: () => { tableWrites++; },
+			auditEntry: () => { throw new Error('falha simulada'); },
+		});
+		const accounts = new RPGAccountManagement(repository);
+		accounts.createAccount('rollback', 'Rollback', 'senha-segura');
+		const login = accounts.login('rollback', 'senha-segura');
+		assert.throws(() => accounts.createTable(login.token, { name: 'Não pode persistir pela metade' }), /falha simulada/);
+		assert.equal(tableWrites, 1);
+		assert.deepEqual(accounts.listTables(login.token), []);
+		assert.deepEqual(repository.listAuditEntries('qualquer'), []);
+	});
+
 	it('creates global accounts without exposing password credentials', () => {
 		const accounts = service();
 		const account = accounts.createAccount('Samuel.RPG', 'Samuel', 'senha-segura');
@@ -38,6 +76,20 @@ describe('RPG version 2 accounts and tables backend', () => {
 		assert(accounts.login('recuperar', 'senha-nova-segura').token);
 		assert.throws(() => accounts.recoverPassword(
 			'recuperar', registration.recoveryCodes[0], 'outra-senha-segura'), /Código de recuperação inválido/);
+	});
+
+	it('removes every source-specific login block after password recovery', () => {
+		const accounts = service();
+		const registration = accounts.createAccountWithRecoveryCodes('desbloquear', 'Desbloquear', 'senha-antiga');
+		for (const source of ['10.0.0.1', '10.0.0.2']) {
+			for (let index = 0; index < 5; index++) {
+				assert.throws(() => accounts.login('desbloquear', 'senha-incorreta', source), /inválidos/);
+			}
+			assert.throws(() => accounts.login('desbloquear', 'senha-antiga', source), /Muitas tentativas/);
+		}
+		accounts.recoverPassword('desbloquear', registration.recoveryCodes[0], 'senha-nova-segura');
+		assert(accounts.login('desbloquear', 'senha-nova-segura', '10.0.0.1').token);
+		assert(accounts.login('desbloquear', 'senha-nova-segura', '10.0.0.2').token);
 	});
 
 	it('temporarily blocks repeated login failures and clears attempts after success', () => {
@@ -122,6 +174,21 @@ describe('RPG version 2 accounts and tables backend', () => {
 		assert(!betaAudit.some(entry => entry.action === 'invite.created'));
 		assert(alphaAudit.every(entry => entry.tableId === alpha.id));
 		assert(betaAudit.every(entry => entry.tableId === beta.id));
+	});
+
+	it('resolves only the selected active table and rejects archived table contexts', () => {
+		const accounts = service();
+		accounts.createAccount('contexto', 'Contexto', 'senha-segura');
+		const login = accounts.login('contexto', 'senha-segura');
+		const first = accounts.createTable(login.token, { name: 'Primeira' });
+		const second = accounts.createTable(login.token, { name: 'Segunda' });
+		accounts.selectTable(login.token, second.id);
+		assert.equal(accounts.getActiveTableContext(login.token).table.id, second.id);
+		const archived = accounts.repository.getTable(second.id);
+		archived.status = 'archived'; accounts.repository.setTable(archived);
+		assert.throws(() => accounts.getActiveTableContext(login.token), /Mesa indisponível/);
+		accounts.selectTable(login.token, first.id);
+		assert.equal(accounts.getActiveTableContext(login.token).table.id, first.id);
 	});
 
 	it('creates a table and its owner membership atomically at domain level', () => {
@@ -319,6 +386,12 @@ describe('RPG version 2 accounts and tables backend', () => {
 		}
 		assert.match(migration, /UNIQUE KEY uq_rpg_recovery_code_hash \(code_hash\)/);
 		assert.match(migration, /idx_rpg_audit_table_time \(table_id, created_at\)/);
+		const unblockMigration = fs.readFileSync(path.resolve(
+			__dirname, '../../server/rpg-showdown/database/migrations/006-login-attempt-account-key.sql'
+		), 'utf8');
+		assert.match(unblockMigration, /ADD COLUMN account_key CHAR\(64\)/);
+		assert.match(unblockMigration, /idx_rpg_login_attempt_account \(account_key\)/);
+		assert.match(unblockMigration, /DELETE FROM rpg_login_attempts WHERE account_key IS NULL/);
 	});
 
 	it('scopes every version 1 persistence table and character ownership to a version 2 table', () => {

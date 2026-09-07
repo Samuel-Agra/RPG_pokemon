@@ -246,6 +246,24 @@ Mestre que o esteja visualizando retorna ao modo Mestre.
 
 Rotas protegidas usam `Authorization: Bearer <token>`. Respostas nao podem ser armazenadas em cache.
 
+Depois que uma conta global seleciona uma mesa, o mesmo token da versao 2 tambem autentica as rotas
+do mundo RPG em `/api/rpg/*`. Cada requisicao resolve novamente a mesa ativa e usa repositorios,
+sessoes de batalha, concursos e dados de campanha isolados por `table_id`. Proprietarios e Mestres
+entram com acesso de Mestre; Players usam somente o personagem vinculado a sua conta naquela mesa;
+espectadores podem consultar apenas atividades que ja estejam em andamento. Trocar a mesa ativa muda
+o mundo atendido pela requisicao seguinte sem reutilizar personagens ou estado da mesa anterior.
+
+Operacoes compostas das contas e mesas usam uma unica unidade de trabalho. Criacao de conta com
+codigos de recuperacao, criacao de mesa com proprietario e auditoria, entrada por convite, alteracao
+ou remocao de membros, recuperacao de senha e revogacao coletiva de sessoes sao enviadas ao MySQL
+em uma unica transacao. Uma falha executa `ROLLBACK`; no repositorio em memoria, o estado anterior
+tambem e restaurado, impedindo entidades parciais durante testes ou inicializacao sem banco.
+
+As tentativas de login sao agrupadas por uma chave irreversivel da conta, alem da origem da
+tentativa. Quando uma recuperacao de senha e concluida, todos os bloqueios associados aquela conta
+sao removidos dentro da mesma transacao; a nova senha pode ser usada imediatamente em qualquer
+origem sem esperar o prazo normal do limitador.
+
 As contas globais e mesas da versao 2 usam um espaco de rotas separado durante a migracao:
 
 | Metodo e rota | Operacao |

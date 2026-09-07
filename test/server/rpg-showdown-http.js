@@ -409,4 +409,63 @@ describe('RPG HTTP frontend API', () => {
 		assert.equal(result.response.status, 401);
 		assert.equal(result.data.error, 'RPG session token required');
 	});
+
+	it('uses one global token while keeping each selected table world isolated', async () => {
+		const { RPGAccountManagement, RPGMemoryAccountRepository } = require('../../dist/server/rpg-showdown/account-management');
+		const accounts = new RPGAccountManagement(new RPGMemoryAccountRepository());
+		accounts.createAccount('dono-multimesa', 'Dono', 'senha-segura');
+		accounts.createAccount('player-multimesa', 'Player', 'senha-segura');
+		const owner = accounts.login('dono-multimesa', 'senha-segura');
+		const player = accounts.login('player-multimesa', 'senha-segura');
+		const tableA = accounts.createTable(owner.token, { name: 'Mesa A' });
+		const tableB = accounts.createTable(owner.token, { name: 'Mesa B' });
+		for (const table of [tableA, tableB]) {
+			accounts.joinByInvite(player.token, accounts.createInvite(owner.token, table.id).code);
+		}
+		const emptySnapshot = tableId => ({
+			characters: [], battles: [], contests: [], tournaments: [], combos: [], customItems: [], shops: [],
+			masterNPCLibrary: null, playerDocuments: {}, campaign: null, platformAccounts: [], campaignTables: [],
+			tableMembers: [], tableInvites: [], accountSessions: [], recoveryCodes: [], loginAttempts: [],
+			auditEntries: [], legacyTableId: tableId,
+		});
+		const persistence = new Proxy({ snapshot: async tableId => emptySnapshot(tableId), flush: async () => {} }, {
+			get: (target, property) => property in target ? target[property] : () => {},
+		});
+		const scopedLogin = new RPGLoginService({
+			masterCode: '14081998', accountManagement: accounts, mysqlPersistence: persistence, legacyTableId: tableA.id,
+		});
+		const scopedHandler = new RPGHttpServer(scopedLogin);
+		const scopedServer = http.createServer((req, res) => scopedHandler.handle(req, res));
+		await new Promise(resolve => scopedServer.listen(0, '127.0.0.1', resolve));
+		const scopedUrl = `http://127.0.0.1:${scopedServer.address().port}/api/rpg`;
+		const scopedRequest = async (path, options = {}, token = player.token) => {
+			const response = await fetch(scopedUrl + path, {
+				...options, headers: { Authorization: `Bearer ${token}`,
+					...(options.body ? { 'Content-Type': 'application/json' } : {}) },
+				body: options.body ? JSON.stringify(options.body) : undefined,
+			});
+			return { response, data: await response.json() };
+		};
+		try {
+			accounts.selectTable(player.token, tableB.id);
+			let result = await scopedRequest('/characters', { method: 'POST', body: {
+				characterName: 'Personagem B', playerName: 'Player', avatar: 'red', password: 'senha-personagem',
+				initialMoney: 0, starter: { species: 'Squirtle', nickname: '', gender: 'M', level: 5 },
+			} });
+			assert.equal(result.response.status, 201, JSON.stringify(result.data));
+			accounts.selectTable(player.token, tableA.id);
+			result = await scopedRequest('/characters'); assert.deepEqual(result.data.characters, []);
+			accounts.selectTable(player.token, tableB.id);
+			result = await scopedRequest('/characters');
+			assert.deepEqual(result.data.characters.map(character => character.id), ['personagemb']);
+			result = await scopedRequest('/characters/all');
+			assert.equal(result.response.status, 403);
+			accounts.selectTable(owner.token, tableB.id);
+			result = await scopedRequest('/characters/all', {}, owner.token);
+			assert.equal(result.response.status, 200, JSON.stringify(result.data));
+			assert.deepEqual(result.data.characters.map(character => character.id), ['personagemb']);
+		} finally {
+			await new Promise(resolve => scopedServer.close(resolve));
+		}
+	});
 });

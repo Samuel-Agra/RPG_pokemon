@@ -6,6 +6,8 @@
  * códigos de resposta e conversão segura dos valores recebidos do navegador.
  */
 import type * as http from 'node:http';
+import { AsyncLocalStorage } from 'node:async_hooks';
+import { createHash } from 'node:crypto';
 
 import { Dex } from '../../sim/dex';
 import { getRPGMoveMetadata } from './battle-move-analysis';
@@ -14,6 +16,7 @@ import { RPGItems } from '../../sim/rpg-showdown';
 import {
 	createRPGLoginServiceFromConfig,
 	createRPGLoginServiceFromConfigAsync,
+	createRPGTableLoginServiceAsync,
 	type RPGCharacterGender,
 	type RPGCreateCharacterRequest,
 	type RPGCommerceBulkInput,
@@ -35,8 +38,10 @@ const MAX_BODY_SIZE = 2 * 1024 * 1024;
 export class RPGHttpServer {
 	private service?: RPGLoginService;
 	private servicePromise?: Promise<RPGLoginService>;
-	private readonly battleRuntimes = new RPGBattleRuntimeManager();
-	private contestRuntimes?: RPGContestRuntimeManager;
+	private readonly scopedService = new AsyncLocalStorage<RPGLoginService>();
+	private readonly tableServices = new Map<string, Promise<RPGLoginService>>();
+	private readonly battleRuntimeManagers = new WeakMap<RPGLoginService, RPGBattleRuntimeManager>();
+	private readonly contestRuntimeManagers = new WeakMap<RPGLoginService, RPGContestRuntimeManager>();
 
 	constructor(service?: RPGLoginService) {
 		this.service = service;
@@ -52,8 +57,13 @@ export class RPGHttpServer {
 	}
 
 	private get login(): RPGLoginService {
-		this.service ||= createRPGLoginServiceFromConfig();
-		return this.service;
+		return this.scopedService.getStore() || (this.service ||= createRPGLoginServiceFromConfig());
+	}
+
+	private get battleRuntimes(): RPGBattleRuntimeManager {
+		let manager = this.battleRuntimeManagers.get(this.login);
+		if (!manager) { manager = new RPGBattleRuntimeManager(); this.battleRuntimeManagers.set(this.login, manager); }
+		return manager;
 	}
 
 	private async initialize(): Promise<void> {
@@ -63,18 +73,42 @@ export class RPGHttpServer {
 	}
 
 	private get contestRuntimeManager(): RPGContestRuntimeManager {
-		this.contestRuntimes ||= new RPGContestRuntimeManager({
+		let manager = this.contestRuntimeManagers.get(this.login);
+		if (manager) return manager;
+		manager = new RPGContestRuntimeManager({
 			getCharacterTeam: characterId => this.login.repository.get(characterId)?.state.team,
 			getCombos: () => this.login.contestCombos.list(),
 			onMovePPSpent: (characterId, teamIndex, moveId) =>
 				this.login.consumeContestMovePP(characterId, teamIndex, moveId),
 			onFinished: (session, results) => this.login.applyContestResults(session, results),
 		});
-		return this.contestRuntimes;
+		this.contestRuntimeManagers.set(this.login, manager);
+		return manager;
 	}
 
 	private async route(req: http.IncomingMessage, res: http.ServerResponse, url: URL): Promise<void> {
 		await this.initialize();
+		if (!this.scopedService.getStore() && !url.pathname.startsWith('/api/rpg/v2/')) {
+			const authorization = req.headers.authorization || '';
+			const match = /^Bearer (.+)$/i.exec(authorization);
+			if (match) {
+				try {
+					const context = this.service!.accounts.getActiveTableContext(match[1]);
+					const tableId = context.table.id;
+					let scoped = this.tableServices.get(tableId);
+					if (!scoped) {
+						scoped = createRPGTableLoginServiceAsync(this.service!, tableId);
+						this.tableServices.set(tableId, scoped);
+					}
+					const tableService = await scoped;
+					tableService.authorizePlatformSession(match[1], context);
+					return this.scopedService.run(tableService, () => this.route(req, res, url));
+				} catch (error) {
+					if (this.service!.accounts.sessionRepository.get(
+						createHash('sha256').update(match[1]).digest('hex'))) throw error;
+				}
+			}
+		}
 		const method = req.method || 'GET';
 		if (method === 'OPTIONS') {
 			res.writeHead(204, this.headers());
@@ -88,7 +122,10 @@ export class RPGHttpServer {
 		}
 		if (method === 'POST' && url.pathname === '/api/rpg/characters') {
 			const body = await this.body(req);
-			const character = this.login.createCharacter(this.characterRequest(body));
+			const authorization = req.headers.authorization || '';
+			const character = this.scopedService.getStore() && /^Bearer (.+)$/i.test(authorization) ?
+				this.login.createCharacterForPlatformSession(this.token(req), this.characterRequest(body)) :
+				this.login.createCharacter(this.characterRequest(body));
 			this.json(res, 201, { character });
 			return;
 		}
