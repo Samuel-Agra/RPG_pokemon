@@ -89,18 +89,29 @@ export class RPGHttpServer {
 
 	private async route(req: http.IncomingMessage, res: http.ServerResponse, url: URL): Promise<void> {
 		await this.initialize();
-		if (url.pathname.startsWith('/api/rpg/v2/') && !this.accountConcurrencyScope.getStore() &&
-			this.service!.mysqlPersistence) {
-			return this.service!.mysqlPersistence.withAdvisoryLock('pokemon-rpg:v2:accounts', async () => {
-				const snapshot = await this.service!.mysqlPersistence!.snapshot(this.service!.legacyTableId);
-				this.service!.accounts.reload({
-					accounts: snapshot.platformAccounts, tables: snapshot.campaignTables,
-					members: snapshot.tableMembers, invites: snapshot.tableInvites,
-					recoveryCodes: snapshot.recoveryCodes, loginAttempts: snapshot.loginAttempts,
-					auditEntries: snapshot.auditEntries,
-				}, snapshot.accountSessions);
-				return this.accountConcurrencyScope.run(true, () => this.route(req, res, url));
-			});
+		if (url.pathname.startsWith('/api/rpg/v2/') && !this.accountConcurrencyScope.getStore()) {
+			const authorization = req.headers.authorization || '';
+			const token = /^Bearer (.+)$/i.exec(authorization)?.[1];
+			const context = {
+				origin: req.socket.remoteAddress || 'unknown',
+				method: req.method || 'GET', path: url.pathname,
+				...(token ? { sessionId: createHash('sha256').update(token).digest('hex').slice(0, 24) } : {}),
+			};
+			const execute = async () => {
+				if (this.service!.mysqlPersistence) {
+					const snapshot = await this.service!.mysqlPersistence.snapshot(this.service!.legacyTableId);
+					this.service!.accounts.reload({
+						accounts: snapshot.platformAccounts, tables: snapshot.campaignTables,
+						members: snapshot.tableMembers, invites: snapshot.tableInvites,
+						recoveryCodes: snapshot.recoveryCodes, loginAttempts: snapshot.loginAttempts,
+						auditEntries: snapshot.auditEntries,
+					}, snapshot.accountSessions);
+				}
+				return this.service!.accounts.withAuditContext(context,
+					() => this.accountConcurrencyScope.run(true, () => this.route(req, res, url)));
+			};
+			return this.service!.mysqlPersistence ?
+				this.service!.mysqlPersistence.withAdvisoryLock('pokemon-rpg:v2:accounts', execute) : execute();
 		}
 		if (!this.scopedService.getStore() && !url.pathname.startsWith('/api/rpg/v2/')) {
 			const authorization = req.headers.authorization || '';
@@ -373,7 +384,8 @@ export class RPGHttpServer {
 		}
 		const version2TableArchiveMatch = /^\/api\/rpg\/v2\/tables\/([^/]+)$/.exec(url.pathname);
 		if (method === 'DELETE' && version2TableArchiveMatch) {
-			const table = this.login.accounts.archiveTable(this.token(req), decodeURIComponent(version2TableArchiveMatch[1]));
+			const table = this.login.accounts.archiveTable(this.token(req), decodeURIComponent(version2TableArchiveMatch[1]),
+				await this.optionalAuditReason(req));
 			await this.login.flushPersistence(); this.json(res, 200, { table }); return;
 		}
 		const version2PermissionsMatch = /^\/api\/rpg\/v2\/tables\/([^/]+)\/permissions$/.exec(url.pathname);
@@ -387,8 +399,15 @@ export class RPGHttpServer {
 		}
 		const version2AuditMatch = /^\/api\/rpg\/v2\/tables\/([^/]+)\/audit$/.exec(url.pathname);
 		if (method === 'GET' && version2AuditMatch) {
-			const entries = this.login.accounts.listAudit(this.token(req), decodeURIComponent(version2AuditMatch[1]),
-				Number(url.searchParams.get('limit') || 100));
+			const token = this.token(req); const tableId = decodeURIComponent(version2AuditMatch[1]);
+			const limit = Number(url.searchParams.get('limit') || 100);
+			// Autoriza antes da consulta direta, inclusive quando o cache ainda não contém esta mesa.
+			this.login.accounts.listAudit(token, tableId, 1);
+			if (this.login.mysqlPersistence) {
+				this.login.accounts.replaceAuditEntries(tableId,
+					await this.login.mysqlPersistence.loadAuditEntries(tableId, limit));
+			}
+			const entries = this.login.accounts.listAudit(token, tableId, limit);
 			await this.login.flushPersistence(); this.json(res, 200, { entries }); return;
 		}
 		if (method === 'POST' && url.pathname === '/api/rpg/v2/invites/join') {
@@ -432,7 +451,8 @@ export class RPGHttpServer {
 		const version2InviteMatch = /^\/api\/rpg\/v2\/tables\/([^/]+)\/invites\/([^/]+)$/.exec(url.pathname);
 		if (method === 'DELETE' && version2InviteMatch) {
 			const token = this.token(req); const tableId = decodeURIComponent(version2InviteMatch[1]);
-			const invite = this.login.accounts.revokeInvite(token, tableId, decodeURIComponent(version2InviteMatch[2]));
+			const invite = this.login.accounts.revokeInvite(token, tableId, decodeURIComponent(version2InviteMatch[2]),
+				await this.optionalAuditReason(req));
 			await this.login.flushPersistence();
 			this.json(res, 200, { invite });
 			return;
@@ -451,19 +471,22 @@ export class RPGHttpServer {
 			if (method === 'PATCH' && !version2MemberMatch[3]) {
 				const body = await this.body(req);
 				const member = this.login.accounts.changeMemberRole(
-					token, tableId, accountId, this.string(body.role) as 'master' | 'player' | 'spectator'
+					token, tableId, accountId, this.string(body.role) as 'master' | 'player' | 'spectator',
+					this.optionalString(body.reason)
 				);
 				await this.login.flushPersistence(); this.json(res, 200, { member }); return;
 			}
 			if ((method === 'DELETE' && !version2MemberMatch[3]) ||
 				(method === 'POST' && version2MemberMatch[3] === 'block')) {
-				const member = this.login.accounts.removeMember(token, tableId, accountId, Boolean(version2MemberMatch[3]));
+				const member = this.login.accounts.removeMember(token, tableId, accountId,
+					Boolean(version2MemberMatch[3]), await this.optionalAuditReason(req));
 				await this.login.flushPersistence(); this.json(res, 200, { member }); return;
 			}
 		}
 		const version2LeaveMatch = /^\/api\/rpg\/v2\/tables\/([^/]+)\/membership$/.exec(url.pathname);
 		if (method === 'DELETE' && version2LeaveMatch) {
-			const member = this.login.accounts.leaveTable(this.token(req), decodeURIComponent(version2LeaveMatch[1]));
+			const member = this.login.accounts.leaveTable(this.token(req), decodeURIComponent(version2LeaveMatch[1]),
+				await this.optionalAuditReason(req));
 			await this.login.flushPersistence(); this.json(res, 200, { member }); return;
 		}
 		if (url.pathname === '/api/rpg/campaign/settings') {
@@ -1505,6 +1528,12 @@ export class RPGHttpServer {
 
 	private string(value: unknown): string {
 		return typeof value === 'string' ? value : '';
+	}
+
+	private async optionalAuditReason(req: http.IncomingMessage): Promise<string | undefined> {
+		const contentType = req.headers['content-type'] || '';
+		if (!contentType.toLowerCase().startsWith('application/json')) return undefined;
+		return this.optionalString((await this.body(req)).reason);
 	}
 
 	private optionalString(value: unknown): string | undefined {

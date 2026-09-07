@@ -1,7 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createHash, randomBytes, scryptSync } from 'node:crypto';
-import mysql, { type Pool, type RowDataPacket } from 'mysql2/promise';
+import mysql, { type Pool, type ResultSetHeader, type RowDataPacket } from 'mysql2/promise';
 import type {
 	RPGAdminAuditEntry, RPGCampaignTable, RPGLoginAttempt, RPGPlatformAccount, RPGRecoveryCode,
 	RPGStoredPlatformSession, RPGTableInvite, RPGTableMember,
@@ -11,6 +11,13 @@ const LEGACY_SCOPED_TABLES = new Set([
 	'rpg_battle_sessions', 'rpg_contest_sessions', 'rpg_tournaments', 'rpg_contest_combos',
 	'rpg_custom_items', 'rpg_shops', 'rpg_player_documents',
 ]);
+
+export const RPG_SECURITY_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+export const RPG_SECURITY_CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000;
+
+export interface RPGSecurityCleanupResult {
+	sessions: number; recoveryCodes: number; loginAttempts: number; invites: number;
+}
 
 export interface RPGMySQLConfig {
 	host: string;
@@ -70,6 +77,7 @@ export class RPGMySQLPersistence {
 	private failure: Error | null = null;
 	private legacyTableId?: string;
 	private transactionStatements: { sql: string, values: unknown[] }[] | null = null;
+	private securityCleanupTimer?: ReturnType<typeof setInterval>;
 
 	private constructor(private readonly pool: Pool) {}
 
@@ -96,7 +104,46 @@ export class RPGMySQLPersistence {
 		});
 		await pool.query('SELECT 1');
 		await runRPGMigrations(pool);
-		return new RPGMySQLPersistence(pool);
+		const persistence = new RPGMySQLPersistence(pool);
+		await persistence.cleanupSecurityData();
+		persistence.scheduleSecurityCleanup();
+		return persistence;
+	}
+
+	/** Permanently removes expired security artifacts after the configured retention window. */
+	async cleanupSecurityData(now = Date.now()): Promise<RPGSecurityCleanupResult> {
+		const cutoff = Math.max(0, now - RPG_SECURITY_RETENTION_MS);
+		const connection = await this.pool.getConnection();
+		try {
+			await connection.beginTransaction();
+			const affected = async (sql: string, values: unknown[]) => {
+				const [result] = await connection.execute<ResultSetHeader>(sql, values as any[]);
+				return Number(result.affectedRows || 0);
+			};
+			const sessions = await affected(`DELETE FROM rpg_account_sessions
+				WHERE (revoked_at IS NOT NULL AND revoked_at < ?)
+				OR (expires_at < ? AND (revoked_at IS NULL OR revoked_at < ?))`, [cutoff, cutoff, cutoff]);
+			const recoveryCodes = await affected(
+				'DELETE FROM rpg_account_recovery_codes WHERE used_at IS NOT NULL AND used_at < ?', [cutoff]);
+			const loginAttempts = await affected(`DELETE FROM rpg_login_attempts
+				WHERE updated_at < ? AND (blocked_until IS NULL OR blocked_until < ?)`, [cutoff, now]);
+			const invites = await affected(`DELETE FROM rpg_table_invites
+				WHERE expires_at IS NOT NULL AND expires_at < ?`, [cutoff]);
+			await connection.commit();
+			return { sessions, recoveryCodes, loginAttempts, invites };
+		} catch (error) {
+			await connection.rollback();
+			throw error;
+		} finally {
+			connection.release();
+		}
+	}
+
+	private scheduleSecurityCleanup(): void {
+		this.securityCleanupTimer = setInterval(() => {
+			void this.cleanupSecurityData().catch(() => undefined);
+		}, RPG_SECURITY_CLEANUP_INTERVAL_MS);
+		this.securityCleanupTimer.unref();
 	}
 
 	/** Imports the single-table version 1 world into deterministic version 2 ownership exactly once. */
@@ -208,7 +255,7 @@ export class RPGMySQLPersistence {
 			this.pool.query<RowDataPacket[]>('SELECT * FROM rpg_account_sessions'),
 			this.pool.query<RowDataPacket[]>('SELECT * FROM rpg_account_recovery_codes'),
 			this.pool.query<RowDataPacket[]>('SELECT * FROM rpg_login_attempts'),
-			this.pool.query<RowDataPacket[]>('SELECT * FROM rpg_admin_audit'),
+			this.pool.query<RowDataPacket[]>('SELECT * FROM rpg_admin_audit WHERE table_id = ?', [tableId]),
 		]);
 		return {
 			characters, battles, contests, tournaments, combos, customItems, shops,
@@ -258,6 +305,19 @@ export class RPGMySQLPersistence {
 				metadata: decoded(row.metadata) as Record<string, unknown>, createdAt: Number(row.created_at) })),
 			legacyTableId: tableId,
 		};
+	}
+
+	/** Loads only the requested table's newest audit records instead of the global history. */
+	async loadAuditEntries(tableId: string, limit = 100): Promise<RPGAdminAuditEntry[]> {
+		const safeLimit = Math.max(1, Math.min(500, Math.floor(Number(limit) || 100)));
+		const [rows] = await this.pool.query<RowDataPacket[]>(
+			'SELECT * FROM rpg_admin_audit WHERE table_id = ? ORDER BY created_at DESC LIMIT ?',
+			[tableId, safeLimit]
+		);
+		return rows.map(row => ({ id: String(row.id), tableId: String(row.table_id),
+			actorAccountId: String(row.actor_account_id), action: String(row.action), targetType: String(row.target_type),
+			targetId: row.target_id ? String(row.target_id) : undefined,
+			metadata: decoded(row.metadata) as Record<string, unknown>, createdAt: Number(row.created_at) }));
 	}
 
 	enqueue(sql: string, values: unknown[]): void {
@@ -431,7 +491,10 @@ export class RPGMySQLPersistence {
 		await this.pending;
 		if (this.failure) { const failure = this.failure; this.failure = null; throw failure; }
 	}
-	async close(): Promise<void> { await this.flush(); await this.pool.end(); }
+	async close(): Promise<void> {
+		if (this.securityCleanupTimer) clearInterval(this.securityCleanupTimer);
+		await this.flush(); await this.pool.end();
+	}
 	private requireTableScope(tableId = this.legacyTableId): string {
 		if (!tableId) throw new Error('RPG table scope is not initialized');
 		return tableId;

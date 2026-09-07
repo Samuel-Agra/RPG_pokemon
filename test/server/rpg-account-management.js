@@ -7,7 +7,9 @@ const {
 	RPGAccountManagement, RPGMemoryAccountRepository, RPGMemoryPlatformSessionRepository,
 	getRPGDefaultTablePermissions,
 } = require('../../dist/server/rpg-showdown');
-const { RPGMySQLPersistence } = require('../../dist/server/rpg-showdown/database/mysql-persistence');
+const {
+	RPGMySQLPersistence, RPG_SECURITY_RETENTION_MS,
+} = require('../../dist/server/rpg-showdown/database/mysql-persistence');
 
 function service() {
 	let seed = 0;
@@ -55,6 +57,53 @@ describe('RPG version 2 accounts and tables backend', () => {
 		assert.deepEqual(events.map(event => event[0]), [
 			'SELECT GET_LOCK(?, ?) AS acquired', 'action', 'SELECT RELEASE_LOCK(?)', 'release',
 		]);
+	});
+
+	it('cleans obsolete security data transactionally while preserving active records', async () => {
+		const events = []; let count = 0;
+		const connection = {
+			beginTransaction: async () => events.push(['begin']),
+			execute: async (sql, values) => {
+				events.push([sql.replace(/\s+/g, ' ').trim(), values]);
+				return [{ affectedRows: ++count }];
+			},
+			commit: async () => events.push(['commit']), rollback: async () => events.push(['rollback']),
+			release: () => events.push(['release']),
+		};
+		const persistence = new RPGMySQLPersistence({ getConnection: async () => connection });
+		const now = 1_800_000_000_000; const cutoff = now - RPG_SECURITY_RETENTION_MS;
+		assert.deepEqual(await persistence.cleanupSecurityData(now), {
+			sessions: 1, recoveryCodes: 2, loginAttempts: 3, invites: 4,
+		});
+		assert.deepEqual(events.map(event => event[0]), [
+			'begin',
+			'DELETE FROM rpg_account_sessions WHERE (revoked_at IS NOT NULL AND revoked_at < ?) OR (expires_at < ? AND (revoked_at IS NULL OR revoked_at < ?))',
+			'DELETE FROM rpg_account_recovery_codes WHERE used_at IS NOT NULL AND used_at < ?',
+			'DELETE FROM rpg_login_attempts WHERE updated_at < ? AND (blocked_until IS NULL OR blocked_until < ?)',
+			'DELETE FROM rpg_table_invites WHERE expires_at IS NOT NULL AND expires_at < ?',
+			'commit', 'release',
+		]);
+		assert.deepEqual(events[1][1], [cutoff, cutoff, cutoff]);
+		assert.deepEqual(events[2][1], [cutoff]);
+		assert.deepEqual(events[3][1], [cutoff, now]);
+		assert.deepEqual(events[4][1], [cutoff]);
+	});
+
+	it('rolls security cleanup back when any deletion fails', async () => {
+		const events = [];
+		const connection = {
+			beginTransaction: async () => events.push('begin'),
+			execute: async sql => {
+				events.push(sql); if (sql.includes('recovery_codes')) throw new Error('falha de limpeza');
+				return [{ affectedRows: 1 }];
+			},
+			commit: async () => events.push('commit'), rollback: async () => events.push('rollback'),
+			release: () => events.push('release'),
+		};
+		const persistence = new RPGMySQLPersistence({ getConnection: async () => connection });
+		await assert.rejects(() => persistence.cleanupSecurityData(), /falha de limpeza/);
+		assert.deepEqual(events.slice(-2), ['rollback', 'release']);
+		assert(!events.includes('commit'));
 	});
 
 	it('rolls a compound operation back when one repository write fails', () => {
@@ -322,7 +371,9 @@ describe('RPG version 2 accounts and tables backend', () => {
 		accounts.joinByInvite(master.token, accounts.createInvite(owner.token, table.id, 'master').code);
 		accounts.joinByInvite(player.token, accounts.createInvite(master.token, table.id, 'player').code);
 		assert.equal(accounts.listMembers(owner.token, table.id).length, 3);
-		assert.equal(accounts.changeMemberRole(owner.token, table.id, playerAccount.id, 'spectator').role, 'spectator');
+		accounts.withAuditContext({ origin: 'unit-test', sessionId: 'session-test' }, () =>
+			assert.equal(accounts.changeMemberRole(owner.token, table.id, playerAccount.id, 'spectator',
+				'Reorganização da mesa').role, 'spectator'));
 		assert.throws(() => accounts.changeMemberRole(master.token, table.id, playerAccount.id, 'master'), /proprietário/);
 		assert.equal(accounts.removeMember(master.token, table.id, playerAccount.id, true).status, 'blocked');
 		assert.throws(() => accounts.joinByInvite(player.token,
@@ -331,7 +382,12 @@ describe('RPG version 2 accounts and tables backend', () => {
 		assert.throws(() => accounts.leaveTable(owner.token, table.id), /proprietário não pode sair/);
 		assert(ownerAccount.id && masterAccount.id);
 		const audit = accounts.listAudit(owner.token, table.id);
-		assert(audit.some(entry => entry.action === 'member.role.changed' && entry.targetId === playerAccount.id));
+		const roleAudit = audit.find(entry => entry.action === 'member.role.changed' && entry.targetId === playerAccount.id);
+		assert(roleAudit);
+		assert.deepEqual(roleAudit.metadata, {
+			origin: 'unit-test', sessionId: 'session-test', result: 'success', previousRole: 'player',
+			newRole: 'spectator', previousStatus: 'active', newStatus: 'active', reason: 'Reorganização da mesa',
+		});
 		assert(audit.some(entry => entry.action === 'member.blocked' && entry.targetId === playerAccount.id));
 	});
 

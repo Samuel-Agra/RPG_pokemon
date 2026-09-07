@@ -1,5 +1,6 @@
 /** Domínio de contas globais e participação em múltiplas mesas da versão 2. */
 import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { toID } from '../../sim/dex-data';
 
 export const RPG_PLATFORM_ACCOUNT_VERSION = 1;
@@ -92,6 +93,9 @@ export interface RPGAdminAuditEntry {
 	id: string; tableId: string; actorAccountId: string; action: string;
 	targetType: string; targetId?: string; metadata: Record<string, unknown>; createdAt: number;
 }
+export interface RPGAuditRequestContext {
+	origin: string; sessionId?: string; method?: string; path?: string;
+}
 export interface RPGAccountRepositorySnapshot {
 	accounts?: RPGPlatformAccount[]; tables?: RPGCampaignTable[];
 	members?: RPGTableMember[]; invites?: RPGTableInvite[];
@@ -156,6 +160,11 @@ export class RPGMemoryAccountRepository implements RPGAccountRepository {
 		for (const value of snapshot.recoveryCodes || []) this.recoveryCodes.set(value.id, structuredClone(value));
 		for (const value of snapshot.loginAttempts || []) this.loginAttempts.set(value.key, structuredClone(value));
 		for (const value of snapshot.auditEntries || []) this.auditEntries.set(value.id, structuredClone(value));
+	}
+	replaceAuditEntries(tableId: string, entries: RPGAdminAuditEntry[]): void {
+		const normalized = toID(tableId);
+		for (const [id, entry] of this.auditEntries) if (entry.tableId === normalized) this.auditEntries.delete(id);
+		for (const entry of entries) this.auditEntries.set(entry.id, structuredClone(entry));
 	}
 	getAccount(id: string) { return this.clone(this.accounts.get(toID(id))); }
 	getAccountByUsername(username: string) {
@@ -270,6 +279,7 @@ export class RPGMemoryPlatformSessionRepository {
 }
 
 export class RPGAccountManagement {
+	private readonly auditRequest = new AsyncLocalStorage<RPGAuditRequestContext>();
 	constructor(
 		readonly repository: RPGAccountRepository = new RPGMemoryAccountRepository(),
 		private readonly now = Date.now,
@@ -277,6 +287,17 @@ export class RPGAccountManagement {
 		readonly sessionRepository = new RPGMemoryPlatformSessionRepository(),
 		private readonly transaction: <T>(action: () => T) => T = action => action()
 	) {}
+
+	withAuditContext<T>(context: RPGAuditRequestContext, action: () => T): T {
+		return this.auditRequest.run(context, action);
+	}
+
+	replaceAuditEntries(tableId: string, entries: RPGAdminAuditEntry[]): void {
+		if (!(this.repository instanceof RPGMemoryAccountRepository)) {
+			throw new Error('O repositório de contas não permite atualizar a auditoria');
+		}
+		this.repository.replaceAuditEntries(tableId, entries);
+	}
 
 	reload(snapshot: RPGAccountRepositorySnapshot, sessions: RPGStoredPlatformSession[]): void {
 		if (!(this.repository instanceof RPGMemoryAccountRepository)) {
@@ -386,7 +407,10 @@ export class RPGAccountManagement {
 	}
 
 	listAudit(token: string, tableId: string, limit = 100): RPGAdminAuditEntry[] {
-		const session = this.session(token); const member = this.activeMember(tableId, session.accountId);
+		const session = this.session(token); const table = this.repository.getTable(tableId);
+		if (!table) throw new Error('Mesa indisponível');
+		const member = this.repository.getMembership(table.id, session.accountId);
+		if (!member || member.status !== 'active') throw new Error('A conta não participa desta mesa');
 		this.requirePermission(member, 'members.manage');
 		return this.repository.listAuditEntries(tableId).slice(0, Math.max(1, Math.min(500, Math.floor(limit))));
 	}
@@ -431,7 +455,7 @@ export class RPGAccountManagement {
 		});
 	}
 
-	archiveTable(token: string, tableId: string): RPGCampaignTable {
+	archiveTable(token: string, tableId: string, reason?: string): RPGCampaignTable {
 		const session = this.session(token); const member = this.activeMember(tableId, session.accountId);
 		if (member.role !== 'owner') throw new Error('Apenas o proprietário pode arquivar a mesa');
 		const table = this.repository.getTable(member.tableId)!; const now = this.now();
@@ -445,7 +469,9 @@ export class RPGAccountManagement {
 			for (const tableMember of this.repository.listMembershipsForTable(table.id)) {
 				this.clearActiveTable(tableMember.accountId, table.id);
 			}
-			this.audit(member, 'table.archived', 'table', table.id);
+			this.audit(member, 'table.archived', 'table', table.id, {
+				previousStatus: 'active', newStatus: 'archived', reason: this.auditReason(reason),
+			});
 		});
 		return structuredClone(table);
 	}
@@ -480,39 +506,51 @@ export class RPGAccountManagement {
 		};
 	}
 
-	changeMemberRole(token: string, tableId: string, accountId: string, role: Exclude<RPGTableRole, 'owner'>): RPGTableMember {
+	changeMemberRole(token: string, tableId: string, accountId: string, role: Exclude<RPGTableRole, 'owner'>,
+		reason?: string): RPGTableMember {
 		const actor = this.tableAdministrator(token, tableId); const target = this.activeMember(tableId, accountId);
 		if (target.role === 'owner' || target.accountId === actor.accountId) throw new Error('Esse membro não pode ter sua função alterada');
 		if (!['master', 'player', 'spectator'].includes(role)) throw new Error('Função de membro inválida');
 		if (actor.role !== 'owner' && (target.role === 'master' || role === 'master')) {
 			throw new Error('Apenas o proprietário pode administrar Mestres');
 		}
+		const previousRole = target.role; const previousStatus = target.status;
 		target.role = role; target.updatedAt = this.now(); target.revision++;
 		this.atomic(() => {
 			this.repository.setMembership(target);
-			this.audit(actor, 'member.role.changed', 'member', target.accountId, { role });
+			this.audit(actor, 'member.role.changed', 'member', target.accountId, {
+				previousRole, newRole: role, previousStatus, newStatus: target.status, reason: this.auditReason(reason),
+			});
 		});
 		return structuredClone(target);
 	}
 
-	removeMember(token: string, tableId: string, accountId: string, block = false): RPGTableMember {
+	removeMember(token: string, tableId: string, accountId: string, block = false, reason?: string): RPGTableMember {
 		const actor = this.tableAdministrator(token, tableId); const target = this.activeMember(tableId, accountId);
 		if (target.role === 'owner' || target.accountId === actor.accountId) throw new Error('Esse membro não pode ser removido');
 		if (actor.role !== 'owner' && target.role === 'master') throw new Error('Apenas o proprietário pode administrar Mestres');
-		target.status = block ? 'blocked' : 'removed'; target.updatedAt = this.now(); target.revision++;
+		const previousStatus = target.status; target.status = block ? 'blocked' : 'removed';
+		target.updatedAt = this.now(); target.revision++;
 		this.atomic(() => {
 			this.repository.setMembership(target); this.clearActiveTable(target.accountId, target.tableId);
-			this.audit(actor, block ? 'member.blocked' : 'member.removed', 'member', target.accountId);
+			this.audit(actor, block ? 'member.blocked' : 'member.removed', 'member', target.accountId, {
+				previousRole: target.role, newRole: target.role, previousStatus, newStatus: target.status,
+				reason: this.auditReason(reason),
+			});
 		});
 		return structuredClone(target);
 	}
 
-	leaveTable(token: string, tableId: string): RPGTableMember {
+	leaveTable(token: string, tableId: string, reason?: string): RPGTableMember {
 		const session = this.session(token); const member = this.activeMember(tableId, session.accountId);
 		if (member.role === 'owner') throw new Error('O proprietário não pode sair da própria mesa');
-		member.status = 'left'; member.updatedAt = this.now(); member.revision++;
+		const previousStatus = member.status; member.status = 'left'; member.updatedAt = this.now(); member.revision++;
 		this.atomic(() => {
 			this.repository.setMembership(member); this.clearActiveTable(member.accountId, member.tableId);
+			this.audit(member, 'member.left', 'member', member.accountId, {
+				previousRole: member.role, newRole: member.role, previousStatus, newStatus: member.status,
+				reason: this.auditReason(reason),
+			});
 		});
 		return structuredClone(member);
 	}
@@ -565,6 +603,10 @@ export class RPGAccountManagement {
 			this.repository.setMembership(member);
 			invite.usedCount++; if (invite.usedCount >= invite.maxUses) invite.status = 'revoked';
 			this.repository.setInvite(invite);
+			this.audit(member, 'member.joined', 'member', member.accountId, {
+				previousRole: previous?.role, newRole: member.role, previousStatus: previous?.status,
+				newStatus: member.status,
+			});
 		});
 		return structuredClone(member);
 	}
@@ -580,13 +622,16 @@ export class RPGAccountManagement {
 		});
 	}
 
-	revokeInvite(token: string, tableId: string, inviteId: string): RPGPublicTableInvite {
+	revokeInvite(token: string, tableId: string, inviteId: string, reason?: string): RPGPublicTableInvite {
 		const session = this.session(token); const member = this.activeMember(tableId, session.accountId);
 		this.requirePermission(member, 'members.invite'); const invite = this.repository.getInvite(inviteId);
 		if (!invite || invite.tableId !== toID(tableId)) throw new Error('Convite não encontrado');
+		const previousStatus = invite.status;
 		this.atomic(() => {
 			if (invite.status === 'active') { invite.status = 'revoked'; this.repository.setInvite(invite); }
-			this.audit(member, 'invite.revoked', 'invite', invite.id);
+			this.audit(member, 'invite.revoked', 'invite', invite.id, {
+				previousStatus, newStatus: invite.status, reason: this.auditReason(reason),
+			});
 		});
 		return this.publicInvite(invite);
 	}
@@ -688,8 +733,19 @@ export class RPGAccountManagement {
 	}
 	private audit(actor: RPGTableMember, action: string, targetType: string, targetId?: string,
 		metadata: Record<string, unknown> = {}): void {
+		const context = this.auditRequest.getStore();
 		this.repository.addAuditEntry({ id: this.id(), tableId: actor.tableId, actorAccountId: actor.accountId,
-			action, targetType, targetId, metadata, createdAt: this.now() });
+			action, targetType, targetId, metadata: {
+				...metadata, origin: context?.origin || 'internal',
+				...(context?.sessionId ? { sessionId: context.sessionId } : {}),
+				...(context?.method ? { requestMethod: context.method } : {}),
+				...(context?.path ? { requestPath: context.path } : {}), result: 'success',
+			}, createdAt: this.now() });
+	}
+	private auditReason(reason?: string) {
+		const normalized = String(reason || '').trim();
+		if (normalized.length > 500) throw new Error('Motivo da auditoria muito longo');
+		return normalized || undefined;
 	}
 	private publicInvite(invite: RPGTableInvite): RPGPublicTableInvite {
 		const { codeHash: _codeHash, ...view } = invite; return structuredClone(view);

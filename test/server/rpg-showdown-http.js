@@ -2,6 +2,7 @@
 
 const assert = require('assert').strict;
 const http = require('node:http');
+const { createHash } = require('node:crypto');
 const { RPGHttpServer } = require('../../dist/server/rpg-showdown/http');
 const { RPGLoginService } = require('../../dist/server/rpg-showdown');
 
@@ -243,7 +244,7 @@ describe('RPG HTTP frontend API', () => {
 		result = await request(`/v2/tables/${tableId}/audit`, { headers: memberHeaders });
 		assert.equal(result.response.status, 403);
 		result = await request(`/v2/tables/${tableId}/members/${member.accountId}`, {
-			method: 'PATCH', headers: ownerHeaders, body: { role: 'master' },
+			method: 'PATCH', headers: ownerHeaders, body: { role: 'master', reason: 'Auxiliar da campanha' },
 		});
 		assert.equal(result.data.member.role, 'master');
 		result = await request(`/v2/tables/${tableId}/membership`, { method: 'DELETE', headers: leaverHeaders });
@@ -262,6 +263,14 @@ describe('RPG HTTP frontend API', () => {
 		assert.equal(result.response.status, 200);
 		assert(result.data.entries.some(entry => entry.action === 'member.role.changed'));
 		assert(result.data.entries.some(entry => entry.action === 'member.blocked'));
+		const roleAudit = result.data.entries.find(entry => entry.action === 'member.role.changed');
+		assert.equal(roleAudit.metadata.previousRole, 'player');
+		assert.equal(roleAudit.metadata.newRole, 'master');
+		assert.equal(roleAudit.metadata.reason, 'Auxiliar da campanha');
+		assert.equal(roleAudit.metadata.result, 'success');
+		assert.equal(roleAudit.metadata.sessionId,
+			createHash('sha256').update(owner.token).digest('hex').slice(0, 24));
+		assert.match(roleAudit.metadata.origin, /127\.0\.0\.1|::1|::ffff:127\.0\.0\.1/);
 	});
 
 	it('returns safe HTTP errors and supports the master dashboard', async () => {
