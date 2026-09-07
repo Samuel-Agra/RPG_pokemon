@@ -36,6 +36,8 @@ export interface RPGPlatformSessionView {
 export interface RPGPublicPlatformSession {
 	id: string; activeTableId?: string; createdAt: number; lastSeenAt: number; expiresAt: number; current: boolean;
 }
+export interface RPGTableMemberView { member: RPGTableMember; account: RPGPublicPlatformAccount }
+export type RPGPublicTableInvite = Omit<RPGTableInvite, 'codeHash'>;
 export type RPGStoredPlatformSession = Omit<RPGPlatformSession, 'token'> & {
 	tokenHash: string, lastSeenAt: number, revokedAt?: number,
 };
@@ -51,9 +53,12 @@ export interface RPGAccountRepository {
 	getTable(id: string): RPGCampaignTable | undefined;
 	setTable(table: RPGCampaignTable): void;
 	listMemberships(accountId: string): RPGTableMember[];
+	listMembershipsForTable(tableId: string): RPGTableMember[];
 	getMembership(tableId: string, accountId: string): RPGTableMember | undefined;
 	setMembership(member: RPGTableMember): void;
 	getInviteByCodeHash(codeHash: string): RPGTableInvite | undefined;
+	getInvite(id: string): RPGTableInvite | undefined;
+	listInvites(tableId: string): RPGTableInvite[];
 	setInvite(invite: RPGTableInvite): void;
 }
 
@@ -87,9 +92,17 @@ export class RPGMemoryAccountRepository implements RPGAccountRepository {
 	listMemberships(accountId: string) {
 		return [...this.members.values()].filter(member => member.accountId === toID(accountId)).map(member => structuredClone(member));
 	}
+	listMembershipsForTable(tableId: string) {
+		return [...this.members.values()].filter(member => member.tableId === toID(tableId)).map(member => structuredClone(member));
+	}
 	getMembership(tableId: string, accountId: string) { return this.clone(this.members.get(`${toID(tableId)}:${toID(accountId)}`)); }
 	setMembership(member: RPGTableMember) { this.members.set(`${member.tableId}:${member.accountId}`, structuredClone(member)); this.changed.member?.(member); }
 	getInviteByCodeHash(codeHash: string) { return this.clone([...this.invites.values()].find(invite => invite.codeHash === codeHash)); }
+	getInvite(id: string) { return this.clone(this.invites.get(toID(id))); }
+	listInvites(tableId: string) {
+		return [...this.invites.values()].filter(invite => invite.tableId === toID(tableId))
+			.map(invite => structuredClone(invite));
+	}
 	setInvite(invite: RPGTableInvite) { this.invites.set(invite.id, structuredClone(invite)); this.changed.invite?.(invite); }
 	private clone<T>(value: T | undefined): T | undefined { return value && structuredClone(value); }
 }
@@ -184,15 +197,60 @@ export class RPGAccountManagement {
 		});
 	}
 
-	createInvite(token: string, tableId: string, role: Exclude<RPGTableRole, 'owner'> = 'player', expiresAt?: number) {
+	listMembers(token: string, tableId: string): RPGTableMemberView[] {
+		const session = this.session(token); this.activeMember(tableId, session.accountId);
+		return this.repository.listMembershipsForTable(tableId).flatMap(member => {
+			const account = this.repository.getAccount(member.accountId);
+			return account ? [{ member, account: this.publicAccount(account) }] : [];
+		});
+	}
+
+	changeMemberRole(token: string, tableId: string, accountId: string, role: Exclude<RPGTableRole, 'owner'>): RPGTableMember {
+		const actor = this.tableAdministrator(token, tableId); const target = this.activeMember(tableId, accountId);
+		if (target.role === 'owner' || target.accountId === actor.accountId) throw new Error('Esse membro não pode ter sua função alterada');
+		if (!['master', 'player', 'spectator'].includes(role)) throw new Error('Função de membro inválida');
+		if (actor.role !== 'owner' && (target.role === 'master' || role === 'master')) {
+			throw new Error('Apenas o proprietário pode administrar Mestres');
+		}
+		target.role = role; target.updatedAt = this.now(); target.revision++;
+		this.repository.setMembership(target); return structuredClone(target);
+	}
+
+	removeMember(token: string, tableId: string, accountId: string, block = false): RPGTableMember {
+		const actor = this.tableAdministrator(token, tableId); const target = this.activeMember(tableId, accountId);
+		if (target.role === 'owner' || target.accountId === actor.accountId) throw new Error('Esse membro não pode ser removido');
+		if (actor.role !== 'owner' && target.role === 'master') throw new Error('Apenas o proprietário pode administrar Mestres');
+		target.status = block ? 'blocked' : 'removed'; target.updatedAt = this.now(); target.revision++;
+		this.repository.setMembership(target); this.clearActiveTable(target.accountId, target.tableId);
+		return structuredClone(target);
+	}
+
+	leaveTable(token: string, tableId: string): RPGTableMember {
+		const session = this.session(token); const member = this.activeMember(tableId, session.accountId);
+		if (member.role === 'owner') throw new Error('O proprietário não pode sair da própria mesa');
+		member.status = 'left'; member.updatedAt = this.now(); member.revision++;
+		this.repository.setMembership(member); this.clearActiveTable(member.accountId, member.tableId);
+		return structuredClone(member);
+	}
+
+	createInvite(token: string, tableId: string, role: Exclude<RPGTableRole, 'owner'> = 'player', expiresAt?: number,
+		maxUses = 1, targetUsername?: string) {
 		const session = this.session(token); const member = this.activeMember(tableId, session.accountId);
 		if (member.role !== 'owner' && member.role !== 'master') throw new Error('Apenas Mestres podem criar convites');
 		if (!['master', 'player', 'spectator'].includes(role)) throw new Error('Função de convite inválida');
+		if (member.role !== 'owner' && role === 'master') throw new Error('Apenas o proprietário pode convidar Mestres');
 		if (expiresAt !== undefined && expiresAt <= this.now()) throw new Error('A expiração deve estar no futuro');
+		if (!Number.isSafeInteger(maxUses) || maxUses < 1 || maxUses > 100) throw new Error('O limite de usos deve estar entre 1 e 100');
+		const target = targetUsername ? this.repository.getAccountByUsername(targetUsername) : undefined;
+		if (targetUsername && (!target || target.status !== 'active')) throw new Error('Conta convidada não encontrada');
+		if (target && this.repository.getMembership(tableId, target.id)?.status === 'blocked') {
+			throw new Error('Esta conta está bloqueada nesta mesa');
+		}
 		const code = this.bytes(9).toString('base64url').toUpperCase();
 		const invite: RPGTableInvite = {
-			id: this.id(), tableId: member.tableId, createdByAccountId: session.accountId,
-			codeHash: this.tokenHash(code), role, status: 'active', maxUses: 1, usedCount: 0, expiresAt, createdAt: this.now(),
+			id: this.id(), tableId: member.tableId, createdByAccountId: session.accountId, targetAccountId: target?.id,
+			codeHash: this.tokenHash(code), role, status: 'active', maxUses: target ? 1 : maxUses,
+			usedCount: 0, expiresAt, createdAt: this.now(),
 		};
 		this.repository.setInvite(invite);
 		return { code, invite: structuredClone(invite) };
@@ -201,10 +259,14 @@ export class RPGAccountManagement {
 	joinByInvite(token: string, code: string): RPGTableMember {
 		const session = this.session(token); const invite = this.repository.getInviteByCodeHash(this.tokenHash(code.trim().toUpperCase()));
 		if (!invite || invite.status !== 'active') throw new Error('Convite inválido ou revogado');
-		if (invite.expiresAt !== undefined && invite.expiresAt <= this.now()) throw new Error('Este convite expirou');
+		if (invite.expiresAt !== undefined && invite.expiresAt <= this.now()) {
+			invite.status = 'expired'; this.repository.setInvite(invite); throw new Error('Este convite expirou');
+		}
 		if (invite.usedCount >= invite.maxUses) throw new Error('Este convite já foi utilizado');
+		if (invite.targetAccountId && invite.targetAccountId !== session.accountId) throw new Error('Este convite pertence a outra conta');
 		const previous = this.repository.getMembership(invite.tableId, session.accountId);
 		if (previous?.status === 'blocked') throw new Error('Esta conta está bloqueada nesta mesa');
+		if (previous?.status === 'active') throw new Error('A conta já participa desta mesa');
 		const now = this.now();
 		const member: RPGTableMember = {
 			tableId: invite.tableId, accountId: session.accountId, role: invite.role, status: 'active', permissions: {},
@@ -214,6 +276,23 @@ export class RPGAccountManagement {
 		invite.usedCount++; if (invite.usedCount >= invite.maxUses) invite.status = 'revoked';
 		this.repository.setInvite(invite);
 		return structuredClone(member);
+	}
+
+	listInvites(token: string, tableId: string): RPGPublicTableInvite[] {
+		this.tableAdministrator(token, tableId); const now = this.now();
+		return this.repository.listInvites(tableId).map(invite => {
+			if (invite.status === 'active' && invite.expiresAt !== undefined && invite.expiresAt <= now) {
+				invite.status = 'expired'; this.repository.setInvite(invite);
+			}
+			return this.publicInvite(invite);
+		});
+	}
+
+	revokeInvite(token: string, tableId: string, inviteId: string): RPGPublicTableInvite {
+		this.tableAdministrator(token, tableId); const invite = this.repository.getInvite(inviteId);
+		if (!invite || invite.tableId !== toID(tableId)) throw new Error('Convite não encontrado');
+		if (invite.status === 'active') { invite.status = 'revoked'; this.repository.setInvite(invite); }
+		return this.publicInvite(invite);
 	}
 
 	selectTable(token: string, tableId: string): RPGPlatformSession {
@@ -276,6 +355,20 @@ export class RPGAccountManagement {
 		const member = this.repository.getMembership(tableId, accountId);
 		if (!member || member.status !== 'active') throw new Error('A conta não participa desta mesa');
 		return member;
+	}
+	private tableAdministrator(token: string, tableId: string) {
+		const session = this.session(token); const member = this.activeMember(tableId, session.accountId);
+		if (member.role !== 'owner' && member.role !== 'master') throw new Error('Apenas Mestres podem administrar membros');
+		return member;
+	}
+	private clearActiveTable(accountId: string, tableId: string) {
+		for (const session of this.sessionRepository.listByAccount(accountId)) {
+			if (session.activeTableId !== toID(tableId) || session.revokedAt) continue;
+			delete session.activeTableId; this.sessionRepository.set(session);
+		}
+	}
+	private publicInvite(invite: RPGTableInvite): RPGPublicTableInvite {
+		const { codeHash: _codeHash, ...view } = invite; return structuredClone(view);
 	}
 	private hashPassword(password: string): RPGAccountCredential {
 		const salt = this.bytes(16); return { algorithm: 'scrypt', salt: salt.toString('base64'), hash: scryptSync(password, salt, 32).toString('base64') };

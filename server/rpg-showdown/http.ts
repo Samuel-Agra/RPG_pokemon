@@ -316,23 +316,72 @@ export class RPGHttpServer {
 			return;
 		}
 		const version2TableMatch = /^\/api\/rpg\/v2\/tables\/([^/]+)\/(invites|select)$/.exec(url.pathname);
-		if (method === 'POST' && version2TableMatch) {
+		if (version2TableMatch) {
 			const token = this.token(req); const tableId = decodeURIComponent(version2TableMatch[1]);
-			if (version2TableMatch[2] === 'select') {
+			if (method === 'POST' && version2TableMatch[2] === 'select') {
 				const session = this.login.accounts.selectTable(token, tableId);
 				await this.login.flushPersistence();
 				this.json(res, 200, { session });
 				return;
 			}
+			if (method === 'GET' && version2TableMatch[2] === 'invites') {
+				const invites = this.login.accounts.listInvites(token, tableId);
+				await this.login.flushPersistence();
+				this.json(res, 200, { invites });
+				return;
+			}
+			if (method !== 'POST' || version2TableMatch[2] !== 'invites') {
+				this.json(res, 405, { error: 'Método não permitido' });
+				return;
+			}
 			const body = await this.body(req); const role = this.string(body.role) || 'player';
 			const expiresAt = typeof body.expiresAt === 'number' ? body.expiresAt : undefined;
+			const maxUses = typeof body.maxUses === 'number' ? body.maxUses : 1;
 			const invitation = this.login.accounts.createInvite(
-				token, tableId, role as 'master' | 'player' | 'spectator', expiresAt
+				token, tableId, role as 'master' | 'player' | 'spectator', expiresAt, maxUses,
+				this.optionalString(body.targetUsername)
 			);
 			await this.login.flushPersistence();
 			const { codeHash: _codeHash, ...safeInvite } = invitation.invite;
 			this.json(res, 201, { code: invitation.code, invite: safeInvite });
 			return;
+		}
+		const version2InviteMatch = /^\/api\/rpg\/v2\/tables\/([^/]+)\/invites\/([^/]+)$/.exec(url.pathname);
+		if (method === 'DELETE' && version2InviteMatch) {
+			const token = this.token(req); const tableId = decodeURIComponent(version2InviteMatch[1]);
+			const invite = this.login.accounts.revokeInvite(token, tableId, decodeURIComponent(version2InviteMatch[2]));
+			await this.login.flushPersistence();
+			this.json(res, 200, { invite });
+			return;
+		}
+		const version2MembersMatch = /^\/api\/rpg\/v2\/tables\/([^/]+)\/members$/.exec(url.pathname);
+		if (method === 'GET' && version2MembersMatch) {
+			const members = this.login.accounts.listMembers(this.token(req), decodeURIComponent(version2MembersMatch[1]));
+			await this.login.flushPersistence();
+			this.json(res, 200, { members });
+			return;
+		}
+		const version2MemberMatch = /^\/api\/rpg\/v2\/tables\/([^/]+)\/members\/([^/]+)(?:\/(block))?$/.exec(url.pathname);
+		if (version2MemberMatch) {
+			const token = this.token(req); const tableId = decodeURIComponent(version2MemberMatch[1]);
+			const accountId = decodeURIComponent(version2MemberMatch[2]);
+			if (method === 'PATCH' && !version2MemberMatch[3]) {
+				const body = await this.body(req);
+				const member = this.login.accounts.changeMemberRole(
+					token, tableId, accountId, this.string(body.role) as 'master' | 'player' | 'spectator'
+				);
+				await this.login.flushPersistence(); this.json(res, 200, { member }); return;
+			}
+			if ((method === 'DELETE' && !version2MemberMatch[3]) ||
+				(method === 'POST' && version2MemberMatch[3] === 'block')) {
+				const member = this.login.accounts.removeMember(token, tableId, accountId, Boolean(version2MemberMatch[3]));
+				await this.login.flushPersistence(); this.json(res, 200, { member }); return;
+			}
+		}
+		const version2LeaveMatch = /^\/api\/rpg\/v2\/tables\/([^/]+)\/membership$/.exec(url.pathname);
+		if (method === 'DELETE' && version2LeaveMatch) {
+			const member = this.login.accounts.leaveTable(this.token(req), decodeURIComponent(version2LeaveMatch[1]));
+			await this.login.flushPersistence(); this.json(res, 200, { member }); return;
 		}
 		if (url.pathname === '/api/rpg/campaign/settings') {
 			const token = this.token(req);
@@ -1405,12 +1454,15 @@ export class RPGHttpServer {
 			.some(part => message.includes(part))) {
 			status = 401;
 		} else if (['permission', 'cannot access', 'master session required', 'Apenas Mestres',
-			'não participa desta mesa', 'bloqueada nesta mesa'].some(part => message.includes(part))) {
+			'não participa desta mesa', 'bloqueada nesta mesa', 'pertence a outra conta',
+			'proprietário não pode sair', 'não pode ser removido', 'não pode ter sua função alterada']
+			.some(part => message.includes(part))) {
 			status = 403;
 		} else if (message.includes('already exists') || message.includes('já está em uso') ||
 			message.includes('já foi utilizado')) {
 			status = 409;
-		} else if (message.includes('Unknown RPG character') || message.includes('Convite inválido')) {
+		} else if (message.includes('Unknown RPG character') || message.includes('Convite inválido') ||
+			message.includes('Convite não encontrado') || message.includes('Conta convidada não encontrada')) {
 			status = 404;
 		}
 		this.json(res, status, { error: message });

@@ -260,8 +260,15 @@ As contas globais e mesas da versao 2 usam um espaco de rotas separado durante a
 | `GET /api/rpg/v2/tables` | lista as mesas das quais a conta participa |
 | `POST /api/rpg/v2/tables` | cria uma mesa e torna a conta sua proprietaria |
 | `POST /api/rpg/v2/tables/:id/invites` | cria um convite para a mesa |
+| `GET /api/rpg/v2/tables/:id/invites` | lista convites sem expor seus codigos ou hashes |
+| `DELETE /api/rpg/v2/tables/:id/invites/:inviteId` | revoga um convite |
 | `POST /api/rpg/v2/invites/join` | ingressa em uma mesa usando um convite |
 | `POST /api/rpg/v2/tables/:id/select` | define a mesa ativa da sessao |
+| `GET /api/rpg/v2/tables/:id/members` | lista membros e perfis publicos da mesa |
+| `PATCH /api/rpg/v2/tables/:id/members/:accountId` | promove ou rebaixa um membro |
+| `DELETE /api/rpg/v2/tables/:id/members/:accountId` | remove um membro |
+| `POST /api/rpg/v2/tables/:id/members/:accountId/block` | bloqueia um membro |
+| `DELETE /api/rpg/v2/tables/:id/membership` | sai voluntariamente da mesa |
 
 Senhas e tokens nunca sao persistidos em texto puro. O codigo do convite aparece somente na
 resposta de criacao; seu hash interno nao faz parte do contrato HTTP.

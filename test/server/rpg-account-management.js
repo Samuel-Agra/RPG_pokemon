@@ -103,6 +103,58 @@ describe('RPG version 2 accounts and tables backend', () => {
 		assert.throws(() => accounts.getSession(first.token), /inválida ou expirada/);
 	});
 
+	it('administers member roles, removal, blocking, and voluntary departure with owner safeguards', () => {
+		const accounts = service();
+		const ownerAccount = accounts.createAccount('proprietario', 'Proprietário', 'senha-segura');
+		const masterAccount = accounts.createAccount('assistente', 'Assistente', 'senha-segura');
+		const playerAccount = accounts.createAccount('membro', 'Membro', 'senha-segura');
+		const owner = accounts.login('proprietario', 'senha-segura');
+		const master = accounts.login('assistente', 'senha-segura');
+		const player = accounts.login('membro', 'senha-segura');
+		const table = accounts.createTable(owner.token, { name: 'Administração' });
+		accounts.joinByInvite(master.token, accounts.createInvite(owner.token, table.id, 'master').code);
+		accounts.joinByInvite(player.token, accounts.createInvite(master.token, table.id, 'player').code);
+		assert.equal(accounts.listMembers(owner.token, table.id).length, 3);
+		assert.equal(accounts.changeMemberRole(owner.token, table.id, playerAccount.id, 'spectator').role, 'spectator');
+		assert.throws(() => accounts.changeMemberRole(master.token, table.id, playerAccount.id, 'master'), /proprietário/);
+		assert.equal(accounts.removeMember(master.token, table.id, playerAccount.id, true).status, 'blocked');
+		assert.throws(() => accounts.joinByInvite(player.token,
+			accounts.createInvite(owner.token, table.id, 'player').code), /bloqueada/);
+		assert.equal(accounts.leaveTable(master.token, table.id).status, 'left');
+		assert.throws(() => accounts.leaveTable(owner.token, table.id), /proprietário não pode sair/);
+		assert(ownerAccount.id && masterAccount.id);
+	});
+
+	it('supports directed, expiring, revocable, and configurable multi-use invites', () => {
+		let time = 1_700_000_000_000; let seed = 0;
+		const accounts = new RPGAccountManagement(new RPGMemoryAccountRepository(), () => time,
+			size => Buffer.alloc(size, ++seed));
+		accounts.createAccount('dono', 'Dono', 'senha-segura');
+		accounts.createAccount('destino', 'Destino', 'senha-segura');
+		accounts.createAccount('outro', 'Outro', 'senha-segura');
+		accounts.createAccount('terceiro', 'Terceiro', 'senha-segura');
+		const owner = accounts.login('dono', 'senha-segura');
+		const target = accounts.login('destino', 'senha-segura');
+		const other = accounts.login('outro', 'senha-segura');
+		const third = accounts.login('terceiro', 'senha-segura');
+		const table = accounts.createTable(owner.token, { name: 'Convites' });
+		const directed = accounts.createInvite(owner.token, table.id, 'player', time + 1000, 9, 'destino');
+		assert.equal(directed.invite.maxUses, 1);
+		assert.throws(() => accounts.joinByInvite(other.token, directed.code), /outra conta/);
+		assert.equal(accounts.joinByInvite(target.token, directed.code).status, 'active');
+		const reusable = accounts.createInvite(owner.token, table.id, 'player', undefined, 2);
+		accounts.joinByInvite(other.token, reusable.code);
+		accounts.joinByInvite(third.token, reusable.code);
+		assert.throws(() => accounts.joinByInvite(target.token, reusable.code), /revogado|utilizado/);
+		const revoked = accounts.createInvite(owner.token, table.id);
+		assert.equal(accounts.revokeInvite(owner.token, table.id, revoked.invite.id).status, 'revoked');
+		assert.throws(() => accounts.joinByInvite(target.token, revoked.code), /revogado/);
+		const expiring = accounts.createInvite(owner.token, table.id, 'spectator', time + 1);
+		time += 2;
+		assert.throws(() => accounts.joinByInvite(target.token, expiring.code), /expirou/);
+		assert.equal(accounts.listInvites(owner.token, table.id).find(invite => invite.id === expiring.invite.id).status, 'expired');
+	});
+
 	it('ships an idempotent MySQL migration for every version 2 entity', () => {
 		const migration = fs.readFileSync(path.resolve(
 			__dirname, '../../server/rpg-showdown/database/migrations/002-accounts-and-tables.sql'

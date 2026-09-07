@@ -169,6 +169,54 @@ describe('RPG HTTP frontend API', () => {
 		assert.equal(result.response.status, 401);
 	});
 
+	it('administers version 2 members and advanced invitations through protected routes', async () => {
+		for (const [username, displayName] of [['adminv2', 'Admin'], ['membrov2', 'Membro'], ['saidav2', 'Saída']]) {
+			await request('/v2/accounts', { method: 'POST', body: { username, displayName, password: 'senha-segura' } });
+		}
+		const login = async username => (await request('/v2/session', {
+			method: 'POST', body: { username, password: 'senha-segura' },
+		})).data.session;
+		const owner = await login('adminv2'); const member = await login('membrov2'); const leaver = await login('saidav2');
+		const ownerHeaders = { Authorization: `Bearer ${owner.token}` };
+		const memberHeaders = { Authorization: `Bearer ${member.token}` };
+		const leaverHeaders = { Authorization: `Bearer ${leaver.token}` };
+		let result = await request('/v2/tables', {
+			method: 'POST', headers: ownerHeaders, body: { name: 'Membros HTTP' },
+		});
+		const tableId = result.data.table.id;
+		result = await request(`/v2/tables/${tableId}/invites`, {
+			method: 'POST', headers: ownerHeaders,
+			body: { role: 'player', targetUsername: 'membrov2', maxUses: 10, expiresAt: Date.now() + 60_000 },
+		});
+		assert.equal(result.data.invite.maxUses, 1);
+		assert.equal(result.data.invite.codeHash, undefined);
+		await request('/v2/invites/join', { method: 'POST', headers: memberHeaders, body: { code: result.data.code } });
+		result = await request(`/v2/tables/${tableId}/invites`, {
+			method: 'POST', headers: ownerHeaders, body: { maxUses: 2 },
+		});
+		const reusableCode = result.data.code;
+		await request('/v2/invites/join', { method: 'POST', headers: leaverHeaders, body: { code: reusableCode } });
+		result = await request(`/v2/tables/${tableId}/members`, { headers: ownerHeaders });
+		assert.equal(result.data.members.length, 3);
+		assert(result.data.members.every(entry => entry.account.credential === undefined));
+		result = await request(`/v2/tables/${tableId}/members/${member.accountId}`, {
+			method: 'PATCH', headers: ownerHeaders, body: { role: 'master' },
+		});
+		assert.equal(result.data.member.role, 'master');
+		result = await request(`/v2/tables/${tableId}/membership`, { method: 'DELETE', headers: leaverHeaders });
+		assert.equal(result.data.member.status, 'left');
+		result = await request(`/v2/tables/${tableId}/invites`, { headers: ownerHeaders });
+		const activeInvite = result.data.invites.find(invite => invite.status === 'active');
+		result = await request(`/v2/tables/${tableId}/invites/${activeInvite.id}`, {
+			method: 'DELETE', headers: ownerHeaders,
+		});
+		assert.equal(result.data.invite.status, 'revoked');
+		result = await request(`/v2/tables/${tableId}/members/${member.accountId}/block`, {
+			method: 'POST', headers: ownerHeaders,
+		});
+		assert.equal(result.data.member.status, 'blocked');
+	});
+
 	it('returns safe HTTP errors and supports the master dashboard', async () => {
 		let result = await request('/session/player', {
 			method: 'POST',
