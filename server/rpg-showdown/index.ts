@@ -62,6 +62,9 @@ import {
 	type RPGContestComboRepository,
 } from './contest-scoring';
 import { RPGMySQLPersistence, rpgMySQLConfig } from './database/mysql-persistence';
+import {
+	RPGAccountManagement, RPGMemoryAccountRepository, RPGMemoryPlatformSessionRepository,
+} from './account-management';
 import { applyRPGContestPerformance, type RPGContestPlacement } from './contest-progression';
 import { classifyRPGContestItem, type RPGContestItemClassification } from './contest-item-catalog';
 import { RPGTournamentSessionService, type RPGTournament } from './tournament-session';
@@ -137,6 +140,7 @@ export * from './incubation';
 export * from './pokemon-catalog';
 export * from './fossil-lab';
 export * from './shop-management';
+export * from './account-management';
 
 export const RPG_ACCOUNT_VERSION = 5;
 export const RPG_SESSION_VERSION = 1;
@@ -665,6 +669,7 @@ export interface RPGLoginServiceOptions {
 	tournaments?: RPGTournament[];
 	tournamentChanged?: (tournament: RPGTournament) => void;
 	mysqlPersistence?: RPGMySQLPersistence;
+	accountManagement?: RPGAccountManagement;
 	masterNPCLibrary?: Record<string, unknown> | null;
 	playerDocuments?: Record<string, Record<string, unknown>>;
 	campaignSettings?: Record<string, unknown> | null;
@@ -701,6 +706,7 @@ export class RPGLoginService {
 		playerNotes: Record<string, string>,
 	};
 	readonly mysqlPersistence?: RPGMySQLPersistence;
+	readonly accounts: RPGAccountManagement;
 
 	constructor(options: RPGLoginServiceOptions) {
 		if (typeof options.masterCode !== 'string' || !options.masterCode) {
@@ -708,6 +714,7 @@ export class RPGLoginService {
 		}
 		this.repository = options.repository || new RPGMemoryCharacterRepository();
 		this.mysqlPersistence = options.mysqlPersistence;
+		this.accounts = options.accountManagement || new RPGAccountManagement();
 		this.customItems = options.customItemRepository || new RPGMemoryCustomItemRepository();
 		this.commerce = new RPGCommerceManagement(options.commerceRepository || new RPGMemoryCommerceRepository());
 		this.tournaments = new RPGTournamentSessionService(options.tournamentFile || resolve('config/rpg-tournaments.json'),
@@ -5280,9 +5287,25 @@ Promise<RPGLoginService> {
 	const commerceRepository = new RPGMemoryCommerceRepository(snapshot.shops as RPGCommerceShopState[], shop =>
 		persistence.upsertJSON('rpg_shops', 'id', shop.id, 'state', shop,
 			{ shop_type: shop.type, revision: shop.revision }));
+	const accountRepository = new RPGMemoryAccountRepository({
+		accounts: snapshot.platformAccounts, tables: snapshot.campaignTables,
+		members: snapshot.tableMembers, invites: snapshot.tableInvites,
+	}, {
+		account: account => persistence.upsertPlatformAccount(account),
+		table: table => persistence.upsertCampaignTable(table),
+		member: member => persistence.upsertTableMember(member),
+		invite: invite => persistence.upsertTableInvite(invite),
+	});
+	const accountSessionRepository = new RPGMemoryPlatformSessionRepository(snapshot.accountSessions, (session, tokenHash) => {
+		if (session) persistence.upsertPlatformSession(session);
+		else persistence.deletePlatformSession(tokenHash);
+	});
+	const accountManagement = new RPGAccountManagement(
+		accountRepository, Date.now, secureRandomBytes, accountSessionRepository
+	);
 	const service = new RPGLoginService({
 		masterCode: config.rpgmastercode || '', repository, battleSessionRepository, contestSessionRepository,
-		contestComboRepository, customItemRepository, commerceRepository, mysqlPersistence: persistence,
+		contestComboRepository, customItemRepository, commerceRepository, mysqlPersistence: persistence, accountManagement,
 		masterNPCLibrary: snapshot.masterNPCLibrary, playerDocuments: snapshot.playerDocuments,
 		campaignSettings: snapshot.campaign, tournaments: snapshot.tournaments as RPGTournament[],
 		tournamentChanged: tournament => persistence.upsertJSON('rpg_tournaments', 'id', tournament.id, 'state', tournament,
