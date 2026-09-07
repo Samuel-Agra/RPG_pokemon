@@ -263,6 +263,30 @@ export class RPGHttpServer {
 				return;
 			}
 		}
+		if (url.pathname === '/api/rpg/v2/sessions') {
+			const token = this.token(req);
+			if (method === 'GET') {
+				const sessions = this.login.accounts.listSessions(token);
+				await this.login.flushPersistence();
+				this.json(res, 200, { sessions });
+				return;
+			}
+			if (method === 'DELETE') {
+				const revoked = this.login.accounts.terminateAllSessions(token);
+				await this.login.flushPersistence();
+				this.json(res, 200, { ok: true, revoked });
+				return;
+			}
+		}
+		const version2SessionMatch = /^\/api\/rpg\/v2\/sessions\/([^/]+)$/.exec(url.pathname);
+		if (method === 'DELETE' && version2SessionMatch) {
+			const token = this.token(req); const sessionId = decodeURIComponent(version2SessionMatch[1]);
+			const revoked = this.login.accounts.terminateSession(token, sessionId);
+			if (!revoked) throw new RPGHttpError(404, 'Sessão não encontrada');
+			await this.login.flushPersistence();
+			this.json(res, 200, { ok: true });
+			return;
+		}
 		if (url.pathname === '/api/rpg/v2/tables') {
 			const token = this.token(req);
 			if (method === 'GET') {

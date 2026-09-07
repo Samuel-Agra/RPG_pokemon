@@ -142,6 +142,33 @@ describe('RPG HTTP frontend API', () => {
 		assert.equal(result.response.status, 401);
 	});
 
+	it('lists and revokes version 2 sessions without exposing their token hashes', async () => {
+		await request('/v2/accounts', {
+			method: 'POST', body: { username: 'multissessao', displayName: 'Multissessão', password: 'senha-segura' },
+		});
+		let result = await request('/v2/session', {
+			method: 'POST', body: { username: 'multissessao', password: 'senha-segura' },
+		});
+		const firstToken = result.data.session.token;
+		result = await request('/v2/session', {
+			method: 'POST', body: { username: 'multissessao', password: 'senha-segura' },
+		});
+		const secondToken = result.data.session.token;
+		const firstHeaders = { Authorization: `Bearer ${firstToken}` };
+		result = await request('/v2/sessions', { headers: firstHeaders });
+		assert.equal(result.data.sessions.length, 2);
+		assert(result.data.sessions.every(session => session.token === undefined && session.tokenHash === undefined));
+		const other = result.data.sessions.find(session => !session.current);
+		result = await request(`/v2/sessions/${other.id}`, { method: 'DELETE', headers: firstHeaders });
+		assert.equal(result.data.ok, true);
+		result = await request('/v2/session', { headers: { Authorization: `Bearer ${secondToken}` } });
+		assert.equal(result.response.status, 401);
+		result = await request('/v2/sessions', { method: 'DELETE', headers: firstHeaders });
+		assert.equal(result.data.revoked, 1);
+		result = await request('/v2/session', { headers: firstHeaders });
+		assert.equal(result.response.status, 401);
+	});
+
 	it('returns safe HTTP errors and supports the master dashboard', async () => {
 		let result = await request('/session/player', {
 			method: 'POST',

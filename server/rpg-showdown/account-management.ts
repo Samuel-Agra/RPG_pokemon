@@ -33,6 +33,9 @@ export type RPGPublicPlatformAccount = Omit<RPGPlatformAccount, 'credential'>;
 export interface RPGPlatformSessionView {
 	session: RPGPlatformSession; account: RPGPublicPlatformAccount;
 }
+export interface RPGPublicPlatformSession {
+	id: string; activeTableId?: string; createdAt: number; lastSeenAt: number; expiresAt: number; current: boolean;
+}
 export type RPGStoredPlatformSession = Omit<RPGPlatformSession, 'token'> & {
 	tokenHash: string, lastSeenAt: number, revokedAt?: number,
 };
@@ -98,6 +101,10 @@ export class RPGMemoryPlatformSessionRepository {
 		private readonly changed?: (value: RPGStoredPlatformSession | null, tokenHash: string) => void
 	) { for (const session of sessions) this.sessions.set(session.tokenHash, structuredClone(session)); }
 	get(tokenHash: string) { const value = this.sessions.get(tokenHash); return value && structuredClone(value); }
+	listByAccount(accountId: string) {
+		return [...this.sessions.values()].filter(session => session.accountId === accountId)
+			.map(session => structuredClone(session));
+	}
 	set(session: RPGStoredPlatformSession) {
 		this.sessions.set(session.tokenHash, structuredClone(session)); this.changed?.(session, session.tokenHash);
 	}
@@ -214,16 +221,57 @@ export class RPGAccountManagement {
 		this.activeMember(tableId, session.accountId); session.activeTableId = toID(tableId); this.sessionRepository.set(session);
 		return { ...structuredClone(session), token };
 	}
-	logout(token: string): void { this.sessionRepository.delete(this.tokenHash(token)); }
+
+	listSessions(token: string): RPGPublicPlatformSession[] {
+		const currentHash = this.tokenHash(token); const current = this.session(token); const now = this.now();
+		return this.sessionRepository.listByAccount(current.accountId)
+			.filter(session => !session.revokedAt && session.expiresAt > now)
+			.sort((left, right) => right.lastSeenAt - left.lastSeenAt)
+			.map(session => this.publicSession(session, session.tokenHash === currentHash));
+	}
+
+	terminateSession(token: string, sessionId: string): boolean {
+		const current = this.session(token);
+		const target = this.findOwnedSession(current.accountId, sessionId);
+		if (!target || target.revokedAt) return false;
+		target.revokedAt = this.now(); this.sessionRepository.set(target);
+		return true;
+	}
+
+	terminateAllSessions(token: string): number {
+		const current = this.session(token); const revokedAt = this.now(); let count = 0;
+		for (const session of this.sessionRepository.listByAccount(current.accountId)) {
+			if (session.revokedAt || session.expiresAt <= revokedAt) continue;
+			session.revokedAt = revokedAt; this.sessionRepository.set(session); count++;
+		}
+		return count;
+	}
+
+	logout(token: string): void {
+		const key = this.tokenHash(token); const session = this.sessionRepository.get(key);
+		if (!session || session.revokedAt) return;
+		session.revokedAt = this.now(); this.sessionRepository.set(session);
+	}
 
 	private session(token: string) {
 		const key = this.tokenHash(token); const session = this.sessionRepository.get(key);
-		if (!session || session.revokedAt || session.expiresAt <= this.now()) {
-			this.sessionRepository.delete(key); throw new Error('Sessão inválida ou expirada');
+		if (!session || session.revokedAt) throw new Error('Sessão inválida ou expirada');
+		if (session.expiresAt <= this.now()) {
+			session.revokedAt = this.now(); this.sessionRepository.set(session);
+			throw new Error('Sessão inválida ou expirada');
 		}
 		session.lastSeenAt = this.now(); this.sessionRepository.set(session);
 		return structuredClone(session);
 	}
+	private findOwnedSession(accountId: string, sessionId: string) {
+		if (!/^[0-9a-f]{24}$/.test(sessionId)) throw new Error('Identificador de sessão inválido');
+		return this.sessionRepository.listByAccount(accountId).find(session => this.sessionId(session.tokenHash) === sessionId);
+	}
+	private publicSession(session: RPGStoredPlatformSession, current: boolean): RPGPublicPlatformSession {
+		return { id: this.sessionId(session.tokenHash), activeTableId: session.activeTableId,
+			createdAt: session.createdAt, lastSeenAt: session.lastSeenAt, expiresAt: session.expiresAt, current };
+	}
+	private sessionId(tokenHash: string) { return tokenHash.slice(0, 24); }
 	private activeMember(tableId: string, accountId: string) {
 		const member = this.repository.getMembership(tableId, accountId);
 		if (!member || member.status !== 'active') throw new Error('A conta não participa desta mesa');

@@ -254,6 +254,9 @@ As contas globais e mesas da versao 2 usam um espaco de rotas separado durante a
 | `POST /api/rpg/v2/session` | autentica uma conta global |
 | `GET /api/rpg/v2/session` | restaura a sessao e retorna a conta publica |
 | `DELETE /api/rpg/v2/session` | encerra a sessao global |
+| `GET /api/rpg/v2/sessions` | lista as sessoes ativas da conta sem expor tokens |
+| `DELETE /api/rpg/v2/sessions/:id` | revoga uma sessao especifica da conta |
+| `DELETE /api/rpg/v2/sessions` | encerra todas as sessoes da conta |
 | `GET /api/rpg/v2/tables` | lista as mesas das quais a conta participa |
 | `POST /api/rpg/v2/tables` | cria uma mesa e torna a conta sua proprietaria |
 | `POST /api/rpg/v2/tables/:id/invites` | cria um convite para a mesa |

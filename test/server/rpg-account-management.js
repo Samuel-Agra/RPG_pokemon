@@ -87,6 +87,22 @@ describe('RPG version 2 accounts and tables backend', () => {
 		assert.throws(() => restored.listTables(login.token), /inválida ou expirada/);
 	});
 
+	it('lists safe session identifiers and revokes one or every login without deleting its audit record', () => {
+		const accounts = service();
+		accounts.createAccount('sessoes', 'Sessões', 'senha-segura');
+		const first = accounts.login('sessoes', 'senha-segura');
+		const second = accounts.login('sessoes', 'senha-segura');
+		const sessions = accounts.listSessions(first.token);
+		assert.equal(sessions.length, 2);
+		assert(sessions.every(session => /^[0-9a-f]{24}$/.test(session.id)));
+		assert(sessions.every(session => session.token === undefined && session.tokenHash === undefined));
+		const other = sessions.find(session => !session.current);
+		assert.equal(accounts.terminateSession(first.token, other.id), true);
+		assert.throws(() => accounts.getSession(second.token), /inválida ou expirada/);
+		assert.equal(accounts.terminateAllSessions(first.token), 1);
+		assert.throws(() => accounts.getSession(first.token), /inválida ou expirada/);
+	});
+
 	it('ships an idempotent MySQL migration for every version 2 entity', () => {
 		const migration = fs.readFileSync(path.resolve(
 			__dirname, '../../server/rpg-showdown/database/migrations/002-accounts-and-tables.sql'
