@@ -246,6 +246,23 @@ Mestre que o esteja visualizando retorna ao modo Mestre.
 
 Rotas protegidas usam `Authorization: Bearer <token>`. Respostas nao podem ser armazenadas em cache.
 
+As contas globais e mesas da versao 2 usam um espaco de rotas separado durante a migracao:
+
+| Metodo e rota | Operacao |
+| --- | --- |
+| `POST /api/rpg/v2/accounts` | cria uma conta global |
+| `POST /api/rpg/v2/session` | autentica uma conta global |
+| `GET /api/rpg/v2/session` | restaura a sessao e retorna a conta publica |
+| `DELETE /api/rpg/v2/session` | encerra a sessao global |
+| `GET /api/rpg/v2/tables` | lista as mesas das quais a conta participa |
+| `POST /api/rpg/v2/tables` | cria uma mesa e torna a conta sua proprietaria |
+| `POST /api/rpg/v2/tables/:id/invites` | cria um convite para a mesa |
+| `POST /api/rpg/v2/invites/join` | ingressa em uma mesa usando um convite |
+| `POST /api/rpg/v2/tables/:id/select` | define a mesa ativa da sessao |
+
+Senhas e tokens nunca sao persistidos em texto puro. O codigo do convite aparece somente na
+resposta de criacao; seu hash interno nao faz parte do contrato HTTP.
+
 Erros de autenticacao de Player usam a mesma mensagem para personagem inexistente e senha incorreta, evitando revelar quais personagens possuem credencial.
 
 ## Formatos na preparacao visual

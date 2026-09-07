@@ -88,6 +88,60 @@ describe('RPG HTTP frontend API', () => {
 		assert.deepEqual(result.data.bank, { version: 1, balance: 0, revision: 2, money: 3000 });
 	});
 
+	it('serves version 2 accounts, persistent sessions, tables, and invitations separately', async () => {
+		let result = await request('/v2/accounts', {
+			method: 'POST', body: { username: 'mestre-v2', displayName: 'Mestre V2', password: 'senha-segura' },
+		});
+		assert.equal(result.response.status, 201);
+		assert.equal(result.data.account.username, 'mestrev2');
+		assert.equal(result.data.account.credential, undefined);
+
+		await request('/v2/accounts', {
+			method: 'POST', body: { username: 'player-v2', displayName: 'Player V2', password: 'senha-segura' },
+		});
+		result = await request('/v2/session', {
+			method: 'POST', body: { username: 'mestre-v2', password: 'senha-segura' },
+		});
+		assert.equal(result.response.status, 200);
+		const masterToken = result.data.session.token;
+		const masterHeaders = { Authorization: `Bearer ${masterToken}` };
+
+		result = await request('/v2/tables', {
+			method: 'POST', headers: masterHeaders,
+			body: { name: 'Mesa V2', description: 'Teste da API', visibility: 'code', color: '#355487' },
+		});
+		assert.equal(result.response.status, 201);
+		const tableId = result.data.table.id;
+		result = await request(`/v2/tables/${tableId}/invites`, {
+			method: 'POST', headers: masterHeaders, body: { role: 'player' },
+		});
+		assert.equal(result.response.status, 201);
+		assert.equal(result.data.invite.codeHash, undefined);
+		const inviteCode = result.data.code;
+
+		result = await request('/v2/session', {
+			method: 'POST', body: { username: 'player-v2', password: 'senha-segura' },
+		});
+		const playerToken = result.data.session.token;
+		const playerHeaders = { Authorization: `Bearer ${playerToken}` };
+		result = await request('/v2/invites/join', {
+			method: 'POST', headers: playerHeaders, body: { code: inviteCode },
+		});
+		assert.equal(result.data.membership.role, 'player');
+		result = await request(`/v2/tables/${tableId}/select`, { method: 'POST', headers: playerHeaders });
+		assert.equal(result.data.session.activeTableId, tableId);
+		result = await request('/v2/session', { headers: playerHeaders });
+		assert.equal(result.data.account.displayName, 'Player V2');
+		assert.equal(result.data.session.activeTableId, tableId);
+		result = await request('/v2/tables', { headers: playerHeaders });
+		assert.equal(result.data.tables[0].table.name, 'Mesa V2');
+
+		result = await request('/v2/session', { method: 'DELETE', headers: playerHeaders });
+		assert.equal(result.data.ok, true);
+		result = await request('/v2/session', { headers: playerHeaders });
+		assert.equal(result.response.status, 401);
+	});
+
 	it('returns safe HTTP errors and supports the master dashboard', async () => {
 		let result = await request('/session/player', {
 			method: 'POST',

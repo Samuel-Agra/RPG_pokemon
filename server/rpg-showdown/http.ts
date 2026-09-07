@@ -230,6 +230,86 @@ export class RPGHttpServer {
 			) });
 			return;
 		}
+
+		// Version 2 owns global accounts and table membership while version 1 remains available during migration.
+		if (method === 'POST' && url.pathname === '/api/rpg/v2/accounts') {
+			const body = await this.body(req);
+			const account = this.login.accounts.createAccount(
+				this.string(body.username), this.string(body.displayName), this.string(body.password)
+			);
+			await this.login.flushPersistence();
+			this.json(res, 201, { account });
+			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/v2/session') {
+			const body = await this.body(req);
+			const session = this.login.accounts.login(this.string(body.username), this.string(body.password));
+			await this.login.flushPersistence();
+			this.json(res, 200, { session });
+			return;
+		}
+		if (url.pathname === '/api/rpg/v2/session') {
+			const token = this.token(req);
+			if (method === 'GET') {
+				const view = this.login.accounts.getSession(token);
+				await this.login.flushPersistence();
+				this.json(res, 200, view);
+				return;
+			}
+			if (method === 'DELETE') {
+				this.login.accounts.logout(token);
+				await this.login.flushPersistence();
+				this.json(res, 200, { ok: true });
+				return;
+			}
+		}
+		if (url.pathname === '/api/rpg/v2/tables') {
+			const token = this.token(req);
+			if (method === 'GET') {
+				const tables = this.login.accounts.listTables(token);
+				await this.login.flushPersistence();
+				this.json(res, 200, { tables });
+				return;
+			}
+			if (method === 'POST') {
+				const body = await this.body(req);
+				const visibility = this.string(body.visibility);
+				const table = this.login.accounts.createTable(token, {
+					name: this.string(body.name), description: this.optionalString(body.description),
+					color: this.optionalString(body.color),
+					visibility: visibility ? visibility as 'private' | 'code' | 'public' : undefined,
+				});
+				await this.login.flushPersistence();
+				this.json(res, 201, { table });
+				return;
+			}
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/v2/invites/join') {
+			const token = this.token(req); const body = await this.body(req);
+			const membership = this.login.accounts.joinByInvite(token, this.string(body.code));
+			await this.login.flushPersistence();
+			this.json(res, 200, { membership });
+			return;
+		}
+		const version2TableMatch = /^\/api\/rpg\/v2\/tables\/([^/]+)\/(invites|select)$/.exec(url.pathname);
+		if (method === 'POST' && version2TableMatch) {
+			const token = this.token(req); const tableId = decodeURIComponent(version2TableMatch[1]);
+			if (version2TableMatch[2] === 'select') {
+				const session = this.login.accounts.selectTable(token, tableId);
+				await this.login.flushPersistence();
+				this.json(res, 200, { session });
+				return;
+			}
+			const body = await this.body(req); const role = this.string(body.role) || 'player';
+			const expiresAt = typeof body.expiresAt === 'number' ? body.expiresAt : undefined;
+			const invitation = this.login.accounts.createInvite(
+				token, tableId, role as 'master' | 'player' | 'spectator', expiresAt
+			);
+			await this.login.flushPersistence();
+			const { codeHash: _codeHash, ...safeInvite } = invitation.invite;
+			this.json(res, 201, { code: invitation.code, invite: safeInvite });
+			return;
+		}
 		if (url.pathname === '/api/rpg/campaign/settings') {
 			const token = this.token(req);
 			if (method === 'GET') {
@@ -1271,6 +1351,10 @@ export class RPGHttpServer {
 		return typeof value === 'string' ? value : '';
 	}
 
+	private optionalString(value: unknown): string | undefined {
+		return typeof value === 'string' ? value : undefined;
+	}
+
 	private headers(): Record<string, string> {
 		return {
 			'Cache-Control': 'no-store',
@@ -1292,14 +1376,17 @@ export class RPGHttpServer {
 		}
 		const message = error instanceof Error ? error.message : 'Unexpected RPG server error';
 		let status = 400;
-		if (['Invalid or expired RPG session', 'Invalid RPG character or password', 'Invalid RPG master code']
+		if (['Invalid or expired RPG session', 'Invalid RPG character or password', 'Invalid RPG master code',
+			'Sessão inválida ou expirada', 'Usuário ou senha inválidos', 'Conta indisponível']
 			.some(part => message.includes(part))) {
 			status = 401;
-		} else if (['permission', 'cannot access', 'master session required'].some(part => message.includes(part))) {
+		} else if (['permission', 'cannot access', 'master session required', 'Apenas Mestres',
+			'não participa desta mesa', 'bloqueada nesta mesa'].some(part => message.includes(part))) {
 			status = 403;
-		} else if (message.includes('already exists')) {
+		} else if (message.includes('already exists') || message.includes('já está em uso') ||
+			message.includes('já foi utilizado')) {
 			status = 409;
-		} else if (message.includes('Unknown RPG character')) {
+		} else if (message.includes('Unknown RPG character') || message.includes('Convite inválido')) {
 			status = 404;
 		}
 		this.json(res, status, { error: message });

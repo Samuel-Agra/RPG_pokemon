@@ -29,6 +29,10 @@ export interface RPGTableInvite {
 export interface RPGPlatformSession {
 	token: string; accountId: string; activeTableId?: string; createdAt: number; expiresAt: number;
 }
+export type RPGPublicPlatformAccount = Omit<RPGPlatformAccount, 'credential'>;
+export interface RPGPlatformSessionView {
+	session: RPGPlatformSession; account: RPGPublicPlatformAccount;
+}
 export type RPGStoredPlatformSession = Omit<RPGPlatformSession, 'token'> & {
 	tokenHash: string, lastSeenAt: number, revokedAt?: number,
 };
@@ -108,7 +112,7 @@ export class RPGAccountManagement {
 		readonly sessionRepository = new RPGMemoryPlatformSessionRepository()
 	) {}
 
-	createAccount(username: string, displayName: string, password: string): Omit<RPGPlatformAccount, 'credential'> {
+	createAccount(username: string, displayName: string, password: string): RPGPublicPlatformAccount {
 		const normalized = toID(username);
 		if (normalized.length < 3 || normalized.length > 40) throw new Error('O usuário deve ter entre 3 e 40 caracteres');
 		if (this.repository.getAccountByUsername(normalized)) throw new Error('Este nome de usuário já está em uso');
@@ -136,8 +140,22 @@ export class RPGAccountManagement {
 		return { token, accountId: account.id, createdAt, expiresAt: createdAt + RPG_PLATFORM_SESSION_TTL };
 	}
 
+	getSession(token: string): RPGPlatformSessionView {
+		const stored = this.session(token);
+		const account = this.repository.getAccount(stored.accountId);
+		if (!account || account.status !== 'active') throw new Error('Conta indisponível');
+		return {
+			session: { token, accountId: stored.accountId, activeTableId: stored.activeTableId,
+				createdAt: stored.createdAt, expiresAt: stored.expiresAt },
+			account: this.publicAccount(account),
+		};
+	}
+
 	createTable(token: string, input: Pick<RPGCampaignTable, 'name'> & Partial<Pick<RPGCampaignTable, 'description' | 'color' | 'visibility'>>): RPGCampaignTable {
 		const session = this.session(token); const now = this.now(); const id = this.id();
+		if (input.visibility && !['private', 'code', 'public'].includes(input.visibility)) {
+			throw new Error('Visibilidade da mesa inválida');
+		}
 		const table: RPGCampaignTable = {
 			id, ownerAccountId: session.accountId, name: this.text(input.name, 120, 'nome da mesa'),
 			description: this.optionalText(input.description, 500), color: this.color(input.color),
