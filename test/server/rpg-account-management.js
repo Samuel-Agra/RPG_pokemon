@@ -26,6 +26,33 @@ describe('RPG version 2 accounts and tables backend', () => {
 		assert.throws(() => accounts.login('samuelrpg', 'senha-errada'), /inválidos/);
 	});
 
+	it('issues one-time recovery codes and revokes every session after a password reset', () => {
+		const accounts = service();
+		const registration = accounts.createAccountWithRecoveryCodes('recuperar', 'Recuperar', 'senha-antiga');
+		assert.equal(registration.recoveryCodes.length, 10);
+		assert(registration.recoveryCodes.every(code => /^[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}$/.test(code)));
+		const oldSession = accounts.login('recuperar', 'senha-antiga');
+		accounts.recoverPassword('recuperar', registration.recoveryCodes[0], 'senha-nova-segura');
+		assert.throws(() => accounts.getSession(oldSession.token), /inválida ou expirada/);
+		assert.throws(() => accounts.login('recuperar', 'senha-antiga'), /inválidos/);
+		assert(accounts.login('recuperar', 'senha-nova-segura').token);
+		assert.throws(() => accounts.recoverPassword(
+			'recuperar', registration.recoveryCodes[0], 'outra-senha-segura'), /Código de recuperação inválido/);
+	});
+
+	it('temporarily blocks repeated login failures and clears attempts after success', () => {
+		let time = 1_700_000_000_000; let seed = 0;
+		const accounts = new RPGAccountManagement(new RPGMemoryAccountRepository(), () => time,
+			size => Buffer.alloc(size, ++seed));
+		accounts.createAccount('protegida', 'Protegida', 'senha-correta');
+		for (let index = 0; index < 5; index++) {
+			assert.throws(() => accounts.login('protegida', 'incorreta', '127.0.0.1'), /inválidos/);
+		}
+		assert.throws(() => accounts.login('protegida', 'senha-correta', '127.0.0.1'), /Muitas tentativas/);
+		time += 15 * 60 * 1000 + 1;
+		assert(accounts.login('protegida', 'senha-correta', '127.0.0.1').token);
+	});
+
 	it('creates a table and its owner membership atomically at domain level', () => {
 		const accounts = service();
 		accounts.createAccount('samuel', 'Samuel', 'senha-segura');
@@ -124,6 +151,9 @@ describe('RPG version 2 accounts and tables backend', () => {
 		assert.equal(accounts.leaveTable(master.token, table.id).status, 'left');
 		assert.throws(() => accounts.leaveTable(owner.token, table.id), /proprietário não pode sair/);
 		assert(ownerAccount.id && masterAccount.id);
+		const audit = accounts.listAudit(owner.token, table.id);
+		assert(audit.some(entry => entry.action === 'member.role.changed' && entry.targetId === playerAccount.id));
+		assert(audit.some(entry => entry.action === 'member.blocked' && entry.targetId === playerAccount.id));
 	});
 
 	it('supports directed, expiring, revocable, and configurable multi-use invites', () => {
@@ -209,6 +239,17 @@ describe('RPG version 2 accounts and tables backend', () => {
 		}
 	});
 
+	it('persists recovery hashes, login throttling, and immutable administrative audit records', () => {
+		const migration = fs.readFileSync(path.resolve(
+			__dirname, '../../server/rpg-showdown/database/migrations/005-account-security-and-audit.sql'
+		), 'utf8');
+		for (const table of ['rpg_account_recovery_codes', 'rpg_login_attempts', 'rpg_admin_audit']) {
+			assert(migration.includes(`CREATE TABLE IF NOT EXISTS ${table}`), table);
+		}
+		assert.match(migration, /UNIQUE KEY uq_rpg_recovery_code_hash \(code_hash\)/);
+		assert.match(migration, /idx_rpg_audit_table_time \(table_id, created_at\)/);
+	});
+
 	it('scopes every version 1 persistence table and character ownership to a version 2 table', () => {
 		const migration = fs.readFileSync(path.resolve(
 			__dirname, '../../server/rpg-showdown/database/migrations/003-link-legacy-data-to-tables.sql'
@@ -219,6 +260,38 @@ describe('RPG version 2 accounts and tables backend', () => {
 			'rpg_player_documents', 'rpg_campaign',
 		]) assert.match(migration, new RegExp(`ALTER TABLE ${table}[^;]+table_id`, 's'), table);
 		assert.match(migration, /rpg_characters[\s\S]+account_id/);
+	});
+
+	it('enforces physical table isolation and assigns legacy data to Mesa principal', () => {
+		const migration = fs.readFileSync(path.resolve(
+			__dirname, '../../server/rpg-showdown/database/migrations/004-enforce-table-isolation.sql'
+		), 'utf8');
+		assert.match(migration, /'Mesa principal'/);
+		for (const [table, identity] of [
+			['rpg_characters', 'id'], ['rpg_battle_sessions', 'id'], ['rpg_contest_sessions', 'id'],
+			['rpg_tournaments', 'id'], ['rpg_contest_combos', 'id'], ['rpg_custom_items', 'id'],
+			['rpg_shops', 'id'], ['rpg_master_npc_library', 'singleton_id'],
+			['rpg_player_documents', 'character_id'], ['rpg_campaign', 'singleton_id'],
+		]) {
+			assert.match(migration, new RegExp(
+				`ALTER TABLE ${table}[^;]+MODIFY table_id VARCHAR\\(100\\) NOT NULL[^;]+` +
+				`ADD PRIMARY KEY \\(table_id, ${identity}\\)`, 's'
+			), table);
+		}
+		const importer = fs.readFileSync(path.resolve(
+			__dirname, '../../server/rpg-showdown/database/import-json.js'
+		), 'utf8');
+		assert.match(importer, /const MAIN_TABLE_ID = '[0-9a-f]{36}'/);
+		assert.equal((importer.match(/MAIN_TABLE_ID/g) || []).length, 11);
+	});
+
+	it('requires a table scope in every version 1 MySQL read and destructive write', () => {
+		const source = fs.readFileSync(path.resolve(
+			__dirname, '../../server/rpg-showdown/database/mysql-persistence.ts'
+		), 'utf8');
+		assert.match(source, /async snapshot\(tableId = this\.requireTableScope\(\)\)/);
+		assert.match(source, /DELETE FROM rpg_characters WHERE id = \? AND table_id = \?/);
+		assert.match(source, /LEGACY_SCOPED_TABLES\.has\(table\)[\s\S]+requireTableScope\(tableId\)/);
 	});
 
 	it('wires every version 2 entity and hashed session into MySQL persistence', () => {

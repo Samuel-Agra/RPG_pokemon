@@ -3,7 +3,8 @@ import { resolve } from 'node:path';
 import { createHash, randomBytes, scryptSync } from 'node:crypto';
 import mysql, { type Pool, type RowDataPacket } from 'mysql2/promise';
 import type {
-	RPGCampaignTable, RPGPlatformAccount, RPGStoredPlatformSession, RPGTableInvite, RPGTableMember,
+	RPGAdminAuditEntry, RPGCampaignTable, RPGLoginAttempt, RPGPlatformAccount, RPGRecoveryCode,
+	RPGStoredPlatformSession, RPGTableInvite, RPGTableMember,
 } from '../account-management';
 
 const LEGACY_SCOPED_TABLES = new Set([
@@ -35,6 +36,9 @@ export interface RPGMySQLSnapshot {
 	tableMembers: RPGTableMember[];
 	tableInvites: RPGTableInvite[];
 	accountSessions: RPGStoredPlatformSession[];
+	recoveryCodes: RPGRecoveryCode[];
+	loginAttempts: RPGLoginAttempt[];
+	auditEntries: RPGAdminAuditEntry[];
 	legacyTableId?: string;
 }
 
@@ -111,13 +115,16 @@ export class RPGMySQLPersistence {
 			[ownerAccountId, credential, now, now]);
 			const [ownerRows] = await connection.query<RowDataPacket[]>('SELECT id FROM rpg_accounts WHERE username = ?', ['mestre']);
 			const resolvedOwnerAccountId = String(ownerRows[0].id);
-			const [campaignRows] = await connection.query<RowDataPacket[]>('SELECT state FROM rpg_campaign LIMIT 1');
-			const campaign = campaignRows[0] ? decoded(campaignRows[0].state) as Record<string, unknown> : {};
-			const campaignName = typeof campaign.name === 'string' && campaign.name.trim() ? campaign.name.trim() : 'Campanha importada';
+			if (resolvedOwnerAccountId === ownerAccountId) {
+				await connection.execute('UPDATE rpg_accounts SET credential = CAST(? AS JSON), updated_at = ? WHERE id = ?',
+					[credential, now, ownerAccountId]);
+			}
 			await connection.execute(`INSERT IGNORE INTO rpg_campaign_tables
 				(id, owner_account_id, name, description, color, visibility, status, settings, created_at, updated_at, revision)
 				VALUES (?, ?, ?, 'Campanha migrada da versão 1', '#355487', 'private', 'active',
-				CAST('{"legacyV1":true}' AS JSON), ?, ?, 0)`, [legacyTableId, resolvedOwnerAccountId, campaignName, now, now]);
+				CAST('{"legacyV1":true}' AS JSON), ?, ?, 0)`, [legacyTableId, resolvedOwnerAccountId, 'Mesa principal', now, now]);
+			await connection.execute(`UPDATE rpg_campaign_tables SET name = 'Mesa principal', updated_at = ?
+				WHERE id = ? AND JSON_EXTRACT(settings, '$.legacyV1') = TRUE`, [now, legacyTableId]);
 			await connection.execute(`INSERT INTO rpg_table_members
 				(table_id, account_id, role, status, permissions, joined_at, updated_at, revision)
 				VALUES (?, ?, 'owner', 'active', CAST('{}' AS JSON), ?, ?, 0)
@@ -125,7 +132,8 @@ export class RPGMySQLPersistence {
 			[legacyTableId, resolvedOwnerAccountId, now, now]);
 
 			const [characters] = await connection.query<RowDataPacket[]>(
-				'SELECT id, display_name, credential, state FROM rpg_characters WHERE account_id IS NULL OR table_id IS NULL'
+				`SELECT id, display_name, credential, state FROM rpg_characters
+				WHERE table_id = ? AND account_id IS NULL`, [legacyTableId]
 			);
 			for (const row of characters) {
 				const state = decoded(row.state) as Record<string, unknown>;
@@ -143,8 +151,8 @@ export class RPGMySQLPersistence {
 					VALUES (?, ?, 'player', 'active', CAST('{}' AS JSON), ?, ?, 0)
 					ON DUPLICATE KEY UPDATE status='active', updated_at=VALUES(updated_at)`,
 				[legacyTableId, resolvedAccountId, now, now]);
-				await connection.execute('UPDATE rpg_characters SET account_id = ?, table_id = ? WHERE id = ?',
-					[resolvedAccountId, legacyTableId, row.id]);
+				await connection.execute('UPDATE rpg_characters SET account_id = ? WHERE id = ? AND table_id = ?',
+					[resolvedAccountId, row.id, legacyTableId]);
 			}
 			for (const table of [
 				'rpg_battle_sessions', 'rpg_contest_sessions', 'rpg_tournaments', 'rpg_contest_combos',
@@ -158,28 +166,32 @@ export class RPGMySQLPersistence {
 		}
 	}
 
-	async snapshot(): Promise<RPGMySQLSnapshot> {
+	async snapshot(tableId = this.requireTableScope()): Promise<RPGMySQLSnapshot> {
 		const rows = async (table: string, column: string, scoped = false) => {
-			const where = scoped && this.legacyTableId ? ' WHERE table_id = ?' : '';
-			const values = where ? [this.legacyTableId] : [];
+			const where = scoped ? ' WHERE table_id = ?' : '';
+			const values = scoped ? [tableId] : [];
 			const [result] = await this.pool.query<RowDataPacket[]>(`SELECT ${column} AS value FROM ${table}${where}`, values);
 			return result.map(row => decoded(row.value));
 		};
 		const [characters, battles, contests, tournaments, combos, customItems, shops,
-			masterNPC, documents, campaign, accountRows, tableRows, memberRows, inviteRows, sessionRows] = await Promise.all([
+			masterNPC, documents, campaign, accountRows, tableRows, memberRows, inviteRows, sessionRows,
+			recoveryRows, attemptRows, auditRows] = await Promise.all([
 			rows('rpg_characters', "JSON_OBJECT('credential', credential, 'state', state, 'accountId', account_id, 'tableId', table_id)", true),
 			rows('rpg_battle_sessions', 'state', true), rows('rpg_contest_sessions', 'state', true),
 			rows('rpg_tournaments', 'state', true), rows('rpg_contest_combos', 'definition', true),
 			rows('rpg_custom_items', 'definition', true), rows('rpg_shops', 'state', true),
 			rows('rpg_master_npc_library', 'state', true),
-			this.pool.query<RowDataPacket[]>(`SELECT character_id, state FROM rpg_player_documents${
-				this.legacyTableId ? ' WHERE table_id = ?' : ''}`, this.legacyTableId ? [this.legacyTableId] : []),
+			this.pool.query<RowDataPacket[]>(
+				'SELECT character_id, state FROM rpg_player_documents WHERE table_id = ?', [tableId]),
 			rows('rpg_campaign', 'state', true),
 			this.pool.query<RowDataPacket[]>('SELECT * FROM rpg_accounts'),
 			this.pool.query<RowDataPacket[]>('SELECT * FROM rpg_campaign_tables'),
 			this.pool.query<RowDataPacket[]>('SELECT * FROM rpg_table_members'),
 			this.pool.query<RowDataPacket[]>('SELECT * FROM rpg_table_invites'),
 			this.pool.query<RowDataPacket[]>('SELECT * FROM rpg_account_sessions'),
+			this.pool.query<RowDataPacket[]>('SELECT * FROM rpg_account_recovery_codes'),
+			this.pool.query<RowDataPacket[]>('SELECT * FROM rpg_login_attempts'),
+			this.pool.query<RowDataPacket[]>('SELECT * FROM rpg_admin_audit'),
 		]);
 		return {
 			characters, battles, contests, tournaments, combos, customItems, shops,
@@ -216,7 +228,17 @@ export class RPGMySQLPersistence {
 				createdAt: Number(row.created_at), lastSeenAt: Number(row.last_seen_at), expiresAt: Number(row.expires_at),
 				revokedAt: row.revoked_at === null ? undefined : Number(row.revoked_at),
 			})),
-			legacyTableId: this.legacyTableId,
+			recoveryCodes: recoveryRows[0].map(row => ({ id: String(row.id), accountId: String(row.account_id),
+				codeHash: String(row.code_hash), createdAt: Number(row.created_at),
+				usedAt: row.used_at === null ? undefined : Number(row.used_at) })),
+			loginAttempts: attemptRows[0].map(row => ({ key: String(row.attempt_key), failures: Number(row.failures),
+				windowStartedAt: Number(row.window_started_at), blockedUntil: row.blocked_until === null ? undefined : Number(row.blocked_until),
+				updatedAt: Number(row.updated_at) })),
+			auditEntries: auditRows[0].map(row => ({ id: String(row.id), tableId: String(row.table_id),
+				actorAccountId: String(row.actor_account_id), action: String(row.action), targetType: String(row.target_type),
+				targetId: row.target_id ? String(row.target_id) : undefined,
+				metadata: decoded(row.metadata) as Record<string, unknown>, createdAt: Number(row.created_at) })),
+			legacyTableId: tableId,
 		};
 	}
 
@@ -231,28 +253,43 @@ export class RPGMySQLPersistence {
 	upsertCharacter(record: any): void {
 		this.enqueue(`INSERT INTO rpg_characters (id, account_id, table_id, display_name, credential, state, created_at, updated_at, revision)
 			VALUES (?, ?, ?, ?, CAST(? AS JSON), CAST(? AS JSON), ?, ?, ?)
-			ON DUPLICATE KEY UPDATE display_name=VALUES(display_name), credential=VALUES(credential), state=VALUES(state),
-			account_id=VALUES(account_id), table_id=VALUES(table_id), created_at=VALUES(created_at),
-			updated_at=VALUES(updated_at), revision=VALUES(revision)`, [
-			record.state.id, record.accountId, record.tableId || this.legacyTableId,
+			ON DUPLICATE KEY UPDATE
+			display_name=IF(table_id=VALUES(table_id),VALUES(display_name),display_name),
+			credential=IF(table_id=VALUES(table_id),VALUES(credential),credential),
+			state=IF(table_id=VALUES(table_id),VALUES(state),state),
+			account_id=IF(table_id=VALUES(table_id),VALUES(account_id),account_id),
+			created_at=IF(table_id=VALUES(table_id),VALUES(created_at),created_at),
+			updated_at=IF(table_id=VALUES(table_id),VALUES(updated_at),updated_at),
+			revision=IF(table_id=VALUES(table_id),VALUES(revision),revision)`, [
+			record.state.id, record.accountId, this.requireTableScope(record.tableId),
 			record.state.characterName || record.state.playerName || record.state.id,
 			JSON.stringify(record.credential), JSON.stringify(record.state), record.state.createdAt || Date.now(),
 			record.state.updatedAt || Date.now(), record.state.revision || 0,
 		]);
 	}
-	deleteCharacter(id: string): void { this.enqueue('DELETE FROM rpg_characters WHERE id = ?', [id]); }
-	upsertJSON(table: string, idColumn: string, id: string, jsonColumn: string, value: any, extras: Record<string, unknown> = {}): void {
-		if (this.legacyTableId && LEGACY_SCOPED_TABLES.has(table) && extras.table_id === undefined) {
-			extras = { ...extras, table_id: this.legacyTableId };
+	deleteCharacter(id: string, tableId?: string): void {
+		this.enqueue('DELETE FROM rpg_characters WHERE id = ? AND table_id = ?', [id, this.requireTableScope(tableId)]);
+	}
+	upsertJSON(table: string, idColumn: string, id: string, jsonColumn: string, value: any,
+		extras: Record<string, unknown> = {}, tableId?: string): void {
+		if (LEGACY_SCOPED_TABLES.has(table) && extras.table_id === undefined) {
+			extras = { ...extras, table_id: this.requireTableScope(tableId) };
 		}
 		const columns = [idColumn, ...Object.keys(extras), jsonColumn];
 		const values = [id, ...Object.values(extras), JSON.stringify(value)];
 		const placeholders = columns.map((column, index) => index === columns.length - 1 ? 'CAST(? AS JSON)' : '?');
-		const updates = columns.slice(1).map(column => `${column}=VALUES(${column})`);
+		const scoped = LEGACY_SCOPED_TABLES.has(table);
+		const updates = columns.slice(1).filter(column => column !== 'table_id').map(column => scoped ?
+			`${column}=IF(table_id=VALUES(table_id),VALUES(${column}),${column})` : `${column}=VALUES(${column})`);
 		this.enqueue(`INSERT INTO ${table} (${columns.join(', ')}) VALUES (${placeholders.join(', ')})
 			ON DUPLICATE KEY UPDATE ${updates.join(', ')}`, values);
 	}
-	delete(table: string, idColumn: string, id: string): void {
+	delete(table: string, idColumn: string, id: string, tableId?: string): void {
+		if (LEGACY_SCOPED_TABLES.has(table)) {
+			this.enqueue(`DELETE FROM ${table} WHERE ${idColumn} = ? AND table_id = ?`,
+				[id, this.requireTableScope(tableId)]);
+			return;
+		}
 		this.enqueue(`DELETE FROM ${table} WHERE ${idColumn} = ?`, [id]);
 	}
 	upsertPlatformAccount(account: RPGPlatformAccount): void {
@@ -309,15 +346,38 @@ export class RPGMySQLPersistence {
 	deletePlatformSession(tokenHash: string): void {
 		this.enqueue('DELETE FROM rpg_account_sessions WHERE token_hash = ?', [tokenHash]);
 	}
-	upsertSingleton(table: string, value: unknown): void {
+	upsertRecoveryCode(code: RPGRecoveryCode): void {
+		this.enqueue(`INSERT INTO rpg_account_recovery_codes (id, account_id, code_hash, created_at, used_at)
+			VALUES (?, ?, ?, ?, ?) ON DUPLICATE KEY UPDATE used_at=VALUES(used_at)`,
+		[code.id, code.accountId, code.codeHash, code.createdAt, code.usedAt]);
+	}
+	upsertLoginAttempt(attempt: RPGLoginAttempt): void {
+		this.enqueue(`INSERT INTO rpg_login_attempts
+			(attempt_key, failures, window_started_at, blocked_until, updated_at) VALUES (?, ?, ?, ?, ?)
+			ON DUPLICATE KEY UPDATE failures=VALUES(failures), window_started_at=VALUES(window_started_at),
+			blocked_until=VALUES(blocked_until), updated_at=VALUES(updated_at)`,
+		[attempt.key, attempt.failures, attempt.windowStartedAt, attempt.blockedUntil, attempt.updatedAt]);
+	}
+	deleteLoginAttempt(key: string): void { this.enqueue('DELETE FROM rpg_login_attempts WHERE attempt_key = ?', [key]); }
+	insertAuditEntry(entry: RPGAdminAuditEntry): void {
+		this.enqueue(`INSERT INTO rpg_admin_audit
+			(id, table_id, actor_account_id, action, target_type, target_id, metadata, created_at)
+			VALUES (?, ?, ?, ?, ?, ?, CAST(? AS JSON), ?)`, [entry.id, entry.tableId, entry.actorAccountId,
+			entry.action, entry.targetType, entry.targetId, JSON.stringify(entry.metadata), entry.createdAt]);
+	}
+	upsertSingleton(table: string, value: unknown, tableId?: string): void {
 		this.enqueue(`INSERT INTO ${table} (singleton_id, table_id, state) VALUES (1, ?, CAST(? AS JSON))
-			ON DUPLICATE KEY UPDATE table_id=VALUES(table_id), state=VALUES(state)`, [this.legacyTableId, JSON.stringify(value)]);
+			ON DUPLICATE KEY UPDATE state=VALUES(state)`, [this.requireTableScope(tableId), JSON.stringify(value)]);
 	}
 	async flush(): Promise<void> {
 		await this.pending;
 		if (this.failure) { const failure = this.failure; this.failure = null; throw failure; }
 	}
 	async close(): Promise<void> { await this.flush(); await this.pool.end(); }
+	private requireTableScope(tableId = this.legacyTableId): string {
+		if (!tableId) throw new Error('RPG table scope is not initialized');
+		return tableId;
+	}
 }
 
 /** Applies every pending numbered migration before repositories read their snapshots. */

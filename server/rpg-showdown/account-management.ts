@@ -4,6 +4,9 @@ import { toID } from '../../sim/dex-data';
 
 export const RPG_PLATFORM_ACCOUNT_VERSION = 1;
 export const RPG_PLATFORM_SESSION_TTL = 30 * 24 * 60 * 60 * 1000;
+export const RPG_LOGIN_WINDOW = 15 * 60 * 1000;
+export const RPG_LOGIN_BLOCK = 15 * 60 * 1000;
+export const RPG_LOGIN_MAX_FAILURES = 5;
 export type RPGTableRole = 'owner' | 'master' | 'player' | 'spectator';
 export const RPG_TABLE_PERMISSIONS = [
 	'battles.create', 'battles.manage', 'battles.participate', 'battles.watch',
@@ -75,9 +78,20 @@ export type RPGPublicTableInvite = Omit<RPGTableInvite, 'codeHash'>;
 export type RPGStoredPlatformSession = Omit<RPGPlatformSession, 'token'> & {
 	tokenHash: string, lastSeenAt: number, revokedAt?: number,
 };
+export interface RPGRecoveryCode {
+	id: string; accountId: string; codeHash: string; createdAt: number; usedAt?: number;
+}
+export interface RPGLoginAttempt {
+	key: string; failures: number; windowStartedAt: number; blockedUntil?: number; updatedAt: number;
+}
+export interface RPGAdminAuditEntry {
+	id: string; tableId: string; actorAccountId: string; action: string;
+	targetType: string; targetId?: string; metadata: Record<string, unknown>; createdAt: number;
+}
 export interface RPGAccountRepositorySnapshot {
 	accounts?: RPGPlatformAccount[]; tables?: RPGCampaignTable[];
 	members?: RPGTableMember[]; invites?: RPGTableInvite[];
+	recoveryCodes?: RPGRecoveryCode[]; loginAttempts?: RPGLoginAttempt[]; auditEntries?: RPGAdminAuditEntry[];
 }
 
 export interface RPGAccountRepository {
@@ -94,6 +108,12 @@ export interface RPGAccountRepository {
 	getInvite(id: string): RPGTableInvite | undefined;
 	listInvites(tableId: string): RPGTableInvite[];
 	setInvite(invite: RPGTableInvite): void;
+	listRecoveryCodes(accountId: string): RPGRecoveryCode[];
+	setRecoveryCode(code: RPGRecoveryCode): void;
+	getLoginAttempt(key: string): RPGLoginAttempt | undefined;
+	setLoginAttempt(attempt: RPGLoginAttempt | null, key: string): void;
+	listAuditEntries(tableId: string): RPGAdminAuditEntry[];
+	addAuditEntry(entry: RPGAdminAuditEntry): void;
 }
 
 /** Repositório determinístico usado nos testes e como contrato para o adaptador MySQL. */
@@ -102,6 +122,9 @@ export class RPGMemoryAccountRepository implements RPGAccountRepository {
 	private tables = new Map<string, RPGCampaignTable>();
 	private members = new Map<string, RPGTableMember>();
 	private invites = new Map<string, RPGTableInvite>();
+	private recoveryCodes = new Map<string, RPGRecoveryCode>();
+	private loginAttempts = new Map<string, RPGLoginAttempt>();
+	private auditEntries = new Map<string, RPGAdminAuditEntry>();
 	constructor(
 		snapshot: RPGAccountRepositorySnapshot = {},
 		private readonly changed: {
@@ -109,12 +132,18 @@ export class RPGMemoryAccountRepository implements RPGAccountRepository {
 			table?: (value: RPGCampaignTable) => void,
 			member?: (value: RPGTableMember) => void,
 			invite?: (value: RPGTableInvite) => void,
+			recoveryCode?: (value: RPGRecoveryCode) => void,
+			loginAttempt?: (value: RPGLoginAttempt | null, key: string) => void,
+			auditEntry?: (value: RPGAdminAuditEntry) => void,
 		} = {}
 	) {
 		for (const value of snapshot.accounts || []) this.accounts.set(value.id, structuredClone(value));
 		for (const value of snapshot.tables || []) this.tables.set(value.id, structuredClone(value));
 		for (const value of snapshot.members || []) this.members.set(`${value.tableId}:${value.accountId}`, structuredClone(value));
 		for (const value of snapshot.invites || []) this.invites.set(value.id, structuredClone(value));
+		for (const value of snapshot.recoveryCodes || []) this.recoveryCodes.set(value.id, structuredClone(value));
+		for (const value of snapshot.loginAttempts || []) this.loginAttempts.set(value.key, structuredClone(value));
+		for (const value of snapshot.auditEntries || []) this.auditEntries.set(value.id, structuredClone(value));
 	}
 	getAccount(id: string) { return this.clone(this.accounts.get(toID(id))); }
 	getAccountByUsername(username: string) {
@@ -138,6 +167,24 @@ export class RPGMemoryAccountRepository implements RPGAccountRepository {
 			.map(invite => structuredClone(invite));
 	}
 	setInvite(invite: RPGTableInvite) { this.invites.set(invite.id, structuredClone(invite)); this.changed.invite?.(invite); }
+	listRecoveryCodes(accountId: string) {
+		return [...this.recoveryCodes.values()].filter(code => code.accountId === toID(accountId)).map(code => structuredClone(code));
+	}
+	setRecoveryCode(code: RPGRecoveryCode) {
+		this.recoveryCodes.set(code.id, structuredClone(code)); this.changed.recoveryCode?.(code);
+	}
+	getLoginAttempt(key: string) { return this.clone(this.loginAttempts.get(key)); }
+	setLoginAttempt(attempt: RPGLoginAttempt | null, key: string) {
+		if (attempt) this.loginAttempts.set(key, structuredClone(attempt)); else this.loginAttempts.delete(key);
+		this.changed.loginAttempt?.(attempt, key);
+	}
+	listAuditEntries(tableId: string) {
+		return [...this.auditEntries.values()].filter(entry => entry.tableId === toID(tableId))
+			.sort((a, b) => b.createdAt - a.createdAt).map(entry => structuredClone(entry));
+	}
+	addAuditEntry(entry: RPGAdminAuditEntry) {
+		this.auditEntries.set(entry.id, structuredClone(entry)); this.changed.auditEntry?.(entry);
+	}
 	private clone<T>(value: T | undefined): T | undefined { return value && structuredClone(value); }
 }
 
@@ -180,6 +227,11 @@ export class RPGAccountManagement {
 		return this.publicAccount(account);
 	}
 
+	createAccountWithRecoveryCodes(username: string, displayName: string, password: string) {
+		const account = this.createAccount(username, displayName, password);
+		return { account, recoveryCodes: this.replaceRecoveryCodes(account.id) };
+	}
+
 	/** Reuses a version 1 scrypt credential while assigning its character to the imported table. */
 	linkLegacyCharacter(input: {
 		characterId: string, displayName: string, credential: RPGAccountCredential,
@@ -205,11 +257,20 @@ export class RPGAccountManagement {
 		return { account: this.publicAccount(account), membership: structuredClone(membership) };
 	}
 
-	login(username: string, password: string): RPGPlatformSession {
+	login(username: string, password: string, source = ''): RPGPlatformSession {
+		const attemptKey = this.tokenHash(`${toID(username)}:${source.trim().toLowerCase()}`);
+		const attempt = this.repository.getLoginAttempt(attemptKey); const now = this.now();
+		if (attempt?.blockedUntil && attempt.blockedUntil > now) throw new Error('Muitas tentativas de login. Tente novamente mais tarde');
 		const account = this.repository.getAccountByUsername(username);
 		if (!account || account.status !== 'active' || !this.verifyPassword(password, account.credential)) {
+			const active = attempt && now - attempt.windowStartedAt < RPG_LOGIN_WINDOW ? attempt :
+				{ key: attemptKey, failures: 0, windowStartedAt: now, updatedAt: now };
+			active.failures++; active.updatedAt = now;
+			if (active.failures >= RPG_LOGIN_MAX_FAILURES) active.blockedUntil = now + RPG_LOGIN_BLOCK;
+			this.repository.setLoginAttempt(active, attemptKey);
 			throw new Error('Usuário ou senha inválidos');
 		}
+		this.repository.setLoginAttempt(null, attemptKey);
 		const token = this.bytes(32).toString('base64url');
 		const createdAt = this.now();
 		this.sessionRepository.set({
@@ -217,6 +278,32 @@ export class RPGAccountManagement {
 			expiresAt: createdAt + RPG_PLATFORM_SESSION_TTL,
 		});
 		return { token, accountId: account.id, createdAt, expiresAt: createdAt + RPG_PLATFORM_SESSION_TTL };
+	}
+
+	regenerateRecoveryCodes(token: string, password: string): string[] {
+		const session = this.session(token); const account = this.repository.getAccount(session.accountId)!;
+		if (!this.verifyPassword(password, account.credential)) throw new Error('Usuário ou senha inválidos');
+		return this.replaceRecoveryCodes(account.id);
+	}
+
+	recoverPassword(username: string, recoveryCode: string, newPassword: string): void {
+		const account = this.repository.getAccountByUsername(username); this.validatePassword(newPassword);
+		const hash = this.tokenHash(recoveryCode.trim().toUpperCase());
+		const code = account && this.repository.listRecoveryCodes(account.id)
+			.find(value => !value.usedAt && value.codeHash === hash);
+		if (!account || !code) throw new Error('Código de recuperação inválido');
+		const now = this.now(); code.usedAt = now; this.repository.setRecoveryCode(code);
+		account.credential = this.hashPassword(newPassword); account.updatedAt = now; account.revision++;
+		this.repository.setAccount(account);
+		for (const session of this.sessionRepository.listByAccount(account.id)) {
+			if (!session.revokedAt) { session.revokedAt = now; this.sessionRepository.set(session); }
+		}
+	}
+
+	listAudit(token: string, tableId: string, limit = 100): RPGAdminAuditEntry[] {
+		const session = this.session(token); const member = this.activeMember(tableId, session.accountId);
+		this.requirePermission(member, 'members.manage');
+		return this.repository.listAuditEntries(tableId).slice(0, Math.max(1, Math.min(500, Math.floor(limit))));
 	}
 
 	getSession(token: string): RPGPlatformSessionView {
@@ -241,10 +328,12 @@ export class RPGAccountManagement {
 			visibility: input.visibility || 'private', status: 'active', settings: {}, createdAt: now, updatedAt: now, revision: 0,
 		};
 		this.repository.setTable(table);
-		this.repository.setMembership({
+		const owner: RPGTableMember = {
 			tableId: id, accountId: session.accountId, role: 'owner', status: 'active', permissions: {},
 			joinedAt: now, updatedAt: now, revision: 0,
-		});
+		};
+		this.repository.setMembership(owner);
+		this.audit(owner, 'table.created', 'table', id, { name: table.name, visibility: table.visibility });
 		return structuredClone(table);
 	}
 
@@ -279,7 +368,9 @@ export class RPGAccountManagement {
 			throw new Error('Apenas o proprietário pode administrar Mestres');
 		}
 		target.role = role; target.updatedAt = this.now(); target.revision++;
-		this.repository.setMembership(target); return structuredClone(target);
+		this.repository.setMembership(target);
+		this.audit(actor, 'member.role.changed', 'member', target.accountId, { role });
+		return structuredClone(target);
 	}
 
 	removeMember(token: string, tableId: string, accountId: string, block = false): RPGTableMember {
@@ -288,6 +379,7 @@ export class RPGAccountManagement {
 		if (actor.role !== 'owner' && target.role === 'master') throw new Error('Apenas o proprietário pode administrar Mestres');
 		target.status = block ? 'blocked' : 'removed'; target.updatedAt = this.now(); target.revision++;
 		this.repository.setMembership(target); this.clearActiveTable(target.accountId, target.tableId);
+		this.audit(actor, block ? 'member.blocked' : 'member.removed', 'member', target.accountId);
 		return structuredClone(target);
 	}
 
@@ -319,6 +411,7 @@ export class RPGAccountManagement {
 			usedCount: 0, expiresAt, createdAt: this.now(),
 		};
 		this.repository.setInvite(invite);
+		this.audit(member, 'invite.created', 'invite', invite.id, { role, maxUses: invite.maxUses });
 		return { code, invite: structuredClone(invite) };
 	}
 
@@ -360,6 +453,7 @@ export class RPGAccountManagement {
 		this.requirePermission(member, 'members.invite'); const invite = this.repository.getInvite(inviteId);
 		if (!invite || invite.tableId !== toID(tableId)) throw new Error('Convite não encontrado');
 		if (invite.status === 'active') { invite.status = 'revoked'; this.repository.setInvite(invite); }
+		this.audit(member, 'invite.revoked', 'invite', invite.id);
 		return this.publicInvite(invite);
 	}
 
@@ -439,6 +533,22 @@ export class RPGAccountManagement {
 			if (session.activeTableId !== toID(tableId) || session.revokedAt) continue;
 			delete session.activeTableId; this.sessionRepository.set(session);
 		}
+	}
+	private replaceRecoveryCodes(accountId: string): string[] {
+		const now = this.now();
+		for (const previous of this.repository.listRecoveryCodes(accountId)) {
+			if (!previous.usedAt) { previous.usedAt = now; this.repository.setRecoveryCode(previous); }
+		}
+		const codes = Array.from({ length: 10 }, () => this.bytes(6).toString('hex').toUpperCase().match(/.{1,4}/g)!.join('-'));
+		for (const code of codes) this.repository.setRecoveryCode({
+			id: this.id(), accountId, codeHash: this.tokenHash(code), createdAt: now,
+		});
+		return codes;
+	}
+	private audit(actor: RPGTableMember, action: string, targetType: string, targetId?: string,
+		metadata: Record<string, unknown> = {}): void {
+		this.repository.addAuditEntry({ id: this.id(), tableId: actor.tableId, actorAccountId: actor.accountId,
+			action, targetType, targetId, metadata, createdAt: this.now() });
 	}
 	private publicInvite(invite: RPGTableInvite): RPGPublicTableInvite {
 		const { codeHash: _codeHash, ...view } = invite; return structuredClone(view);

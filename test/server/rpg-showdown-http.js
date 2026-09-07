@@ -95,6 +95,7 @@ describe('RPG HTTP frontend API', () => {
 		assert.equal(result.response.status, 201);
 		assert.equal(result.data.account.username, 'mestrev2');
 		assert.equal(result.data.account.credential, undefined);
+		assert.equal(result.data.recoveryCodes.length, 10);
 
 		await request('/v2/accounts', {
 			method: 'POST', body: { username: 'player-v2', displayName: 'Player V2', password: 'senha-segura' },
@@ -169,6 +170,28 @@ describe('RPG HTTP frontend API', () => {
 		assert.equal(result.response.status, 401);
 	});
 
+	it('recovers passwords with a one-time code and rate-limits repeated login failures', async () => {
+		let result = await request('/v2/accounts', {
+			method: 'POST', body: { username: 'seguranca-http', displayName: 'Segurança', password: 'senha-antiga' },
+		});
+		const recoveryCode = result.data.recoveryCodes[0];
+		result = await request('/v2/password/recovery', {
+			method: 'POST', body: { username: 'seguranca-http', recoveryCode, newPassword: 'senha-nova-segura' },
+		});
+		assert.equal(result.response.status, 200);
+		result = await request('/v2/session', {
+			method: 'POST', body: { username: 'seguranca-http', password: 'senha-nova-segura' },
+		});
+		assert.equal(result.response.status, 200);
+		for (let index = 0; index < 5; index++) await request('/v2/session', {
+			method: 'POST', body: { username: 'bloqueio-http', password: 'errada-segura' },
+		});
+		result = await request('/v2/session', {
+			method: 'POST', body: { username: 'bloqueio-http', password: 'errada-segura' },
+		});
+		assert.equal(result.response.status, 429);
+	});
+
 	it('administers version 2 members and advanced invitations through protected routes', async () => {
 		for (const [username, displayName] of [['adminv2', 'Admin'], ['membrov2', 'Membro'], ['saidav2', 'Saída']]) {
 			await request('/v2/accounts', { method: 'POST', body: { username, displayName, password: 'senha-segura' } });
@@ -220,6 +243,10 @@ describe('RPG HTTP frontend API', () => {
 			method: 'POST', headers: ownerHeaders,
 		});
 		assert.equal(result.data.member.status, 'blocked');
+		result = await request(`/v2/tables/${tableId}/audit`, { headers: ownerHeaders });
+		assert.equal(result.response.status, 200);
+		assert(result.data.entries.some(entry => entry.action === 'member.role.changed'));
+		assert(result.data.entries.some(entry => entry.action === 'member.blocked'));
 	});
 
 	it('returns safe HTTP errors and supports the master dashboard', async () => {

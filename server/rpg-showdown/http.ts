@@ -234,19 +234,31 @@ export class RPGHttpServer {
 		// Version 2 owns global accounts and table membership while version 1 remains available during migration.
 		if (method === 'POST' && url.pathname === '/api/rpg/v2/accounts') {
 			const body = await this.body(req);
-			const account = this.login.accounts.createAccount(
+			const registration = this.login.accounts.createAccountWithRecoveryCodes(
 				this.string(body.username), this.string(body.displayName), this.string(body.password)
 			);
 			await this.login.flushPersistence();
-			this.json(res, 201, { account });
+			this.json(res, 201, registration);
 			return;
 		}
 		if (method === 'POST' && url.pathname === '/api/rpg/v2/session') {
 			const body = await this.body(req);
-			const session = this.login.accounts.login(this.string(body.username), this.string(body.password));
+			const session = this.login.accounts.login(this.string(body.username), this.string(body.password),
+				req.socket.remoteAddress || 'unknown');
 			await this.login.flushPersistence();
 			this.json(res, 200, { session });
 			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/v2/password/recovery') {
+			const body = await this.body(req);
+			this.login.accounts.recoverPassword(this.string(body.username), this.string(body.recoveryCode),
+				this.string(body.newPassword));
+			await this.login.flushPersistence(); this.json(res, 200, { ok: true }); return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/v2/recovery-codes') {
+			const body = await this.body(req);
+			const recoveryCodes = this.login.accounts.regenerateRecoveryCodes(this.token(req), this.string(body.password));
+			await this.login.flushPersistence(); this.json(res, 200, { recoveryCodes }); return;
 		}
 		if (url.pathname === '/api/rpg/v2/session') {
 			const token = this.token(req);
@@ -316,6 +328,12 @@ export class RPGHttpServer {
 			await this.login.flushPersistence();
 			this.json(res, 200, { permissions });
 			return;
+		}
+		const version2AuditMatch = /^\/api\/rpg\/v2\/tables\/([^/]+)\/audit$/.exec(url.pathname);
+		if (method === 'GET' && version2AuditMatch) {
+			const entries = this.login.accounts.listAudit(this.token(req), decodeURIComponent(version2AuditMatch[1]),
+				Number(url.searchParams.get('limit') || 100));
+			await this.login.flushPersistence(); this.json(res, 200, { entries }); return;
 		}
 		if (method === 'POST' && url.pathname === '/api/rpg/v2/invites/join') {
 			const token = this.token(req); const body = await this.body(req);
@@ -1458,7 +1476,9 @@ export class RPGHttpServer {
 		}
 		const message = error instanceof Error ? error.message : 'Unexpected RPG server error';
 		let status = 400;
-		if (['Invalid or expired RPG session', 'Invalid RPG character or password', 'Invalid RPG master code',
+		if (message.includes('Muitas tentativas de login')) {
+			status = 429;
+		} else if (['Invalid or expired RPG session', 'Invalid RPG character or password', 'Invalid RPG master code',
 			'Sessão inválida ou expirada', 'Usuário ou senha inválidos', 'Conta indisponível']
 			.some(part => message.includes(part))) {
 			status = 401;

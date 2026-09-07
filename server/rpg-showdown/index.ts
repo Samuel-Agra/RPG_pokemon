@@ -5305,12 +5305,16 @@ Promise<RPGLoginService> {
 			{ shop_type: shop.type, revision: shop.revision }));
 	const accountRepository = new RPGMemoryAccountRepository({
 		accounts: snapshot.platformAccounts, tables: snapshot.campaignTables,
-		members: snapshot.tableMembers, invites: snapshot.tableInvites,
+		members: snapshot.tableMembers, invites: snapshot.tableInvites, recoveryCodes: snapshot.recoveryCodes,
+		loginAttempts: snapshot.loginAttempts, auditEntries: snapshot.auditEntries,
 	}, {
 		account: account => persistence.upsertPlatformAccount(account),
 		table: table => persistence.upsertCampaignTable(table),
 		member: member => persistence.upsertTableMember(member),
 		invite: invite => persistence.upsertTableInvite(invite),
+		recoveryCode: code => persistence.upsertRecoveryCode(code),
+		loginAttempt: (attempt, key) => attempt ? persistence.upsertLoginAttempt(attempt) : persistence.deleteLoginAttempt(key),
+		auditEntry: entry => persistence.insertAuditEntry(entry),
 	});
 	const accountSessionRepository = new RPGMemoryPlatformSessionRepository(snapshot.accountSessions, (session, tokenHash) => {
 		if (session) persistence.upsertPlatformSession(session);
