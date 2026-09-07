@@ -183,6 +183,12 @@ describe('RPG HTTP frontend API', () => {
 			method: 'POST', body: { username: 'seguranca-http', password: 'senha-nova-segura' },
 		});
 		assert.equal(result.response.status, 200);
+		const securityHeaders = { Authorization: `Bearer ${result.data.session.token}` };
+		result = await request('/v2/recovery-codes', {
+			method: 'POST', headers: securityHeaders, body: { password: 'senha-nova-segura' },
+		});
+		assert.equal(result.response.status, 200);
+		assert.equal(result.data.recoveryCodes.length, 10);
 		for (let index = 0; index < 5; index++) await request('/v2/session', {
 			method: 'POST', body: { username: 'bloqueio-http', password: 'errada-segura' },
 		});
@@ -227,6 +233,8 @@ describe('RPG HTTP frontend API', () => {
 		result = await request(`/v2/tables/${tableId}/permissions`, { headers: memberHeaders });
 		assert.equal(result.data.permissions['battles.create'], false);
 		assert.equal(result.data.permissions['contests.participate'], true);
+		result = await request(`/v2/tables/${tableId}/audit`, { headers: memberHeaders });
+		assert.equal(result.response.status, 403);
 		result = await request(`/v2/tables/${tableId}/members/${member.accountId}`, {
 			method: 'PATCH', headers: ownerHeaders, body: { role: 'master' },
 		});

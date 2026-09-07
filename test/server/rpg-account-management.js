@@ -53,6 +53,77 @@ describe('RPG version 2 accounts and tables backend', () => {
 		assert(accounts.login('protegida', 'senha-correta', '127.0.0.1').token);
 	});
 
+	it('persists recovery, throttling, audit, and sessions across a complete repository restart', () => {
+		const stored = {
+			accounts: new Map(), tables: new Map(), members: new Map(), invites: new Map(), sessions: new Map(),
+			recoveryCodes: new Map(), loginAttempts: new Map(), auditEntries: new Map(),
+		};
+		const changes = {
+			account: value => stored.accounts.set(value.id, structuredClone(value)),
+			table: value => stored.tables.set(value.id, structuredClone(value)),
+			member: value => stored.members.set(`${value.tableId}:${value.accountId}`, structuredClone(value)),
+			invite: value => stored.invites.set(value.id, structuredClone(value)),
+			recoveryCode: value => stored.recoveryCodes.set(value.id, structuredClone(value)),
+			loginAttempt: (value, key) => value ? stored.loginAttempts.set(key, structuredClone(value)) : stored.loginAttempts.delete(key),
+			auditEntry: value => stored.auditEntries.set(value.id, structuredClone(value)),
+		};
+		const sessionChanged = (value, key) => value ? stored.sessions.set(key, structuredClone(value)) : stored.sessions.delete(key);
+		let seed = 0; const bytes = size => Buffer.alloc(size, ++seed); const now = () => 1_700_000_000_000;
+		const first = new RPGAccountManagement(new RPGMemoryAccountRepository({}, changes), now, bytes,
+			new RPGMemoryPlatformSessionRepository([], sessionChanged));
+		const registration = first.createAccountWithRecoveryCodes('reinicio', 'Reinício', 'senha-antiga');
+		const owner = first.login('reinicio', 'senha-antiga');
+		const table = first.createTable(owner.token, { name: 'Mesa persistida' });
+		for (let index = 0; index < 5; index++) assert.throws(() => first.login('reinicio', 'errada', 'origem-a'));
+
+		const restored = new RPGAccountManagement(new RPGMemoryAccountRepository({
+			accounts: [...stored.accounts.values()], tables: [...stored.tables.values()],
+			members: [...stored.members.values()], invites: [...stored.invites.values()],
+			recoveryCodes: [...stored.recoveryCodes.values()], loginAttempts: [...stored.loginAttempts.values()],
+			auditEntries: [...stored.auditEntries.values()],
+		}, changes), now, bytes, new RPGMemoryPlatformSessionRepository([...stored.sessions.values()], sessionChanged));
+		assert.throws(() => restored.login('reinicio', 'senha-antiga', 'origem-a'), /Muitas tentativas/);
+		assert.equal(restored.listAudit(owner.token, table.id)[0].action, 'table.created');
+		restored.recoverPassword('reinicio', registration.recoveryCodes[0], 'senha-nova-segura');
+		assert(restored.login('reinicio', 'senha-nova-segura', 'origem-b').token);
+	});
+
+	it('consumes recovery codes and single-use invitations only once under competing requests', async () => {
+		const accounts = service();
+		const registration = accounts.createAccountWithRecoveryCodes('corrida', 'Corrida', 'senha-antiga');
+		const recovery = await Promise.allSettled([0, 1].map(() => Promise.resolve().then(() =>
+			accounts.recoverPassword('corrida', registration.recoveryCodes[0], 'senha-nova-segura'))));
+		assert.equal(recovery.filter(result => result.status === 'fulfilled').length, 1);
+		assert.equal(recovery.filter(result => result.status === 'rejected').length, 1);
+
+		for (const name of ['dono-corrida', 'convidado-a', 'convidado-b']) {
+			accounts.createAccount(name, name, 'senha-segura');
+		}
+		const owner = accounts.login('dono-corrida', 'senha-segura');
+		const table = accounts.createTable(owner.token, { name: 'Convite concorrente' });
+		const code = accounts.createInvite(owner.token, table.id, 'player', undefined, 1).code;
+		const guests = ['convidado-a', 'convidado-b'].map(name => accounts.login(name, 'senha-segura'));
+		const joins = await Promise.allSettled(guests.map(guest => Promise.resolve().then(() =>
+			accounts.joinByInvite(guest.token, code))));
+		assert.equal(joins.filter(result => result.status === 'fulfilled').length, 1);
+		assert.equal(joins.filter(result => result.status === 'rejected').length, 1);
+	});
+
+	it('keeps administrative audit records isolated between tables', () => {
+		const accounts = service();
+		accounts.createAccount('dono-isolado', 'Dono', 'senha-segura');
+		const owner = accounts.login('dono-isolado', 'senha-segura');
+		const alpha = accounts.createTable(owner.token, { name: 'Alpha' });
+		const beta = accounts.createTable(owner.token, { name: 'Beta' });
+		accounts.createInvite(owner.token, alpha.id);
+		const alphaAudit = accounts.listAudit(owner.token, alpha.id);
+		const betaAudit = accounts.listAudit(owner.token, beta.id);
+		assert(alphaAudit.some(entry => entry.action === 'invite.created'));
+		assert(!betaAudit.some(entry => entry.action === 'invite.created'));
+		assert(alphaAudit.every(entry => entry.tableId === alpha.id));
+		assert(betaAudit.every(entry => entry.tableId === beta.id));
+	});
+
 	it('creates a table and its owner membership atomically at domain level', () => {
 		const accounts = service();
 		accounts.createAccount('samuel', 'Samuel', 'senha-segura');
