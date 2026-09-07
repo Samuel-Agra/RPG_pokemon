@@ -5,6 +5,37 @@ import { toID } from '../../sim/dex-data';
 export const RPG_PLATFORM_ACCOUNT_VERSION = 1;
 export const RPG_PLATFORM_SESSION_TTL = 30 * 24 * 60 * 60 * 1000;
 export type RPGTableRole = 'owner' | 'master' | 'player' | 'spectator';
+export const RPG_TABLE_PERMISSIONS = [
+	'battles.create', 'battles.manage', 'battles.participate', 'battles.watch',
+	'contests.create', 'contests.manage', 'contests.participate', 'contests.watch',
+	'tournaments.create', 'tournaments.manage', 'tournaments.participate', 'tournaments.watch',
+	'npcs.manage', 'shops.manage', 'campaign.configure', 'campaign.advanceTime',
+	'characters.manage', 'characters.viewPrivate', 'documents.manage',
+	'members.view', 'members.invite', 'members.manage',
+] as const;
+export type RPGTablePermission = typeof RPG_TABLE_PERMISSIONS[number];
+
+const RPG_ROLE_PERMISSION_LISTS: Record<RPGTableRole, readonly RPGTablePermission[]> = {
+	owner: RPG_TABLE_PERMISSIONS,
+	master: [
+		'battles.create', 'battles.manage', 'battles.participate', 'battles.watch',
+		'contests.create', 'contests.manage', 'contests.participate', 'contests.watch',
+		'tournaments.create', 'tournaments.manage', 'tournaments.participate', 'tournaments.watch',
+		'npcs.manage', 'shops.manage', 'campaign.advanceTime', 'characters.manage', 'characters.viewPrivate',
+		'documents.manage', 'members.view', 'members.invite', 'members.manage',
+	],
+	player: [
+		'battles.participate', 'battles.watch', 'contests.participate', 'contests.watch',
+		'tournaments.participate', 'tournaments.watch', 'members.view',
+	],
+	spectator: ['battles.watch', 'contests.watch', 'tournaments.watch', 'members.view'],
+};
+
+export function getRPGDefaultTablePermissions(role: RPGTableRole): Record<RPGTablePermission, boolean> {
+	const enabled = new Set(RPG_ROLE_PERMISSION_LISTS[role]);
+	return Object.fromEntries(RPG_TABLE_PERMISSIONS.map(permission => [permission, enabled.has(permission)])) as
+		Record<RPGTablePermission, boolean>;
+}
 
 interface RPGAccountCredential { algorithm: 'scrypt'; salt: string; hash: string }
 export interface RPGPlatformAccount {
@@ -36,7 +67,10 @@ export interface RPGPlatformSessionView {
 export interface RPGPublicPlatformSession {
 	id: string; activeTableId?: string; createdAt: number; lastSeenAt: number; expiresAt: number; current: boolean;
 }
-export interface RPGTableMemberView { member: RPGTableMember; account: RPGPublicPlatformAccount }
+export interface RPGTableMemberView {
+	member: RPGTableMember; account: RPGPublicPlatformAccount;
+	effectivePermissions: Record<RPGTablePermission, boolean>;
+}
 export type RPGPublicTableInvite = Omit<RPGTableInvite, 'codeHash'>;
 export type RPGStoredPlatformSession = Omit<RPGPlatformSession, 'token'> & {
 	tokenHash: string, lastSeenAt: number, revokedAt?: number,
@@ -146,6 +180,31 @@ export class RPGAccountManagement {
 		return this.publicAccount(account);
 	}
 
+	/** Reuses a version 1 scrypt credential while assigning its character to the imported table. */
+	linkLegacyCharacter(input: {
+		characterId: string, displayName: string, credential: RPGAccountCredential,
+		tableId: string, createdAt: number,
+	}): { account: RPGPublicPlatformAccount, membership: RPGTableMember } {
+		const username = toID(input.characterId);
+		let account = this.repository.getAccountByUsername(username);
+		if (!account) {
+			const accountId = createHash('sha256').update(`pokemon-rpg:legacy-account:${username}`).digest('hex').slice(0, 36);
+			account = {
+				id: accountId, username, displayName: this.text(input.displayName, 80, 'nome de exibição'),
+				credential: structuredClone(input.credential), status: 'active', createdAt: input.createdAt,
+				updatedAt: input.createdAt, revision: 0,
+			};
+			this.repository.setAccount(account);
+		}
+		const previous = this.repository.getMembership(input.tableId, account.id); const now = this.now();
+		const membership: RPGTableMember = previous || {
+			tableId: toID(input.tableId), accountId: account.id, role: 'player', status: 'active', permissions: {},
+			joinedAt: input.createdAt, updatedAt: now, revision: 0,
+		};
+		if (!previous) this.repository.setMembership(membership);
+		return { account: this.publicAccount(account), membership: structuredClone(membership) };
+	}
+
 	login(username: string, password: string): RPGPlatformSession {
 		const account = this.repository.getAccountByUsername(username);
 		if (!account || account.status !== 'active' || !this.verifyPassword(password, account.credential)) {
@@ -198,11 +257,18 @@ export class RPGAccountManagement {
 	}
 
 	listMembers(token: string, tableId: string): RPGTableMemberView[] {
-		const session = this.session(token); this.activeMember(tableId, session.accountId);
+		const session = this.session(token); const viewer = this.activeMember(tableId, session.accountId);
+		this.requirePermission(viewer, 'members.view');
 		return this.repository.listMembershipsForTable(tableId).flatMap(member => {
 			const account = this.repository.getAccount(member.accountId);
-			return account ? [{ member, account: this.publicAccount(account) }] : [];
+			return account ? [{ member, account: this.publicAccount(account),
+				effectivePermissions: getRPGDefaultTablePermissions(member.role) }] : [];
 		});
+	}
+
+	getTablePermissions(token: string, tableId: string): Record<RPGTablePermission, boolean> {
+		const session = this.session(token); const member = this.activeMember(tableId, session.accountId);
+		return getRPGDefaultTablePermissions(member.role);
 	}
 
 	changeMemberRole(token: string, tableId: string, accountId: string, role: Exclude<RPGTableRole, 'owner'>): RPGTableMember {
@@ -236,7 +302,7 @@ export class RPGAccountManagement {
 	createInvite(token: string, tableId: string, role: Exclude<RPGTableRole, 'owner'> = 'player', expiresAt?: number,
 		maxUses = 1, targetUsername?: string) {
 		const session = this.session(token); const member = this.activeMember(tableId, session.accountId);
-		if (member.role !== 'owner' && member.role !== 'master') throw new Error('Apenas Mestres podem criar convites');
+		this.requirePermission(member, 'members.invite');
 		if (!['master', 'player', 'spectator'].includes(role)) throw new Error('Função de convite inválida');
 		if (member.role !== 'owner' && role === 'master') throw new Error('Apenas o proprietário pode convidar Mestres');
 		if (expiresAt !== undefined && expiresAt <= this.now()) throw new Error('A expiração deve estar no futuro');
@@ -279,7 +345,8 @@ export class RPGAccountManagement {
 	}
 
 	listInvites(token: string, tableId: string): RPGPublicTableInvite[] {
-		this.tableAdministrator(token, tableId); const now = this.now();
+		const session = this.session(token); const member = this.activeMember(tableId, session.accountId);
+		this.requirePermission(member, 'members.invite'); const now = this.now();
 		return this.repository.listInvites(tableId).map(invite => {
 			if (invite.status === 'active' && invite.expiresAt !== undefined && invite.expiresAt <= now) {
 				invite.status = 'expired'; this.repository.setInvite(invite);
@@ -289,7 +356,8 @@ export class RPGAccountManagement {
 	}
 
 	revokeInvite(token: string, tableId: string, inviteId: string): RPGPublicTableInvite {
-		this.tableAdministrator(token, tableId); const invite = this.repository.getInvite(inviteId);
+		const session = this.session(token); const member = this.activeMember(tableId, session.accountId);
+		this.requirePermission(member, 'members.invite'); const invite = this.repository.getInvite(inviteId);
 		if (!invite || invite.tableId !== toID(tableId)) throw new Error('Convite não encontrado');
 		if (invite.status === 'active') { invite.status = 'revoked'; this.repository.setInvite(invite); }
 		return this.publicInvite(invite);
@@ -358,8 +426,13 @@ export class RPGAccountManagement {
 	}
 	private tableAdministrator(token: string, tableId: string) {
 		const session = this.session(token); const member = this.activeMember(tableId, session.accountId);
-		if (member.role !== 'owner' && member.role !== 'master') throw new Error('Apenas Mestres podem administrar membros');
+		this.requirePermission(member, 'members.manage');
 		return member;
+	}
+	private requirePermission(member: RPGTableMember, permission: RPGTablePermission) {
+		if (!getRPGDefaultTablePermissions(member.role)[permission]) {
+			throw new Error(`Permissão necessária: ${permission}`);
+		}
 	}
 	private clearActiveTable(accountId: string, tableId: string) {
 		for (const session of this.sessionRepository.listByAccount(accountId)) {

@@ -253,6 +253,9 @@ interface RPGCredential {
 export interface RPGStoredCharacter {
 	state: RPGCharacterState;
 	credential: RPGCredential;
+	/** Version 2 ownership; absent only in pre-migration file-backed fixtures. */
+	accountId?: string;
+	tableId?: string;
 }
 
 export interface RPGCreateCharacterRequest {
@@ -670,6 +673,7 @@ export interface RPGLoginServiceOptions {
 	tournamentChanged?: (tournament: RPGTournament) => void;
 	mysqlPersistence?: RPGMySQLPersistence;
 	accountManagement?: RPGAccountManagement;
+	legacyTableId?: string;
 	masterNPCLibrary?: Record<string, unknown> | null;
 	playerDocuments?: Record<string, Record<string, unknown>>;
 	campaignSettings?: Record<string, unknown> | null;
@@ -707,6 +711,7 @@ export class RPGLoginService {
 	};
 	readonly mysqlPersistence?: RPGMySQLPersistence;
 	readonly accounts: RPGAccountManagement;
+	readonly legacyTableId?: string;
 
 	constructor(options: RPGLoginServiceOptions) {
 		if (typeof options.masterCode !== 'string' || !options.masterCode) {
@@ -715,6 +720,7 @@ export class RPGLoginService {
 		this.repository = options.repository || new RPGMemoryCharacterRepository();
 		this.mysqlPersistence = options.mysqlPersistence;
 		this.accounts = options.accountManagement || new RPGAccountManagement();
+		this.legacyTableId = options.legacyTableId;
 		this.customItems = options.customItemRepository || new RPGMemoryCustomItemRepository();
 		this.commerce = new RPGCommerceManagement(options.commerceRepository || new RPGMemoryCommerceRepository());
 		this.tournaments = new RPGTournamentSessionService(options.tournamentFile || resolve('config/rpg-tournaments.json'),
@@ -847,7 +853,16 @@ export class RPGLoginService {
 			profile: this.createTrainerProfile(starter.species), team: [starter], box, inventory,
 			createdAt: now, updatedAt: now,
 		};
-		this.repository.create({ state, credential: this.hashPassword(request.password) });
+		const credential = this.hashPassword(request.password);
+		let linkage: Pick<RPGStoredCharacter, 'accountId' | 'tableId'> = {};
+		if (this.legacyTableId) {
+			const linked = this.accounts.linkLegacyCharacter({
+				characterId: id, displayName: playerName, credential,
+				tableId: this.legacyTableId, createdAt: now,
+			});
+			linkage = { accountId: linked.account.id, tableId: this.legacyTableId };
+		}
+		this.repository.create({ state, credential, ...linkage });
 		return this.selection(state);
 	}
 
@@ -5257,7 +5272,7 @@ export function createRPGLoginServiceFromConfig(
 	service.recoverInterruptedBattleSessions();
 	service.recoverInterruptedContestSessions();
 	repairOrphanedBoxPlacements(service);
-	if (config.rpgseedtestaccount !== false) ensurePermanentTestCharacters(service, masterCode);
+	if (config.rpgseedtestaccount === true) ensurePermanentTestCharacters(service, masterCode);
 	return service;
 }
 
@@ -5267,6 +5282,7 @@ Promise<RPGLoginService> {
 	const mysqlConfig = rpgMySQLConfig();
 	if (!mysqlConfig) return createRPGLoginServiceFromConfig(config);
 	const persistence = await RPGMySQLPersistence.connect(mysqlConfig);
+	await persistence.linkLegacyData(config.rpgmastercode || '');
 	const snapshot = await persistence.snapshot();
 	const repository = new RPGMemoryCharacterRepository(snapshot.characters as RPGStoredCharacter[], (record, id) => {
 		if (record) persistence.upsertCharacter(record);
@@ -5306,6 +5322,7 @@ Promise<RPGLoginService> {
 	const service = new RPGLoginService({
 		masterCode: config.rpgmastercode || '', repository, battleSessionRepository, contestSessionRepository,
 		contestComboRepository, customItemRepository, commerceRepository, mysqlPersistence: persistence, accountManagement,
+		legacyTableId: snapshot.legacyTableId,
 		masterNPCLibrary: snapshot.masterNPCLibrary, playerDocuments: snapshot.playerDocuments,
 		campaignSettings: snapshot.campaign, tournaments: snapshot.tournaments as RPGTournament[],
 		tournamentChanged: tournament => persistence.upsertJSON('rpg_tournaments', 'id', tournament.id, 'state', tournament,
@@ -5319,7 +5336,7 @@ Promise<RPGLoginService> {
 	service.recoverInterruptedBattleSessions();
 	service.recoverInterruptedContestSessions();
 	repairOrphanedBoxPlacements(service);
-	if (config.rpgseedtestaccount !== false) ensurePermanentTestCharacters(service, config.rpgmastercode || '');
+	if (config.rpgseedtestaccount === true) ensurePermanentTestCharacters(service, config.rpgmastercode || '');
 	await service.flushPersistence();
 	return service;
 }

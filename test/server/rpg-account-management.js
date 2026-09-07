@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const {
 	RPGAccountManagement, RPGMemoryAccountRepository, RPGMemoryPlatformSessionRepository,
+	getRPGDefaultTablePermissions,
 } = require('../../dist/server/rpg-showdown');
 
 function service() {
@@ -155,6 +156,50 @@ describe('RPG version 2 accounts and tables backend', () => {
 		assert.equal(accounts.listInvites(owner.token, table.id).find(invite => invite.id === expiring.invite.id).status, 'expired');
 	});
 
+	it('applies fixed default permissions for every table role without member overrides', () => {
+		const owner = getRPGDefaultTablePermissions('owner');
+		const master = getRPGDefaultTablePermissions('master');
+		const player = getRPGDefaultTablePermissions('player');
+		const spectator = getRPGDefaultTablePermissions('spectator');
+		assert(Object.values(owner).every(Boolean));
+		assert.equal(master['battles.create'], true);
+		assert.equal(master['campaign.configure'], false);
+		assert.equal(master['members.manage'], true);
+		assert.equal(player['battles.participate'], true);
+		assert.equal(player['battles.create'], false);
+		assert.equal(spectator['battles.watch'], true);
+		assert.equal(spectator['battles.participate'], false);
+
+		const accounts = service();
+		accounts.createAccount('dono-perm', 'Dono', 'senha-segura');
+		accounts.createAccount('player-perm', 'Player', 'senha-segura');
+		const ownerSession = accounts.login('dono-perm', 'senha-segura');
+		const playerSession = accounts.login('player-perm', 'senha-segura');
+		const table = accounts.createTable(ownerSession.token, { name: 'Permissões' });
+		accounts.joinByInvite(playerSession.token, accounts.createInvite(ownerSession.token, table.id).code);
+		assert.equal(accounts.getTablePermissions(playerSession.token, table.id)['contests.participate'], true);
+		assert.throws(() => accounts.createInvite(playerSession.token, table.id), /Permissão necessária/);
+	});
+
+	it('links a legacy character credential to one global account and table membership idempotently', () => {
+		const accounts = service();
+		accounts.createAccount('owner-link', 'Owner', 'senha-segura');
+		const owner = accounts.login('owner-link', 'senha-segura');
+		const table = accounts.createTable(owner.token, { name: 'Legado' });
+		const credential = { algorithm: 'scrypt', salt: Buffer.alloc(16, 8).toString('base64'), hash: 'hash-legado' };
+		const first = accounts.linkLegacyCharacter({
+			characterId: 'Personagem Antigo', displayName: 'Jogador Antigo', credential,
+			tableId: table.id, createdAt: 1_600_000_000_000,
+		});
+		const second = accounts.linkLegacyCharacter({
+			characterId: 'Personagem Antigo', displayName: 'Jogador Antigo', credential,
+			tableId: table.id, createdAt: 1_600_000_000_000,
+		});
+		assert.equal(first.account.id, second.account.id);
+		assert.equal(first.membership.tableId, table.id);
+		assert.equal(accounts.listMembers(owner.token, table.id).length, 2);
+	});
+
 	it('ships an idempotent MySQL migration for every version 2 entity', () => {
 		const migration = fs.readFileSync(path.resolve(
 			__dirname, '../../server/rpg-showdown/database/migrations/002-accounts-and-tables.sql'
@@ -162,6 +207,18 @@ describe('RPG version 2 accounts and tables backend', () => {
 		for (const table of ['rpg_accounts', 'rpg_campaign_tables', 'rpg_table_members', 'rpg_table_invites', 'rpg_account_sessions']) {
 			assert(migration.includes(`CREATE TABLE IF NOT EXISTS ${table}`), table);
 		}
+	});
+
+	it('scopes every version 1 persistence table and character ownership to a version 2 table', () => {
+		const migration = fs.readFileSync(path.resolve(
+			__dirname, '../../server/rpg-showdown/database/migrations/003-link-legacy-data-to-tables.sql'
+		), 'utf8');
+		for (const table of [
+			'rpg_characters', 'rpg_battle_sessions', 'rpg_contest_sessions', 'rpg_tournaments',
+			'rpg_contest_combos', 'rpg_custom_items', 'rpg_shops', 'rpg_master_npc_library',
+			'rpg_player_documents', 'rpg_campaign',
+		]) assert.match(migration, new RegExp(`ALTER TABLE ${table}[^;]+table_id`, 's'), table);
+		assert.match(migration, /rpg_characters[\s\S]+account_id/);
 	});
 
 	it('wires every version 2 entity and hashed session into MySQL persistence', () => {

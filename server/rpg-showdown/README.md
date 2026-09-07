@@ -264,6 +264,7 @@ As contas globais e mesas da versao 2 usam um espaco de rotas separado durante a
 | `DELETE /api/rpg/v2/tables/:id/invites/:inviteId` | revoga um convite |
 | `POST /api/rpg/v2/invites/join` | ingressa em uma mesa usando um convite |
 | `POST /api/rpg/v2/tables/:id/select` | define a mesa ativa da sessao |
+| `GET /api/rpg/v2/tables/:id/permissions` | retorna as permissoes padrao efetivas do cargo atual |
 | `GET /api/rpg/v2/tables/:id/members` | lista membros e perfis publicos da mesa |
 | `PATCH /api/rpg/v2/tables/:id/members/:accountId` | promove ou rebaixa um membro |
 | `DELETE /api/rpg/v2/tables/:id/members/:accountId` | remove um membro |
@@ -272,6 +273,18 @@ As contas globais e mesas da versao 2 usam um espaco de rotas separado durante a
 
 Senhas e tokens nunca sao persistidos em texto puro. O codigo do convite aparece somente na
 resposta de criacao; seu hash interno nao faz parte do contrato HTTP.
+
+As permissoes da versao 2 sao calculadas pelo cargo. O proprietario tem acesso integral; Mestres
+administram as atividades da campanha e membros comuns; Players participam e assistem; espectadores
+apenas acompanham atividades e a lista de membros. Excecoes individuais permanecem reservadas para
+uma etapa futura e ainda nao alteram esses padroes.
+
+Na primeira inicializacao apos a migracao 003, a campanha da versao 1 recebe uma mesa deterministica.
+Cada personagem legado recebe `account_id` e `table_id`, reutiliza sua credencial scrypt em uma conta
+global e entra nessa mesa como Player. Batalhas, concursos, torneios, lojas, NPCs, documentos, combos,
+itens personalizados e configuracoes antigas recebem o mesmo `table_id`. O processo e transacional e
+idempotente. As contas demonstrativas `teste` e `teste2` nao sao mais criadas automaticamente; o seed
+so e executado quando `rpgseedtestaccount: true` for definido explicitamente.
 
 Erros de autenticacao de Player usam a mesma mensagem para personagem inexistente e senha incorreta, evitando revelar quais personagens possuem credencial.
 

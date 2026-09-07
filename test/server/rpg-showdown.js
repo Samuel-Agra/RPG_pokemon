@@ -68,6 +68,7 @@ describe('RPG login', () => {
 			const first = createRPGLoginServiceFromConfig({
 				rpgmastercode: '14081998',
 				rpgcharacterfile: file,
+				rpgseedtestaccount: true,
 			});
 			const player = first.loginPlayer('teste', '1234');
 			let state = first.getCharacter(player.token);
@@ -115,6 +116,7 @@ describe('RPG login', () => {
 			const restarted = createRPGLoginServiceFromConfig({
 				rpgmastercode: '14081998',
 				rpgcharacterfile: file,
+				rpgseedtestaccount: true,
 			});
 			const restartedPlayer = restarted.loginPlayer('teste', '1234');
 			state = restarted.getCharacter(restartedPlayer.token);
@@ -472,6 +474,7 @@ describe('RPG login', () => {
 		try {
 			const first = createRPGLoginServiceFromConfig({
 				rpgmastercode: '14081998', rpgcharacterfile: characterFile, rpgbattlefile: battleFile,
+				rpgseedtestaccount: true,
 			});
 			const master = first.loginMaster('14081998');
 			const player = first.loginPlayer('teste', '1234');
@@ -496,6 +499,7 @@ describe('RPG login', () => {
 
 			const restarted = createRPGLoginServiceFromConfig({
 				rpgmastercode: '14081998', rpgcharacterfile: characterFile, rpgbattlefile: battleFile,
+				rpgseedtestaccount: true,
 			});
 			const restartedMaster = restarted.loginMaster('14081998');
 			const recovered = restarted.getBattleSession(restartedMaster.token, battle.id);

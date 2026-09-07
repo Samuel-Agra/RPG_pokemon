@@ -1,9 +1,15 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { createHash, randomBytes, scryptSync } from 'node:crypto';
 import mysql, { type Pool, type RowDataPacket } from 'mysql2/promise';
 import type {
 	RPGCampaignTable, RPGPlatformAccount, RPGStoredPlatformSession, RPGTableInvite, RPGTableMember,
 } from '../account-management';
+
+const LEGACY_SCOPED_TABLES = new Set([
+	'rpg_battle_sessions', 'rpg_contest_sessions', 'rpg_tournaments', 'rpg_contest_combos',
+	'rpg_custom_items', 'rpg_shops', 'rpg_player_documents',
+]);
 
 export interface RPGMySQLConfig {
 	host: string;
@@ -29,6 +35,7 @@ export interface RPGMySQLSnapshot {
 	tableMembers: RPGTableMember[];
 	tableInvites: RPGTableInvite[];
 	accountSessions: RPGStoredPlatformSession[];
+	legacyTableId?: string;
 }
 
 function environmentFile(file = resolve('.env.mysql')): Record<string, string> {
@@ -57,6 +64,7 @@ function decoded(value: unknown): unknown {
 export class RPGMySQLPersistence {
 	private pending: Promise<void> = Promise.resolve();
 	private failure: Error | null = null;
+	private legacyTableId?: string;
 
 	private constructor(private readonly pool: Pool) {}
 
@@ -70,20 +78,103 @@ export class RPGMySQLPersistence {
 		return new RPGMySQLPersistence(pool);
 	}
 
+	/** Imports the single-table version 1 world into deterministic version 2 ownership exactly once. */
+	async linkLegacyData(masterCode: string): Promise<string | undefined> {
+		const legacyTableId = createHash('sha256').update('pokemon-rpg:legacy-table').digest('hex').slice(0, 36);
+		const ownerAccountId = createHash('sha256').update('pokemon-rpg:legacy-owner').digest('hex').slice(0, 36);
+		const [legacyRows] = await this.pool.query<RowDataPacket[]>(`SELECT
+			(SELECT COUNT(*) FROM rpg_characters WHERE table_id IS NULL) +
+			(SELECT COUNT(*) FROM rpg_campaign WHERE table_id IS NULL) +
+			(SELECT COUNT(*) FROM rpg_battle_sessions WHERE table_id IS NULL) +
+			(SELECT COUNT(*) FROM rpg_contest_sessions WHERE table_id IS NULL) +
+			(SELECT COUNT(*) FROM rpg_tournaments WHERE table_id IS NULL) +
+			(SELECT COUNT(*) FROM rpg_contest_combos WHERE table_id IS NULL) +
+			(SELECT COUNT(*) FROM rpg_custom_items WHERE table_id IS NULL) +
+			(SELECT COUNT(*) FROM rpg_shops WHERE table_id IS NULL) +
+			(SELECT COUNT(*) FROM rpg_master_npc_library WHERE table_id IS NULL) +
+			(SELECT COUNT(*) FROM rpg_player_documents WHERE table_id IS NULL) AS total`);
+		const [existingTable] = await this.pool.query<RowDataPacket[]>(
+			'SELECT id FROM rpg_campaign_tables WHERE id = ?', [legacyTableId]
+		);
+		if (!Number(legacyRows[0]?.total || 0) && !existingTable.length) return undefined;
+		const connection = await this.pool.getConnection();
+		try {
+			await connection.beginTransaction();
+			const now = Date.now(); const salt = randomBytes(16);
+			const credential = JSON.stringify({
+				algorithm: 'scrypt', salt: salt.toString('base64'),
+				hash: scryptSync(masterCode, salt, 32).toString('base64'),
+			});
+			await connection.execute(`INSERT IGNORE INTO rpg_accounts
+				(id, username, display_name, credential, status, created_at, updated_at, revision)
+				VALUES (?, 'mestre', 'Mestre', CAST(? AS JSON), 'active', ?, ?, 0)`,
+			[ownerAccountId, credential, now, now]);
+			const [ownerRows] = await connection.query<RowDataPacket[]>('SELECT id FROM rpg_accounts WHERE username = ?', ['mestre']);
+			const resolvedOwnerAccountId = String(ownerRows[0].id);
+			const [campaignRows] = await connection.query<RowDataPacket[]>('SELECT state FROM rpg_campaign LIMIT 1');
+			const campaign = campaignRows[0] ? decoded(campaignRows[0].state) as Record<string, unknown> : {};
+			const campaignName = typeof campaign.name === 'string' && campaign.name.trim() ? campaign.name.trim() : 'Campanha importada';
+			await connection.execute(`INSERT IGNORE INTO rpg_campaign_tables
+				(id, owner_account_id, name, description, color, visibility, status, settings, created_at, updated_at, revision)
+				VALUES (?, ?, ?, 'Campanha migrada da versão 1', '#355487', 'private', 'active',
+				CAST('{"legacyV1":true}' AS JSON), ?, ?, 0)`, [legacyTableId, resolvedOwnerAccountId, campaignName, now, now]);
+			await connection.execute(`INSERT INTO rpg_table_members
+				(table_id, account_id, role, status, permissions, joined_at, updated_at, revision)
+				VALUES (?, ?, 'owner', 'active', CAST('{}' AS JSON), ?, ?, 0)
+				ON DUPLICATE KEY UPDATE role='owner', status='active', updated_at=VALUES(updated_at)`,
+			[legacyTableId, resolvedOwnerAccountId, now, now]);
+
+			const [characters] = await connection.query<RowDataPacket[]>(
+				'SELECT id, display_name, credential, state FROM rpg_characters WHERE account_id IS NULL OR table_id IS NULL'
+			);
+			for (const row of characters) {
+				const state = decoded(row.state) as Record<string, unknown>;
+				const accountId = createHash('sha256').update(`pokemon-rpg:legacy-account:${row.id}`).digest('hex').slice(0, 36);
+				const username = String(row.id).toLowerCase().replace(/[^a-z0-9]+/g, '').slice(0, 40) || accountId.slice(0, 12);
+				const displayName = String(state.playerName || row.display_name || row.id).slice(0, 80);
+				await connection.execute(`INSERT IGNORE INTO rpg_accounts
+					(id, username, display_name, credential, status, created_at, updated_at, revision)
+					VALUES (?, ?, ?, CAST(? AS JSON), 'active', ?, ?, 0)`,
+				[accountId, username, displayName, JSON.stringify(decoded(row.credential)), now, now]);
+				const [accountRows] = await connection.query<RowDataPacket[]>('SELECT id FROM rpg_accounts WHERE username = ?', [username]);
+				const resolvedAccountId = String(accountRows[0].id);
+				await connection.execute(`INSERT INTO rpg_table_members
+					(table_id, account_id, role, status, permissions, joined_at, updated_at, revision)
+					VALUES (?, ?, 'player', 'active', CAST('{}' AS JSON), ?, ?, 0)
+					ON DUPLICATE KEY UPDATE status='active', updated_at=VALUES(updated_at)`,
+				[legacyTableId, resolvedAccountId, now, now]);
+				await connection.execute('UPDATE rpg_characters SET account_id = ?, table_id = ? WHERE id = ?',
+					[resolvedAccountId, legacyTableId, row.id]);
+			}
+			for (const table of [
+				'rpg_battle_sessions', 'rpg_contest_sessions', 'rpg_tournaments', 'rpg_contest_combos',
+				'rpg_custom_items', 'rpg_shops', 'rpg_master_npc_library', 'rpg_player_documents', 'rpg_campaign',
+			]) await connection.query(`UPDATE ${table} SET table_id = ? WHERE table_id IS NULL`, [legacyTableId]);
+			await connection.commit(); this.legacyTableId = legacyTableId; return legacyTableId;
+		} catch (error) {
+			await connection.rollback(); throw error;
+		} finally {
+			connection.release();
+		}
+	}
+
 	async snapshot(): Promise<RPGMySQLSnapshot> {
-		const rows = async (table: string, column: string) => {
-			const [result] = await this.pool.query<RowDataPacket[]>(`SELECT ${column} AS value FROM ${table}`);
+		const rows = async (table: string, column: string, scoped = false) => {
+			const where = scoped && this.legacyTableId ? ' WHERE table_id = ?' : '';
+			const values = where ? [this.legacyTableId] : [];
+			const [result] = await this.pool.query<RowDataPacket[]>(`SELECT ${column} AS value FROM ${table}${where}`, values);
 			return result.map(row => decoded(row.value));
 		};
 		const [characters, battles, contests, tournaments, combos, customItems, shops,
 			masterNPC, documents, campaign, accountRows, tableRows, memberRows, inviteRows, sessionRows] = await Promise.all([
-			rows('rpg_characters', "JSON_OBJECT('credential', credential, 'state', state)"),
-			rows('rpg_battle_sessions', 'state'), rows('rpg_contest_sessions', 'state'),
-			rows('rpg_tournaments', 'state'), rows('rpg_contest_combos', 'definition'),
-			rows('rpg_custom_items', 'definition'), rows('rpg_shops', 'state'),
-			rows('rpg_master_npc_library', 'state'),
-			this.pool.query<RowDataPacket[]>('SELECT character_id, state FROM rpg_player_documents'),
-			rows('rpg_campaign', 'state'),
+			rows('rpg_characters', "JSON_OBJECT('credential', credential, 'state', state, 'accountId', account_id, 'tableId', table_id)", true),
+			rows('rpg_battle_sessions', 'state', true), rows('rpg_contest_sessions', 'state', true),
+			rows('rpg_tournaments', 'state', true), rows('rpg_contest_combos', 'definition', true),
+			rows('rpg_custom_items', 'definition', true), rows('rpg_shops', 'state', true),
+			rows('rpg_master_npc_library', 'state', true),
+			this.pool.query<RowDataPacket[]>(`SELECT character_id, state FROM rpg_player_documents${
+				this.legacyTableId ? ' WHERE table_id = ?' : ''}`, this.legacyTableId ? [this.legacyTableId] : []),
+			rows('rpg_campaign', 'state', true),
 			this.pool.query<RowDataPacket[]>('SELECT * FROM rpg_accounts'),
 			this.pool.query<RowDataPacket[]>('SELECT * FROM rpg_campaign_tables'),
 			this.pool.query<RowDataPacket[]>('SELECT * FROM rpg_table_members'),
@@ -125,6 +216,7 @@ export class RPGMySQLPersistence {
 				createdAt: Number(row.created_at), lastSeenAt: Number(row.last_seen_at), expiresAt: Number(row.expires_at),
 				revokedAt: row.revoked_at === null ? undefined : Number(row.revoked_at),
 			})),
+			legacyTableId: this.legacyTableId,
 		};
 	}
 
@@ -137,17 +229,22 @@ export class RPGMySQLPersistence {
 	}
 
 	upsertCharacter(record: any): void {
-		this.enqueue(`INSERT INTO rpg_characters (id, display_name, credential, state, created_at, updated_at, revision)
-			VALUES (?, ?, CAST(? AS JSON), CAST(? AS JSON), ?, ?, ?)
+		this.enqueue(`INSERT INTO rpg_characters (id, account_id, table_id, display_name, credential, state, created_at, updated_at, revision)
+			VALUES (?, ?, ?, ?, CAST(? AS JSON), CAST(? AS JSON), ?, ?, ?)
 			ON DUPLICATE KEY UPDATE display_name=VALUES(display_name), credential=VALUES(credential), state=VALUES(state),
-			created_at=VALUES(created_at), updated_at=VALUES(updated_at), revision=VALUES(revision)`, [
-			record.state.id, record.state.characterName || record.state.playerName || record.state.id,
+			account_id=VALUES(account_id), table_id=VALUES(table_id), created_at=VALUES(created_at),
+			updated_at=VALUES(updated_at), revision=VALUES(revision)`, [
+			record.state.id, record.accountId, record.tableId || this.legacyTableId,
+			record.state.characterName || record.state.playerName || record.state.id,
 			JSON.stringify(record.credential), JSON.stringify(record.state), record.state.createdAt || Date.now(),
 			record.state.updatedAt || Date.now(), record.state.revision || 0,
 		]);
 	}
 	deleteCharacter(id: string): void { this.enqueue('DELETE FROM rpg_characters WHERE id = ?', [id]); }
 	upsertJSON(table: string, idColumn: string, id: string, jsonColumn: string, value: any, extras: Record<string, unknown> = {}): void {
+		if (this.legacyTableId && LEGACY_SCOPED_TABLES.has(table) && extras.table_id === undefined) {
+			extras = { ...extras, table_id: this.legacyTableId };
+		}
 		const columns = [idColumn, ...Object.keys(extras), jsonColumn];
 		const values = [id, ...Object.values(extras), JSON.stringify(value)];
 		const placeholders = columns.map((column, index) => index === columns.length - 1 ? 'CAST(? AS JSON)' : '?');
@@ -213,8 +310,8 @@ export class RPGMySQLPersistence {
 		this.enqueue('DELETE FROM rpg_account_sessions WHERE token_hash = ?', [tokenHash]);
 	}
 	upsertSingleton(table: string, value: unknown): void {
-		this.enqueue(`INSERT INTO ${table} (singleton_id, state) VALUES (1, CAST(? AS JSON))
-			ON DUPLICATE KEY UPDATE state=VALUES(state)`, [JSON.stringify(value)]);
+		this.enqueue(`INSERT INTO ${table} (singleton_id, table_id, state) VALUES (1, ?, CAST(? AS JSON))
+			ON DUPLICATE KEY UPDATE table_id=VALUES(table_id), state=VALUES(state)`, [this.legacyTableId, JSON.stringify(value)]);
 	}
 	async flush(): Promise<void> {
 		await this.pending;

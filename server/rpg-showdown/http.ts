@@ -308,6 +308,15 @@ export class RPGHttpServer {
 				return;
 			}
 		}
+		const version2PermissionsMatch = /^\/api\/rpg\/v2\/tables\/([^/]+)\/permissions$/.exec(url.pathname);
+		if (method === 'GET' && version2PermissionsMatch) {
+			const permissions = this.login.accounts.getTablePermissions(
+				this.token(req), decodeURIComponent(version2PermissionsMatch[1])
+			);
+			await this.login.flushPersistence();
+			this.json(res, 200, { permissions });
+			return;
+		}
 		if (method === 'POST' && url.pathname === '/api/rpg/v2/invites/join') {
 			const token = this.token(req); const body = await this.body(req);
 			const membership = this.login.accounts.joinByInvite(token, this.string(body.code));
@@ -1453,7 +1462,7 @@ export class RPGHttpServer {
 			'Sessão inválida ou expirada', 'Usuário ou senha inválidos', 'Conta indisponível']
 			.some(part => message.includes(part))) {
 			status = 401;
-		} else if (['permission', 'cannot access', 'master session required', 'Apenas Mestres',
+		} else if (['permission', 'cannot access', 'master session required', 'Apenas Mestres', 'Permissão necessária',
 			'não participa desta mesa', 'bloqueada nesta mesa', 'pertence a outra conta',
 			'proprietário não pode sair', 'não pode ser removido', 'não pode ter sua função alterada']
 			.some(part => message.includes(part))) {

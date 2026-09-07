@@ -199,6 +199,11 @@ describe('RPG HTTP frontend API', () => {
 		result = await request(`/v2/tables/${tableId}/members`, { headers: ownerHeaders });
 		assert.equal(result.data.members.length, 3);
 		assert(result.data.members.every(entry => entry.account.credential === undefined));
+		assert.equal(result.data.members.find(entry => entry.account.id === member.accountId)
+			.effectivePermissions['battles.participate'], true);
+		result = await request(`/v2/tables/${tableId}/permissions`, { headers: memberHeaders });
+		assert.equal(result.data.permissions['battles.create'], false);
+		assert.equal(result.data.permissions['contests.participate'], true);
 		result = await request(`/v2/tables/${tableId}/members/${member.accountId}`, {
 			method: 'PATCH', headers: ownerHeaders, body: { role: 'master' },
 		});
