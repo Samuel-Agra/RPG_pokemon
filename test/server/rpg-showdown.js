@@ -495,6 +495,8 @@ describe('RPG login', () => {
 			first.respondToBattleInvitation(player.token, battle.id, 'accepted');
 			battle = first.startBattleSession(master.token, battle.id).session;
 			assert.equal(battle.status, 'started');
+			assert.deepEqual(first.recoverInterruptedBattleSessions(new Set([battle.id])), []);
+			assert.equal(first.getBattleSession(master.token, battle.id).status, 'started');
 			assert(fs.existsSync(battleFile));
 
 			const restarted = createRPGLoginServiceFromConfig({

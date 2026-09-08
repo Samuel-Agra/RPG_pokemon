@@ -61,6 +61,20 @@ describe('RPG status presentation', () => {
 	});
 });
 describe('RPG private battle runtime', () => {
+	it('continues one battle after transferring its runtime state to another server', () => {
+		const { session, launch, character } = setup();
+		const first = new RPGBattleRuntimeManager();
+		first.start(session, launch, () => character);
+		first.ready(session.id, { master: false, characterId: 'hero' });
+		first.ready(session.id, { master: true });
+		first.action(session.id, { master: false, characterId: 'hero' }, { type: 'move', move: 1 });
+		const second = new RPGBattleRuntimeManager();
+		second.replaceState(session.id, JSON.parse(JSON.stringify(first.exportState(session.id))));
+		const state = second.action(session.id, { master: true }, { type: 'move', move: 1 });
+		assert.equal(state.turn, 2);
+		assert(state.sides[0].pokemon[0].moves[0].pp < state.sides[0].pokemon[0].moves[0].maxPP);
+	});
+
 	it('runs a real turn and exposes persistent HP and PP', () => {
 		const { session, launch, character } = setup();
 		const manager = new RPGBattleRuntimeManager();
@@ -1274,6 +1288,31 @@ describe('RPG residual damage animations', () => {
 		assert.equal(foe.get('spikes').layers, 1);
 		assert.equal(foe.has('stealthrock'), false);
 		assert.equal(foe.get('toxicspikes').layers, 1);
+	});
+
+	it('restores a queued Bag action while waiting for the opposing side', () => {
+		const { session, launch, character } = setup();
+		session.id = 'runtime-bag-restored'; launch.sessionId = session.id;
+		character.inventory = RPGInventorySystem.create(RPGBagSystem.createForTier('hero', 'starter', [
+			{ itemId: 'potion', quantity: 2 },
+		]));
+		const first = new RPGBattleRuntimeManager();
+		first.start(session, launch, () => character);
+		first.ready(session.id, { master: false, characterId: 'hero' }); first.ready(session.id, { master: true });
+		first.action(session.id, { master: false, characterId: 'hero' }, { type: 'move', move: 1 });
+		first.action(session.id, { master: true }, { type: 'move', move: 1 });
+		first.action(session.id, { master: false, characterId: 'hero' }, { type: 'turn', choices: [{
+			type: 'item', item: 'potion', target: 1, actionId: 'restored-heal',
+			expectedRevision: character.inventory.bag.revision,
+		}] });
+		let persisted;
+		const second = new RPGBattleRuntimeManager();
+		second.replaceState(session.id, JSON.parse(JSON.stringify(first.exportState(session.id))),
+			(characterId, inventory) => { persisted = { characterId, inventory }; });
+		const state = second.action(session.id, { master: true }, { type: 'move', move: 1 });
+		assert.equal(state.turn, 3);
+		assert.equal(persisted.characterId, 'hero');
+		assert.equal(RPGBagSystem.getQuantity(persisted.inventory.bag, 'potion'), 1);
 	});
 	it('starts with the configured native side buffs on each team', () => {
 		const { session, launch, character } = setup();

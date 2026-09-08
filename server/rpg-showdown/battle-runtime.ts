@@ -399,6 +399,71 @@ export class RPGBattleRuntimeManager {
 	private static readonly ENDED_RUNTIME_TTL = 60 * 60 * 1000;
 	private static readonly MAX_ENDED_RUNTIMES = 50;
 
+	exportState(sessionId: string): unknown {
+		const runtime = this.runtimes.get(toID(sessionId));
+		if (!runtime) return undefined;
+		const pokemonRef = (pokemon: Pokemon) => {
+			for (const [side, sideIndex] of runtime.battle.sides.slice(0, 2).map((value, index) => [value, index] as const)) {
+				const pokemonIndex = side.pokemon.indexOf(pokemon);
+				if (pokemonIndex >= 0) return [sideIndex, pokemonIndex] as [number, number];
+			}
+			throw new Error('Pokémon do runtime não pertence à batalha');
+		};
+		return {
+			session: runtime.session, launch: runtime.launch, battle: runtime.battle.toJSON(),
+			lastAction: runtime.lastAction, trainers: runtime.trainers,
+			revealed: runtime.revealed.map(values => [...values].map(pokemonRef)),
+			readyViewers: [...runtime.readyViewers], characters: [...runtime.characters],
+			customAnimations: runtime.customAnimations, itemTurns: [...runtime.itemTurns],
+			pendingBagActions: [...runtime.pendingBagActions].map(([id, pending]) => [id, {
+				side: pending.side.id, actor: pokemonRef(pending.actor), choice: pending.choice,
+				itemTurnKey: pending.itemTurnKey,
+			}]),
+			pendingSideTurns: [...runtime.pendingSideTurns].map(([side, pending]) => [side, {
+				turn: pending.turn, requestState: pending.requestState, slots: [...pending.slots],
+				submittedViewers: [...pending.submittedViewers],
+			}]),
+			initialPokemon: [...runtime.initialPokemon].map(([pokemon, value]) => [pokemonRef(pokemon), value]),
+			itemEvents: runtime.itemEvents, finishedAt: runtime.finishedAt,
+		};
+	}
+
+	replaceState(sessionId: string, state: unknown, persistInventory?: RPGBattleInventoryPersist): void {
+		const id = toID(sessionId);
+		if (!state) { this.runtimes.delete(id); return; }
+		const value = structuredClone(state) as any;
+		if (toID(value.session?.id) !== id || !value.battle) throw new Error('Estado persistido da batalha inválido');
+		const battle = Battle.fromJSON(value.battle);
+		battle.restart(() => undefined);
+		const pokemon = (ref: [number, number]) => battle.sides[ref[0]]?.pokemon[ref[1]];
+		const runtime: RuntimeRecord = {
+			session: value.session, launch: value.launch, battle, lastAction: value.lastAction,
+			trainers: value.trainers,
+			revealed: value.revealed.map((refs: [number, number][]) => new Set(refs.map(pokemon).filter(Boolean))) as
+				[Set<Pokemon>, Set<Pokemon>],
+			teamPositions: [
+				new Map(battle.p1.pokemon.map((entry, index) => [entry, index])),
+				new Map(battle.p2.pokemon.map((entry, index) => [entry, index])),
+			],
+			readyViewers: new Set(value.readyViewers), characters: new Map(value.characters),
+			customAnimations: value.customAnimations, itemTurns: new Set(value.itemTurns),
+			pendingBagActions: new Map((value.pendingBagActions || []).map(([id, pending]: [string, any]) => [id, {
+				id, side: battle.getSide(pending.side), actor: pokemon(pending.actor), choice: pending.choice,
+				persistInventory, itemTurnKey: pending.itemTurnKey,
+			}]).filter(([, pending]: [string, QueuedBagAction]) => !!pending.actor)),
+			pendingSideTurns: new Map(value.pendingSideTurns.map(([side, pending]: [SideID, any]) => [side, {
+				...pending, slots: new Map(pending.slots), submittedViewers: new Set(pending.submittedViewers),
+			}])),
+			initialPokemon: new Map(value.initialPokemon.map(([ref, initial]: [[number, number], RPGInitialPokemonState]) =>
+				[pokemon(ref), initial]).filter(([entry]: [Pokemon | undefined, RPGInitialPokemonState]) => !!entry)),
+			itemEvents: value.itemEvents, finishedAt: value.finishedAt,
+		};
+		this.runtimes.set(id, runtime);
+		RPGManager.setQueuedBattleActionHandler(battle, (entry, actionId) => {
+			this.executeQueuedBagAction(runtime, entry, actionId);
+		});
+	}
+
 	start(
 		session: RPGBattleSession,
 		launch: RPGBattleLaunchRequest,

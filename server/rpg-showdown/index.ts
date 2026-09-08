@@ -63,7 +63,8 @@ import {
 } from './contest-scoring';
 import { RPGMySQLPersistence, rpgMySQLConfig } from './database/mysql-persistence';
 import {
-	RPGAccountManagement, RPGMemoryAccountRepository, RPGMemoryPlatformSessionRepository,
+	getRPGDefaultTablePermissions, RPGAccountManagement, RPGMemoryAccountRepository,
+	RPGMemoryPlatformSessionRepository, type RPGTablePermission, type RPGTableRole,
 } from './account-management';
 import { applyRPGContestPerformance, type RPGContestPlacement } from './contest-progression';
 import { classifyRPGContestItem, type RPGContestItemClassification } from './contest-item-catalog';
@@ -280,11 +281,13 @@ export interface RPGSession {
 	characterId?: string;
 	viewAsCharacterId?: string;
 	platformAccountId?: string;
+	/** Papel da conta na mesa selecionada, preservado ao entrar no mundo RPG. */
+	platformTableRole?: RPGTableRole;
 	createdAt: number;
 	expiresAt: number;
 }
 
-type RPGInternalSession = Omit<RPGSession, 'token'> & { lastSeenAt: number, activeArea?: string };
+export type RPGInternalSession = Omit<RPGSession, 'token'> & { lastSeenAt: number, activeArea?: string };
 
 export interface RPGCharacterDeletionChallenge {
 	challengeId: string;
@@ -683,6 +686,7 @@ export interface RPGLoginServiceOptions {
 	now?: () => number;
 	random?: () => number;
 	randomBytes?: (size: number) => Buffer;
+	sessionStore?: Map<string, RPGInternalSession>;
 }
 
 export class RPGLoginService {
@@ -693,7 +697,7 @@ export class RPGLoginService {
 	readonly customItems: RPGCustomItemRepository;
 	readonly commerce: RPGCommerceManagement;
 	readonly tournaments: RPGTournamentSessionService;
-	private readonly sessions = new Map<string, RPGInternalSession>();
+	private readonly sessions: Map<string, RPGInternalSession>;
 	private readonly masterCodeHash: Buffer;
 	private readonly deletionChallenges = new Map<string, RPGInternalDeletionChallenge>();
 	private readonly lastDeletionWord = new Map<string, string>();
@@ -720,6 +724,7 @@ export class RPGLoginService {
 			throw new Error('RPG master code must be configured');
 		}
 		this.repository = options.repository || new RPGMemoryCharacterRepository();
+		this.sessions = options.sessionStore || new Map<string, RPGInternalSession>();
 		this.mysqlPersistence = options.mysqlPersistence;
 		this.accounts = options.accountManagement || new RPGAccountManagement();
 		this.legacyTableId = options.legacyTableId;
@@ -856,21 +861,23 @@ export class RPGLoginService {
 			createdAt: now, updatedAt: now,
 		};
 		const credential = this.hashPassword(request.password);
-		let linkage: Pick<RPGStoredCharacter, 'accountId' | 'tableId'> = {};
-		if (platformAccountId && this.legacyTableId) {
-			if (this.repository.list().some(record => record.accountId === platformAccountId)) {
-				throw new Error('Esta conta já possui personagem nesta mesa');
+		return this.persistAtomically(() => {
+			let linkage: Pick<RPGStoredCharacter, 'accountId' | 'tableId'> = {};
+			if (platformAccountId && this.legacyTableId) {
+				if (this.repository.list().some(record => record.accountId === platformAccountId)) {
+					throw new Error('Esta conta já possui personagem nesta mesa');
+				}
+				linkage = { accountId: platformAccountId, tableId: this.legacyTableId };
+			} else if (this.legacyTableId) {
+				const linked = this.accounts.linkLegacyCharacter({
+					characterId: id, displayName: playerName, credential,
+					tableId: this.legacyTableId, createdAt: now,
+				});
+				linkage = { accountId: linked.account.id, tableId: this.legacyTableId };
 			}
-			linkage = { accountId: platformAccountId, tableId: this.legacyTableId };
-		} else if (this.legacyTableId) {
-			const linked = this.accounts.linkLegacyCharacter({
-				characterId: id, displayName: playerName, credential,
-				tableId: this.legacyTableId, createdAt: now,
-			});
-			linkage = { accountId: linked.account.id, tableId: this.legacyTableId };
-		}
-		this.repository.create({ state, credential, ...linkage });
-		return this.selection(state);
+			this.repository.create({ state, credential, ...linkage });
+			return this.selection(state);
+		});
 	}
 
 	createCharacterForPlatformSession(token: string, request: RPGCreateCharacterRequest): RPGCharacterSelection {
@@ -1006,6 +1013,10 @@ export class RPGLoginService {
 	advanceCampaignTime(token: string, hours: number): RPGCampaignTimeAdvanceResult {
 		this.requireMasterRole(token);
 		if (hours !== 1 && hours !== 8) throw new Error('O relógio da campanha só pode avançar 1 ou 8 horas');
+		return this.persistAtomically(() => this.advanceCampaignTimeTransaction(hours));
+	}
+
+	private advanceCampaignTimeTransaction(hours: 1 | 8): RPGCampaignTimeAdvanceResult {
 		const milliseconds = hours * 60 * 60 * 1000;
 		const now = this.now();
 		const records = this.repository.list();
@@ -1215,6 +1226,7 @@ export class RPGLoginService {
 		const existing = this.sessions.get(this.tokenKey(token));
 		if (existing && existing.platformAccountId === context.account.id &&
 			existing.role === expectedRole) {
+			existing.platformTableRole = context.membership.role;
 			existing.expiresAt = context.session.expiresAt; existing.lastSeenAt = this.now();
 			this.sessions.set(this.tokenKey(token), existing); return { ...structuredClone(existing), token };
 		}
@@ -1224,6 +1236,7 @@ export class RPGLoginService {
 			mode: elevated ? 'master' : spectator ? 'spectator' : 'player',
 			characterId: character?.state.id, createdAt: context.session.createdAt,
 			platformAccountId: context.account.id,
+			platformTableRole: context.membership.role,
 			expiresAt: context.session.expiresAt, lastSeenAt: this.now(),
 		};
 		this.sessions.set(this.tokenKey(token), session);
@@ -1400,6 +1413,7 @@ export class RPGLoginService {
 
 	setCampaignSettings(token: string, input: unknown): { name: string, currentDateTime: string } {
 		this.requireMasterRole(token);
+		this.requirePlatformTablePermission(token, 'campaign.configure');
 		if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('Configuração de campanha inválida');
 		const value = input as { name?: unknown, currentDateTime?: unknown };
 		const name = String(value.name || '').trim().replace(/\s+/g, ' ').slice(0, 80);
@@ -1722,19 +1736,23 @@ export class RPGLoginService {
 		const record = this.requireBagRecord(token, characterId, 'bag:edit', true);
 		this.requireCommerceAccess(token, record, shopId);
 		const previousRecord = structuredClone(record);
+		const previousShop = this.commerce.repository.get(shopId);
 		const prepared = this.commerce.prepareTrade(shopId, record.state, request);
 		record.state.money = prepared.character.money;
 		record.state.inventory = prepared.character.inventory;
 		record.state.shopRevision = prepared.character.shopRevision;
 		record.state.shopTransactions = prepared.character.shopTransactions;
 		record.state.updatedAt = this.now();
-		this.repository.set(record);
-		try {
-			this.commerce.commit(prepared.shop);
-		} catch (error) {
-			this.repository.set(previousRecord);
-			throw error;
-		}
+		this.persistAtomically(() => {
+			this.repository.set(record);
+			try {
+				this.commerce.commit(prepared.shop);
+			} catch (error) {
+				this.repository.set(previousRecord);
+				if (previousShop) this.commerce.repository.set(previousShop);
+				throw error;
+			}
+		});
 		return {
 			view: this.commerce.view(shopId, record.state, this.getSession(token).role === 'master'),
 			transactions: prepared.transactions,
@@ -2066,7 +2084,9 @@ export class RPGLoginService {
 		project.paymentTransferredAt = now;
 		for (const record of records.values()) record.state.updatedAt = now;
 		try {
-			for (const record of records.values()) this.repository.set(record);
+			this.persistAtomically(() => {
+				for (const record of records.values()) this.repository.set(record);
+			});
 		} catch (error) {
 			for (const original of originals.values()) this.repository.set(original);
 			throw error;
@@ -2555,9 +2575,11 @@ export class RPGLoginService {
 			delete eggProject.egg.portableIncubatorMission;
 			this.ensureNursery(target).projects.push(eggProject);
 		}
-		this.persistBoxRecord(sender);
 		try {
-			this.persistBoxRecord(target);
+			this.persistAtomically(() => {
+				this.persistBoxRecord(sender);
+				this.persistBoxRecord(target);
+			});
 		} catch (error) {
 			this.repository.set(originalSender);
 			this.repository.set(originalTarget);
@@ -3231,13 +3253,17 @@ export class RPGLoginService {
 		if (destination.state.box.revision !== destinationRevision) throw new Error('RPG destination Box revision conflict');
 		this.requirePokemonNotBreeding(source, pokemonId);
 		const originalSource = structuredClone(source);
+		const originalDestination = structuredClone(destination);
 		const entry = RPGBoxManagement.extract(source.state, pokemonId, sourceRevision);
 		RPGBoxManagement.insert(destination.state, entry);
-		this.persistBoxRecord(source);
 		try {
-			this.persistBoxRecord(destination);
+			this.persistAtomically(() => {
+				this.persistBoxRecord(source);
+				this.persistBoxRecord(destination);
+			});
 		} catch (error) {
 			this.repository.set(originalSource);
+			this.repository.set(originalDestination);
 			throw error;
 		}
 		return {
@@ -3371,29 +3397,36 @@ export class RPGLoginService {
 		token: string, battleSessionId: string
 	): { session: RPGBattleSession, launch: RPGBattleLaunchRequest } {
 		this.requireMasterMode(token);
-		const started = this.battleSessions.start(battleSessionId);
-		try {
-			started.session = this.reserveBattleWager(started.session);
-			return started;
-		} catch (error) {
-			this.battleSessions.rollbackStart(battleSessionId);
-			throw error;
-		}
+		return this.persistAtomically(() => {
+			const started = this.battleSessions.start(battleSessionId);
+			try {
+				started.session = this.reserveBattleWager(started.session);
+				return started;
+			} catch (error) {
+				this.battleSessions.rollbackStart(battleSessionId);
+				throw error;
+			}
+		});
 	}
 
 	rollbackBattleSessionStart(battleSessionId: string): RPGBattleSession {
-		this.refundBattleWager(this.battleSessions.get(battleSessionId));
-		return this.battleSessions.rollbackStart(battleSessionId);
+		return this.persistAtomically(() => {
+			this.refundBattleWager(this.battleSessions.get(battleSessionId));
+			return this.battleSessions.rollbackStart(battleSessionId);
+		});
 	}
 
 	/** Restores safely restartable sessions after the process lost its in-memory battle runtime. */
-	recoverInterruptedBattleSessions(): RPGBattleSession[] {
-		const recovered: RPGBattleSession[] = [];
-		for (const session of this.battleSessions.list().filter(entry => entry.status === 'started')) {
-			this.refundBattleWager(session);
-			recovered.push(this.battleSessions.rollbackStart(session.id));
-		}
-		return recovered;
+	recoverInterruptedBattleSessions(persistedRuntimeIds: ReadonlySet<string> = new Set()): RPGBattleSession[] {
+		return this.persistAtomically(() => {
+			const recovered: RPGBattleSession[] = [];
+			for (const session of this.battleSessions.list().filter(entry =>
+				entry.status === 'started' && !persistedRuntimeIds.has(entry.id))) {
+				this.refundBattleWager(session);
+				recovered.push(this.battleSessions.rollbackStart(session.id));
+			}
+			return recovered;
+		});
 	}
 
 	persistBattleInventory(characterId: string, inventory: RPGInventoryState): void {
@@ -3409,18 +3442,20 @@ export class RPGLoginService {
 	completeBattleSession(battleSessionId: string, result: RPGBattleResult): RPGBattleSession {
 		const session = this.battleSessions.get(battleSessionId);
 		if (session.status === 'ended') return session;
-		this.persistBattlePokemon(session, result);
-		this.persistCapture(session, result);
-		this.persistBattleRewards(session, result);
-		this.settleBattleWager(session, result);
-		this.persistBattleProfile(session, result);
-		const completed = this.battleSessions.complete(battleSessionId, result);
-		const linked = this.tournaments.linked('battle', battleSessionId);
-		if (linked && result.winnerSide) {
-			const winnerId = result.winnerSide === 'p1' ? linked.match.participant1Id : linked.match.participant2Id;
-			this.tournaments.report(linked.tournament.id, linked.match.id, winnerId);
-		}
-		return completed;
+		return this.persistAtomically(() => {
+			this.persistBattlePokemon(session, result);
+			this.persistCapture(session, result);
+			this.persistBattleRewards(session, result);
+			this.settleBattleWager(session, result);
+			this.persistBattleProfile(session, result);
+			const completed = this.battleSessions.complete(battleSessionId, result);
+			const linked = this.tournaments.linked('battle', battleSessionId);
+			if (linked && result.winnerSide) {
+				const winnerId = result.winnerSide === 'p1' ? linked.match.participant1Id : linked.match.participant2Id;
+				this.tournaments.report(linked.tournament.id, linked.match.id, winnerId);
+			}
+			return completed;
+		});
 	}
 
 	evolveBattlePokemon(
@@ -3647,8 +3682,9 @@ export class RPGLoginService {
 		return this.contestSessions.rollbackStart(contestSessionId);
 	}
 
-	recoverInterruptedContestSessions(): RPGContestSession[] {
-		return this.contestSessions.list().filter(session => session.status === 'started')
+	recoverInterruptedContestSessions(persistedRuntimeIds: ReadonlySet<string> = new Set()): RPGContestSession[] {
+		return this.contestSessions.list().filter(session =>
+			session.status === 'started' && !persistedRuntimeIds.has(session.id))
 			.map(session => this.contestSessions.rollbackStart(session.id));
 	}
 
@@ -3676,6 +3712,12 @@ export class RPGLoginService {
 	}
 
 	applyContestResults(session: RPGContestSession, results: readonly RPGContestPlacement[]): void {
+		this.persistAtomically(() => this.applyContestResultsTransaction(session, results));
+	}
+
+	private applyContestResultsTransaction(
+		session: RPGContestSession, results: readonly RPGContestPlacement[]
+	): void {
 		const resultById = new Map(results.map(result => [result.participantId, result]));
 		for (const participant of session.participants) {
 			if (participant.kind !== 'player' || !participant.characterId) continue;
@@ -3913,8 +3955,24 @@ export class RPGLoginService {
 		renameSync(temporary, this.campaignSettingsFile);
 	}
 
-	flushPersistence(): Promise<void> {
-		return this.mysqlPersistence?.flush() || Promise.resolve();
+	async flushPersistence(): Promise<void> {
+		if (!this.mysqlPersistence) return;
+		try {
+			await this.mysqlPersistence.flush();
+		} catch (error) {
+			const source = error && typeof error === 'object' ? error as { code?: unknown } : undefined;
+			const failure = new Error('Falha ao persistir os dados do RPG');
+			Object.assign(failure, {
+				code: 'RPG_PERSISTENCE_FAILURE',
+				...(typeof source?.code === 'string' ? { databaseCode: source.code } : {}),
+			});
+			throw failure;
+		}
+	}
+
+	/** Agrupa todas as gravações produzidas pela operação em um único COMMIT MySQL. */
+	private persistAtomically<T>(action: () => T): T {
+		return this.mysqlPersistence ? this.mysqlPersistence.transaction(action) : action();
 	}
 
 	private characterShopAccess(character: RPGCharacterState): Record<string, boolean> {
@@ -4442,6 +4500,19 @@ export class RPGLoginService {
 
 	private requireMasterRole(token: string): void {
 		if (this.getSession(token).role !== 'master') throw new Error('RPG master session required');
+	}
+
+	/**
+	 * Aplica as permissões da mesa às sessões globais da versão 2.
+	 * Sessões legadas autenticadas pelo código do Mestre continuam compatíveis
+	 * enquanto essa entrada existir na primeira versão do RPG.
+	 */
+	private requirePlatformTablePermission(token: string, permission: RPGTablePermission): void {
+		const session = this.getSession(token);
+		if (!session.platformAccountId) return;
+		if (!session.platformTableRole || !getRPGDefaultTablePermissions(session.platformTableRole)[permission]) {
+			throw new Error('Permissão necessária: ' + permission);
+		}
 	}
 
 	private requireViewedMasterCharacter(token: string, characterId: string): void {
@@ -5388,8 +5459,12 @@ Promise<RPGLoginService> {
 	migrateCharacterProfiles(service);
 	migrateCharacterBags(service);
 	migrateCharacterBoxes(service);
-	service.recoverInterruptedBattleSessions();
-	service.recoverInterruptedContestSessions();
+	const persistedBattles = snapshot.legacyTableId ?
+		await persistence.listRuntimeSessionIds(snapshot.legacyTableId, 'battle') : new Set<string>();
+	const persistedContests = snapshot.legacyTableId ?
+		await persistence.listRuntimeSessionIds(snapshot.legacyTableId, 'contest') : new Set<string>();
+	service.recoverInterruptedBattleSessions(persistedBattles);
+	service.recoverInterruptedContestSessions(persistedContests);
 	repairOrphanedBoxPlacements(service);
 	if (config.rpgseedtestaccount === true) ensurePermanentTestCharacters(service, config.rpgmastercode || '');
 	await service.flushPersistence();
@@ -5397,9 +5472,11 @@ Promise<RPGLoginService> {
 }
 
 /** Loads one independent RPG world while reusing the global account/session authority. */
-export async function createRPGTableLoginServiceAsync(base: RPGLoginService, tableId: string): Promise<RPGLoginService> {
+export async function createRPGTableLoginServiceAsync(
+	base: RPGLoginService, tableId: string, sessionStore?: Map<string, RPGInternalSession>
+): Promise<RPGLoginService> {
 	const persistence = base.mysqlPersistence;
-	if (!persistence || base.legacyTableId === tableId) return base;
+	if (!persistence) return base;
 	const snapshot = await persistence.snapshot(tableId);
 	const repository = new RPGMemoryCharacterRepository(snapshot.characters as RPGStoredCharacter[], (record, id) => {
 		if (record) persistence.upsertCharacter({ ...record, tableId });
@@ -5425,13 +5502,16 @@ export async function createRPGTableLoginServiceAsync(base: RPGLoginService, tab
 		contestComboRepository, customItemRepository, commerceRepository, mysqlPersistence: persistence,
 		accountManagement: base.accounts, legacyTableId: tableId, masterNPCLibrary: snapshot.masterNPCLibrary,
 		playerDocuments: snapshot.playerDocuments, campaignSettings: snapshot.campaign,
-		tournaments: snapshot.tournaments as RPGTournament[],
+		tournaments: snapshot.tournaments as RPGTournament[], sessionStore,
 		tournamentChanged: tournament => persistence.upsertJSON('rpg_tournaments', 'id', tournament.id, 'state', tournament,
 			{ activity: tournament.activity, status: tournament.status, updated_at: tournament.updatedAt }, tableId),
 	});
 	migrateCharacterPageAccess(service); migrateCharacterBanks(service); migrateCharacterProfiles(service);
-	migrateCharacterBags(service); migrateCharacterBoxes(service); service.recoverInterruptedBattleSessions();
-	service.recoverInterruptedContestSessions(); repairOrphanedBoxPlacements(service);
+	const persistedBattles = await persistence.listRuntimeSessionIds(tableId, 'battle');
+	const persistedContests = await persistence.listRuntimeSessionIds(tableId, 'contest');
+	migrateCharacterBags(service); migrateCharacterBoxes(service);
+	service.recoverInterruptedBattleSessions(persistedBattles);
+	service.recoverInterruptedContestSessions(persistedContests); repairOrphanedBoxPlacements(service);
 	await service.flushPersistence();
 	return service;
 }

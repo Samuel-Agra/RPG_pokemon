@@ -34,6 +34,45 @@ function tradeRequest(view, type, lines, actionId) {
 }
 
 describe('RPG shared commerce management', () => {
+	it('persists a character and shared shop stock in one MySQL transaction', () => {
+		const batches = [];
+		let activeBatch = null;
+		const persistence = {
+			transaction(action) {
+				if (activeBatch) return action();
+				activeBatch = [];
+				try {
+					const result = action();
+					batches.push(activeBatch);
+					return result;
+				} finally {
+					activeBatch = null;
+				}
+			},
+			flush: async () => {},
+		};
+		const write = entity => {
+			if (activeBatch) activeBatch.push(entity);
+		};
+		const service = new RPGLoginService({
+			masterCode: '14081998', mysqlPersistence: persistence,
+			repository: new RPGMemoryCharacterRepository([], () => write('character')),
+			commerceRepository: new RPGMemoryCommerceRepository(undefined, () => write('shop')),
+		});
+		const master = service.loginMaster('14081998');
+		const player = createCharacter(service, 'Transacao');
+		let view = service.getCommerceShop(master.token, 'poke-mart-central');
+		service.configureCommerceOffer(master.token, 'poke-mart-central', {
+			itemId: 'pokeball', stock: 2, buyMode: 'available', buyPrice: 200,
+			sellEnabled: true, expectedRevision: view.shop.revision,
+		});
+		view = service.getCommerceShop(player.token, 'poke-mart-central');
+		batches.length = 0;
+		service.tradeCommerceShop(player.token, 'poke-mart-central',
+			tradeRequest(view, 'buy', [{ itemId: 'pokeball', quantity: 1 }], 'atomic-buy'));
+		assert.deepEqual(batches, [['character', 'shop']]);
+	});
+
 	it('assigns positive base buy and sell prices to every commerce item', () => {
 		const commerceItems = RPGItems.list().filter(item =>
 			['ball', 'healing', 'status', 'pp', 'revive', 'tm', 'evolution', 'held', 'custom'].includes(item.category) &&

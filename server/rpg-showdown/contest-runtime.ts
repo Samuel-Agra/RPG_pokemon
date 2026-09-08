@@ -230,6 +230,21 @@ export class RPGContestRuntimeManager {
 		this.onMovePPSpent = options.onMovePPSpent;
 	}
 
+	exportState(sessionId: string): unknown {
+		const state = this.runtimes.get(toID(sessionId));
+		return state ? structuredClone(state) : undefined;
+	}
+
+	replaceState(sessionId: string, state: unknown): void {
+		const id = toID(sessionId);
+		if (!state) { this.runtimes.delete(id); return; }
+		const candidate = structuredClone(state) as RPGContestRuntimeState;
+		if (toID(candidate.session?.id) !== id || !Array.isArray(candidate.participants) || !Array.isArray(candidate.events)) {
+			throw new Error('Estado persistido do concurso inválido');
+		}
+		this.runtimes.set(id, candidate);
+	}
+
 	start(session: RPGContestSession): RPGContestRuntimeSnapshot {
 		this.pruneEndedRuntimes();
 		const sessionId = toID(session.id);

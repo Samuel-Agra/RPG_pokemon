@@ -27,6 +27,42 @@ describe('RPG HTTP frontend API', () => {
 
 	after(done => server.close(done));
 
+	it('does not acknowledge an HTTP response before persistence succeeds', async () => {
+		const login = new RPGLoginService({
+			masterCode: '14081998', mysqlPersistence: {
+				flush: async () => { throw new Error('SQL secreto e dados internos'); },
+			},
+		});
+		const handler = new RPGHttpServer(login);
+		const node = http.createServer((req, res) => handler.handle(req, res));
+		await new Promise(resolve => node.listen(0, '127.0.0.1', resolve));
+		try {
+			const response = await fetch(`http://127.0.0.1:${node.address().port}/api/rpg/characters`);
+			assert.equal(response.status, 503);
+			assert.deepEqual(await response.json(), { error: 'Não foi possível salvar os dados. Tente novamente.' });
+		} finally {
+			await new Promise(resolve => node.close(resolve));
+		}
+	});
+
+	it('hides unexpected implementation errors and audits only administrative mutations', async () => {
+		const login = new RPGLoginService({ masterCode: '14081998' });
+		login.flushPersistence = async () => { throw new Error('detalhe interno secreto'); };
+		const handler = new RPGHttpServer(login);
+		assert.equal(handler.isAdministrativeRPGMutation('POST', '/api/rpg/battle-sessions/id/action'), false);
+		assert.equal(handler.isAdministrativeRPGMutation('POST', '/api/rpg/contest-sessions/id/runtime-ready'), false);
+		assert.equal(handler.isAdministrativeRPGMutation('PUT', '/api/rpg/campaign/settings'), true);
+		const node = http.createServer((req, res) => handler.handle(req, res));
+		await new Promise(resolve => node.listen(0, '127.0.0.1', resolve));
+		try {
+			const response = await fetch(`http://127.0.0.1:${node.address().port}/api/rpg/characters`);
+			assert.equal(response.status, 500);
+			assert.deepEqual(await response.json(), { error: 'Ocorreu uma falha interna. Tente novamente.' });
+		} finally {
+			await new Promise(resolve => node.close(resolve));
+		}
+	});
+
 	async function request(path, options = {}) {
 		const response = await fetch(baseUrl + '/api/rpg' + path, {
 			...options,
@@ -197,6 +233,21 @@ describe('RPG HTTP frontend API', () => {
 		});
 		assert.equal(result.response.status, 200);
 		assert.equal(result.data.recoveryCodes.length, 10);
+		for (let index = 0; index < 5; index++) {
+			result = await request('/v2/password/recovery', {
+				method: 'POST', body: {
+					username: 'seguranca-http', recoveryCode: '0000-0000-0000', newPassword: 'outra-senha-segura',
+				},
+			});
+			assert.equal(result.response.status, 400);
+		}
+		result = await request('/v2/password/recovery', {
+			method: 'POST', body: {
+				username: 'seguranca-http', recoveryCode: result.data.recoveryCodes?.[0] || '1111-1111-1111',
+				newPassword: 'outra-senha-segura',
+			},
+		});
+		assert.equal(result.response.status, 429);
 		for (let index = 0; index < 5; index++) await request('/v2/session', {
 			method: 'POST', body: { username: 'bloqueio-http', password: 'errada-segura' },
 		});
@@ -228,6 +279,14 @@ describe('RPG HTTP frontend API', () => {
 		assert.equal(result.data.invite.maxUses, 1);
 		assert.equal(result.data.invite.codeHash, undefined);
 		await request('/v2/invites/join', { method: 'POST', headers: memberHeaders, body: { code: result.data.code } });
+		result = await request(`/v2/tables/${tableId}/invites`, {
+			method: 'POST', headers: memberHeaders, body: { role: 'player' },
+		});
+		assert.equal(result.response.status, 403);
+		result = await request(`/v2/tables/${tableId}/invites`, {
+			method: 'POST', headers: ownerHeaders, body: { maxUses: 0 },
+		});
+		assert.equal(result.response.status, 400);
 		result = await request(`/v2/tables/${tableId}/invites`, {
 			method: 'POST', headers: ownerHeaders, body: { maxUses: 2 },
 		});
@@ -263,6 +322,16 @@ describe('RPG HTTP frontend API', () => {
 		assert.equal(result.response.status, 200);
 		assert(result.data.entries.some(entry => entry.action === 'member.role.changed'));
 		assert(result.data.entries.some(entry => entry.action === 'member.blocked'));
+		assert(result.data.entries.some(entry => entry.action === 'audit.viewed' &&
+			entry.actorAccountId === member.accountId && entry.metadata.result === 'denied'));
+		const deniedAudit = result.data.entries.find(entry =>
+			entry.action === 'invite.created' && entry.actorAccountId === member.accountId && entry.metadata.result === 'denied');
+		assert(deniedAudit);
+		assert.equal(deniedAudit.metadata.failureType, 'authorization');
+		const failedAudit = result.data.entries.find(entry =>
+			entry.action === 'invite.created' && entry.actorAccountId === owner.accountId && entry.metadata.result === 'failure');
+		assert(failedAudit);
+		assert.equal(failedAudit.metadata.failureType, 'validation');
 		const roleAudit = result.data.entries.find(entry => entry.action === 'member.role.changed');
 		assert.equal(roleAudit.metadata.previousRole, 'player');
 		assert.equal(roleAudit.metadata.newRole, 'master');
@@ -444,7 +513,9 @@ describe('RPG HTTP frontend API', () => {
 			tableMembers: [], tableInvites: [], accountSessions: [], recoveryCodes: [], loginAttempts: [],
 			auditEntries: [], legacyTableId: tableId,
 		});
-		const persistence = new Proxy({ snapshot: async tableId => emptySnapshot(tableId), flush: async () => {} }, {
+		const persistence = new Proxy({
+			snapshot: async tableId => emptySnapshot(tableId), flush: async () => {}, transaction: action => action(),
+		}, {
 			get: (target, property) => property in target ? target[property] : () => {},
 		});
 		const scopedLogin = new RPGLoginService({
@@ -482,6 +553,146 @@ describe('RPG HTTP frontend API', () => {
 			assert.deepEqual(result.data.characters.map(character => character.id), ['personagemb']);
 		} finally {
 			await new Promise(resolve => scopedServer.close(resolve));
+		}
+	});
+
+	it('keeps owner-only campaign configuration away from auxiliary masters', async () => {
+		const { RPGAccountManagement, RPGMemoryAccountRepository } = require('../../dist/server/rpg-showdown/account-management');
+		const accounts = new RPGAccountManagement(new RPGMemoryAccountRepository());
+		accounts.createAccount('dono-campanha', 'Dono', 'senha-segura');
+		accounts.createAccount('mestre-auxiliar', 'Mestre auxiliar', 'senha-segura');
+		const owner = accounts.login('dono-campanha', 'senha-segura');
+		const auxiliary = accounts.login('mestre-auxiliar', 'senha-segura');
+		const table = accounts.createTable(owner.token, { name: 'Mesa com auxiliares' });
+		accounts.joinByInvite(auxiliary.token, accounts.createInvite(owner.token, table.id, 'master').code);
+		accounts.selectTable(owner.token, table.id);
+		accounts.selectTable(auxiliary.token, table.id);
+		const emptySnapshot = tableId => ({
+			characters: [], battles: [], contests: [], tournaments: [], combos: [], customItems: [], shops: [],
+			masterNPCLibrary: null, playerDocuments: {}, campaign: null, platformAccounts: [], campaignTables: [],
+			tableMembers: [], tableInvites: [], accountSessions: [], recoveryCodes: [], loginAttempts: [],
+			auditEntries: [], legacyTableId: tableId,
+		});
+		const persistence = new Proxy({
+			snapshot: async tableId => emptySnapshot(tableId), flush: async () => {}, transaction: action => action(),
+		}, {
+			get: (target, property) => property in target ? target[property] : () => {},
+		});
+		const login = new RPGLoginService({
+			masterCode: '14081998', accountManagement: accounts, mysqlPersistence: persistence, legacyTableId: table.id,
+		});
+		const handler = new RPGHttpServer(login);
+		const scopedServer = http.createServer((req, res) => handler.handle(req, res));
+		await new Promise(resolve => scopedServer.listen(0, '127.0.0.1', resolve));
+		const url = `http://127.0.0.1:${scopedServer.address().port}/api/rpg`;
+		const scopedRequest = async (path, token, options = {}) => {
+			const response = await fetch(url + path, {
+				...options,
+				headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+				body: options.body ? JSON.stringify(options.body) : undefined,
+			});
+			return { response, data: await response.json() };
+		};
+		try {
+			let result = await scopedRequest('/campaign/settings', owner.token, {
+				method: 'PUT', body: { name: 'Campanha configurada', currentDateTime: '2026-09-07T12:00:00.000Z' },
+			});
+			assert.equal(result.response.status, 200, JSON.stringify(result.data));
+			result = await scopedRequest('/campaign/settings', auxiliary.token, {
+				method: 'PUT', body: { name: 'Alteração indevida', currentDateTime: '2026-09-08T12:00:00.000Z' },
+			});
+			assert.equal(result.response.status, 403, JSON.stringify(result.data));
+			assert.match(result.data.error, /campaign\.configure/);
+			result = await scopedRequest('/campaign/time/advance', auxiliary.token, {
+				method: 'POST', body: { hours: 1 },
+			});
+			assert.equal(result.response.status, 200, JSON.stringify(result.data));
+		} finally {
+			await new Promise(resolve => scopedServer.close(resolve));
+		}
+	});
+
+	it('reloads a shared MySQL table world between independent HTTP servers', async () => {
+		const {
+			RPGAccountManagement, RPGMemoryAccountRepository, RPGMemoryPlatformSessionRepository,
+		} = require('../../dist/server/rpg-showdown/account-management');
+		const seedAccounts = new RPGAccountManagement(new RPGMemoryAccountRepository());
+		const ownerAccount = seedAccounts.createAccount('dono-distribuido', 'Dono', 'senha-segura');
+		const playerAccount = seedAccounts.createAccount('player-distribuido', 'Player', 'senha-segura');
+		const owner = seedAccounts.login('dono-distribuido', 'senha-segura');
+		const player = seedAccounts.login('player-distribuido', 'senha-segura');
+		const table = seedAccounts.createTable(owner.token, { name: 'Mesa distribuída' });
+		seedAccounts.joinByInvite(player.token, seedAccounts.createInvite(owner.token, table.id).code);
+		seedAccounts.selectTable(player.token, table.id);
+		const accountIds = [ownerAccount.id, playerAccount.id];
+		const central = {
+			characters: [],
+			platformAccounts: accountIds.map(id => seedAccounts.repository.getAccount(id)),
+			campaignTables: [seedAccounts.repository.getTable(table.id)],
+			tableMembers: accountIds.map(id => seedAccounts.repository.getMembership(table.id, id)).filter(Boolean),
+			accountSessions: accountIds.flatMap(id => seedAccounts.sessionRepository.listByAccount(id)),
+		};
+		const persistence = {
+			sharedDatabase: true,
+			withAdvisoryLock: async (_name, action) => action(),
+			transaction: action => action(), transactionAsync: action => action(), flush: async () => {},
+			listRuntimeSessionIds: async () => new Set(),
+			snapshot: async tableId => ({
+				characters: structuredClone(central.characters), battles: [], contests: [], tournaments: [], combos: [],
+				customItems: [], shops: [], masterNPCLibrary: null, playerDocuments: {}, campaign: null,
+				platformAccounts: structuredClone(central.platformAccounts),
+				campaignTables: structuredClone(central.campaignTables),
+				tableMembers: structuredClone(central.tableMembers), tableInvites: [],
+				accountSessions: structuredClone(central.accountSessions), recoveryCodes: [], loginAttempts: [],
+				auditEntries: [], legacyTableId: tableId,
+			}),
+			upsertCharacter: record => {
+				const index = central.characters.findIndex(value => value.state.id === record.state.id);
+				if (index < 0) central.characters.push(structuredClone(record));
+				else central.characters[index] = structuredClone(record);
+			},
+			deleteCharacter: id => {
+				central.characters = central.characters.filter(record => record.state.id !== id);
+			},
+			upsertPlatformSession: session => {
+				const index = central.accountSessions.findIndex(value => value.tokenHash === session.tokenHash);
+				if (index < 0) central.accountSessions.push(structuredClone(session));
+				else central.accountSessions[index] = structuredClone(session);
+			},
+			upsertJSON() {}, delete() {}, upsertSingleton() {},
+		};
+		const makeBase = () => {
+			const repository = new RPGMemoryAccountRepository({
+				accounts: central.platformAccounts, tables: central.campaignTables, members: central.tableMembers,
+			});
+			const sessions = new RPGMemoryPlatformSessionRepository(central.accountSessions);
+			return new RPGLoginService({
+				masterCode: '14081998', mysqlPersistence: persistence, legacyTableId: table.id,
+				accountManagement: new RPGAccountManagement(repository, Date.now, undefined, sessions),
+			});
+		};
+		const servers = [new RPGHttpServer(makeBase()), new RPGHttpServer(makeBase())];
+		const nodes = servers.map(handler => http.createServer((req, res) => handler.handle(req, res)));
+		await Promise.all(nodes.map(node => new Promise(resolve => node.listen(0, '127.0.0.1', resolve))));
+		const call = async (node, path, options = {}) => {
+			const response = await fetch(`http://127.0.0.1:${node.address().port}/api/rpg${path}`, {
+				...options, headers: { Authorization: `Bearer ${player.token}`,
+					...(options.body ? { 'Content-Type': 'application/json' } : {}) },
+				body: options.body ? JSON.stringify(options.body) : undefined,
+			});
+			return { response, data: await response.json() };
+		};
+		try {
+			assert.deepEqual((await call(nodes[1], '/characters')).data.characters, []);
+			const created = await call(nodes[0], '/characters', { method: 'POST', body: {
+				characterName: 'Compartilhado', playerName: 'Player', avatar: 'red', password: 'senha-personagem',
+				initialMoney: 0, starter: { species: 'Bulbasaur', nickname: '', gender: 'M', level: 5 },
+			} });
+			assert.equal(created.response.status, 201, JSON.stringify(created.data));
+			const reloaded = await call(nodes[1], '/characters');
+			assert.deepEqual(reloaded.data.characters.map(character => character.id), ['compartilhado']);
+		} finally {
+			await Promise.all(nodes.map(node => new Promise(resolve => node.close(resolve))));
 		}
 	});
 });

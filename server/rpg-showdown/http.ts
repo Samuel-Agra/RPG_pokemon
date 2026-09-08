@@ -23,6 +23,7 @@ import {
 	type RPGCommerceOfferInput,
 	type RPGCommerceTradeRequest,
 	type RPGLoginService,
+	type RPGInternalSession,
 	type RPGUpdateContestSessionRequest,
 	type RPGUpdateBattleSessionRequest,
 } from './index';
@@ -40,9 +41,13 @@ export class RPGHttpServer {
 	private servicePromise?: Promise<RPGLoginService>;
 	private readonly scopedService = new AsyncLocalStorage<RPGLoginService>();
 	private readonly accountConcurrencyScope = new AsyncLocalStorage<boolean>();
-	private readonly tableServices = new Map<string, Promise<RPGLoginService>>();
-	private readonly battleRuntimeManagers = new WeakMap<RPGLoginService, RPGBattleRuntimeManager>();
-	private readonly contestRuntimeManagers = new WeakMap<RPGLoginService, RPGContestRuntimeManager>();
+	/** Mantido somente para repositórios locais/dublês; MySQL sempre recarrega a mesa. */
+	private readonly localTableServices = new Map<string, Promise<RPGLoginService>>();
+	private readonly tableSessionStores = new Map<string, Map<string, RPGInternalSession>>();
+	private readonly battleRuntimeManagers = new Map<string, RPGBattleRuntimeManager>();
+	private readonly contestRuntimeManagers = new Map<string, RPGContestRuntimeManager>();
+	private readonly pendingResponses = new WeakMap<http.ServerResponse, { status: number, data: unknown }>();
+	private readonly parsedBodies = new WeakMap<http.IncomingMessage, Promise<Record<string, unknown>>>();
 
 	constructor(service?: RPGLoginService) {
 		this.service = service;
@@ -53,6 +58,7 @@ export class RPGHttpServer {
 		if (!url.pathname.startsWith('/api/rpg/')) return false;
 		void this.route(req, res, url)
 			.then(() => this.service?.flushPersistence())
+			.then(() => this.commitResponse(res))
 			.catch(error => this.error(res, error));
 		return true;
 	}
@@ -62,8 +68,9 @@ export class RPGHttpServer {
 	}
 
 	private get battleRuntimes(): RPGBattleRuntimeManager {
-		let manager = this.battleRuntimeManagers.get(this.login);
-		if (!manager) { manager = new RPGBattleRuntimeManager(); this.battleRuntimeManagers.set(this.login, manager); }
+		const key = this.login.legacyTableId || 'legacy';
+		let manager = this.battleRuntimeManagers.get(key);
+		if (!manager) { manager = new RPGBattleRuntimeManager(); this.battleRuntimeManagers.set(key, manager); }
 		return manager;
 	}
 
@@ -74,7 +81,8 @@ export class RPGHttpServer {
 	}
 
 	private get contestRuntimeManager(): RPGContestRuntimeManager {
-		let manager = this.contestRuntimeManagers.get(this.login);
+		const key = this.login.legacyTableId || 'legacy';
+		let manager = this.contestRuntimeManagers.get(key);
 		if (manager) return manager;
 		manager = new RPGContestRuntimeManager({
 			getCharacterTeam: characterId => this.login.repository.get(characterId)?.state.team,
@@ -83,7 +91,7 @@ export class RPGHttpServer {
 				this.login.consumeContestMovePP(characterId, teamIndex, moveId),
 			onFinished: (session, results) => this.login.applyContestResults(session, results),
 		});
-		this.contestRuntimeManagers.set(this.login, manager);
+		this.contestRuntimeManagers.set(key, manager);
 		return manager;
 	}
 
@@ -107,27 +115,88 @@ export class RPGHttpServer {
 						auditEntries: snapshot.auditEntries,
 					}, snapshot.accountSessions);
 				}
-				return this.service!.accounts.withAuditContext(context,
-					() => this.accountConcurrencyScope.run(true, () => this.route(req, res, url)));
+				try {
+					return await this.service!.accounts.withAuditContext(context,
+						() => this.accountConcurrencyScope.run(true, () => this.route(req, res, url)));
+				} catch (error) {
+					await this.auditFailedAdministrativeRequest(req, url, token, context, error);
+					throw error;
+				}
 			};
-			return this.service!.mysqlPersistence ?
-				this.service!.mysqlPersistence.withAdvisoryLock('pokemon-rpg:v2:accounts', execute) : execute();
+			if (!this.service!.mysqlPersistence) return execute();
+			// A única trava protege também o snapshot em memória compartilhado. Travas por
+			// credencial permitiam que uma recarga global substituísse dados durante um scrypt.
+			return this.service!.mysqlPersistence.withAdvisoryLock('pokemon-rpg:v2:accounts', execute);
 		}
 		if (!this.scopedService.getStore() && !url.pathname.startsWith('/api/rpg/v2/')) {
 			const authorization = req.headers.authorization || '';
 			const match = /^Bearer (.+)$/i.exec(authorization);
 			if (match) {
 				try {
-					const context = this.service!.accounts.getActiveTableContext(match[1]);
-					const tableId = context.table.id;
-					let scoped = this.tableServices.get(tableId);
-					if (!scoped) {
-						scoped = createRPGTableLoginServiceAsync(this.service!, tableId);
-						this.tableServices.set(tableId, scoped);
+					const sharedDatabase = this.service!.mysqlPersistence?.sharedDatabase === true;
+					if (!sharedDatabase) {
+						const context = this.service!.accounts.getActiveTableContext(match[1]);
+						let scoped = this.localTableServices.get(context.table.id);
+						if (!scoped) {
+							scoped = createRPGTableLoginServiceAsync(this.service!, context.table.id);
+							this.localTableServices.set(context.table.id, scoped);
+						}
+						const tableService = await scoped;
+						tableService.authorizePlatformSession(match[1], context);
+						return this.scopedService.run(tableService, () => this.route(req, res, url));
 					}
-					const tableService = await scoped;
-					tableService.authorizePlatformSession(match[1], context);
-					return this.scopedService.run(tableService, () => this.route(req, res, url));
+					const resolveContext = async () => {
+						if (this.service!.mysqlPersistence) {
+							const snapshot = await this.service!.mysqlPersistence.snapshot(this.service!.legacyTableId);
+							this.service!.accounts.reload({
+								accounts: snapshot.platformAccounts, tables: snapshot.campaignTables,
+								members: snapshot.tableMembers, invites: snapshot.tableInvites,
+								recoveryCodes: snapshot.recoveryCodes, loginAttempts: snapshot.loginAttempts,
+								auditEntries: snapshot.auditEntries,
+							}, snapshot.accountSessions);
+						}
+						return this.service!.accounts.getActiveTableContext(match[1]);
+					};
+					const context = this.service!.mysqlPersistence ? await this.service!.mysqlPersistence.withAdvisoryLock(
+						'pokemon-rpg:v2:accounts', resolveContext
+					) : await resolveContext();
+					const tableId = context.table.id;
+					const execute = async () => {
+						let sessionStore = this.tableSessionStores.get(tableId);
+						if (!sessionStore) {
+							sessionStore = new Map<string, RPGInternalSession>();
+							this.tableSessionStores.set(tableId, sessionStore);
+						}
+						const tableService = await createRPGTableLoginServiceAsync(this.service!, tableId, sessionStore);
+						tableService.authorizePlatformSession(match[1], context);
+						const auditContext = { origin: req.socket.remoteAddress || 'unknown', method: req.method || 'GET', path: url.pathname };
+						const runRequest = () => this.service!.accounts.withAuditContext(auditContext,
+							() => this.scopedService.run(tableService, async () => {
+								await this.loadSharedRuntime(url, tableId);
+								const routed = await this.route(req, res, url);
+								if ((context.membership.role === 'owner' || context.membership.role === 'master') &&
+									this.isAdministrativeRPGMutation(req.method || 'GET', url.pathname)) {
+									this.service!.accounts.recordAdministrativeSuccess(match[1], tableId,
+										'rpg.request.succeeded', 'rpg-endpoint', url.pathname);
+								}
+								this.saveSharedRuntime(url, tableId);
+								return routed;
+							}));
+						try {
+							const result = this.service!.mysqlPersistence ?
+								await this.service!.mysqlPersistence.transactionAsync(runRequest) : await runRequest();
+							await tableService.flushPersistence();
+							return result;
+						} catch (error) {
+							if (context.membership.role === 'owner' || context.membership.role === 'master') {
+								await this.auditFailedRPGAdministration(req, match[1], tableId, error);
+							}
+							throw error;
+						}
+					};
+					return this.service!.mysqlPersistence ? this.service!.mysqlPersistence.withAdvisoryLock(
+						'pokemon-rpg:table:' + tableId, execute
+					) : execute();
 				} catch (error) {
 					if (this.service!.accounts.sessionRepository.get(
 						createHash('sha256').update(match[1]).digest('hex'))) throw error;
@@ -296,7 +365,7 @@ export class RPGHttpServer {
 		// Version 2 owns global accounts and table membership while version 1 remains available during migration.
 		if (method === 'POST' && url.pathname === '/api/rpg/v2/accounts') {
 			const body = await this.body(req);
-			const registration = this.login.accounts.createAccountWithRecoveryCodes(
+			const registration = await this.login.accounts.createAccountWithRecoveryCodesAsync(
 				this.string(body.username), this.string(body.displayName), this.string(body.password)
 			);
 			await this.login.flushPersistence();
@@ -305,7 +374,7 @@ export class RPGHttpServer {
 		}
 		if (method === 'POST' && url.pathname === '/api/rpg/v2/session') {
 			const body = await this.body(req);
-			const session = this.login.accounts.login(this.string(body.username), this.string(body.password),
+			const session = await this.login.accounts.loginAsync(this.string(body.username), this.string(body.password),
 				req.socket.remoteAddress || 'unknown');
 			await this.login.flushPersistence();
 			this.json(res, 200, { session });
@@ -313,13 +382,15 @@ export class RPGHttpServer {
 		}
 		if (method === 'POST' && url.pathname === '/api/rpg/v2/password/recovery') {
 			const body = await this.body(req);
-			this.login.accounts.recoverPassword(this.string(body.username), this.string(body.recoveryCode),
-				this.string(body.newPassword));
+			await this.login.accounts.recoverPasswordAsync(this.string(body.username), this.string(body.recoveryCode),
+				this.string(body.newPassword), req.socket.remoteAddress || 'unknown');
 			await this.login.flushPersistence(); this.json(res, 200, { ok: true }); return;
 		}
 		if (method === 'POST' && url.pathname === '/api/rpg/v2/recovery-codes') {
 			const body = await this.body(req);
-			const recoveryCodes = this.login.accounts.regenerateRecoveryCodes(this.token(req), this.string(body.password));
+			const recoveryCodes = await this.login.accounts.regenerateRecoveryCodesAsync(
+				this.token(req), this.string(body.password)
+			);
 			await this.login.flushPersistence(); this.json(res, 200, { recoveryCodes }); return;
 		}
 		if (url.pathname === '/api/rpg/v2/session') {
@@ -1481,6 +1552,14 @@ export class RPGHttpServer {
 	}
 
 	private async body(req: http.IncomingMessage): Promise<Record<string, unknown>> {
+		const cached = this.parsedBodies.get(req);
+		if (cached) return cached;
+		const pending = this.readBody(req);
+		this.parsedBodies.set(req, pending);
+		return pending;
+	}
+
+	private async readBody(req: http.IncomingMessage): Promise<Record<string, unknown>> {
 		const contentType = req.headers['content-type'] || '';
 		if (!contentType.toLowerCase().startsWith('application/json')) {
 			throw new RPGHttpError(415, 'RPG requests require application/json');
@@ -1530,6 +1609,116 @@ export class RPGHttpServer {
 		return typeof value === 'string' ? value : '';
 	}
 
+	private runtimeRequest(url: URL): { type: 'battle' | 'contest', sessionId: string } | undefined {
+		const match = /^\/api\/rpg\/(battle|contest)-sessions\/([^/]+)\/(start|runtime|runtime-ready|action)$/.exec(url.pathname);
+		return match ? { type: match[1] as 'battle' | 'contest', sessionId: decodeURIComponent(match[2]) } : undefined;
+	}
+
+	private async loadSharedRuntime(url: URL, tableId: string): Promise<void> {
+		const request = this.runtimeRequest(url); const persistence = this.login.mysqlPersistence;
+		if (!request || !persistence) return;
+		const state = await persistence.loadRuntimeState(tableId, request.type, request.sessionId);
+		if (request.type === 'battle') this.battleRuntimes.replaceState(request.sessionId, state,
+			(characterId, inventory) => this.login.persistBattleInventory(characterId, inventory));
+		else this.contestRuntimeManager.replaceState(request.sessionId, state);
+	}
+
+	private saveSharedRuntime(url: URL, tableId: string): void {
+		const request = this.runtimeRequest(url); const persistence = this.login.mysqlPersistence;
+		if (!request || !persistence) return;
+		const state = request.type === 'battle' ? this.battleRuntimes.exportState(request.sessionId) :
+			this.contestRuntimeManager.exportState(request.sessionId);
+		if (state) {
+			const finishedAt = typeof state === 'object' && state && 'finishedAt' in state &&
+				typeof state.finishedAt === 'number' ? state.finishedAt : undefined;
+			persistence.upsertRuntimeState(tableId, request.type, request.sessionId, state, finishedAt);
+		}
+	}
+
+	private async auditFailedAdministrativeRequest(req: http.IncomingMessage, url: URL, token: string | undefined,
+		context: { origin: string, method: string, path: string, sessionId?: string }, error: unknown): Promise<void> {
+		if (!token) return;
+		const operation = this.administrativeAuditOperation(req.method || 'GET', url.pathname);
+		if (!operation) return;
+		try {
+			if (this.service!.mysqlPersistence) {
+				const snapshot = await this.service!.mysqlPersistence.snapshot(this.service!.legacyTableId);
+				this.service!.accounts.reload({
+					accounts: snapshot.platformAccounts, tables: snapshot.campaignTables,
+					members: snapshot.tableMembers, invites: snapshot.tableInvites,
+					recoveryCodes: snapshot.recoveryCodes, loginAttempts: snapshot.loginAttempts,
+					auditEntries: snapshot.auditEntries,
+				}, snapshot.accountSessions);
+			}
+			this.service!.accounts.withAuditContext(context, () => this.service!.accounts.recordAdministrativeFailure(
+				token, operation.tableId, operation.action, operation.targetType, operation.targetId, error
+			));
+			await this.service!.flushPersistence();
+		} catch (auditError) {
+			const value = auditError && typeof auditError === 'object' ?
+				auditError as { name?: unknown, code?: unknown } : undefined;
+			console.error('[Pokémon RPG] Falha ao registrar auditoria administrativa', {
+				occurredAt: new Date().toISOString(),
+				errorType: typeof value?.name === 'string' ? value.name : 'Error',
+				...(typeof value?.code === 'string' ? { errorCode: value.code } : {}),
+			});
+		}
+	}
+
+	private async auditFailedRPGAdministration(req: http.IncomingMessage, token: string, tableId: string,
+		error: unknown): Promise<void> {
+		const path = req.url?.split('?')[0] || '';
+		if (!this.isAdministrativeRPGMutation(req.method || 'GET', path)) return;
+		try {
+			this.service!.accounts.recordAdministrativeFailure(token, tableId, 'rpg.request.failed', 'rpg-endpoint',
+				req.url?.split('?')[0], error);
+			await this.service!.flushPersistence();
+		} catch (auditError) {
+			const value = auditError && typeof auditError === 'object' ? auditError as { name?: unknown, code?: unknown } : undefined;
+			console.error('[Pokémon RPG] Falha ao registrar auditoria administrativa do mundo', {
+				occurredAt: new Date().toISOString(), errorType: typeof value?.name === 'string' ? value.name : 'Error',
+				...(typeof value?.code === 'string' ? { errorCode: value.code } : {}),
+			});
+		}
+	}
+
+	private isAdministrativeRPGMutation(method: string, path: string): boolean {
+		if (!['POST', 'PUT', 'PATCH', 'DELETE'].includes(method)) return false;
+		// Decisões de turno e confirmações dos participantes são jogo, não administração.
+		if (/\/(?:battle|contest)-sessions\/[^/]+\/(?:action|runtime-ready|selection|response|evolution|move-learning)$/.test(path)) {
+			return false;
+		}
+		return true;
+	}
+
+	private administrativeAuditOperation(method: string, pathname: string): {
+		tableId: string, action: string, targetType: string, targetId?: string,
+	} | undefined {
+		const table = /^\/api\/rpg\/v2\/tables\/([^/]+)$/.exec(pathname);
+		if (method === 'DELETE' && table) return {
+			tableId: decodeURIComponent(table[1]), action: 'table.archived', targetType: 'table',
+			targetId: decodeURIComponent(table[1]),
+		};
+		const invite = /^\/api\/rpg\/v2\/tables\/([^/]+)\/invites(?:\/([^/]+))?$/.exec(pathname);
+		if (invite && ['GET', 'POST', 'DELETE'].includes(method)) return {
+			tableId: decodeURIComponent(invite[1]),
+			action: method === 'POST' ? 'invite.created' : method === 'DELETE' ? 'invite.revoked' : 'invite.viewed',
+			targetType: 'invite', targetId: invite[2] ? decodeURIComponent(invite[2]) : undefined,
+		};
+		const administrativeView = /^\/api\/rpg\/v2\/tables\/([^/]+)\/(members|audit)$/.exec(pathname);
+		if (method === 'GET' && administrativeView) return {
+			tableId: decodeURIComponent(administrativeView[1]), action: `${administrativeView[2]}.viewed`,
+			targetType: administrativeView[2],
+		};
+		const member = /^\/api\/rpg\/v2\/tables\/([^/]+)\/members\/([^/]+)(?:\/(block))?$/.exec(pathname);
+		if (member && ['PATCH', 'DELETE', 'POST'].includes(method)) return {
+			tableId: decodeURIComponent(member[1]),
+			action: member[3] ? 'member.blocked' : method === 'PATCH' ? 'member.role.changed' : 'member.removed',
+			targetType: 'member', targetId: decodeURIComponent(member[2]),
+		};
+		return undefined;
+	}
+
 	private async optionalAuditReason(req: http.IncomingMessage): Promise<string | undefined> {
 		const contentType = req.headers['content-type'] || '';
 		if (!contentType.toLowerCase().startsWith('application/json')) return undefined;
@@ -1549,37 +1738,86 @@ export class RPGHttpServer {
 	}
 
 	private json(res: http.ServerResponse, status: number, data: unknown): void {
+		if (res.headersSent || this.pendingResponses.has(res)) return;
+		this.pendingResponses.set(res, { status, data });
+	}
+
+	private commitResponse(res: http.ServerResponse): void {
+		const response = this.pendingResponses.get(res);
+		if (!response || res.headersSent) return;
+		this.pendingResponses.delete(res);
+		this.writeJson(res, response.status, response.data);
+	}
+
+	private writeJson(res: http.ServerResponse, status: number, data: unknown): void {
 		if (res.headersSent) return;
+		const payload = JSON.stringify(data);
 		res.writeHead(status, this.headers());
-		res.end(JSON.stringify(data));
+		res.end(payload);
 	}
 
 	private error(res: http.ServerResponse, error: unknown): void {
+		this.pendingResponses.delete(res);
 		if (error instanceof RPGHttpError) {
-			this.json(res, error.status, { error: error.message });
+			this.writeJson(res, error.status, { error: error.message });
 			return;
 		}
 		const message = error instanceof Error ? error.message : 'Unexpected RPG server error';
+		const details = error && typeof error === 'object' ? error as { code?: unknown, sqlState?: unknown } : undefined;
+		if (details?.code === 'RPG_AUTH_BUSY') {
+			this.writeJson(res, 503, { error: 'Serviço de autenticação temporariamente ocupado.' });
+			return;
+		}
+		if (details && (typeof details.code === 'string' || typeof details.sqlState === 'string')) {
+			console.error('[Pokémon RPG] Falha interna de persistência', {
+				occurredAt: new Date().toISOString(),
+				...(typeof details.code === 'string' ? { errorCode: details.code } : {}),
+				...(typeof details.sqlState === 'string' ? { sqlState: details.sqlState } : {}),
+			});
+			this.writeJson(res, 503, { error: 'Não foi possível salvar os dados. Tente novamente.' });
+			return;
+		}
+		if (error instanceof TypeError || error instanceof RangeError || error instanceof SyntaxError ||
+			/Estado persistido .+ inválido|Unexpected RPG server error|serialize|serializa/i.test(message)) {
+			console.error('[Pokémon RPG] Falha interna da aplicação', {
+				occurredAt: new Date().toISOString(), errorType: error instanceof Error ? error.name : 'Error',
+			});
+			this.writeJson(res, 500, { error: 'Ocorreu uma falha interna. Tente novamente.' });
+			return;
+		}
 		let status = 400;
-		if (message.includes('Muitas tentativas de login')) {
-			status = 429;
+		let publicDomainError = false;
+		if (message.includes('Muitas tentativas de login') || message.includes('Muitas tentativas de recuperação')) {
+			status = 429; publicDomainError = true;
 		} else if (['Invalid or expired RPG session', 'Invalid RPG character or password', 'Invalid RPG master code',
 			'Sessão inválida ou expirada', 'Usuário ou senha inválidos', 'Conta indisponível']
 			.some(part => message.includes(part))) {
-			status = 401;
+			status = 401; publicDomainError = true;
 		} else if (['permission', 'cannot access', 'master session required', 'Apenas Mestres', 'Permissão necessária',
 			'não participa desta mesa', 'bloqueada nesta mesa', 'pertence a outra conta',
 			'proprietário não pode sair', 'não pode ser removido', 'não pode ter sua função alterada']
 			.some(part => message.includes(part))) {
-			status = 403;
+			status = 403; publicDomainError = true;
 		} else if (message.includes('already exists') || message.includes('já está em uso') ||
 			message.includes('já foi utilizado')) {
-			status = 409;
+			status = 409; publicDomainError = true;
 		} else if (message.includes('Unknown RPG character') || message.includes('Convite inválido') ||
 			message.includes('Convite não encontrado') || message.includes('Conta convidada não encontrada')) {
-			status = 404;
+			status = 404; publicDomainError = true;
 		}
-		this.json(res, status, { error: message });
+		if (!publicDomainError && !this.isPublicValidationError(message)) {
+			console.error('[Pokémon RPG] Falha interna não classificada', {
+				occurredAt: new Date().toISOString(), errorType: error instanceof Error ? error.name : 'Error',
+			});
+			this.writeJson(res, 500, { error: 'Ocorreu uma falha interna. Tente novamente.' });
+			return;
+		}
+		this.writeJson(res, status, { error: message });
+	}
+
+	/** Only established domain validation messages may cross the HTTP boundary. */
+	private isPublicValidationError(message: string): boolean {
+		return /^(?:RPG |Invalid RPG|Incorrect RPG|Unknown RPG|Apenas |Permissão |Não |Nenhum |Este |Esta |O |Os |A |As |Usuário |Conta |Mesa |Convite |Código |Pokémon |Item |Golpe |Equipe |Batalha |Concurso |Torneio |NPC |Pasta |Documento |Loja |Banco |Pokécoin |Quantidade |Valor |Nível |Formato |Participante |Treinador |Campanha )/.test(message);
 	}
 }
 

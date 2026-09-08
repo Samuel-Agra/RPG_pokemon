@@ -36,6 +36,19 @@ function judging(overrides = {}) {
 }
 
 describe('RPG contest runtime', () => {
+	it('continues one contest after transferring its runtime state to another server', () => {
+		const teams = new Map([['may', [pokemon('Milotic', ['surf', 'icebeam'])]]]);
+		const first = new RPGContestRuntimeManager({ getCharacterTeam: id => teams.get(id) });
+		first.start(startedSession());
+		first.action('contest-runtime', { type: 'select-move', moveId: 'surf' }, { characterId: 'may' });
+		const second = new RPGContestRuntimeManager({ getCharacterTeam: id => teams.get(id) });
+		second.replaceState('contest-runtime', JSON.parse(JSON.stringify(first.exportState('contest-runtime'))));
+		const view = second.action(
+			'contest-runtime', { type: 'select-move', moveId: 'icebeam' }, { characterId: 'may' }
+		);
+		assert.deepEqual(view.participants[0].rounds[0], ['surf', 'icebeam']);
+	});
+
 	it('spends persistent PP and turns an attempt without PP into a zero-point action', () => {
 		const set = pokemon('Milotic', ['surf']);
 		set.rpg.pp = [1];

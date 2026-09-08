@@ -1,6 +1,7 @@
 import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { createHash, randomBytes, scryptSync } from 'node:crypto';
+import { AsyncLocalStorage } from 'node:async_hooks';
 import mysql, { type Pool, type PoolConnection, type ResultSetHeader, type RowDataPacket } from 'mysql2/promise';
 import type {
 	RPGAdminAuditEntry, RPGCampaignTable, RPGLoginAttempt, RPGPlatformAccount, RPGRecoveryCode,
@@ -16,7 +17,17 @@ export const RPG_SECURITY_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 export const RPG_SECURITY_CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 export interface RPGSecurityCleanupResult {
-	sessions: number; recoveryCodes: number; loginAttempts: number; invites: number;
+	sessions: number; recoveryCodes: number; loginAttempts: number; invites: number; runtimes: number;
+}
+
+/** Emits a safe operational signal without leaking SQL text, credentials, or stored values. */
+export function reportRPGSecurityCleanupFailure(error: unknown, occurredAt = Date.now()): void {
+	const value = error && typeof error === 'object' ? error as { name?: unknown, code?: unknown } : undefined;
+	console.error('[Pokémon RPG] Falha na limpeza programada dos dados de segurança', {
+		occurredAt: new Date(occurredAt).toISOString(),
+		errorType: typeof value?.name === 'string' ? value.name : 'Error',
+		...(typeof value?.code === 'string' ? { errorCode: value.code } : {}),
+	});
 }
 
 export interface RPGMySQLConfig {
@@ -73,10 +84,12 @@ function decoded(value: unknown): unknown {
 }
 
 export class RPGMySQLPersistence {
+	readonly sharedDatabase = true;
 	private pending: Promise<void> = Promise.resolve();
 	private failure: Error | null = null;
 	private legacyTableId?: string;
 	private transactionStatements: { sql: string, values: unknown[] }[] | null = null;
+	private readonly requestStatements = new AsyncLocalStorage<{ sql: string, values: unknown[] }[]>();
 	private securityCleanupTimer?: ReturnType<typeof setInterval>;
 
 	private constructor(private readonly pool: Pool) {}
@@ -129,8 +142,11 @@ export class RPGMySQLPersistence {
 				WHERE updated_at < ? AND (blocked_until IS NULL OR blocked_until < ?)`, [cutoff, now]);
 			const invites = await affected(`DELETE FROM rpg_table_invites
 				WHERE expires_at IS NOT NULL AND expires_at < ?`, [cutoff]);
+			const runtimes = await affected(`DELETE FROM rpg_runtime_states
+				WHERE (finished_at IS NOT NULL AND finished_at < ?)
+				OR (finished_at IS NULL AND updated_at < ?)`, [cutoff, cutoff]);
 			await connection.commit();
-			return { sessions, recoveryCodes, loginAttempts, invites };
+			return { sessions, recoveryCodes, loginAttempts, invites, runtimes };
 		} catch (error) {
 			await connection.rollback();
 			throw error;
@@ -141,7 +157,7 @@ export class RPGMySQLPersistence {
 
 	private scheduleSecurityCleanup(): void {
 		this.securityCleanupTimer = setInterval(() => {
-			void this.cleanupSecurityData().catch(() => undefined);
+			void this.cleanupSecurityData().catch(error => reportRPGSecurityCleanupFailure(error));
 		}, RPG_SECURITY_CLEANUP_INTERVAL_MS);
 		this.securityCleanupTimer.unref();
 	}
@@ -320,7 +336,36 @@ export class RPGMySQLPersistence {
 			metadata: decoded(row.metadata) as Record<string, unknown>, createdAt: Number(row.created_at) }));
 	}
 
+	async loadRuntimeState(tableId: string, runtimeType: 'battle' | 'contest', sessionId: string): Promise<unknown> {
+		const [rows] = await this.pool.query<RowDataPacket[]>(
+			'SELECT state FROM rpg_runtime_states WHERE table_id = ? AND runtime_type = ? AND session_id = ?',
+			[this.requireTableScope(tableId), runtimeType, sessionId]
+		);
+		return rows.length ? decoded(rows[0].state) : undefined;
+	}
+
+	async listRuntimeSessionIds(tableId: string, runtimeType: 'battle' | 'contest'): Promise<Set<string>> {
+		const [rows] = await this.pool.query<RowDataPacket[]>(
+			'SELECT session_id FROM rpg_runtime_states WHERE table_id = ? AND runtime_type = ?',
+			[this.requireTableScope(tableId), runtimeType]
+		);
+		return new Set(rows.map(row => String(row.session_id)));
+	}
+
+	upsertRuntimeState(tableId: string, runtimeType: 'battle' | 'contest', sessionId: string, state: unknown,
+		finishedAt?: number): void {
+		this.enqueue(`INSERT INTO rpg_runtime_states (table_id, runtime_type, session_id, state, updated_at, finished_at)
+			VALUES (?, ?, ?, CAST(? AS JSON), ?, ?)
+			ON DUPLICATE KEY UPDATE state=VALUES(state), updated_at=VALUES(updated_at), finished_at=VALUES(finished_at)`,
+		[this.requireTableScope(tableId), runtimeType, sessionId, JSON.stringify(state), Date.now(), finishedAt]);
+	}
+
 	enqueue(sql: string, values: unknown[]): void {
+		const request = this.requestStatements.getStore();
+		if (request) {
+			request.push({ sql, values });
+			return;
+		}
 		if (this.transactionStatements) {
 			this.transactionStatements.push({ sql, values });
 			return;
@@ -332,8 +377,18 @@ export class RPGMySQLPersistence {
 		});
 	}
 
+	/** Commits every repository write made by one asynchronous HTTP operation as one unit. */
+	async transactionAsync<T>(action: () => Promise<T>): Promise<T> {
+		if (this.requestStatements.getStore()) return action();
+		const statements: { sql: string, values: unknown[] }[] = [];
+		const result = await this.requestStatements.run(statements, action);
+		if (statements.length) await this.executeTransaction(statements);
+		return result;
+	}
+
 	/** Buffers synchronous repository writes and commits them through one MySQL connection. */
 	transaction<T>(action: () => T): T {
+		if (this.requestStatements.getStore()) return action();
 		if (this.transactionStatements) return action();
 		this.transactionStatements = [];
 		try {
@@ -348,24 +403,27 @@ export class RPGMySQLPersistence {
 	}
 
 	private enqueueTransaction(statements: { sql: string, values: unknown[] }[]): void {
-		this.pending = this.pending.then(async () => {
-			const connection = await this.pool.getConnection();
-			try {
-				await connection.beginTransaction();
-				for (const statement of statements) {
-					await connection.execute(statement.sql,
-						statement.values.map(value => value === undefined ? null : value) as any[]);
-				}
-				await connection.commit();
-			} catch (error) {
-				await connection.rollback();
-				throw error;
-			} finally {
-				connection.release();
-			}
-		}).catch(error => {
+		this.pending = this.pending.then(() => this.executeTransaction(statements)).catch(error => {
 			this.failure = error instanceof Error ? error : new Error(String(error));
 		});
+	}
+
+	/** Executes an async request's batch directly, so its database error cannot be consumed by another request. */
+	private async executeTransaction(statements: { sql: string, values: unknown[] }[]): Promise<void> {
+		const connection = await this.pool.getConnection();
+		try {
+			await connection.beginTransaction();
+			for (const statement of statements) {
+				await connection.execute(statement.sql,
+					statement.values.map(value => value === undefined ? null : value) as any[]);
+			}
+			await connection.commit();
+		} catch (error) {
+			await connection.rollback();
+			throw error;
+		} finally {
+			connection.release();
+		}
 	}
 
 	upsertCharacter(record: any): void {

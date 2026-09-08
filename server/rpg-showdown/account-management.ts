@@ -1,5 +1,6 @@
 /** Domínio de contas globais e participação em múltiplas mesas da versão 2. */
-import { createHash, randomBytes, scryptSync, timingSafeEqual } from 'node:crypto';
+import { createHash, randomBytes, scrypt, scryptSync, timingSafeEqual } from 'node:crypto';
+import { promisify } from 'node:util';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { toID } from '../../sim/dex-data';
 
@@ -8,6 +9,37 @@ export const RPG_PLATFORM_SESSION_TTL = 30 * 24 * 60 * 60 * 1000;
 export const RPG_LOGIN_WINDOW = 15 * 60 * 1000;
 export const RPG_LOGIN_BLOCK = 15 * 60 * 1000;
 export const RPG_LOGIN_MAX_FAILURES = 5;
+export const RPG_RECOVERY_WINDOW = 15 * 60 * 1000;
+export const RPG_RECOVERY_BLOCK = 15 * 60 * 1000;
+export const RPG_RECOVERY_MAX_FAILURES = 5;
+const RPG_DUMMY_LOGIN_CREDENTIAL: RPGAccountCredential = {
+	salt: Buffer.alloc(16, 0x52).toString('base64'),
+	hash: Buffer.alloc(32, 0xa7).toString('base64'),
+	algorithm: 'scrypt',
+};
+const scryptAsync = promisify(scrypt);
+const RPG_KDF_CONCURRENCY = 4;
+const RPG_KDF_MAX_QUEUE = 64;
+let activeKDFTasks = 0;
+const pendingKDFTasks: (() => void)[] = [];
+
+async function withKDFSlot<T>(action: () => Promise<T>): Promise<T> {
+	if (activeKDFTasks >= RPG_KDF_CONCURRENCY) {
+		if (pendingKDFTasks.length >= RPG_KDF_MAX_QUEUE) {
+			const error = new Error('Serviço de autenticação temporariamente ocupado');
+			Object.assign(error, { code: 'RPG_AUTH_BUSY' });
+			throw error;
+		}
+		await new Promise<void>(resolve => { pendingKDFTasks.push(resolve); });
+	}
+	activeKDFTasks++;
+	try {
+		return await action();
+	} finally {
+		activeKDFTasks--;
+		pendingKDFTasks.shift()?.();
+	}
+}
 export type RPGTableRole = 'owner' | 'master' | 'player' | 'spectator';
 export const RPG_TABLE_PERMISSIONS = [
 	'battles.create', 'battles.manage', 'battles.participate', 'battles.watch',
@@ -327,6 +359,25 @@ export class RPGAccountManagement {
 		});
 	}
 
+	async createAccountWithRecoveryCodesAsync(username: string, displayName: string, password: string) {
+		const normalized = toID(username);
+		if (normalized.length < 3 || normalized.length > 40) throw new Error('O usuário deve ter entre 3 e 40 caracteres');
+		if (this.repository.getAccountByUsername(normalized)) throw new Error('Este nome de usuário já está em uso');
+		this.validatePassword(password);
+		const display = this.text(displayName, 80, 'nome de exibição');
+		const credential = await this.hashPasswordAsync(password);
+		return this.atomic(() => {
+			if (this.repository.getAccountByUsername(normalized)) throw new Error('Este nome de usuário já está em uso');
+			const now = this.now();
+			const account: RPGPlatformAccount = {
+				id: this.id(), username: normalized, displayName: display, credential,
+				status: 'active', createdAt: now, updatedAt: now, revision: 0,
+			};
+			this.repository.setAccount(account);
+			return { account: this.publicAccount(account), recoveryCodes: this.replaceRecoveryCodes(account.id) };
+		});
+	}
+
 	/** Reuses a version 1 scrypt credential while assigning its character to the imported table. */
 	linkLegacyCharacter(input: {
 		characterId: string, displayName: string, credential: RPGAccountCredential,
@@ -355,22 +406,62 @@ export class RPGAccountManagement {
 	}
 
 	login(username: string, password: string, source = ''): RPGPlatformSession {
+		const context = this.loginContext(username, source);
+		const passwordMatches = this.verifyPassword(password, context.account?.credential || RPG_DUMMY_LOGIN_CREDENTIAL);
+		return this.finishLogin(context, passwordMatches);
+	}
+
+	async loginAsync(username: string, password: string, source = ''): Promise<RPGPlatformSession> {
+		const context = this.loginContext(username, source);
+		this.assertLoginAvailable(context);
+		const passwordMatches = await this.verifyPasswordAsync(
+			password, context.account?.credential || RPG_DUMMY_LOGIN_CREDENTIAL
+		);
+		return this.finishLogin(context, passwordMatches);
+	}
+
+	private assertLoginAvailable(context: ReturnType<RPGAccountManagement['loginContext']>): void {
+		if ([context.attempt, context.globalAttempt].some(value => value?.blockedUntil && value.blockedUntil > context.now)) {
+			throw new Error('Muitas tentativas de login. Tente novamente mais tarde');
+		}
+	}
+
+	private loginContext(username: string, source: string) {
 		const normalizedUsername = toID(username); const accountKey = this.tokenHash(normalizedUsername);
 		const attemptKey = this.tokenHash(`${normalizedUsername}:${source.trim().toLowerCase()}`);
-		const attempt = this.repository.getLoginAttempt(attemptKey); const now = this.now();
-		if (attempt?.blockedUntil && attempt.blockedUntil > now) throw new Error('Muitas tentativas de login. Tente novamente mais tarde');
-		const account = this.repository.getAccountByUsername(username);
-		if (!account || account.status !== 'active' || !this.verifyPassword(password, account.credential)) {
-			const active = attempt && now - attempt.windowStartedAt < RPG_LOGIN_WINDOW ? attempt :
-				{ key: attemptKey, accountKey, failures: 0, windowStartedAt: now, updatedAt: now };
-			active.accountKey = accountKey;
-			active.failures++; active.updatedAt = now;
-			if (active.failures >= RPG_LOGIN_MAX_FAILURES) active.blockedUntil = now + RPG_LOGIN_BLOCK;
-			this.repository.setLoginAttempt(active, attemptKey);
+		const globalAttemptKey = this.tokenHash(`${accountKey}:global`);
+		return {
+			accountKey, attemptKey, globalAttemptKey,
+			attempt: this.repository.getLoginAttempt(attemptKey),
+			globalAttempt: this.repository.getLoginAttempt(globalAttemptKey),
+			now: this.now(), account: this.repository.getAccountByUsername(username),
+		};
+	}
+
+	private finishLogin(context: ReturnType<RPGAccountManagement['loginContext']>, passwordMatches: boolean) {
+		const { accountKey, attemptKey, globalAttemptKey, attempt, globalAttempt, now, account } = context;
+		if ([attempt, globalAttempt].some(value => value?.blockedUntil && value.blockedUntil > now)) {
+			throw new Error('Muitas tentativas de login. Tente novamente mais tarde');
+		}
+		if (!account || account.status !== 'active' || !passwordMatches) {
+			const increment = (current: RPGLoginAttempt | undefined, key: string): RPGLoginAttempt => {
+				const active = current && now - current.windowStartedAt < RPG_LOGIN_WINDOW ? current :
+					{ key, accountKey, failures: 0, windowStartedAt: now, updatedAt: now };
+				active.accountKey = accountKey;
+				active.failures++; active.updatedAt = now;
+				if (active.failures >= RPG_LOGIN_MAX_FAILURES) active.blockedUntil = now + RPG_LOGIN_BLOCK;
+				return active;
+			};
+			this.atomic(() => {
+				this.repository.setLoginAttempt(increment(attempt, attemptKey), attemptKey);
+				this.repository.setLoginAttempt(increment(globalAttempt, globalAttemptKey), globalAttemptKey);
+			});
 			throw new Error('Usuário ou senha inválidos');
 		}
 		return this.atomic(() => {
-			this.repository.setLoginAttempt(null, attemptKey);
+			for (const value of this.repository.listLoginAttempts(accountKey)) {
+				this.repository.setLoginAttempt(null, value.key);
+			}
 			const token = this.bytes(32).toString('base64url');
 			const createdAt = this.now();
 			this.sessionRepository.set({
@@ -387,20 +478,70 @@ export class RPGAccountManagement {
 		return this.atomic(() => this.replaceRecoveryCodes(account.id));
 	}
 
-	recoverPassword(username: string, recoveryCode: string, newPassword: string): void {
+	async regenerateRecoveryCodesAsync(token: string, password: string): Promise<string[]> {
+		const session = this.session(token); const account = this.repository.getAccount(session.accountId)!;
+		if (!await this.verifyPasswordAsync(password, account.credential)) throw new Error('Usuário ou senha inválidos');
+		return this.atomic(() => this.replaceRecoveryCodes(account.id));
+	}
+
+	recoverPassword(username: string, recoveryCode: string, newPassword: string, source = ''): void {
+		const recovery = this.preparePasswordRecovery(username, recoveryCode, newPassword, source);
+		this.completePasswordRecovery(recovery, this.hashPassword(newPassword));
+	}
+
+	async recoverPasswordAsync(username: string, recoveryCode: string, newPassword: string, source = ''): Promise<void> {
+		const recovery = this.preparePasswordRecovery(username, recoveryCode, newPassword, source);
+		this.completePasswordRecovery(recovery, await this.hashPasswordAsync(newPassword));
+	}
+
+	private preparePasswordRecovery(username: string, recoveryCode: string, newPassword: string, source: string) {
+		const normalizedUsername = toID(username);
+		const loginAccountKey = this.tokenHash(normalizedUsername);
+		const recoveryAccountKey = this.tokenHash(`recovery:${normalizedUsername}`);
+		const attemptKey = this.tokenHash(`recovery:${normalizedUsername}:${source.trim().toLowerCase()}`);
+		const globalAttemptKey = this.tokenHash(`${recoveryAccountKey}:global`);
+		const attempt = this.repository.getLoginAttempt(attemptKey);
+		const globalAttempt = this.repository.getLoginAttempt(globalAttemptKey);
+		const now = this.now();
 		const account = this.repository.getAccountByUsername(username); this.validatePassword(newPassword);
 		const hash = this.tokenHash(recoveryCode.trim().toUpperCase());
 		const code = account && this.repository.listRecoveryCodes(account.id)
 			.find(value => !value.usedAt && value.codeHash === hash);
-		if (!account || !code) throw new Error('Código de recuperação inválido');
+		if ([attempt, globalAttempt].some(value => value?.blockedUntil && value.blockedUntil > now)) {
+			throw new Error('Muitas tentativas de recuperação. Tente novamente mais tarde');
+		}
+		if (!account || !code) {
+			const increment = (current: RPGLoginAttempt | undefined, key: string): RPGLoginAttempt => {
+				const active = current && now - current.windowStartedAt < RPG_RECOVERY_WINDOW ? current :
+					{ key, accountKey: recoveryAccountKey, failures: 0, windowStartedAt: now, updatedAt: now };
+				active.accountKey = recoveryAccountKey;
+				active.failures++; active.updatedAt = now;
+				if (active.failures >= RPG_RECOVERY_MAX_FAILURES) active.blockedUntil = now + RPG_RECOVERY_BLOCK;
+				return active;
+			};
+			this.atomic(() => {
+				this.repository.setLoginAttempt(increment(attempt, attemptKey), attemptKey);
+				this.repository.setLoginAttempt(increment(globalAttempt, globalAttemptKey), globalAttemptKey);
+			});
+			throw new Error('Código de recuperação inválido');
+		}
+		return { account, code, now, loginAccountKey, recoveryAccountKey };
+	}
+
+	private completePasswordRecovery(recovery: ReturnType<RPGAccountManagement['preparePasswordRecovery']>,
+		credential: RPGAccountCredential): void {
+		const { account, code, now, loginAccountKey, recoveryAccountKey } = recovery;
 		this.atomic(() => {
-			const now = this.now(); code.usedAt = now; this.repository.setRecoveryCode(code);
-			account.credential = this.hashPassword(newPassword); account.updatedAt = now; account.revision++;
+			code.usedAt = now; this.repository.setRecoveryCode(code);
+			account.credential = credential; account.updatedAt = now; account.revision++;
 			this.repository.setAccount(account);
 			for (const session of this.sessionRepository.listByAccount(account.id)) {
 				if (!session.revokedAt) { session.revokedAt = now; this.sessionRepository.set(session); }
 			}
-			for (const attempt of this.repository.listLoginAttempts(this.tokenHash(account.username))) {
+			for (const attempt of [
+				...this.repository.listLoginAttempts(loginAccountKey),
+				...this.repository.listLoginAttempts(recoveryAccountKey),
+			]) {
 				this.repository.setLoginAttempt(null, attempt.key);
 			}
 		});
@@ -413,6 +554,41 @@ export class RPGAccountManagement {
 		if (!member || member.status !== 'active') throw new Error('A conta não participa desta mesa');
 		this.requirePermission(member, 'members.manage');
 		return this.repository.listAuditEntries(tableId).slice(0, Math.max(1, Math.min(500, Math.floor(limit))));
+	}
+
+	/** Records a rejected administrative request without requiring the denied permission itself. */
+	recordAdministrativeFailure(token: string, tableId: string, action: string, targetType: string,
+		targetId: string | undefined, error: unknown): void {
+		const session = this.session(token);
+		const table = this.repository.getTable(tableId);
+		const actor = this.repository.getMembership(toID(tableId), session.accountId);
+		if (!table) return;
+		const message = error instanceof Error ? error.message : 'Falha administrativa';
+		const authorization = /permissão|proprietário|participa desta mesa|administrar mestres/i.test(message);
+		const persistence = !!error && typeof error === 'object' && (
+			'code' in error || 'sqlState' in error || /mysql|persist|banco de dados|transaction/i.test(message)
+		);
+		const safeError = authorization ? 'Ação recusada por permissão' :
+			persistence ? 'Falha ao persistir a ação administrativa' : message.slice(0, 500);
+		this.repository.addAuditEntry({
+			id: this.id(), tableId: table.id, actorAccountId: actor?.accountId || session.accountId,
+			action, targetType, targetId, metadata: {
+				...this.auditMetadata(), result: authorization ? 'denied' : 'failure',
+				failureType: authorization ? 'authorization' : persistence ? 'persistence' : 'validation',
+				error: safeError,
+			}, createdAt: this.now(),
+		});
+	}
+
+	recordAdministrativeSuccess(token: string, tableId: string, action: string, targetType: string,
+		targetId?: string): void {
+		const session = this.session(token); const table = this.repository.getTable(tableId);
+		const actor = this.repository.getMembership(toID(tableId), session.accountId);
+		if (!table || !actor) return;
+		this.repository.addAuditEntry({
+			id: this.id(), tableId: table.id, actorAccountId: actor.accountId, action, targetType, targetId,
+			metadata: { ...this.auditMetadata(), result: 'success' }, createdAt: this.now(),
+		});
 	}
 
 	getSession(token: string): RPGPlatformSessionView {
@@ -733,14 +909,19 @@ export class RPGAccountManagement {
 	}
 	private audit(actor: RPGTableMember, action: string, targetType: string, targetId?: string,
 		metadata: Record<string, unknown> = {}): void {
-		const context = this.auditRequest.getStore();
 		this.repository.addAuditEntry({ id: this.id(), tableId: actor.tableId, actorAccountId: actor.accountId,
 			action, targetType, targetId, metadata: {
-				...metadata, origin: context?.origin || 'internal',
-				...(context?.sessionId ? { sessionId: context.sessionId } : {}),
-				...(context?.method ? { requestMethod: context.method } : {}),
-				...(context?.path ? { requestPath: context.path } : {}), result: 'success',
+				...metadata, ...this.auditMetadata(), result: 'success',
 			}, createdAt: this.now() });
+	}
+	private auditMetadata(): Record<string, unknown> {
+		const context = this.auditRequest.getStore();
+		return {
+			origin: context?.origin || 'internal',
+			...(context?.sessionId ? { sessionId: context.sessionId } : {}),
+			...(context?.method ? { requestMethod: context.method } : {}),
+			...(context?.path ? { requestPath: context.path } : {}),
+		};
 	}
 	private auditReason(reason?: string) {
 		const normalized = String(reason || '').trim();
@@ -753,9 +934,20 @@ export class RPGAccountManagement {
 	private hashPassword(password: string): RPGAccountCredential {
 		const salt = this.bytes(16); return { algorithm: 'scrypt', salt: salt.toString('base64'), hash: scryptSync(password, salt, 32).toString('base64') };
 	}
+	private async hashPasswordAsync(password: string): Promise<RPGAccountCredential> {
+		const salt = this.bytes(16);
+		const hash = await withKDFSlot(() => scryptAsync(password, salt, 32) as Promise<Buffer>);
+		return { algorithm: 'scrypt', salt: salt.toString('base64'), hash: hash.toString('base64') };
+	}
 	private verifyPassword(password: string, credential: RPGAccountCredential) {
 		const expected = Buffer.from(credential.hash, 'base64');
 		const actual = scryptSync(password, Buffer.from(credential.salt, 'base64'), expected.length);
+		return timingSafeEqual(expected, actual);
+	}
+	private async verifyPasswordAsync(password: string, credential: RPGAccountCredential): Promise<boolean> {
+		const expected = Buffer.from(credential.hash, 'base64');
+		const actual = await withKDFSlot(() =>
+			scryptAsync(password, Buffer.from(credential.salt, 'base64'), expected.length) as Promise<Buffer>);
 		return timingSafeEqual(expected, actual);
 	}
 	private validatePassword(password: string) { if (password.length < 8 || password.length > 200) throw new Error('A senha deve ter entre 8 e 200 caracteres'); }
