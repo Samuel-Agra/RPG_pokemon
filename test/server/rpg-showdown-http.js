@@ -47,11 +47,17 @@ describe('RPG HTTP frontend API', () => {
 
 	it('hides unexpected implementation errors and audits only administrative mutations', async () => {
 		const login = new RPGLoginService({ masterCode: '14081998' });
-		login.flushPersistence = async () => { throw new Error('detalhe interno secreto'); };
+		login.flushPersistence = async () => { throw new Error('O segredo interno não pode aparecer'); };
 		const handler = new RPGHttpServer(login);
 		assert.equal(handler.isAdministrativeRPGMutation('POST', '/api/rpg/battle-sessions/id/action'), false);
 		assert.equal(handler.isAdministrativeRPGMutation('POST', '/api/rpg/contest-sessions/id/runtime-ready'), false);
 		assert.equal(handler.isAdministrativeRPGMutation('PUT', '/api/rpg/campaign/settings'), true);
+		assert.equal(handler.isPublicValidationError('nome de exibição inválido'), true);
+		assert.equal(handler.isPublicValidationError('Cor da mesa inválida'), true);
+		assert.equal(handler.isPublicValidationError('O segredo interno não pode aparecer'), false);
+		assert.equal(handler.isPublicValidationError('RPG table scope is not initialized'), false);
+		assert.equal(handler.isPersistenceError({ code: 'ERR_INVALID_ARG_TYPE' }), false);
+		assert.equal(handler.isPersistenceError({ code: 'ER_LOCK_DEADLOCK' }), true);
 		const node = http.createServer((req, res) => handler.handle(req, res));
 		await new Promise(resolve => node.listen(0, '127.0.0.1', resolve));
 		try {
@@ -635,6 +641,7 @@ describe('RPG HTTP frontend API', () => {
 		const persistence = {
 			sharedDatabase: true,
 			withAdvisoryLock: async (_name, action) => action(),
+			withAdvisoryLocks: async (_names, action) => action(),
 			transaction: action => action(), transactionAsync: action => action(), flush: async () => {},
 			listRuntimeSessionIds: async () => new Set(),
 			snapshot: async tableId => ({

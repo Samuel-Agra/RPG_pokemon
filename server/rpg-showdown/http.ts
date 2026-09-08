@@ -10,6 +10,7 @@ import { AsyncLocalStorage } from 'node:async_hooks';
 import { createHash } from 'node:crypto';
 
 import { Dex } from '../../sim/dex';
+import { toID } from '../../sim/dex-data';
 import { getRPGMoveMetadata } from './battle-move-analysis';
 import { RPGItems } from '../../sim/rpg-showdown';
 
@@ -124,9 +125,10 @@ export class RPGHttpServer {
 				}
 			};
 			if (!this.service!.mysqlPersistence) return execute();
-			// A única trava protege também o snapshot em memória compartilhado. Travas por
-			// credencial permitiam que uma recarga global substituísse dados durante um scrypt.
-			return this.service!.mysqlPersistence.withAdvisoryLock('pokemon-rpg:v2:accounts', execute);
+			const identities = await this.credentialConcurrencyIdentities(req, url);
+			const locks = identities?.map(identity => `pokemon-rpg:v2:credential:${identity}`) ||
+				['pokemon-rpg:v2:accounts'];
+			return this.service!.mysqlPersistence.withAdvisoryLocks(locks, execute);
 		}
 		if (!this.scopedService.getStore() && !url.pathname.startsWith('/api/rpg/v2/')) {
 			const authorization = req.headers.authorization || '';
@@ -1614,6 +1616,24 @@ export class RPGHttpServer {
 		return match ? { type: match[1] as 'battle' | 'contest', sessionId: decodeURIComponent(match[2]) } : undefined;
 	}
 
+	/** Keeps expensive credential checks independent while serializing decisions for the same identity. */
+	private async credentialConcurrencyIdentities(req: http.IncomingMessage, url: URL): Promise<string[] | undefined> {
+		if (req.method !== 'POST') return undefined;
+		const origin = (req.socket.remoteAddress || 'unknown').trim().toLowerCase();
+		const sourceIdentity = createHash('sha256').update(`source:${origin}`).digest('hex').slice(0, 32);
+		if (['/api/rpg/v2/accounts', '/api/rpg/v2/session', '/api/rpg/v2/password/recovery'].includes(url.pathname)) {
+			const username = toID(this.string((await this.body(req)).username)) || 'anonymous';
+			return [createHash('sha256').update(`username:${username}`).digest('hex').slice(0, 32), sourceIdentity];
+		}
+		if (url.pathname === '/api/rpg/v2/recovery-codes' && this.service?.mysqlPersistence) {
+			const token = /^Bearer (.+)$/i.exec(req.headers.authorization || '')?.[1] || '';
+			const tokenHash = createHash('sha256').update(token).digest('hex');
+			const username = toID(await this.service.mysqlPersistence.accountUsernameForSession(tokenHash)) || 'anonymous';
+			return [createHash('sha256').update(`username:${username}`).digest('hex').slice(0, 32), sourceIdentity];
+		}
+		return undefined;
+	}
+
 	private async loadSharedRuntime(url: URL, tableId: string): Promise<void> {
 		const request = this.runtimeRequest(url); const persistence = this.login.mysqlPersistence;
 		if (!request || !persistence) return;
@@ -1764,11 +1784,12 @@ export class RPGHttpServer {
 		}
 		const message = error instanceof Error ? error.message : 'Unexpected RPG server error';
 		const details = error && typeof error === 'object' ? error as { code?: unknown, sqlState?: unknown } : undefined;
-		if (details?.code === 'RPG_AUTH_BUSY') {
-			this.writeJson(res, 503, { error: 'Serviço de autenticação temporariamente ocupado.' });
+		if (details?.code === 'RPG_AUTH_BUSY' || details?.code === 'RPG_LOCK_BUSY') {
+			this.writeJson(res, 503, { error: details.code === 'RPG_AUTH_BUSY' ?
+				'Serviço de autenticação temporariamente ocupado.' : 'Serviço temporariamente ocupado. Tente novamente.' });
 			return;
 		}
-		if (details && (typeof details.code === 'string' || typeof details.sqlState === 'string')) {
+		if (details && this.isPersistenceError(details)) {
 			console.error('[Pokémon RPG] Falha interna de persistência', {
 				occurredAt: new Date().toISOString(),
 				...(typeof details.code === 'string' ? { errorCode: details.code } : {}),
@@ -1817,7 +1838,14 @@ export class RPGHttpServer {
 
 	/** Only established domain validation messages may cross the HTTP boundary. */
 	private isPublicValidationError(message: string): boolean {
-		return /^(?:RPG |Invalid RPG|Incorrect RPG|Unknown RPG|Apenas |Permissão |Não |Nenhum |Este |Esta |O |Os |A |As |Usuário |Conta |Mesa |Convite |Código |Pokémon |Item |Golpe |Equipe |Batalha |Concurso |Torneio |NPC |Pasta |Documento |Loja |Banco |Pokécoin |Quantidade |Valor |Nível |Formato |Participante |Treinador |Campanha )/.test(message);
+		if (/persisted|estado persistido|table scope|random source|repository|repositório/i.test(message)) return false;
+		return /^(?:RPG (?:request|session|password|character|player|master|battle|contest|tournament|Bag|Box|shop|commerce|nursery|team|held|move|starter|temporary|NPC)|Invalid RPG|Incorrect RPG|Unknown RPG|Apenas |Permissão necessária:|Usuário ou senha |Conta (?:indisponível|convidada)|Mesa (?:indisponível|arquivada)|Convite |Código de recuperação |Muitas tentativas |Pokémon |Item |Golpe |Equipe |Batalha |Concurso |Torneio |NPC |Pasta |Documento |Loja |Banco |Pokécoin |Quantidade |Valor |Nível |Formato |Participante |Treinador |Campanha |nome de exibição inválido|descrição inválido|Texto muito longo|Cor da mesa inválida|Visibilidade da mesa inválida|Função (?:de membro|de convite) inválida|Identificador de sessão inválido|Motivo da auditoria muito longo|A senha deve |O usuário deve |Este (?:nome de usuário|convite|Pokémon|held item)|Esta (?:conta|loja|procriação)|O (?:Mestre|acesso|valor|usuário|proprietário|limite|item|Pokémon|reembolso|prêmio)|Os documentos |A (?:conta|equipe|aposta|expiração|incubadora|recompensa|procriação|quantidade|sessão|natureza|habilidade|loja)|Nenhum (?:Pokémon|participante|item)|Não (?:é possível|foi possível|há|existe|pode))/.test(message);
+	}
+
+	private isPersistenceError(error: { code?: unknown, sqlState?: unknown }): boolean {
+		if (typeof error.sqlState === 'string') return true;
+		const code = typeof error.code === 'string' ? error.code : '';
+		return code === 'RPG_PERSISTENCE_FAILURE' || /^(?:ER_|PROTOCOL_|ECONN|ETIMEDOUT|EPIPE)/.test(code);
 	}
 }
 

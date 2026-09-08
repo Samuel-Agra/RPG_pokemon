@@ -22,8 +22,12 @@ export interface RPGSecurityCleanupResult {
 
 /** Emits a safe operational signal without leaking SQL text, credentials, or stored values. */
 export function reportRPGSecurityCleanupFailure(error: unknown, occurredAt = Date.now()): void {
+	reportRPGOperationalFailure('Falha na limpeza programada dos dados de segurança', error, occurredAt);
+}
+
+function reportRPGOperationalFailure(message: string, error: unknown, occurredAt = Date.now()): void {
 	const value = error && typeof error === 'object' ? error as { name?: unknown, code?: unknown } : undefined;
-	console.error('[Pokémon RPG] Falha na limpeza programada dos dados de segurança', {
+	console.error(`[Pokémon RPG] ${message}`, {
 		occurredAt: new Date(occurredAt).toISOString(),
 		errorType: typeof value?.name === 'string' ? value.name : 'Error',
 		...(typeof value?.code === 'string' ? { errorCode: value.code } : {}),
@@ -96,18 +100,56 @@ export class RPGMySQLPersistence {
 
 	/** Serializes account decisions across every server process connected to this database. */
 	async withAdvisoryLock<T>(name: string, action: () => Promise<T>, timeoutSeconds = 10): Promise<T> {
+		return this.withAdvisoryLocks([name], action, timeoutSeconds);
+	}
+
+	/** Acquires multiple named locks in stable order to protect both an account and its request origin. */
+	async withAdvisoryLocks<T>(names: string[], action: () => Promise<T>, timeoutSeconds = 10): Promise<T> {
 		const connection = await this.pool.getConnection();
+		const acquired: string[] = []; let destroyed = false;
 		try {
-			const [rows] = await connection.query<RowDataPacket[]>('SELECT GET_LOCK(?, ?) AS acquired', [name, timeoutSeconds]);
-			if (Number(rows[0]?.acquired) !== 1) throw new Error('Não foi possível obter o bloqueio de concorrência do RPG');
-			try {
-				return await action();
-			} finally {
-				await connection.query('SELECT RELEASE_LOCK(?)', [name]);
+			for (const name of [...new Set(names)].sort()) {
+				const [rows] = await connection.query<RowDataPacket[]>(
+					'SELECT GET_LOCK(?, ?) AS acquired', [name, timeoutSeconds]
+				);
+				if (Number(rows[0]?.acquired) !== 1) {
+					const error = new Error('Não foi possível obter o bloqueio de concorrência do RPG');
+					Object.assign(error, { code: 'RPG_LOCK_BUSY' });
+					throw error;
+				}
+				acquired.push(name);
 			}
+			return await action();
 		} finally {
-			connection.release();
+			for (const name of acquired.reverse()) {
+				try {
+					const [released] = await connection.query<RowDataPacket[]>(
+						'SELECT RELEASE_LOCK(?) AS released', [name]
+					);
+					if (Number(released[0]?.released) !== 1) {
+						connection.destroy(); destroyed = true;
+						reportRPGOperationalFailure('Falha ao liberar bloqueio de concorrência',
+							new Error('MySQL advisory lock was not released'));
+					}
+				} catch (error) {
+					if (!destroyed) {
+						connection.destroy(); destroyed = true;
+						reportRPGOperationalFailure('Falha ao liberar bloqueio de concorrência', error);
+					}
+				}
+				if (destroyed) break;
+			}
+			if (!destroyed) connection.release();
 		}
+	}
+
+	/** Resolves an authenticated token to the stable username used by credential locks. */
+	async accountUsernameForSession(tokenHash: string): Promise<string | undefined> {
+		const [rows] = await this.pool.query<RowDataPacket[]>(`SELECT account.username
+			FROM rpg_account_sessions session
+			INNER JOIN rpg_accounts account ON account.id = session.account_id
+			WHERE session.token_hash = ? LIMIT 1`, [tokenHash]);
+		return rows.length ? String(rows[0].username) : undefined;
 	}
 
 	static async connect(config: RPGMySQLConfig): Promise<RPGMySQLPersistence> {

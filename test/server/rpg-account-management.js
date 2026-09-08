@@ -79,7 +79,7 @@ describe('RPG version 2 accounts and tables backend', () => {
 		const connection = {
 			query: async (sql, values) => {
 				events.push([sql, values]);
-				return sql.includes('GET_LOCK') ? [[{ acquired: 1 }]] : [[]];
+				return sql.includes('GET_LOCK') ? [[{ acquired: 1 }]] : [[{ released: 1 }]];
 			},
 			release: () => events.push(['release']),
 		};
@@ -88,8 +88,62 @@ describe('RPG version 2 accounts and tables backend', () => {
 			events.push(['action']); throw new Error('falha interna');
 		}), /falha interna/);
 		assert.deepEqual(events.map(event => event[0]), [
-			'SELECT GET_LOCK(?, ?) AS acquired', 'action', 'SELECT RELEASE_LOCK(?)', 'release',
+			'SELECT GET_LOCK(?, ?) AS acquired', 'action', 'SELECT RELEASE_LOCK(?) AS released', 'release',
 		]);
+	});
+
+	it('acquires multiple advisory locks in stable order and releases them in reverse', async () => {
+		const events = [];
+		const connection = {
+			query: async (sql, values) => {
+				events.push([sql, values]);
+				return sql.includes('GET_LOCK') ? [[{ acquired: 1 }]] : [[{ released: 1 }]];
+			},
+			release: () => events.push(['release']),
+		};
+		const persistence = new RPGMySQLPersistence({ getConnection: async () => connection });
+		await persistence.withAdvisoryLocks(['z', 'a', 'z'], async () => events.push(['action']));
+		assert.deepEqual(events.map(event => event[1]?.[0] || event[0]), ['a', 'z', 'action', 'z', 'a', 'release']);
+	});
+
+	it('releases locks already acquired when a later advisory lock is unavailable', async () => {
+		const events = []; let acquisitions = 0;
+		const connection = {
+			query: async (sql, values) => {
+				events.push([sql, values]);
+				if (sql.includes('GET_LOCK')) return [[{ acquired: ++acquisitions === 1 ? 1 : 0 }]];
+				return [[{ released: 1 }]];
+			},
+			release: () => events.push(['release']),
+		};
+		const persistence = new RPGMySQLPersistence({ getConnection: async () => connection });
+		await assert.rejects(() => persistence.withAdvisoryLocks(['a', 'b'], async () => {}), error =>
+			error.code === 'RPG_LOCK_BUSY');
+		assert.deepEqual(events.map(event => event[1]?.[0] || event[0]), ['a', 'b', 'a', 'release']);
+	});
+
+	it('destroys a connection that may retain an advisory lock without replacing the action result', async () => {
+		const events = [];
+		const connection = {
+			query: async sql => {
+				if (sql.includes('GET_LOCK')) return [[{ acquired: 1 }]];
+				throw new Error('conexão perdida ao liberar');
+			},
+			destroy: () => events.push('destroy'), release: () => events.push('release'),
+		};
+		const persistence = new RPGMySQLPersistence({ getConnection: async () => connection });
+		assert.equal(await persistence.withAdvisoryLock('contas', async () => 'resultado'), 'resultado');
+		assert.deepEqual(events, ['destroy']);
+	});
+
+	it('marks an unavailable advisory lock as a retryable service failure', async () => {
+		const persistence = new RPGMySQLPersistence({
+			getConnection: async () => ({
+				query: async () => [[{ acquired: 0 }]], release: () => {},
+			}),
+		});
+		await assert.rejects(() => persistence.withAdvisoryLock('ocupada', async () => {}), error =>
+			error.code === 'RPG_LOCK_BUSY');
 	});
 
 	it('checkpoints every migration statement instead of relying on non-atomic MySQL DDL transactions', async () => {
@@ -321,6 +375,27 @@ describe('RPG version 2 accounts and tables backend', () => {
 		assert.deepEqual(repository.listLoginAttempts(createHash('sha256').update('alvoglobal').digest('hex')), []);
 	});
 
+	it('blocks login spraying across different usernames from one origin', async () => {
+		const accounts = service();
+		for (let index = 0; index < 20; index++) {
+			await assert.rejects(() => accounts.loginAsync(`desconhecido-${index}`, 'senha-errada', 'mesma-origem'));
+		}
+		await assert.rejects(() => accounts.loginAsync('mais-um-desconhecido', 'senha-errada', 'mesma-origem'),
+			/Muitas tentativas de login/);
+	});
+
+	it('blocks password recovery spraying across different usernames from one origin', () => {
+		const accounts = service();
+		for (let index = 0; index < 20; index++) {
+			assert.throws(() => accounts.recoverPassword(
+				`desconhecido-${index}`, '0000-0000-0000', 'senha-nova-segura', 'mesma-origem'
+			), /Código de recuperação inválido/);
+		}
+		assert.throws(() => accounts.recoverPassword(
+			'mais-um-desconhecido', '0000-0000-0000', 'senha-nova-segura', 'mesma-origem'
+		), /Muitas tentativas de recuperação/);
+	});
+
 	it('runs password hashing and records equivalent limits for unknown usernames', () => {
 		const repository = new RPGMemoryAccountRepository();
 		const accounts = new RPGAccountManagement(repository);
@@ -329,6 +404,16 @@ describe('RPG version 2 accounts and tables backend', () => {
 		const attempts = repository.listLoginAttempts(accountKey);
 		assert.equal(attempts.length, 2);
 		assert(attempts.every(attempt => attempt.failures === 1));
+	});
+
+	it('rejects malformed persisted credentials instead of comparing empty hashes', async () => {
+		const accounts = service();
+		accounts.createAccount('credencial-quebrada', 'Credencial', 'senha-segura');
+		const stored = accounts.repository.getAccountByUsername('credencial-quebrada');
+		stored.credential = { algorithm: 'scrypt', salt: '', hash: '' };
+		accounts.repository.setAccount(stored);
+		assert.throws(() => accounts.login('credencial-quebrada', 'qualquer-senha'), /Usuário ou senha inválidos/);
+		await assert.rejects(() => accounts.loginAsync('credencial-quebrada', 'qualquer-senha'), /Usuário ou senha inválidos/);
 	});
 
 	it('persists recovery, throttling, audit, and sessions across a complete repository restart', () => {
@@ -418,6 +503,14 @@ describe('RPG version 2 accounts and tables backend', () => {
 		assert(denied);
 		assert.equal(denied.actorAccountId, accounts.getSession(outsider.token).account.id);
 		assert.equal(denied.metadata.result, 'denied');
+		assert.equal(denied.metadata.error, 'Ação recusada por permissão');
+		accounts.recordAdministrativeFailure(
+			outsider.token, table.id, 'campaign.configure', 'campaign', undefined,
+			new Error('RPG session does not have permission: campaign.configure')
+		);
+		const englishDenied = accounts.listAudit(owner.token, table.id)
+			.find(entry => entry.action === 'campaign.configure');
+		assert.equal(englishDenied.metadata.result, 'denied');
 	});
 
 	it('resolves only the selected active table and rejects archived table contexts', () => {
