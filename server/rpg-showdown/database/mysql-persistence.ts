@@ -152,6 +152,16 @@ export class RPGMySQLPersistence {
 		return rows.length ? String(rows[0].username) : undefined;
 	}
 
+	/** Lists the characters this account owns in each table without loading every table world. */
+	async listAccountTableCharacters(accountId: string): Promise<Map<string, { id: string, name: string }>> {
+		const [rows] = await this.pool.query<RowDataPacket[]>(
+			'SELECT id, table_id, display_name FROM rpg_characters WHERE account_id = ?', [accountId]
+		);
+		return new Map(rows.map(row => [String(row.table_id), {
+			id: String(row.id), name: String(row.display_name),
+		}]));
+	}
+
 	static async connect(config: RPGMySQLConfig): Promise<RPGMySQLPersistence> {
 		const pool = mysql.createPool({
 			...config, charset: 'utf8mb4', timezone: 'Z', waitForConnections: true,
@@ -530,6 +540,15 @@ export class RPGMySQLPersistence {
 			table.id, table.ownerAccountId, table.name, table.description, table.color, table.visibility, table.status,
 			JSON.stringify(table.settings), table.createdAt, table.updatedAt, table.revision,
 		]);
+	}
+	deleteCampaignTable(tableId: string): void {
+		this.enqueue('UPDATE rpg_account_sessions SET active_table_id = NULL WHERE active_table_id = ?', [tableId]);
+		for (const table of [
+			'rpg_runtime_states', 'rpg_player_documents', 'rpg_master_npc_library', 'rpg_shops', 'rpg_custom_items',
+			'rpg_contest_combos', 'rpg_tournaments', 'rpg_contest_sessions', 'rpg_battle_sessions', 'rpg_campaign',
+			'rpg_characters', 'rpg_table_invites', 'rpg_table_members', 'rpg_admin_audit',
+		]) this.enqueue(`DELETE FROM ${table} WHERE table_id = ?`, [tableId]);
+		this.enqueue('DELETE FROM rpg_campaign_tables WHERE id = ?', [tableId]);
 	}
 	upsertTableMember(member: RPGTableMember): void {
 		this.enqueue(`INSERT INTO rpg_table_members

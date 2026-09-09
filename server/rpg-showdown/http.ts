@@ -410,6 +410,11 @@ export class RPGHttpServer {
 				return;
 			}
 		}
+		if (method === 'PATCH' && url.pathname === '/api/rpg/v2/account') {
+			const body = await this.body(req);
+			const account = this.login.accounts.updateAccount(this.token(req), this.string(body.displayName));
+			await this.login.flushPersistence(); this.json(res, 200, { account }); return;
+		}
 		if (url.pathname === '/api/rpg/v2/sessions') {
 			const token = this.token(req);
 			if (method === 'GET') {
@@ -438,6 +443,11 @@ export class RPGHttpServer {
 			const token = this.token(req);
 			if (method === 'GET') {
 				const tables = this.login.accounts.listTables(token);
+				if (this.login.mysqlPersistence) {
+					const session = this.login.accounts.getSession(token).session;
+					const characters = await this.login.mysqlPersistence.listAccountTableCharacters(session.accountId);
+					for (const entry of tables) entry.character = characters.get(entry.table.id);
+				}
 				await this.login.flushPersistence();
 				this.json(res, 200, { tables });
 				return;
@@ -456,10 +466,27 @@ export class RPGHttpServer {
 			}
 		}
 		const version2TableArchiveMatch = /^\/api\/rpg\/v2\/tables\/([^/]+)$/.exec(url.pathname);
+		if (method === 'PATCH' && version2TableArchiveMatch) {
+			const body = await this.body(req);
+			const update: Parameters<typeof this.login.accounts.updateTable>[2] = {};
+			if ('name' in body) update.name = this.string(body.name);
+			if ('description' in body) update.description = this.optionalString(body.description) || '';
+			if ('color' in body) update.color = this.string(body.color);
+			if ('visibility' in body) update.visibility = this.string(body.visibility) as 'private' | 'code' | 'public';
+			const table = this.login.accounts.updateTable(
+				this.token(req), decodeURIComponent(version2TableArchiveMatch[1]), update
+			);
+			await this.login.flushPersistence(); this.json(res, 200, { table }); return;
+		}
 		if (method === 'DELETE' && version2TableArchiveMatch) {
 			const table = this.login.accounts.archiveTable(this.token(req), decodeURIComponent(version2TableArchiveMatch[1]),
 				await this.optionalAuditReason(req));
 			await this.login.flushPersistence(); this.json(res, 200, { table }); return;
+		}
+		const version2TablePermanentDeleteMatch = /^\/api\/rpg\/v2\/tables\/([^/]+)\/permanent$/.exec(url.pathname);
+		if (method === 'DELETE' && version2TablePermanentDeleteMatch) {
+			this.login.accounts.deleteArchivedTable(this.token(req), decodeURIComponent(version2TablePermanentDeleteMatch[1]));
+			await this.login.flushPersistence(); this.json(res, 200, { ok: true }); return;
 		}
 		const version2PermissionsMatch = /^\/api\/rpg\/v2\/tables\/([^/]+)\/permissions$/.exec(url.pathname);
 		if (method === 'GET' && version2PermissionsMatch) {

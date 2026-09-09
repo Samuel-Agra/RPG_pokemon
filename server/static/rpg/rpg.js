@@ -8,6 +8,7 @@
  */
 /* global document, window, localStorage, RPGAssets, rpgRuntimeSprite, RPG_BATTLE_SCENES, rpgLoadBattleScenes, rpgBattleSceneUrl */
 const STORAGE_KEY = 'rpg-showdown-session-v1';
+const ACCOUNT_STORAGE_KEY = 'rpg-platform-session-v2';
 const STARTER_SPECIES = [
 	'Bulbasaur', 'Charmander', 'Squirtle',
 	'Chikorita', 'Cyndaquil', 'Totodile',
@@ -33,6 +34,10 @@ const screens = [...document.querySelectorAll('.screen')];
 let DEFAULT_AVATAR_ID = 'lucas';
 const state = {
 	session: null,
+	accountSession: null,
+	account: null,
+	accountTables: [],
+	selectedAccountTableId: null,
 	characters: [],
 	currentCharacter: null,
 	deletionChallenge: null,
@@ -51,6 +56,9 @@ let battleSessionSyncTimer = null;
 let masterPresenceSyncTimer = null;
 let playerPresenceHeartbeatTimer = null;
 let tournamentRefreshTimer = null;
+let accountTableDialogMode = null;
+let accountTableDialogEntry = null;
+let accountTableCreationStep = 0;
 
 const $ = selector => document.querySelector(selector);
 
@@ -121,6 +129,525 @@ async function api(path, options = {}) {
 		);
 	}
 	return data;
+}
+
+async function accountApi(path, options = {}) {
+	const headers = { ...(options.headers || {}) };
+	if (options.body !== undefined) headers['Content-Type'] = 'application/json';
+	if (state.accountSession?.token) headers.Authorization = 'Bearer ' + state.accountSession.token;
+	const response = await fetch('/api/rpg/v2' + path, {
+		...options, headers,
+		body: options.body === undefined ? undefined : JSON.stringify(options.body),
+	});
+	let data = {};
+	try { data = await response.json(); } catch {}
+	if (!response.ok) {
+		const error = new Error(data.error || 'N\u00e3o foi poss\u00edvel comunicar com o servidor RPG.');
+		error.status = response.status;
+		throw error;
+	}
+	return data;
+}
+
+function saveAccountSession(session, account = state.account) {
+	state.accountSession = session || null;
+	state.account = session ? account || null : null;
+	if (session) localStorage.setItem(ACCOUNT_STORAGE_KEY, JSON.stringify(session));
+	else localStorage.removeItem(ACCOUNT_STORAGE_KEY);
+}
+
+function setAccountAuthMode(mode, focus = true) {
+	const register = mode === 'register';
+	const shell = document.querySelector('.account-auth');
+	if (!shell) return;
+	shell.dataset.accountAuthMode = register ? 'register' : 'login';
+	$('#account-login-form').classList.toggle('hidden', register);
+	$('#account-register-form').classList.toggle('hidden', !register);
+	for (const [tab, active] of [[$('#account-login-tab'), !register], [$('#account-register-tab'), register]]) {
+		tab.classList.toggle('active', active);
+		tab.setAttribute('aria-selected', String(active));
+	}
+	clearAccountFormErrors(register ? $('#account-register-form') : $('#account-login-form'));
+	if (focus) $(register ? '#account-register-username' : '#account-login-username').focus();
+}
+
+function clearAccountFormErrors(form) {
+	if (!form) return;
+	for (const field of form.querySelectorAll('.account-field')) field.classList.remove('invalid');
+	for (const error of form.querySelectorAll('.field-error, .form-error')) {
+		error.textContent = '';
+		error.classList.add('hidden');
+	}
+}
+
+function accountFieldError(form, name, message) {
+	const field = form.querySelector(`[data-account-field="${name}"]`);
+	const error = field?.querySelector('.field-error');
+	if (!field || !error) return;
+	field.classList.add('invalid');
+	error.textContent = message;
+	error.classList.remove('hidden');
+}
+
+function accountGeneralError(form, message) {
+	const error = form.querySelector('.form-error');
+	error.textContent = message;
+	error.classList.remove('hidden');
+}
+
+function validateAccountForm(form, register) {
+	clearAccountFormErrors(form);
+	const values = Object.fromEntries(new FormData(form));
+	let valid = true;
+	const invalidate = (name, message) => { accountFieldError(form, name, message); valid = false; };
+	if (!String(values.username || '').trim()) invalidate('username', 'Informe seu nome de usu\u00e1rio.');
+	else if (register && String(values.username).trim().length < 3) {
+		invalidate('username', 'Use entre 3 e 40 caracteres.');
+	}
+	if (register && !String(values.displayName || '').trim()) {
+		invalidate('displayName', 'Informe o nome que ser\u00e1 exibido nas mesas.');
+	}
+	if (!String(values.password || '')) invalidate('password', 'Informe sua senha.');
+	else if (register && String(values.password).length < 8) invalidate('password', 'Use pelo menos 8 caracteres.');
+	if (register && String(values.confirmPassword || '') !== String(values.password || '')) {
+		invalidate('confirmPassword', 'As senhas precisam ser iguais.');
+	}
+	return valid ? values : null;
+}
+
+function showAccountServerError(form, error) {
+	const message = String(error?.message || 'N\u00e3o foi poss\u00edvel concluir a opera\u00e7\u00e3o.');
+	if (/nome de usu\u00e1rio|usu\u00e1rio deve/i.test(message)) accountFieldError(form, 'username', message);
+	else if (/usu\u00e1rio ou senha/i.test(message)) accountFieldError(form, 'password', message);
+	else if (/nome de exibi\u00e7\u00e3o/i.test(message)) accountFieldError(form, 'displayName', message);
+	else if (/senha deve/i.test(message)) accountFieldError(form, 'password', message);
+	else accountGeneralError(form, message);
+}
+
+function accountRoleLabel(role) {
+	return ({ owner: 'Propriet\u00e1rio', master: 'Mestre', player: 'Player', spectator: 'Espectador' })[role] || role;
+}
+
+function relativeAccountActivity(timestamp) {
+	const elapsed = Math.max(0, Date.now() - Number(timestamp || 0));
+	const minutes = Math.floor(elapsed / 60000);
+	if (minutes < 1) return 'Agora';
+	if (minutes < 60) return `H\u00e1 ${minutes} min`;
+	const hours = Math.floor(minutes / 60);
+	if (hours < 24) return `H\u00e1 ${hours} h`;
+	const days = Math.floor(hours / 24);
+	return days === 1 ? 'H\u00e1 1 dia' : `H\u00e1 ${days} dias`;
+}
+
+function accountCampaignState(table) {
+	if (table.status === 'archived') return 'Arquivada';
+	return String(table.settings?.campaignState || 'Em andamento');
+}
+
+function updateAccountTableCard(card, entry) {
+	const selected = state.selectedAccountTableId === entry.table.id;
+	card.classList.toggle('selected', selected);
+	card.classList.toggle('archived', entry.table.status === 'archived');
+	card.style.setProperty('--table-color', entry.table.color || '#406aa3');
+	card.dataset.tableId = entry.table.id;
+	card.replaceChildren();
+	const cover = createElement('div', 'account-table-cover');
+	cover.append(createElement('span', 'brand-ball', ''));
+	const status = createElement('span', 'account-table-status', accountCampaignState(entry.table));
+	cover.append(status);
+	const content = createElement('div', 'account-table-content');
+	content.append(createElement('h3', '', entry.table.name));
+	content.append(createElement('p', 'account-table-owner', 'Por ' + entry.owner.displayName));
+	const facts = createElement('div', 'account-table-facts');
+	const memberLabel = entry.memberCount === 1 ? '1 membro' : `${entry.memberCount} membros`;
+	facts.append(createElement('span', '', accountRoleLabel(entry.membership.role)), createElement('span', '', memberLabel));
+	const character = createElement('div', 'account-table-character');
+	character.append(createElement('small', '', 'Personagem'));
+	character.append(createElement('strong', '', entry.character?.name ||
+	(entry.membership.role === 'owner' || entry.membership.role === 'master' ? 'Gerenciamento da campanha' : 'Nenhum personagem')));
+	const footer = createElement('div', 'account-table-footer');
+	footer.append(createElement('small', '', 'Atividade: ' + relativeAccountActivity(entry.lastActivityAt)));
+	if (entry.table.status === 'active') {
+		const enter = button('Entrar', 'button primary account-table-enter');
+		enter.addEventListener('click', event => { event.stopPropagation(); void enterAccountTable(entry); });
+		footer.append(enter);
+	}
+	const menu = button('\u2022\u2022\u2022', 'button account-table-menu-button');
+	menu.setAttribute('aria-label', 'Op\u00e7\u00f5es de ' + entry.table.name);
+	menu.addEventListener('click', event => { event.stopPropagation(); toggleAccountTableMenu(card, entry, menu); });
+	footer.append(menu);
+	content.append(facts, character, footer);
+	card.append(cover, content);
+	card.onclick = () => {
+		state.selectedAccountTableId = state.selectedAccountTableId === entry.table.id ? null : entry.table.id;
+		for (const tableCard of document.querySelectorAll('.account-table-card')) {
+			tableCard.classList.toggle('selected', tableCard.dataset.tableId === state.selectedAccountTableId);
+		}
+	};
+}
+
+function reconcileAccountTableList(container, entries) {
+	const existing = new Map([...container.children].map(card => [card.dataset.tableId, card]));
+	for (const entry of entries) {
+		let card = existing.get(entry.table.id);
+		if (!card) card = createElement('article', 'panel account-table-card');
+		const signature = JSON.stringify(entry);
+		if (card.dataset.signature !== signature) {
+			updateAccountTableCard(card, entry);
+			card.dataset.signature = signature;
+		} else {
+			card.classList.toggle('selected', state.selectedAccountTableId === entry.table.id);
+		}
+		container.append(card);
+		existing.delete(entry.table.id);
+	}
+	for (const stale of existing.values()) stale.remove();
+}
+
+function closeAccountTableMenus() {
+	for (const menu of document.querySelectorAll('.account-table-popover')) menu.remove();
+}
+
+function toggleAccountTableMenu(card, entry, anchor) {
+	const alreadyOpen = card.querySelector('.account-table-popover');
+	closeAccountTableMenus();
+	if (alreadyOpen) return;
+	const menu = createElement('div', 'account-table-popover');
+	const addAction = (label, action, danger = false) => {
+		const control = button(label, 'account-table-menu-action' + (danger ? ' danger' : ''));
+		control.addEventListener('click', event => { event.stopPropagation(); closeAccountTableMenus(); void action(); });
+		menu.append(control);
+	};
+	const addConfirmedAction = (label, action) => {
+		const control = button(label, 'account-table-menu-action danger');
+		control.addEventListener('click', event => {
+			event.stopPropagation();
+			if (control.dataset.confirm !== 'true') {
+				control.dataset.confirm = 'true'; control.textContent = 'Confirmar exclus\u00e3o'; return;
+			}
+			closeAccountTableMenus(); void action();
+		});
+		menu.append(control);
+	};
+	if (entry.membership.role === 'owner' && entry.table.status === 'active') {
+		addAction('Editar mesa', () => openAccountTableDialog('edit', entry));
+		addAction('Arquivar', () => archiveAccountTable(entry), true);
+	} else if (entry.membership.role !== 'owner' && entry.table.status === 'active') {
+		addAction('Sair da mesa', () => leaveAccountTable(entry), true);
+	}
+	if (entry.membership.role === 'owner' && entry.table.status === 'archived') {
+		addConfirmedAction('Excluir mesa', () => deleteAccountTable(entry));
+	}
+	if (!menu.children.length) addAction('Sem a\u00e7\u00f5es dispon\u00edveis', () => {});
+	card.append(menu);
+	anchor.setAttribute('aria-expanded', 'true');
+}
+
+async function enterAccountTable(entry) {
+	const buttonElement = document.querySelector(`[data-table-id="${entry.table.id}"] .account-table-enter`);
+	if (buttonElement) { buttonElement.disabled = true; buttonElement.textContent = 'Entrando...'; }
+	try {
+		const selected = await accountApi(`/tables/${encodeURIComponent(entry.table.id)}/select`, { method: 'POST' });
+		saveAccountSession(selected.session, state.account);
+		state.session = { token: selected.session.token };
+		const connected = await api('/session');
+		saveSession(connected.session);
+		state.dashboardView = 'overview';
+		await renderDashboard();
+	} catch (error) {
+		state.session = null;
+		showToast(error.message, true);
+		if (buttonElement) { buttonElement.disabled = false; buttonElement.textContent = 'Entrar'; }
+	}
+}
+
+async function archiveAccountTable(entry) {
+	try {
+		await accountApi(`/tables/${encodeURIComponent(entry.table.id)}`, { method: 'DELETE' });
+		await refreshAccountTables();
+		showToast('Mesa arquivada.');
+	} catch (error) { showToast(error.message, true); }
+}
+
+async function leaveAccountTable(entry) {
+	try {
+		await accountApi(`/tables/${encodeURIComponent(entry.table.id)}/membership`, { method: 'DELETE' });
+		await refreshAccountTables();
+		showToast('Voc\u00ea saiu da mesa.');
+	} catch (error) { showToast(error.message, true); }
+}
+
+async function deleteAccountTable(entry) {
+	try {
+		await accountApi(`/tables/${encodeURIComponent(entry.table.id)}/permanent`, { method: 'DELETE' });
+		if (state.selectedAccountTableId === entry.table.id) state.selectedAccountTableId = null;
+		await refreshAccountTables();
+		showToast('Mesa exclu\u00edda permanentemente.');
+	} catch (error) { showToast(error.message, true); }
+}
+
+function accountDialogField(label, name, value = '', type = 'text') {
+	const field = createElement('div', 'field');
+	const id = 'account-dialog-' + name;
+	const caption = createElement('label', '', label); caption.htmlFor = id;
+	const input = createElement('input');
+	input.id = id; input.name = name; input.type = type; input.value = value; input.required = true;
+	if (name === 'name') input.maxLength = 120;
+	if (name === 'code') input.autocomplete = 'off';
+	field.append(caption, input);
+	return field;
+}
+
+function closeAccountTableDialog() {
+	$('#account-table-dialog-layer').classList.add('hidden');
+	$('#account-table-dialog-fields').replaceChildren();
+	setError('account-table-dialog-error', '');
+	$('#account-table-dialog-actions').classList.remove('hidden');
+	$('#account-table-dialog-cancel').classList.remove('hidden');
+	$('#account-table-dialog-back').classList.add('hidden');
+	accountTableDialogMode = null; accountTableDialogEntry = null; accountTableCreationStep = 0;
+}
+
+function accountTableCreationStepper() {
+	const stepper = createElement('ol', 'account-table-stepper');
+	for (const [index, label] of ['Identidade', 'Entrada de jogadores', 'Configurações iniciais'].entries()) {
+		const item = createElement('li', index === accountTableCreationStep ? 'current' : index < accountTableCreationStep ? 'complete' : '');
+		item.append(createElement('span', '', String(index + 1)), createElement('strong', '', label));
+		stepper.append(item);
+	}
+	return stepper;
+}
+
+function accountTableVisibilityChoice(value, title, description, checked) {
+	const label = createElement('label', 'account-visibility-choice');
+	const input = createElement('input'); input.type = 'radio'; input.name = 'visibility'; input.value = value; input.checked = checked;
+	const text = createElement('span'); text.append(createElement('strong', '', title), createElement('small', '', description));
+	label.append(input, text);
+	return label;
+}
+
+function renderAccountTableCreationStep() {
+	const fields = $('#account-table-dialog-fields');
+	for (const panel of fields.querySelectorAll('.account-table-step-panel')) panel.classList.add('hidden');
+	fields.querySelector(`[data-table-step="${accountTableCreationStep}"]`)?.classList.remove('hidden');
+	fields.querySelector('.account-table-stepper')?.replaceWith(accountTableCreationStepper());
+	const back = $('#account-table-dialog-back'); const submit = $('#account-table-dialog-submit');
+	back.classList.toggle('hidden', accountTableCreationStep === 0);
+	submit.textContent = accountTableCreationStep === 2 ? 'Criar mesa' : 'Próximo';
+	if (accountTableCreationStep === 2) {
+		const visibility = fields.querySelector('[name="visibility"]:checked')?.value || 'private';
+		const labels = { private: 'Somente por convite', code: 'Entrada com código', public: 'Pública' };
+		$('#account-table-review-name').textContent = String($('#account-dialog-name')?.value || '').trim();
+		$('#account-table-review-description').textContent = String($('#account-dialog-description')?.value || '').trim() || 'Sem descrição';
+		$('#account-table-review-entry').textContent = labels[visibility] || labels.private;
+		$('#account-table-review-color').style.backgroundColor = $('#account-dialog-color')?.value || '#406aa3';
+	}
+	fields.querySelector('.account-table-step-panel:not(.hidden) input, .account-table-step-panel:not(.hidden) textarea')?.focus();
+}
+
+function buildAccountTableCreationFields(fields) {
+	fields.append(accountTableCreationStepper());
+	const identity = createElement('section', 'account-table-step-panel'); identity.dataset.tableStep = '0';
+	identity.append(accountDialogField('Nome da mesa', 'name'));
+	const description = createElement('div', 'field');
+	const descriptionLabel = createElement('label', '', 'Descrição curta'); descriptionLabel.htmlFor = 'account-dialog-description';
+	const textarea = createElement('textarea'); textarea.id = 'account-dialog-description'; textarea.name = 'description'; textarea.maxLength = 500;
+	description.append(descriptionLabel, textarea); identity.append(description);
+	const color = accountDialogField('Cor da campanha', 'color', '#406aa3', 'color'); color.classList.add('account-table-color-field');
+	identity.append(color); fields.append(identity);
+
+	const entry = createElement('section', 'account-table-step-panel hidden'); entry.dataset.tableStep = '1';
+	entry.append(createElement('p', 'account-table-step-help', 'Escolha como novos jogadores poderão encontrar ou acessar esta mesa.'));
+	const choices = createElement('div', 'account-visibility-choices');
+	choices.append(
+		accountTableVisibilityChoice('private', 'Privada', 'Somente contas convidadas poderão entrar.', true),
+		accountTableVisibilityChoice('code', 'Com código', 'Quem receber o código poderá entrar.', false),
+		accountTableVisibilityChoice('public', 'Pública', 'Preparada para aparecer em uma busca futura.', false)
+	);
+	entry.append(choices); fields.append(entry);
+
+	const review = createElement('section', 'account-table-step-panel hidden'); review.dataset.tableStep = '2';
+	review.append(createElement('p', 'account-table-step-help', 'Confira a identidade e a entrada de jogadores antes de criar.'));
+	const card = createElement('div', 'account-table-review');
+	const swatch = createElement('span', 'account-table-review-color'); swatch.id = 'account-table-review-color';
+	const summary = createElement('div');
+	const reviewName = createElement('strong'); reviewName.id = 'account-table-review-name';
+	const reviewDescription = createElement('p'); reviewDescription.id = 'account-table-review-description';
+	const reviewEntry = createElement('small'); reviewEntry.id = 'account-table-review-entry';
+	summary.append(reviewName, reviewDescription, reviewEntry); card.append(swatch, summary); review.append(card);
+	review.append(createElement('p', 'account-table-deferred-note', 'Horário e demais regras iniciais poderão ser configurados dentro da mesa.'));
+	fields.append(review);
+}
+
+async function createFirstAccountTableInvite(table) {
+	const button = $('#account-table-success-invite');
+	if (button) button.disabled = true;
+	setError('account-table-dialog-error', '');
+	try {
+		const result = await accountApi(`/tables/${encodeURIComponent(table.id)}/invites`, {
+			method: 'POST', body: { role: 'player', maxUses: 1 },
+		});
+		const output = $('#account-table-success-code');
+		output.textContent = `Código: ${result.code}`; output.classList.remove('hidden');
+		button.textContent = 'Novo convite';
+	} catch (error) { setError('account-table-dialog-error', error.message); } finally {
+		if (button) button.disabled = false;
+	}
+}
+
+function renderAccountTableCreationSuccess(table) {
+	accountTableDialogMode = 'created'; accountTableDialogEntry = { table };
+	$('#account-table-dialog-title').textContent = 'Mesa criada com sucesso';
+	const fields = $('#account-table-dialog-fields'); fields.replaceChildren();
+	const success = createElement('div', 'account-table-success');
+	success.append(createElement('div', 'account-table-success-mark', '✓'));
+	success.append(createElement('strong', '', table.name), createElement('p', '', 'Sua mesa está pronta. Você é a proprietária ou o proprietário e Mestre principal.'));
+	const code = createElement('output', 'account-table-invite-code hidden'); code.id = 'account-table-success-code'; success.append(code);
+	const actions = createElement('div', 'account-table-success-actions');
+	const enter = createElement('button', 'button primary', 'Entrar na mesa'); enter.type = 'button'; enter.id = 'account-table-success-enter';
+	enter.addEventListener('click', async () => {
+		const entry = state.accountTables.find(candidate => candidate.table.id === table.id) || accountTableDialogEntry;
+		closeAccountTableDialog(); await enterAccountTable(entry);
+	});
+	const invite = createElement('button', 'button', 'Convidar jogadores'); invite.type = 'button'; invite.id = 'account-table-success-invite';
+	invite.addEventListener('click', () => createFirstAccountTableInvite(table));
+	actions.append(enter, invite); success.append(actions); fields.append(success);
+	$('#account-table-dialog-actions').classList.add('hidden');
+}
+
+function openAccountTableDialog(mode, entry = null) {
+	closeAccountTableMenus();
+	accountTableDialogMode = mode; accountTableDialogEntry = entry;
+	const fields = $('#account-table-dialog-fields'); fields.replaceChildren();
+	const title = $('#account-table-dialog-title'); const submit = $('#account-table-dialog-submit');
+	$('#account-table-dialog-actions').classList.remove('hidden'); $('#account-table-dialog-cancel').classList.remove('hidden');
+	$('#account-table-dialog-back').classList.add('hidden'); accountTableCreationStep = 0;
+	if (mode === 'join') {
+		title.textContent = 'Entrar em uma mesa'; submit.textContent = 'Entrar';
+		fields.append(accountDialogField('C\u00f3digo do convite', 'code'));
+	} else if (mode === 'settings') {
+		title.textContent = 'Configura\u00e7\u00f5es da conta'; submit.textContent = 'Salvar';
+		fields.append(accountDialogField('Nome de exibi\u00e7\u00e3o', 'displayName', state.account?.displayName || ''));
+	} else if (mode === 'create') {
+		title.textContent = 'Criar mesa';
+		buildAccountTableCreationFields(fields);
+		renderAccountTableCreationStep();
+	} else {
+		const editing = mode === 'edit';
+		title.textContent = editing ? 'Editar mesa' : 'Criar mesa'; submit.textContent = editing ? 'Salvar' : 'Criar mesa';
+		const table = entry?.table || {};
+		fields.append(accountDialogField('Nome da mesa', 'name', table.name || ''));
+		const description = createElement('div', 'field');
+		const descriptionLabel = createElement('label', '', 'Descri\u00e7\u00e3o'); descriptionLabel.htmlFor = 'account-dialog-description';
+		const textarea = createElement('textarea'); textarea.id = 'account-dialog-description'; textarea.name = 'description';
+		textarea.maxLength = 500; textarea.value = table.description || '';
+		description.append(descriptionLabel, textarea); fields.append(description);
+		const row = createElement('div', 'account-dialog-row');
+		row.append(accountDialogField('Cor da campanha', 'color', table.color || '#406aa3', 'color'));
+		const visibility = createElement('div', 'field');
+		const visibilityLabel = createElement('label', '', 'Visibilidade'); visibilityLabel.htmlFor = 'account-dialog-visibility';
+		const select = createElement('select'); select.id = 'account-dialog-visibility'; select.name = 'visibility';
+		for (const [value, label] of [['private', 'Privada'], ['code', 'Por convite'], ['public', 'P\u00fablica']]) {
+			const option = createElement('option', '', label); option.value = value; option.selected = value === (table.visibility || 'private');
+			select.append(option);
+		}
+		visibility.append(visibilityLabel, select); row.append(visibility); fields.append(row);
+	}
+	$('#account-table-dialog-layer').classList.remove('hidden');
+	fields.querySelector('input, textarea, select')?.focus();
+}
+
+async function submitAccountTableDialog(event) {
+	event.preventDefault();
+	const form = event.currentTarget; const values = Object.fromEntries(new FormData(form));
+	const submit = $('#account-table-dialog-submit'); submit.disabled = true;
+	setError('account-table-dialog-error', '');
+	try {
+		if (accountTableDialogMode === 'create' && accountTableCreationStep < 2) {
+			if (accountTableCreationStep === 0 && !String(values.name || '').trim()) {
+				setError('account-table-dialog-error', 'Informe o nome da mesa.');
+				$('#account-dialog-name')?.focus(); return;
+			}
+			accountTableCreationStep++; renderAccountTableCreationStep(); return;
+		}
+		if (accountTableDialogMode === 'join') {
+			await accountApi('/invites/join', { method: 'POST', body: { code: String(values.code || '').trim() } });
+			showToast('Voc\u00ea entrou na mesa.');
+		} else if (accountTableDialogMode === 'settings') {
+			const result = await accountApi('/account', { method: 'PATCH', body: { displayName: values.displayName } });
+			state.account = result.account;
+			showToast('Configura\u00e7\u00f5es salvas.');
+		} else {
+			const body = { name: String(values.name || '').trim(), description: String(values.description || '').trim(),
+				color: String(values.color || '#406aa3'), visibility: String(values.visibility || 'private') };
+			if (accountTableDialogMode === 'edit') {
+				await accountApi(`/tables/${encodeURIComponent(accountTableDialogEntry.table.id)}`, { method: 'PATCH', body });
+				showToast('Mesa atualizada.');
+			} else {
+				const result = await accountApi('/tables', { method: 'POST', body });
+				await refreshAccountTables();
+				renderAccountTableCreationSuccess(result.table);
+				return;
+			}
+		}
+		closeAccountTableDialog();
+		await renderAccountTables();
+	} catch (error) {
+		setError('account-table-dialog-error', error.message);
+	} finally { submit.disabled = false; }
+}
+
+async function refreshAccountTables() {
+	const data = await accountApi('/tables');
+	state.accountTables = data.tables || [];
+	const active = state.accountTables.filter(entry => entry.table.status === 'active');
+	const owned = active.filter(entry => entry.membership.role === 'owner');
+	const joined = active.filter(entry => entry.membership.role !== 'owner');
+	const archived = state.accountTables.filter(entry => entry.table.status === 'archived');
+	reconcileAccountTableList($('#account-owned-table-list'), owned);
+	reconcileAccountTableList($('#account-joined-table-list'), joined);
+	reconcileAccountTableList($('#account-archived-table-list'), archived);
+	$('#account-owned-table-empty').classList.toggle('hidden', owned.length > 0);
+	$('#account-joined-table-empty').classList.toggle('hidden', joined.length > 0);
+	$('#account-archived-section').classList.toggle('hidden', archived.length === 0);
+	$('#account-archived-count').textContent = `(${archived.length})`;
+}
+
+async function renderAccountTables() {
+	show('tables');
+	$('#account-profile-name').textContent = state.account?.displayName || 'Conta RPG';
+	$('#account-profile-username').textContent = '@' + (state.account?.username || 'usuario');
+	$('#account-profile-avatar').textContent = initials(state.account?.displayName);
+	try {
+		await refreshAccountTables();
+	} catch (error) {
+		if (error.status === 401) {
+			saveAccountSession(null);
+			show('entry');
+			setAccountAuthMode('login', false);
+			accountGeneralError($('#account-login-form'), 'Sua sess\u00e3o expirou. Entre novamente.');
+			return;
+		}
+		$('#account-owned-table-list').replaceChildren(createElement('div', 'panel empty-state', error.message));
+	}
+}
+
+async function restoreAccountSession() {
+	let saved;
+	try { saved = JSON.parse(localStorage.getItem(ACCOUNT_STORAGE_KEY) || 'null'); } catch {
+		localStorage.removeItem(ACCOUNT_STORAGE_KEY);
+	}
+	if (!saved?.token) return false;
+	state.accountSession = saved;
+	try {
+		const data = await accountApi('/session');
+		saveAccountSession(data.session, data.account);
+		await renderAccountTables();
+		return true;
+	} catch {
+		saveAccountSession(null);
+		return false;
+	}
 }
 
 function saveSession(session) {
@@ -4760,17 +5287,22 @@ async function logout() {
 	} catch {}
 	saveSession(null);
 	state.currentCharacter = null;
-	show('entry');
-	showToast('Sess\u00e3o RPG encerrada.');
+	if (state.accountSession) {
+		await renderAccountTables();
+		showToast('Voc\u00ea voltou para suas mesas.');
+	} else {
+		show('entry');
+		showToast('Sess\u00e3o RPG encerrada.');
+	}
 }
 
-$('#choose-master').addEventListener('click', () => {
+$('#choose-master')?.addEventListener('click', () => {
 	setError('master-error', '');
 	$('#master-code').value = '';
 	show('master');
 	$('#master-code').focus();
 });
-$('#choose-player').addEventListener('click', loadCharacters);
+$('#choose-player')?.addEventListener('click', loadCharacters);
 $('#open-create').addEventListener('click', () => {
 	setError('create-error', '');
 	$('#create-form').reset();
@@ -4800,7 +5332,109 @@ $('#delete-character').addEventListener('click', openDeleteDialog);
 $('#cancel-delete').addEventListener('click', closeDeleteDialog);
 $('#delete-form').addEventListener('submit', confirmCharacterDeletion);
 
-$('#home-button').addEventListener('click', () => state.session ? renderDashboard() : show('entry'));
+$('#home-button').addEventListener('click', () => {
+	if (state.session) return renderDashboard();
+	if (state.accountSession) return renderAccountTables();
+	show('entry');
+});
+
+$('#account-login-tab').addEventListener('click', () => setAccountAuthMode('login'));
+$('#account-register-tab').addEventListener('click', () => setAccountAuthMode('register'));
+
+for (const toggle of document.querySelectorAll('.account-password-toggle')) {
+	toggle.addEventListener('click', () => {
+		const input = document.getElementById(toggle.dataset.target);
+		const visible = input.type === 'password';
+		input.type = visible ? 'text' : 'password';
+		toggle.classList.toggle('revealed', visible);
+		toggle.setAttribute('aria-label', visible ? 'Ocultar senha' : 'Mostrar senha');
+		toggle.setAttribute('aria-pressed', String(visible));
+	});
+}
+
+$('#account-login-form').addEventListener('submit', async event => {
+	event.preventDefault();
+	const form = event.currentTarget;
+	const values = validateAccountForm(form, false);
+	if (!values) return;
+	const submit = form.querySelector('[type="submit"]');
+	submit.disabled = true;
+	submit.textContent = 'Entrando...';
+	try {
+		const login = await accountApi('/session', {
+			method: 'POST', body: { username: String(values.username).trim(), password: String(values.password) },
+		});
+		saveAccountSession(login.session);
+		const current = await accountApi('/session');
+		saveAccountSession(current.session, current.account);
+		form.reset();
+		await renderAccountTables();
+	} catch (error) {
+		showAccountServerError(form, error);
+	} finally {
+		submit.disabled = false;
+		submit.textContent = 'Entrar';
+	}
+});
+
+$('#account-register-form').addEventListener('submit', async event => {
+	event.preventDefault();
+	const form = event.currentTarget;
+	const values = validateAccountForm(form, true);
+	if (!values) return;
+	const submit = form.querySelector('[type="submit"]');
+	submit.disabled = true;
+	submit.textContent = 'Criando conta...';
+	try {
+		await accountApi('/accounts', { method: 'POST', body: {
+			username: String(values.username).trim(), displayName: String(values.displayName).trim(),
+			password: String(values.password),
+		} });
+		const login = await accountApi('/session', { method: 'POST', body: {
+			username: String(values.username).trim(), password: String(values.password),
+		} });
+		saveAccountSession(login.session);
+		const current = await accountApi('/session');
+		saveAccountSession(current.session, current.account);
+		form.reset();
+		await renderAccountTables();
+		showToast('Conta criada com sucesso.');
+	} catch (error) {
+		showAccountServerError(form, error);
+	} finally {
+		submit.disabled = false;
+		submit.textContent = 'Criar conta';
+	}
+});
+
+$('#account-logout').addEventListener('click', async () => {
+	try { await accountApi('/session', { method: 'DELETE' }); } catch {}
+	saveAccountSession(null);
+	show('entry');
+	setAccountAuthMode('login', false);
+	$('#account-login-username').focus();
+});
+$('#account-settings').addEventListener('click', () => openAccountTableDialog('settings'));
+$('#account-create-table').addEventListener('click', () => openAccountTableDialog('create'));
+$('#account-join-table').addEventListener('click', () => openAccountTableDialog('join'));
+$('#account-table-dialog-cancel').addEventListener('click', closeAccountTableDialog);
+$('#account-table-dialog-back').addEventListener('click', () => {
+	if (accountTableDialogMode !== 'create' || accountTableCreationStep <= 0) return;
+	accountTableCreationStep--; setError('account-table-dialog-error', ''); renderAccountTableCreationStep();
+});
+$('#account-table-dialog').addEventListener('submit', submitAccountTableDialog);
+$('#account-table-dialog-layer').addEventListener('pointerdown', event => {
+	if (event.target === event.currentTarget) closeAccountTableDialog();
+});
+$('#account-archived-toggle').addEventListener('click', () => {
+	const list = $('#account-archived-table-list'); const open = list.classList.contains('hidden');
+	list.classList.toggle('hidden', !open);
+	$('#account-archived-toggle').setAttribute('aria-expanded', String(open));
+	$('#account-archived-toggle').querySelector('span').textContent = open ? '\u25be' : '\u25b8';
+});
+document.addEventListener('pointerdown', event => {
+	if (!event.target.closest('.account-table-menu-button, .account-table-popover')) closeAccountTableMenus();
+});
 
 for (const back of document.querySelectorAll('[data-back]')) {
 	back.addEventListener('click', () => {
@@ -4853,6 +5487,9 @@ function handleEscapeNavigation(event) {
 		closeDeleteDialog();
 		return;
 	}
+	if (!$('#account-table-dialog-layer').classList.contains('hidden')) {
+		event.preventDefault(); closeAccountTableDialog(); return;
+	}
 	const visibleScreen = screens.find(screen => !screen.classList.contains('hidden'))?.id;
 	if (visibleScreen === 'create-screen') {
 		if ($('#avatar-picker-toggle').getAttribute('aria-expanded') === 'true') {
@@ -4869,6 +5506,11 @@ function handleEscapeNavigation(event) {
 	if (visibleScreen === 'master-screen' || visibleScreen === 'player-screen') {
 		event.preventDefault();
 		show('entry');
+		return;
+	}
+	if (visibleScreen === 'entry-screen' && document.querySelector('.account-auth')?.dataset.accountAuthMode === 'register') {
+		event.preventDefault();
+		setAccountAuthMode('login');
 		return;
 	}
 	if (visibleScreen === 'create-screen') {
@@ -4995,7 +5637,10 @@ async function startRPG() {
 	renderStarterPicker();
 	renderAvatarPicker();
 	await loadAvatarCatalog();
-	await restoreSession();
+	if (!await restoreAccountSession()) {
+		show('entry');
+		setAccountAuthMode('login', false);
+	}
 	startBattleSessionSynchronization();
 }
 

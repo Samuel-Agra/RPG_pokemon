@@ -121,6 +121,10 @@ export interface RPGTableMemberView {
 	member: RPGTableMember; account: RPGPublicPlatformAccount;
 	effectivePermissions: Record<RPGTablePermission, boolean>;
 }
+export interface RPGAccountTableView {
+	table: RPGCampaignTable; membership: RPGTableMember; owner: RPGPublicPlatformAccount;
+	memberCount: number; lastActivityAt: number; character?: { id: string, name: string };
+}
 export interface RPGActiveTableContext {
 	session: RPGPlatformSession; account: RPGPublicPlatformAccount;
 	table: RPGCampaignTable; membership: RPGTableMember;
@@ -155,6 +159,7 @@ export interface RPGAccountRepository {
 	setAccount(account: RPGPlatformAccount): void;
 	getTable(id: string): RPGCampaignTable | undefined;
 	setTable(table: RPGCampaignTable): void;
+	deleteTable(id: string): void;
 	listMemberships(accountId: string): RPGTableMember[];
 	listMembershipsForTable(tableId: string): RPGTableMember[];
 	getMembership(tableId: string, accountId: string): RPGTableMember | undefined;
@@ -186,7 +191,7 @@ export class RPGMemoryAccountRepository implements RPGAccountRepository {
 		snapshot: RPGAccountRepositorySnapshot = {},
 		private readonly changed: {
 			account?: (value: RPGPlatformAccount) => void,
-			table?: (value: RPGCampaignTable) => void,
+			table?: (value: RPGCampaignTable | null, id: string) => void,
 			member?: (value: RPGTableMember) => void,
 			invite?: (value: RPGTableInvite) => void,
 			recoveryCode?: (value: RPGRecoveryCode) => void,
@@ -241,7 +246,14 @@ export class RPGMemoryAccountRepository implements RPGAccountRepository {
 	}
 	getTable(id: string) { return this.clone(this.tables.get(toID(id))); }
 	setTable(table: RPGCampaignTable) {
-		this.tables.set(table.id, structuredClone(table)); this.effect(() => this.changed.table?.(table));
+		this.tables.set(table.id, structuredClone(table)); this.effect(() => this.changed.table?.(table, table.id));
+	}
+	deleteTable(id: string) {
+		const normalized = toID(id); this.tables.delete(normalized);
+		for (const [key, member] of this.members) if (member.tableId === normalized) this.members.delete(key);
+		for (const [key, invite] of this.invites) if (invite.tableId === normalized) this.invites.delete(key);
+		for (const [key, audit] of this.auditEntries) if (audit.tableId === normalized) this.auditEntries.delete(key);
+		this.effect(() => this.changed.table?.(null, normalized));
 	}
 	listMemberships(accountId: string) {
 		return [...this.members.values()].filter(member => member.accountId === toID(accountId)).map(member => structuredClone(member));
@@ -632,6 +644,15 @@ export class RPGAccountManagement {
 		};
 	}
 
+	updateAccount(token: string, displayName: string): RPGPublicPlatformAccount {
+		const session = this.session(token); const account = this.repository.getAccount(session.accountId);
+		if (!account || account.status !== 'active') throw new Error('Conta indisponível');
+		account.displayName = this.text(displayName, 80, 'nome de exibição');
+		account.updatedAt = this.now(); account.revision++;
+		this.repository.setAccount(account);
+		return this.publicAccount(account);
+	}
+
 	createTable(token: string, input: Pick<RPGCampaignTable, 'name'> & Partial<Pick<RPGCampaignTable, 'description' | 'color' | 'visibility'>>): RPGCampaignTable {
 		const session = this.session(token); const now = this.now(); const id = this.id();
 		if (input.visibility && !['private', 'code', 'public'].includes(input.visibility)) {
@@ -653,11 +674,40 @@ export class RPGAccountManagement {
 		return structuredClone(table);
 	}
 
-	listTables(token: string): { table: RPGCampaignTable, membership: RPGTableMember }[] {
+	updateTable(token: string, tableId: string, input: Partial<Pick<RPGCampaignTable,
+		'name' | 'description' | 'color' | 'visibility'>>): RPGCampaignTable {
+		const session = this.session(token); const member = this.activeMember(tableId, session.accountId);
+		if (member.role !== 'owner') throw new Error('Apenas o proprietário pode editar a mesa');
+		const table = this.repository.getTable(member.tableId)!;
+		if (table.status !== 'active') throw new Error('Mesa arquivada não pode ser editada');
+		if (input.visibility !== undefined && !['private', 'code', 'public'].includes(input.visibility)) {
+			throw new Error('Visibilidade da mesa inválida');
+		}
+		const previous = { name: table.name, description: table.description, color: table.color, visibility: table.visibility };
+		if (input.name !== undefined) table.name = this.text(input.name, 120, 'nome da mesa');
+		if (input.description !== undefined) table.description = this.optionalText(input.description, 500);
+		if (input.color !== undefined) table.color = this.color(input.color);
+		if (input.visibility !== undefined) table.visibility = input.visibility;
+		table.updatedAt = this.now(); table.revision++;
+		this.atomic(() => {
+			this.repository.setTable(table);
+			this.audit(member, 'table.updated', 'table', table.id, { previous,
+				current: { name: table.name, description: table.description, color: table.color, visibility: table.visibility } });
+		});
+		return structuredClone(table);
+	}
+
+	listTables(token: string): RPGAccountTableView[] {
 		const session = this.session(token);
 		return this.repository.listMemberships(session.accountId).filter(member => member.status === 'active').flatMap(member => {
 			const table = this.repository.getTable(member.tableId);
-			return table ? [{ table, membership: member }] : [];
+			const owner = table && this.repository.getAccount(table.ownerAccountId);
+			if (!table || !owner) return [];
+			const members = this.repository.listMembershipsForTable(table.id).filter(value => value.status === 'active');
+			const lastActivityAt = Math.max(table.updatedAt, ...members.map(value => value.updatedAt),
+				...this.repository.listAuditEntries(table.id).map(value => value.createdAt));
+			return [{ table, membership: member, owner: this.publicAccount(owner),
+				memberCount: members.length, lastActivityAt }];
 		});
 	}
 
@@ -680,6 +730,24 @@ export class RPGAccountManagement {
 			});
 		});
 		return structuredClone(table);
+	}
+
+	deleteArchivedTable(token: string, tableId: string): void {
+		const session = this.session(token); const normalizedTableId = toID(tableId);
+		const member = this.repository.getMembership(normalizedTableId, session.accountId);
+		if (!member || member.status !== 'active') throw new Error('A conta não participa desta mesa');
+		if (member.role !== 'owner') throw new Error('Apenas o proprietário pode excluir a mesa');
+		const table = this.repository.getTable(member.tableId);
+		if (!table || table.status !== 'archived') throw new Error('Arquive a mesa antes de excluí-la');
+		this.atomic(() => {
+			for (const tableMember of this.repository.listMembershipsForTable(table.id)) {
+				for (const stored of this.sessionRepository.listByAccount(tableMember.accountId)) {
+					if (stored.activeTableId !== table.id) continue;
+					stored.activeTableId = undefined; this.sessionRepository.set(stored);
+				}
+			}
+			this.repository.deleteTable(table.id);
+		});
 	}
 
 	listMembers(token: string, tableId: string): RPGTableMemberView[] {

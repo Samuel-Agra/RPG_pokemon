@@ -5430,7 +5430,7 @@ Promise<RPGLoginService> {
 		loginAttempts: snapshot.loginAttempts, auditEntries: snapshot.auditEntries,
 	}, {
 		account: account => persistence.upsertPlatformAccount(account),
-		table: table => persistence.upsertCampaignTable(table),
+		table: (table, id) => table ? persistence.upsertCampaignTable(table) : persistence.deleteCampaignTable(id),
 		member: member => persistence.upsertTableMember(member),
 		invite: invite => persistence.upsertTableInvite(invite),
 		recoveryCode: code => persistence.upsertRecoveryCode(code),

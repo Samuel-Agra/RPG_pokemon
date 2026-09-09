@@ -5,7 +5,7 @@
 	<meta name="viewport" content="width=device-width, initial-scale=1" />
 	<meta name="theme-color" content="#273b5b" />
 	<title>Pok&eacute;mon RPG</title>
-	<link rel="stylesheet" href="./rpg.css?v=20260905-27" />
+	<link rel="stylesheet" href="./rpg.css?v=20260908-29" />
 	<link rel="stylesheet" href="./battle-ui.css?v=20260830-5" />
 	<link rel="stylesheet" href="./battle-ui-v2.css?v=20260811-23" />
 	<link rel="stylesheet" href="./battle-room.css?v=20260828-6" />
@@ -34,24 +34,139 @@
 			</section>
 
 			<section class="screen centered hidden" id="entry-screen">
-				<div class="hero panel">
-					<div class="hero-mark"><span class="brand-ball large" aria-hidden="true"></span></div>
-					<p class="eyebrow">Campanha persistente</p>
-					<h1>Pok&eacute;mon RPG</h1>
-					<p class="lead">Escolha como voc&ecirc; deseja entrar nesta campanha.</p>
-					<div class="entry-actions">
-						<button class="button primary large-button" id="choose-master" type="button">
-							<span class="button-icon">&#x265B;</span>
-							<span><strong>Entrar como Mestre</strong><small>Gerenciar campanha e jogadores</small></span>
-						</button>
-						<button class="button large-button" id="choose-player" type="button">
-							<span class="button-icon">&#x25CF;</span>
-							<span><strong>Entrar como Player</strong><small>Selecionar seu personagem</small></span>
-						</button>
+				<div class="account-auth panel" data-account-auth-mode="login">
+					<div class="account-auth-intro">
+						<div class="hero-mark"><span class="brand-ball large" aria-hidden="true"></span></div>
+						<p class="eyebrow">Sua jornada, todas as mesas</p>
+						<h1>Pok&eacute;mon RPG</h1>
+						<p class="lead">Uma &uacute;nica conta para participar de diferentes campanhas e personagens.</p>
 					</div>
-					<p class="account-note">A conta do RPG &eacute; exclusiva deste sistema.</p>
+					<div class="account-auth-content">
+						<div class="account-auth-tabs" role="tablist" aria-label="Acesso &agrave; conta">
+							<button id="account-login-tab" class="account-auth-tab active" type="button" role="tab"
+								aria-selected="true" aria-controls="account-login-form">Entrar</button>
+							<button id="account-register-tab" class="account-auth-tab" type="button" role="tab"
+								aria-selected="false" aria-controls="account-register-form">Criar conta</button>
+						</div>
+
+						<form id="account-login-form" class="account-auth-form" novalidate
+							role="tabpanel" aria-labelledby="account-login-tab">
+							<div class="field account-field" data-account-field="username">
+								<label for="account-login-username">Nome de usu&aacute;rio</label>
+								<input id="account-login-username" name="username" autocomplete="username"
+									maxlength="40" required aria-describedby="account-login-username-error" />
+								<small class="field-error hidden" id="account-login-username-error"></small>
+							</div>
+							<div class="field account-field" data-account-field="password">
+								<label for="account-login-password">Senha</label>
+								<div class="password-row">
+									<input id="account-login-password" name="password" type="password"
+									autocomplete="current-password" maxlength="200" required
+										aria-describedby="account-login-password-error" />
+									<button class="button icon-button account-password-toggle" type="button"
+										data-target="account-login-password" aria-label="Mostrar senha" aria-pressed="false"></button>
+								</div>
+								<small class="field-error hidden" id="account-login-password-error"></small>
+							</div>
+							<p class="form-error hidden" id="account-login-error" role="alert"></p>
+							<button class="button primary full-button account-submit" type="submit">Entrar</button>
+						</form>
+
+						<form id="account-register-form" class="account-auth-form hidden" novalidate
+							role="tabpanel" aria-labelledby="account-register-tab">
+							<div class="field account-field" data-account-field="username">
+								<label for="account-register-username">Nome de usu&aacute;rio</label>
+								<input id="account-register-username" name="username" autocomplete="username"
+									minlength="3" maxlength="40" required aria-describedby="account-register-username-error" />
+								<small class="field-hint">Ser&aacute; usado para entrar na conta.</small>
+								<small class="field-error hidden" id="account-register-username-error"></small>
+							</div>
+							<div class="field account-field" data-account-field="displayName">
+								<label for="account-register-display-name">Nome de exibi&ccedil;&atilde;o</label>
+								<input id="account-register-display-name" name="displayName" autocomplete="name"
+									maxlength="80" required aria-describedby="account-register-display-name-error" />
+								<small class="field-error hidden" id="account-register-display-name-error"></small>
+							</div>
+							<div class="field account-field" data-account-field="password">
+								<label for="account-register-password">Senha</label>
+								<div class="password-row">
+									<input id="account-register-password" name="password" type="password"
+										autocomplete="new-password" minlength="8" maxlength="200" required
+										aria-describedby="account-register-password-error" />
+									<button class="button icon-button account-password-toggle" type="button"
+										data-target="account-register-password" aria-label="Mostrar senha" aria-pressed="false"></button>
+								</div>
+								<small class="field-hint">Use pelo menos 8 caracteres.</small>
+								<small class="field-error hidden" id="account-register-password-error"></small>
+							</div>
+							<div class="field account-field" data-account-field="confirmPassword">
+								<label for="account-register-confirm-password">Confirmar senha</label>
+								<div class="password-row">
+									<input id="account-register-confirm-password" name="confirmPassword" type="password"
+										autocomplete="new-password" minlength="8" maxlength="200" required
+										aria-describedby="account-register-confirm-password-error" />
+									<button class="button icon-button account-password-toggle" type="button"
+										data-target="account-register-confirm-password" aria-label="Mostrar senha" aria-pressed="false"></button>
+								</div>
+								<small class="field-error hidden" id="account-register-confirm-password-error"></small>
+							</div>
+							<p class="form-error hidden" id="account-register-error" role="alert"></p>
+							<button class="button primary full-button account-submit" type="submit">Criar conta</button>
+						</form>
+					</div>
 				</div>
 			</section>
+
+			<section class="screen hidden" id="tables-screen">
+				<div class="content-column account-tables-page">
+					<div class="panel account-profile-heading">
+						<div class="account-profile-identity">
+							<div class="account-profile-avatar" id="account-profile-avatar" aria-hidden="true">R</div>
+							<div>
+								<h1 id="account-profile-name">Conta RPG</h1>
+								<p id="account-profile-username">@usuario</p>
+							</div>
+						</div>
+						<div class="account-profile-actions">
+							<button class="button" id="account-settings" type="button">Configura&ccedil;&otilde;es</button>
+							<button class="button" id="account-logout" type="button">Sair</button>
+						</div>
+					</div>
+					<div class="account-table-toolbar">
+						<button class="button primary" id="account-create-table" type="button">Criar mesa</button>
+						<button class="button" id="account-join-table" type="button">Entrar em uma mesa</button>
+					</div>
+					<section class="account-table-section" aria-labelledby="owned-tables-title">
+						<h2 id="owned-tables-title">Minhas mesas</h2>
+						<div class="account-table-grid" id="account-owned-table-list" aria-live="polite"></div>
+						<p class="account-section-empty hidden" id="account-owned-table-empty">Voc&ecirc; ainda n&atilde;o criou nenhuma mesa.</p>
+					</section>
+					<section class="account-table-section" aria-labelledby="joined-tables-title">
+						<h2 id="joined-tables-title">Mesas em que participo</h2>
+						<div class="account-table-grid" id="account-joined-table-list" aria-live="polite"></div>
+						<p class="account-section-empty hidden" id="account-joined-table-empty">Nenhuma participa&ccedil;&atilde;o encontrada.</p>
+					</section>
+					<section class="account-archived-section hidden" id="account-archived-section">
+						<button class="account-archived-toggle" id="account-archived-toggle" type="button" aria-expanded="false">
+							<span aria-hidden="true">&#x25B8;</span> Mesas arquivadas <small id="account-archived-count"></small>
+						</button>
+						<div class="account-table-grid hidden" id="account-archived-table-list"></div>
+					</section>
+				</div>
+			</section>
+
+			<div class="modal-backdrop hidden" id="account-table-dialog-layer">
+				<form class="panel account-table-dialog" id="account-table-dialog" role="dialog" aria-modal="true">
+					<h2 id="account-table-dialog-title">Criar mesa</h2>
+					<div id="account-table-dialog-fields"></div>
+					<p class="form-error hidden" id="account-table-dialog-error" role="alert"></p>
+					<div class="form-actions" id="account-table-dialog-actions">
+						<button class="button" id="account-table-dialog-cancel" type="button">Cancelar</button>
+						<button class="button hidden" id="account-table-dialog-back" type="button">Voltar</button>
+						<button class="button primary" id="account-table-dialog-submit" type="submit">Confirmar</button>
+					</div>
+				</form>
+			</div>
 
 			<section class="screen centered hidden" id="master-screen">
 				<div class="panel auth-panel">
@@ -249,6 +364,6 @@
 	<script src="./nursery-ui.js?v=20260826-1"></script>
 	<script src="./contest-ui.js?v=20260905-39"></script>
 	<script src="./shop-ui.js?v=20260904-4"></script>
-	<script src="./rpg.js?v=20260905-40"></script>
+	<script src="./rpg.js?v=20260908-42"></script>
 </body>
 </html>

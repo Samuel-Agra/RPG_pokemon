@@ -549,6 +549,10 @@ describe('RPG version 2 accounts and tables backend', () => {
 		assert.throws(() => accounts.createInvite(owner.token, table.id), /Mesa indisponível/);
 		assert.throws(() => accounts.joinByInvite(visitor.token, pendingInvite.code), /inválido ou revogado/);
 		assert.equal(accounts.repository.getInvite(pendingInvite.invite.id).status, 'revoked');
+		assert.throws(() => accounts.deleteArchivedTable(member.token, table.id), /Apenas o proprietário/);
+		accounts.deleteArchivedTable(owner.token, table.id);
+		assert.equal(accounts.repository.getTable(table.id), undefined);
+		assert.deepEqual(accounts.listTables(owner.token), []);
 	});
 
 	it('creates a table and its owner membership atomically at domain level', () => {
@@ -561,6 +565,16 @@ describe('RPG version 2 accounts and tables backend', () => {
 		const listed = accounts.listTables(session.token);
 		assert.equal(listed[0].table.id, table.id);
 		assert.equal(listed[0].membership.role, 'owner');
+		assert.equal(listed[0].owner.displayName, 'Samuel');
+		assert.equal(listed[0].memberCount, 1);
+		assert(listed[0].lastActivityAt >= table.updatedAt);
+		assert.equal(accounts.updateAccount(session.token, 'Samuel Atualizado').displayName, 'Samuel Atualizado');
+		const updated = accounts.updateTable(session.token, table.id, {
+			name: 'Kanto Atualizada', description: 'Nova descrição', color: '#335577', visibility: 'private',
+		});
+		assert.equal(updated.name, 'Kanto Atualizada');
+		assert.equal(updated.color, '#335577');
+		assert.equal(accounts.listAudit(session.token, table.id)[0].action, 'table.updated');
 		assert.equal(accounts.selectTable(session.token, table.id).activeTableId, table.id);
 	});
 
