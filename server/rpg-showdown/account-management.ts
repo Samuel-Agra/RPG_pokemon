@@ -99,7 +99,8 @@ export interface RPGCampaignTable {
 }
 export interface RPGTableMember {
 	tableId: string; accountId: string; role: RPGTableRole;
-	status: 'active' | 'left' | 'removed' | 'blocked'; permissions: Record<string, boolean>;
+	status: 'active' | 'pending' | 'left' | 'removed' | 'blocked'; permissions: Record<string, boolean>;
+	requestInviteId?: string;
 	joinedAt: number; updatedAt: number; revision: number;
 }
 export interface RPGTableInvite {
@@ -130,6 +131,11 @@ export interface RPGActiveTableContext {
 	table: RPGCampaignTable; membership: RPGTableMember;
 }
 export type RPGPublicTableInvite = Omit<RPGTableInvite, 'codeHash'>;
+export interface RPGInvitePreview {
+	table: Pick<RPGCampaignTable, 'id' | 'name' | 'description' | 'color'>;
+	owner: RPGPublicPlatformAccount; memberCount: number; requiresApproval: boolean;
+	membershipStatus?: RPGTableMember['status'];
+}
 export type RPGStoredPlatformSession = Omit<RPGPlatformSession, 'token'> & {
 	tokenHash: string, lastSeenAt: number, revokedAt?: number,
 };
@@ -675,7 +681,7 @@ export class RPGAccountManagement {
 	}
 
 	updateTable(token: string, tableId: string, input: Partial<Pick<RPGCampaignTable,
-		'name' | 'description' | 'color' | 'visibility'>>): RPGCampaignTable {
+		'name' | 'description' | 'color' | 'visibility'>> & { requireJoinApproval?: boolean }): RPGCampaignTable {
 		const session = this.session(token); const member = this.activeMember(tableId, session.accountId);
 		if (member.role !== 'owner') throw new Error('Apenas o proprietário pode editar a mesa');
 		const table = this.repository.getTable(member.tableId)!;
@@ -688,6 +694,7 @@ export class RPGAccountManagement {
 		if (input.description !== undefined) table.description = this.optionalText(input.description, 500);
 		if (input.color !== undefined) table.color = this.color(input.color);
 		if (input.visibility !== undefined) table.visibility = input.visibility;
+		if (input.requireJoinApproval !== undefined) table.settings.requireJoinApproval = input.requireJoinApproval;
 		table.updatedAt = this.now(); table.revision++;
 		this.atomic(() => {
 			this.repository.setTable(table);
@@ -842,7 +849,8 @@ export class RPGAccountManagement {
 		if (target && this.repository.getMembership(tableId, target.id)?.status === 'blocked') {
 			throw new Error('Esta conta está bloqueada nesta mesa');
 		}
-		const code = this.bytes(9).toString('base64url').toUpperCase();
+		const compactCode = this.bytes(8).toString('base64url').replace(/[^A-Z0-9]/gi, '').toUpperCase().padEnd(8, 'X').slice(0, 8);
+		const code = compactCode.slice(0, 4) + '-' + compactCode.slice(4);
 		const invite: RPGTableInvite = {
 			id: this.id(), tableId: member.tableId, createdByAccountId: session.accountId, targetAccountId: target?.id,
 			codeHash: this.tokenHash(code), role, status: 'active', maxUses: target ? 1 : maxUses,
@@ -869,20 +877,66 @@ export class RPGAccountManagement {
 		if (previous?.status === 'blocked') throw new Error('Esta conta está bloqueada nesta mesa');
 		if (previous?.status === 'active') throw new Error('A conta já participa desta mesa');
 		const now = this.now();
+		const requiresApproval = table.settings.requireJoinApproval === true;
+		if (previous?.status === 'pending') return previous;
 		const member: RPGTableMember = {
-			tableId: invite.tableId, accountId: session.accountId, role: invite.role, status: 'active', permissions: {},
+			tableId: invite.tableId, accountId: session.accountId, role: invite.role,
+			status: requiresApproval ? 'pending' : 'active', permissions: {},
+			requestInviteId: requiresApproval ? invite.id : undefined,
 			joinedAt: previous?.joinedAt || now, updatedAt: now, revision: (previous?.revision || 0) + 1,
 		};
 		this.atomic(() => {
 			this.repository.setMembership(member);
-			invite.usedCount++; if (invite.usedCount >= invite.maxUses) invite.status = 'revoked';
-			this.repository.setInvite(invite);
-			this.audit(member, 'member.joined', 'member', member.accountId, {
+			if (!requiresApproval) {
+				invite.usedCount++; if (invite.usedCount >= invite.maxUses) invite.status = 'revoked';
+				this.repository.setInvite(invite);
+			}
+			this.audit(member, requiresApproval ? 'member.requested' : 'member.joined', 'member', member.accountId, {
 				previousRole: previous?.role, newRole: member.role, previousStatus: previous?.status,
 				newStatus: member.status,
 			});
 		});
 		return structuredClone(member);
+	}
+
+	previewInvite(token: string, code: string): RPGInvitePreview {
+		const session = this.session(token); const invite = this.validInvite(code, session.accountId);
+		const table = this.repository.getTable(invite.tableId)!;
+		const owner = this.repository.getAccount(table.ownerAccountId);
+		if (!owner) throw new Error('Proprietário da mesa indisponível');
+		return {
+			table: { id: table.id, name: table.name, description: table.description, color: table.color },
+			owner: this.publicAccount(owner),
+			memberCount: this.repository.listMembershipsForTable(table.id).filter(member => member.status === 'active').length,
+			requiresApproval: table.settings.requireJoinApproval === true,
+			membershipStatus: this.repository.getMembership(table.id, session.accountId)?.status,
+		};
+	}
+
+	listJoinRequests(token: string, tableId: string): RPGTableMemberView[] {
+		return this.listMembers(token, tableId).filter(entry => entry.member.status === 'pending');
+	}
+
+	resolveJoinRequest(token: string, tableId: string, accountId: string, allow: boolean): RPGTableMember {
+		const actor = this.tableAdministrator(token, tableId);
+		const request = this.repository.getMembership(tableId, accountId);
+		if (!request || request.status !== 'pending') throw new Error('Solicitação não encontrada');
+		const invite = request.requestInviteId ? this.repository.getInvite(request.requestInviteId) : undefined;
+		if (allow && (!invite || invite.status !== 'active' || (invite.expiresAt !== undefined && invite.expiresAt <= this.now()) ||
+			invite.usedCount >= invite.maxUses)) throw new Error('O convite desta solicitação não está mais disponível');
+		const previousStatus = request.status;
+		request.status = allow ? 'active' : 'removed'; request.requestInviteId = undefined;
+		request.updatedAt = this.now(); request.revision++;
+		this.atomic(() => {
+			this.repository.setMembership(request);
+			if (allow && invite) {
+				invite.usedCount++; if (invite.usedCount >= invite.maxUses) invite.status = 'revoked';
+				this.repository.setInvite(invite);
+			}
+			this.audit(actor, allow ? 'member.request.approved' : 'member.request.denied', 'member', request.accountId,
+				{ previousStatus, newStatus: request.status });
+		});
+		return structuredClone(request);
 	}
 
 	listInvites(token: string, tableId: string): RPGPublicTableInvite[] {
@@ -1028,6 +1082,18 @@ export class RPGAccountManagement {
 	}
 	private publicInvite(invite: RPGTableInvite): RPGPublicTableInvite {
 		const { codeHash: _codeHash, ...view } = invite; return structuredClone(view);
+	}
+	private validInvite(code: string, accountId: string): RPGTableInvite {
+		const invite = this.repository.getInviteByCodeHash(this.tokenHash(code.trim().toUpperCase()));
+		if (!invite || invite.status !== 'active') throw new Error('Convite inválido ou revogado');
+		const table = this.repository.getTable(invite.tableId);
+		if (!table || table.status !== 'active') throw new Error('Mesa indisponível');
+		if (invite.expiresAt !== undefined && invite.expiresAt <= this.now()) {
+			invite.status = 'expired'; this.repository.setInvite(invite); throw new Error('Este convite expirou');
+		}
+		if (invite.usedCount >= invite.maxUses) throw new Error('Este convite já foi utilizado');
+		if (invite.targetAccountId && invite.targetAccountId !== accountId) throw new Error('Este convite pertence a outra conta');
+		return invite;
 	}
 	private hashPassword(password: string): RPGAccountCredential {
 		const salt = this.bytes(16); return { algorithm: 'scrypt', salt: salt.toString('base64'), hash: scryptSync(password, salt, 32).toString('base64') };

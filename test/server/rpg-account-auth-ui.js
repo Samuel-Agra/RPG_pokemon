@@ -64,4 +64,15 @@ describe('RPG version 2 account authentication frontend', () => {
 		assert(style.includes('.account-table-stepper'));
 		assert(style.includes('.account-visibility-choice'));
 	});
+
+	it('previews invitation codes and lets the Master administer invitations and requests', () => {
+		assert(script.includes("accountApi('/invites/preview'"));
+		assert(script.includes("'Aguardando aprova\\u00e7\\u00e3o do Mestre'"));
+		assert(script.includes('renderMasterInvitationsPanel'));
+		assert(script.includes("'Solicitações pendentes'"));
+		assert(script.includes("'Gerar convite'"));
+		assert(script.includes("'Revogar'"));
+		assert(script.includes("link.searchParams.set('invite', data.code)"));
+		assert(style.includes('.master-invite-dialog {'));
+	});
 });

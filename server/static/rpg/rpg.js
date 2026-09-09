@@ -523,7 +523,7 @@ function openAccountTableDialog(mode, entry = null) {
 	$('#account-table-dialog-actions').classList.remove('hidden'); $('#account-table-dialog-cancel').classList.remove('hidden');
 	$('#account-table-dialog-back').classList.add('hidden'); accountTableCreationStep = 0;
 	if (mode === 'join') {
-		title.textContent = 'Entrar em uma mesa'; submit.textContent = 'Entrar';
+		title.textContent = 'Entrar em uma mesa'; submit.textContent = 'Continuar';
 		fields.append(accountDialogField('C\u00f3digo do convite', 'code'));
 	} else if (mode === 'settings') {
 		title.textContent = 'Configura\u00e7\u00f5es da conta'; submit.textContent = 'Salvar';
@@ -571,7 +571,28 @@ async function submitAccountTableDialog(event) {
 			accountTableCreationStep++; renderAccountTableCreationStep(); return;
 		}
 		if (accountTableDialogMode === 'join') {
-			await accountApi('/invites/join', { method: 'POST', body: { code: String(values.code || '').trim() } });
+			const code = String(values.code || accountTableDialogEntry?.code || '').trim();
+			if (!accountTableDialogEntry?.preview) {
+				const result = await accountApi('/invites/preview', { method: 'POST', body: { code } });
+				accountTableDialogEntry = { code, preview: result.preview };
+				const preview = result.preview; const fields = $('#account-table-dialog-fields'); fields.replaceChildren();
+				const card = createElement('div', 'account-invite-preview'); card.style.setProperty('--table-color', preview.table.color);
+				card.append(createElement('h3', '', preview.table.name), createElement('p', '', 'Mestre: ' + preview.owner.displayName),
+					createElement('strong', '', preview.memberCount + (preview.memberCount === 1 ? ' participante' : ' participantes')));
+				if (preview.requiresApproval) card.append(createElement('small', '', 'Esta mesa exige aprova\u00e7\u00e3o do Mestre.'));
+				fields.append(card);
+				$('#account-table-dialog-submit').textContent = preview.requiresApproval ? 'Enviar solicita\u00e7\u00e3o' : 'Entrar na mesa';
+				return;
+			}
+			const result = await accountApi('/invites/join', { method: 'POST', body: { code } });
+			if (result.pending) {
+				$('#account-table-dialog-title').textContent = 'Solicita\u00e7\u00e3o enviada';
+				$('#account-table-dialog-fields').replaceChildren(
+					createElement('div', 'account-invite-pending', 'Aguardando aprova\u00e7\u00e3o do Mestre')
+				);
+				$('#account-table-dialog-actions').classList.add('hidden');
+				return;
+			}
 			showToast('Voc\u00ea entrou na mesa.');
 		} else if (accountTableDialogMode === 'settings') {
 			const result = await accountApi('/account', { method: 'PATCH', body: { displayName: values.displayName } });
@@ -620,6 +641,12 @@ async function renderAccountTables() {
 	$('#account-profile-avatar').textContent = initials(state.account?.displayName);
 	try {
 		await refreshAccountTables();
+		const inviteCode = new URL(window.location.href).searchParams.get('invite');
+		if (inviteCode) {
+			const clean = new URL(window.location.href); clean.searchParams.delete('invite');
+			window.history.replaceState({}, '', clean);
+			openAccountTableDialog('join'); $('#account-dialog-code').value = inviteCode;
+		}
 	} catch (error) {
 		if (error.status === 401) {
 			saveAccountSession(null);
@@ -3095,6 +3122,126 @@ async function renderPokemonCenter(character) {
 	drawWelcome();
 	return root;
 }
+async function renderMasterInvitationsPanel() {
+	const tableId = state.accountSession.activeTableId;
+	const wrapper = section('Convites e solicitações'); wrapper.panel.classList.add('master-invitations-panel');
+	const [inviteData, requestData] = await Promise.all([
+		accountApi(`/tables/${encodeURIComponent(tableId)}/invites`),
+		accountApi(`/tables/${encodeURIComponent(tableId)}/join-requests`),
+	]);
+	const requests = createElement('div', 'master-join-requests');
+	requests.append(createElement('h3', '', 'Solicitações pendentes'));
+	if (!requestData.requests.length) requests.append(createElement('p', 'account-invite-empty', 'Nenhuma solicitação pendente.'));
+	for (const entry of requestData.requests) {
+		const row = createElement('div', 'master-join-request');
+		const identity = createElement('div'); identity.append(createElement('strong', '', entry.account.displayName),
+			createElement('small', '', '@' + entry.account.username));
+		const actions = createElement('div');
+		for (const [label, allow, className] of [['Permitir', true, 'primary'], ['Recusar', false, 'danger']]) {
+			const action = button(label, `button ${className}`);
+			action.addEventListener('click', async () => {
+				action.disabled = true;
+				try {
+					await accountApi(`/tables/${encodeURIComponent(tableId)}/join-requests/${encodeURIComponent(entry.account.id)}`,
+						{ method: 'POST', body: { allow } });
+					row.remove(); showToast(allow ? 'Solicitação aceita.' : 'Solicitação recusada.');
+				} catch (error) { action.disabled = false; showToast(error.message, true); }
+			});
+			actions.append(action);
+		}
+		row.append(identity, actions); requests.append(row);
+	}
+	const invitationArea = createElement('div', 'master-invite-area');
+	const heading = createElement('div', 'master-invite-heading'); heading.append(createElement('h3', '', 'Convites'));
+	const generate = button('Gerar convite', 'button primary'); heading.append(generate); invitationArea.append(heading);
+	const tableEntry = state.accountTables.find(entry => entry.table.id === tableId);
+	const approval = createElement('label', 'master-invite-approval');
+	const approvalInput = createElement('input'); approvalInput.type = 'checkbox';
+	approvalInput.checked = tableEntry?.table.settings?.requireJoinApproval === true;
+	approval.append(approvalInput, createElement('span', '', 'Exigir aprovação para entrar'));
+	approvalInput.addEventListener('change', async () => {
+		approvalInput.disabled = true;
+		try {
+			const result = await accountApi(`/tables/${encodeURIComponent(tableId)}`, {
+				method: 'PATCH', body: { requireJoinApproval: approvalInput.checked },
+			});
+			if (tableEntry) tableEntry.table = result.table;
+		} catch (error) { approvalInput.checked = !approvalInput.checked; showToast(error.message, true); } finally {
+			approvalInput.disabled = false;
+		}
+	});
+	invitationArea.append(approval);
+	const list = createElement('div', 'master-invite-list');
+	const activeInvites = inviteData.invites.filter(invite => invite.status === 'active');
+	if (!activeInvites.length) list.append(createElement('p', 'account-invite-empty', 'Nenhum convite ativo.'));
+	for (const invite of activeInvites) {
+		const row = createElement('div', 'master-invite-row');
+		const expiry = invite.expiresAt ? new Date(invite.expiresAt).toLocaleString('pt-BR') : 'Sem expiração';
+		row.append(createElement('span', '', `${accountRoleLabel(invite.role)} · ${invite.usedCount}/${invite.maxUses} uso(s)`),
+			createElement('small', '', expiry));
+		const revoke = button('Revogar', 'button danger');
+		revoke.addEventListener('click', async () => {
+			revoke.disabled = true;
+			try {
+				await accountApi(`/tables/${encodeURIComponent(tableId)}/invites/${encodeURIComponent(invite.id)}`, { method: 'DELETE' }); row.remove();
+			} catch (error) { revoke.disabled = false; showToast(error.message, true); }
+		});
+		row.append(revoke); list.append(row);
+	}
+	invitationArea.append(list); wrapper.body.append(requests, invitationArea);
+	generate.addEventListener('click', () => openMasterInviteDialog(tableId, list));
+	return wrapper.panel;
+}
+
+function openMasterInviteDialog(tableId, inviteList) {
+	document.querySelector('.master-invite-dialog-layer')?.remove();
+	const layer = createElement('div', 'modal-backdrop master-invite-dialog-layer');
+	const form = createElement('form', 'panel master-invite-dialog'); form.setAttribute('role', 'dialog'); form.setAttribute('aria-modal', 'true');
+	form.append(createElement('h2', '', 'Gerar convite'));
+	const role = createElement('select'); role.name = 'role';
+	for (const [value, label] of [['player', 'Jogador'], ['spectator', 'Espectador'], ['master', 'Mestre auxiliar']]) {
+		const option = createElement('option', '', label); option.value = value; role.append(option);
+	}
+	const expiration = createElement('select'); expiration.name = 'expiration';
+	for (const [value, label] of [['24', '24 horas'], ['72', '3 dias'], ['168', '7 dias'], ['0', 'Sem expiração']]) {
+		const option = createElement('option', '', label); option.value = value; expiration.append(option);
+	}
+	const uses = createElement('input'); uses.name = 'maxUses'; uses.type = 'number'; uses.min = '1'; uses.max = '100'; uses.value = '1';
+	const target = createElement('input'); target.name = 'targetUsername'; target.placeholder = 'Opcional'; target.autocomplete = 'off';
+	for (const [label, control] of [['Função inicial', role], ['Expira em', expiration], ['Quantidade de usos', uses], ['Direcionar para @usuário', target]]) {
+		const field = createElement('label', 'field'); field.append(createElement('span', '', label), control); form.append(field);
+	}
+	const result = createElement('div', 'master-invite-result hidden');
+	const error = createElement('p', 'form-error hidden'); form.append(result, error);
+	const actions = createElement('div', 'form-actions'); const cancel = button('Cancelar'); cancel.type = 'button';
+	const submit = button('Gerar convite', 'primary'); submit.type = 'submit'; actions.append(cancel, submit); form.append(actions); layer.append(form);
+	const close = () => layer.remove(); cancel.addEventListener('click', close);
+	layer.addEventListener('pointerdown', event => { if (event.target === layer) close(); });
+	form.addEventListener('submit', async event => {
+		event.preventDefault(); submit.disabled = true; error.classList.add('hidden');
+		try {
+			const hours = Number(expiration.value); const body = { role: role.value, maxUses: Number(uses.value),
+				...(hours ? { expiresAt: Date.now() + hours * 3600000 } : {}),
+				...(target.value.trim() ? { targetUsername: target.value.trim() } : {}) };
+			const data = await accountApi(`/tables/${encodeURIComponent(tableId)}/invites`, { method: 'POST', body });
+			const link = new URL(window.location.href); link.search = ''; link.hash = ''; link.searchParams.set('invite', data.code);
+			const invitationLink = createElement('a', '', link.toString()); invitationLink.href = link.toString();
+			const copy = button('Copiar link', 'button'); copy.type = 'button';
+			copy.addEventListener('click', async () => {
+				try {
+					await window.navigator.clipboard.writeText(link.toString()); copy.textContent = 'Link copiado';
+				} catch { showToast('Não foi possível copiar o link.', true); }
+			});
+			result.replaceChildren(createElement('strong', '', data.code), invitationLink, copy);
+			result.classList.remove('hidden'); submit.textContent = 'Gerar outro';
+			inviteList.querySelector('.account-invite-empty')?.remove();
+		} catch (caught) { error.textContent = caught.message; error.classList.remove('hidden'); } finally {
+			submit.disabled = false;
+		}
+	});
+	document.body.append(layer); role.focus();
+}
+
 async function renderMasterBody(characters) {
 	const root = createElement('div');
 	const [shopDirectory, campaignData, battleData, contestData] = await Promise.all([
@@ -3259,6 +3406,7 @@ async function renderMasterBody(characters) {
 	top.append(identity, metrics, toolbar);
 	if (state.dashboardView === 'overview') root.append(top);
 	if (state.dashboardView === 'overview') {
+		if (state.accountSession?.activeTableId) root.append(await renderMasterInvitationsPanel());
 		const presence = section('Áreas da campanha');
 		presence.panel.classList.add('master-area-presence-panel');
 		const areaGrid = createElement('div', 'master-area-presence-grid');

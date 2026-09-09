@@ -705,6 +705,30 @@ describe('RPG version 2 accounts and tables backend', () => {
 		assert.equal(accounts.listInvites(owner.token, table.id).find(invite => invite.id === expiring.invite.id).status, 'expired');
 	});
 
+	it('previews invitations and approves one idempotent join request', () => {
+		const accounts = service();
+		accounts.createAccount('dono-pedido', 'Samuel', 'senha-segura');
+		accounts.createAccount('convidado-pedido', 'Lucas', 'senha-segura');
+		const owner = accounts.login('dono-pedido', 'senha-segura');
+		const guest = accounts.login('convidado-pedido', 'senha-segura');
+		const table = accounts.createTable(owner.token, { name: 'Jornada de Kanto' });
+		accounts.updateTable(owner.token, table.id, { requireJoinApproval: true });
+		const invitation = accounts.createInvite(owner.token, table.id, 'player', undefined, 1);
+		assert.match(invitation.code, /^[A-Z0-9]{4}-[A-Z0-9]{4}$/);
+		const preview = accounts.previewInvite(guest.token, invitation.code);
+		assert.equal(preview.table.name, 'Jornada de Kanto');
+		assert.equal(preview.owner.displayName, 'Samuel');
+		assert.equal(preview.requiresApproval, true);
+		const request = accounts.joinByInvite(guest.token, invitation.code);
+		assert.equal(request.status, 'pending');
+		assert.equal(accounts.joinByInvite(guest.token, invitation.code).revision, request.revision);
+		assert.equal(accounts.listInvites(owner.token, table.id)[0].usedCount, 0);
+		assert.equal(accounts.listJoinRequests(owner.token, table.id)[0].account.displayName, 'Lucas');
+		const accepted = accounts.resolveJoinRequest(owner.token, table.id, guest.accountId, true);
+		assert.equal(accepted.status, 'active');
+		assert.equal(accounts.listInvites(owner.token, table.id)[0].usedCount, 1);
+	});
+
 	it('applies fixed default permissions for every table role without member overrides', () => {
 		const owner = getRPGDefaultTablePermissions('owner');
 		const master = getRPGDefaultTablePermissions('master');
@@ -838,5 +862,14 @@ describe('RPG version 2 accounts and tables backend', () => {
 		]) assert(source.includes(`${method}(`), method);
 		assert(source.includes('SELECT * FROM rpg_account_sessions'));
 		assert(!source.includes('token VARCHAR'), 'plain session tokens must never be persisted');
+	});
+
+	it('migrates persistent join requests without overloading active memberships', () => {
+		const migration = fs.readFileSync(path.resolve(
+			__dirname, '../../server/rpg-showdown/database/migrations/010-table-join-requests.sql'
+		), 'utf8');
+		assert.match(migration, /'active', 'pending', 'left', 'removed', 'blocked'/);
+		assert.match(migration, /request_invite_id VARCHAR\(100\)/);
+		assert.match(migration, /ON DELETE SET NULL/);
 	});
 });

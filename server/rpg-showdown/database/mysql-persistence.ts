@@ -344,7 +344,8 @@ export class RPGMySQLPersistence {
 			})),
 			tableMembers: memberRows[0].map(row => ({
 				tableId: String(row.table_id), accountId: String(row.account_id), role: row.role, status: row.status,
-				permissions: decoded(row.permissions) as Record<string, boolean>, joinedAt: Number(row.joined_at),
+				permissions: decoded(row.permissions) as Record<string, boolean>,
+				requestInviteId: row.request_invite_id ? String(row.request_invite_id) : undefined, joinedAt: Number(row.joined_at),
 				updatedAt: Number(row.updated_at), revision: Number(row.revision),
 			})),
 			tableInvites: inviteRows[0].map(row => ({
@@ -552,12 +553,12 @@ export class RPGMySQLPersistence {
 	}
 	upsertTableMember(member: RPGTableMember): void {
 		this.enqueue(`INSERT INTO rpg_table_members
-			(table_id, account_id, role, status, permissions, joined_at, updated_at, revision)
-			VALUES (?, ?, ?, ?, CAST(? AS JSON), ?, ?, ?)
+			(table_id, account_id, role, status, permissions, request_invite_id, joined_at, updated_at, revision)
+			VALUES (?, ?, ?, ?, CAST(? AS JSON), ?, ?, ?, ?)
 			ON DUPLICATE KEY UPDATE role=VALUES(role), status=VALUES(status), permissions=VALUES(permissions),
-			updated_at=VALUES(updated_at), revision=VALUES(revision)`, [
+			request_invite_id=VALUES(request_invite_id), updated_at=VALUES(updated_at), revision=VALUES(revision)`, [
 			member.tableId, member.accountId, member.role, member.status, JSON.stringify(member.permissions),
-			member.joinedAt, member.updatedAt, member.revision,
+			member.requestInviteId, member.joinedAt, member.updatedAt, member.revision,
 		]);
 	}
 	upsertTableInvite(invite: RPGTableInvite): void {

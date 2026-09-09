@@ -473,6 +473,7 @@ export class RPGHttpServer {
 			if ('description' in body) update.description = this.optionalString(body.description) || '';
 			if ('color' in body) update.color = this.string(body.color);
 			if ('visibility' in body) update.visibility = this.string(body.visibility) as 'private' | 'code' | 'public';
+			if ('requireJoinApproval' in body) update.requireJoinApproval = body.requireJoinApproval === true;
 			const table = this.login.accounts.updateTable(
 				this.token(req), decodeURIComponent(version2TableArchiveMatch[1]), update
 			);
@@ -514,8 +515,27 @@ export class RPGHttpServer {
 			const token = this.token(req); const body = await this.body(req);
 			const membership = this.login.accounts.joinByInvite(token, this.string(body.code));
 			await this.login.flushPersistence();
-			this.json(res, 200, { membership });
+			this.json(res, 200, { membership, pending: membership.status === 'pending' });
 			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/v2/invites/preview') {
+			const body = await this.body(req);
+			const preview = this.login.accounts.previewInvite(this.token(req), this.string(body.code));
+			await this.login.flushPersistence(); this.json(res, 200, { preview }); return;
+		}
+		const version2JoinRequestsMatch = /^\/api\/rpg\/v2\/tables\/([^/]+)\/join-requests(?:\/([^/]+))?$/.exec(url.pathname);
+		if (version2JoinRequestsMatch) {
+			const token = this.token(req); const tableId = decodeURIComponent(version2JoinRequestsMatch[1]);
+			if (method === 'GET' && !version2JoinRequestsMatch[2]) {
+				const requests = this.login.accounts.listJoinRequests(token, tableId);
+				await this.login.flushPersistence(); this.json(res, 200, { requests }); return;
+			}
+			if (method === 'POST' && version2JoinRequestsMatch[2]) {
+				const body = await this.body(req);
+				const membership = this.login.accounts.resolveJoinRequest(token, tableId,
+					decodeURIComponent(version2JoinRequestsMatch[2]), body.allow === true);
+				await this.login.flushPersistence(); this.json(res, 200, { membership }); return;
+			}
 		}
 		const version2TableMatch = /^\/api\/rpg\/v2\/tables\/([^/]+)\/(invites|select)$/.exec(url.pathname);
 		if (version2TableMatch) {
