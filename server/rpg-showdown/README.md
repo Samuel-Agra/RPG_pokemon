@@ -289,6 +289,7 @@ As contas globais e mesas da versao 2 usam um espaco de rotas separado durante a
 | `DELETE /api/rpg/v2/tables/:id/invites/:inviteId` | revoga um convite |
 | `POST /api/rpg/v2/invites/join` | ingressa em uma mesa usando um convite |
 | `POST /api/rpg/v2/tables/:id/select` | define a mesa ativa da sessao |
+| `POST /api/rpg/v2/tables/deselect` | encerra o contexto da mesa sem remover a associacao |
 | `GET /api/rpg/v2/tables/:id/permissions` | retorna as permissoes padrao efetivas do cargo atual |
 | `GET /api/rpg/v2/tables/:id/members` | lista membros e perfis publicos da mesa |
 | `PATCH /api/rpg/v2/tables/:id/members/:accountId` | promove ou rebaixa um membro |
@@ -298,6 +299,12 @@ As contas globais e mesas da versao 2 usam um espaco de rotas separado durante a
 
 Senhas e tokens nunca sao persistidos em texto puro. O codigo do convite aparece somente na
 resposta de criacao; seu hash interno nao faz parte do contrato HTTP.
+
+Ao selecionar uma mesa, a sessao publica passa a expor `activeTableId`, `membershipId` e `role`.
+O contexto RPG derivado registra tambem a conta, a mesa, a associacao e o personagem selecionado,
+quando houver. Esses valores sao resolvidos no servidor a partir do token: toda rota do mundo valida
+a associacao ativa e executa sobre o servico e a persistencia isolados da mesa, sem aceitar o escopo
+informado pelo navegador como fonte de autoridade.
 
 As permissoes da versao 2 sao calculadas pelo cargo. O proprietario tem acesso integral; Mestres
 administram as atividades da campanha e membros comuns; Players participam e assistem; espectadores

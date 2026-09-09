@@ -154,6 +154,7 @@ function saveAccountSession(session, account = state.account) {
 	state.account = session ? account || null : null;
 	if (session) localStorage.setItem(ACCOUNT_STORAGE_KEY, JSON.stringify(session));
 	else localStorage.removeItem(ACCOUNT_STORAGE_KEY);
+	updateCurrentTableControl();
 }
 
 function setAccountAuthMode(mode, focus = true) {
@@ -348,17 +349,106 @@ async function enterAccountTable(entry) {
 	if (buttonElement) { buttonElement.disabled = true; buttonElement.textContent = 'Entrando...'; }
 	try {
 		const selected = await accountApi(`/tables/${encodeURIComponent(entry.table.id)}/select`, { method: 'POST' });
+		prepareTableTransition();
 		saveAccountSession(selected.session, state.account);
 		state.session = { token: selected.session.token };
 		const connected = await api('/session');
 		saveSession(connected.session);
 		state.dashboardView = 'overview';
 		await renderDashboard();
+		startBattleSessionSynchronization();
 	} catch (error) {
 		state.session = null;
 		showToast(error.message, true);
 		if (buttonElement) { buttonElement.disabled = false; buttonElement.textContent = 'Entrar'; }
 	}
+}
+
+function stopTableSynchronization() {
+	if (battleSessionSyncTimer) window.clearInterval(battleSessionSyncTimer);
+	if (masterPresenceSyncTimer) window.clearInterval(masterPresenceSyncTimer);
+	if (playerPresenceHeartbeatTimer) window.clearInterval(playerPresenceHeartbeatTimer);
+	if (tournamentRefreshTimer) window.clearTimeout(tournamentRefreshTimer);
+	battleSessionSyncTimer = null; masterPresenceSyncTimer = null;
+	playerPresenceHeartbeatTimer = null; tournamentRefreshTimer = null;
+	battleSessionSyncBusy = false;
+}
+
+/** Descarta toda referência transitória ao mundo anterior antes de selecionar outra mesa. */
+function prepareTableTransition() {
+	window.dispatchEvent(new CustomEvent('rpg:table-changing'));
+	stopTableSynchronization();
+	window.RPGContestUI?.stopAudio?.();
+	closeCurrentTableMenu();
+	closeAccountTableMenus();
+	for (const layer of document.querySelectorAll('.modal-backdrop:not(#account-table-dialog-layer):not(#delete-modal)')) {
+		layer.remove();
+	}
+	$('#account-table-dialog-layer')?.classList.add('hidden');
+	$('#delete-modal')?.classList.add('hidden');
+	document.querySelector('.bag-ui-window-layer')?.remove();
+	state.characters = []; state.currentCharacter = null; state.campaignCharacters = [];
+	state.battleSessions = []; state.dismissedBattleSessionIds.clear();
+	state.deletionChallenge = null; state.teamBuilderPokemonId = null;
+	state.dashboardHistory = []; state.expandedShopAccessIds.clear(); state.expandedMasterPlayerIds.clear();
+	state.dashboardView = 'overview';
+	masterNPCLibraryLoadedFromServer = false; masterNPCLastCreatedFolderId = '';
+	saveSession(null);
+}
+
+function activeAccountTable() {
+	return state.accountTables.find(entry => entry.table.id === state.accountSession?.activeTableId);
+}
+
+function closeCurrentTableMenu() {
+	const menu = $('#current-table-menu'); const toggle = $('#current-table-toggle');
+	menu?.classList.add('hidden'); toggle?.setAttribute('aria-expanded', 'false');
+}
+
+function updateCurrentTableControl() {
+	const shell = $('#current-table-shell'); const entry = activeAccountTable();
+	shell.classList.toggle('hidden', !state.session || !entry);
+	if (!entry) return;
+	$('#current-table-name').textContent = entry.table.name;
+	const role = entry.membership.role;
+	$('#current-table-settings').classList.toggle('hidden', role !== 'owner');
+}
+
+async function leaveCurrentTableWorld() {
+	try {
+		await accountApi('/tables/deselect', { method: 'POST' });
+		prepareTableTransition();
+		const current = await accountApi('/session');
+		saveAccountSession(current.session, current.account);
+		await renderAccountTables();
+	} catch (error) { showToast(error.message, true); }
+}
+
+function openTableSwitcher() {
+	closeCurrentTableMenu();
+	const currentId = state.accountSession?.activeTableId;
+	const available = state.accountTables.filter(entry => entry.table.status === 'active' && entry.table.id !== currentId);
+	const layer = createElement('div', 'modal-backdrop table-switcher-layer');
+	const dialog = createElement('section', 'panel table-switcher-dialog');
+	dialog.setAttribute('role', 'dialog'); dialog.setAttribute('aria-modal', 'true');
+	dialog.append(createElement('h2', '', 'Trocar de mesa'));
+	const list = createElement('div', 'table-switcher-list');
+	if (!available.length) list.append(createElement('p', 'empty-state', 'Não há outra mesa disponível.'));
+	for (const entry of available) {
+		const control = button('', 'table-switcher-entry');
+		control.style.setProperty('--table-color', entry.table.color || '#406aa3');
+		control.append(createElement('span', 'table-switcher-color'), createElement('strong', '', entry.table.name),
+			createElement('small', '', accountRoleLabel(entry.membership.role)));
+		control.addEventListener('click', () => { layer.remove(); void enterAccountTable(entry); });
+		list.append(control);
+	}
+	const actions = createElement('div', 'form-actions');
+	const allTables = button('Ver Minhas mesas', 'button');
+	const cancel = button('Cancelar', 'button');
+	allTables.addEventListener('click', () => { layer.remove(); void leaveCurrentTableWorld(); });
+	cancel.addEventListener('click', () => layer.remove());
+	actions.append(allTables, cancel); dialog.append(list, actions); layer.append(dialog); document.body.append(layer);
+	layer.addEventListener('pointerdown', event => { if (event.target === layer) layer.remove(); });
 }
 
 async function archiveAccountTable(entry) {
@@ -632,6 +722,7 @@ async function refreshAccountTables() {
 	$('#account-joined-table-empty').classList.toggle('hidden', joined.length > 0);
 	$('#account-archived-section').classList.toggle('hidden', archived.length === 0);
 	$('#account-archived-count').textContent = `(${archived.length})`;
+	updateCurrentTableControl();
 }
 
 async function renderAccountTables() {
@@ -699,11 +790,13 @@ function updateSessionChip() {
 	if (!state.session) {
 		chip.classList.add('hidden');
 		chip.textContent = '';
+		updateCurrentTableControl();
 		return;
 	}
 	chip.classList.remove('hidden');
 	chip.textContent = state.session.mode === 'master' ? 'Sess\u00e3o: Mestre' :
 		state.session.role === 'master' ? 'Mestre vendo como Player' : 'Sess\u00e3o: Player';
+	updateCurrentTableControl();
 }
 
 function battleSessionSignature(sessions) {
@@ -5622,6 +5715,19 @@ $('#home-button').addEventListener('click', () => {
 	show('entry');
 });
 
+$('#current-table-toggle').addEventListener('click', event => {
+	event.stopPropagation();
+	const menu = $('#current-table-menu'); const open = menu.classList.contains('hidden');
+	menu.classList.toggle('hidden', !open);
+	$('#current-table-toggle').setAttribute('aria-expanded', String(open));
+});
+$('#current-table-switch').addEventListener('click', openTableSwitcher);
+$('#current-table-settings').addEventListener('click', () => {
+	const entry = activeAccountTable(); closeCurrentTableMenu();
+	if (entry) openAccountTableDialog('edit', entry);
+});
+$('#current-table-leave').addEventListener('click', () => void leaveCurrentTableWorld());
+
 $('#account-login-tab').addEventListener('click', () => setAccountAuthMode('login'));
 $('#account-register-tab').addEventListener('click', () => setAccountAuthMode('register'));
 
@@ -5718,6 +5824,7 @@ $('#account-archived-toggle').addEventListener('click', () => {
 });
 document.addEventListener('pointerdown', event => {
 	if (!event.target.closest('.account-table-menu-button, .account-table-popover')) closeAccountTableMenus();
+	if (!event.target.closest('#current-table-shell')) closeCurrentTableMenu();
 });
 
 for (const back of document.querySelectorAll('[data-back]')) {
@@ -5766,6 +5873,9 @@ function clickDashboardReturnControl() {
 function handleEscapeNavigation(event) {
 	if (event.key !== 'Escape' || event.defaultPrevented || event.repeat) return;
 	if (document.querySelector('.overview-pokedex-layer')) return;
+	if (!$('#current-table-menu').classList.contains('hidden')) {
+		event.preventDefault(); closeCurrentTableMenu(); return;
+	}
 	if (!$('#delete-modal').classList.contains('hidden')) {
 		event.preventDefault();
 		closeDeleteDialog();

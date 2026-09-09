@@ -520,12 +520,16 @@ describe('RPG version 2 accounts and tables backend', () => {
 		const first = accounts.createTable(login.token, { name: 'Primeira' });
 		const second = accounts.createTable(login.token, { name: 'Segunda' });
 		accounts.selectTable(login.token, second.id);
+		assert.equal(accounts.getSession(login.token).session.role, 'owner');
+		assert.equal(accounts.getSession(login.token).session.membershipId, `${second.id}:${login.accountId}`);
 		assert.equal(accounts.getActiveTableContext(login.token).table.id, second.id);
 		const archived = accounts.repository.getTable(second.id);
 		archived.status = 'archived'; accounts.repository.setTable(archived);
 		assert.throws(() => accounts.getActiveTableContext(login.token), /Mesa indisponível/);
 		accounts.selectTable(login.token, first.id);
 		assert.equal(accounts.getActiveTableContext(login.token).table.id, first.id);
+		assert.equal(accounts.deselectTable(login.token).activeTableId, undefined);
+		assert.throws(() => accounts.getActiveTableContext(login.token), /Selecione uma mesa/);
 	});
 
 	it('archives only as owner and invalidates selections, invitations, and table operations', () => {

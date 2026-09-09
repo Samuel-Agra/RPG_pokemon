@@ -93,6 +93,73 @@ button { cursor: pointer; }
 	font-size: 12px;
 }
 
+.current-table-shell {
+	position: absolute;
+	left: 50%;
+	top: 50%;
+	transform: translate(-50%, -50%);
+}
+.current-table-toggle {
+	display: flex;
+	align-items: center;
+	gap: 8px;
+	max-width: min(420px, 42vw);
+	padding: 8px 13px;
+	color: #fff;
+	background: #192a43cc;
+	border: 1px solid #101c2d;
+	border-radius: 5px;
+	font-weight: bold;
+	text-shadow: 0 1px #000;
+}
+.current-table-toggle:hover,
+.current-table-toggle[aria-expanded="true"] { background: #213a5d; }
+.current-table-toggle span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.current-table-menu {
+	position: absolute;
+	top: calc(100% + 7px);
+	left: 50%;
+	width: 220px;
+	padding: 5px;
+	transform: translateX(-50%);
+	background: #fff;
+	border: 1px solid #8794a7;
+	border-radius: 5px;
+	box-shadow: 0 5px 16px #10182766;
+	z-index: 90;
+}
+.current-table-menu button {
+	display: block;
+	width: 100%;
+	padding: 9px 10px;
+	color: var(--navy);
+	background: transparent;
+	border: 0;
+	border-radius: 3px;
+	text-align: left;
+}
+.current-table-menu button:hover { background: #e6edf7; }
+.current-table-menu button:last-child { color: #8d2525; }
+.table-switcher-dialog { width: min(480px, calc(100vw - 32px)); padding: 20px; }
+.table-switcher-dialog h2 { margin: 0 0 15px; color: var(--navy); }
+.table-switcher-list { display: grid; gap: 8px; max-height: min(55vh, 430px); overflow-y: auto; }
+.table-switcher-entry {
+	display: grid;
+	grid-template-columns: 8px 1fr auto;
+	align-items: center;
+	gap: 10px;
+	min-height: 54px;
+	padding: 7px 12px 7px 7px;
+	color: var(--navy);
+	background: linear-gradient(#fff, #edf1f6);
+	border: 1px solid #abb7c6;
+	border-radius: 5px;
+	text-align: left;
+}
+.table-switcher-entry:hover { border-color: var(--blue); box-shadow: 0 0 0 1px #406aa344; }
+.table-switcher-entry small { color: var(--muted); }
+.table-switcher-color { align-self: stretch; background: var(--table-color); border-radius: 3px; }
+
 .viewport { flex: 1; padding: 28px 18px 40px; }
 .screen { width: 100%; }
 .centered {
@@ -1326,6 +1393,8 @@ input, select {
 @media (max-width: 430px) {
 	.topbar { padding: 0 10px; }
 	.brand strong { font-size: 14px; }
+	.current-table-shell { left: auto; right: 8px; transform: translateY(-50%); }
+	.current-table-toggle { max-width: 48vw; }
 	.session-chip { display: none !important; }
 	.hero h1 { font-size: 21px; }
 	.character-grid { grid-template-columns: 1fr; }

@@ -465,6 +465,10 @@ export class RPGHttpServer {
 				return;
 			}
 		}
+		if (method === 'POST' && url.pathname === '/api/rpg/v2/tables/deselect') {
+			const session = this.login.accounts.deselectTable(this.token(req));
+			await this.login.flushPersistence(); this.json(res, 200, { session }); return;
+		}
 		const version2TableArchiveMatch = /^\/api\/rpg\/v2\/tables\/([^/]+)$/.exec(url.pathname);
 		if (method === 'PATCH' && version2TableArchiveMatch) {
 			const body = await this.body(req);

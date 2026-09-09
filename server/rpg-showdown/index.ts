@@ -281,6 +281,9 @@ export interface RPGSession {
 	characterId?: string;
 	viewAsCharacterId?: string;
 	platformAccountId?: string;
+	/** Identifica a mesa e a associação que autorizaram esta sessão RPG. */
+	platformTableId?: string;
+	platformMembershipId?: string;
 	/** Papel da conta na mesa selecionada, preservado ao entrar no mundo RPG. */
 	platformTableRole?: RPGTableRole;
 	createdAt: number;
@@ -1227,6 +1230,8 @@ export class RPGLoginService {
 		if (existing && existing.platformAccountId === context.account.id &&
 			existing.role === expectedRole) {
 			existing.platformTableRole = context.membership.role;
+			existing.platformTableId = context.table.id;
+			existing.platformMembershipId = `${context.membership.tableId}:${context.membership.accountId}`;
 			existing.expiresAt = context.session.expiresAt; existing.lastSeenAt = this.now();
 			this.sessions.set(this.tokenKey(token), existing); return { ...structuredClone(existing), token };
 		}
@@ -1236,6 +1241,8 @@ export class RPGLoginService {
 			mode: elevated ? 'master' : spectator ? 'spectator' : 'player',
 			characterId: character?.state.id, createdAt: context.session.createdAt,
 			platformAccountId: context.account.id,
+			platformTableId: context.table.id,
+			platformMembershipId: `${context.membership.tableId}:${context.membership.accountId}`,
 			platformTableRole: context.membership.role,
 			expiresAt: context.session.expiresAt, lastSeenAt: this.now(),
 		};

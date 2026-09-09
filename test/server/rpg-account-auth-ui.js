@@ -86,4 +86,16 @@ describe('RPG version 2 account authentication frontend', () => {
 		assert(style.includes('.member-details-layer'));
 		assert(style.includes('.master-member-row'));
 	});
+
+	it('switches the active table from the RPG header without leaking transient world state', () => {
+		assert(html.includes('id="current-table-toggle"'));
+		assert(html.includes('Trocar de mesa'));
+		assert(html.includes('Configura&ccedil;&otilde;es da mesa'));
+		assert(script.includes('prepareTableTransition()'));
+		assert(script.includes('stopTableSynchronization()'));
+		assert(script.includes("accountApi('/tables/deselect'"));
+		assert(script.includes("new CustomEvent('rpg:table-changing')"));
+		assert(style.includes('.current-table-menu'));
+		assert(style.includes('.table-switcher-dialog'));
+	});
 });

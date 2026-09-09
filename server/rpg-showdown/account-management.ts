@@ -109,7 +109,8 @@ export interface RPGTableInvite {
 	maxUses: number; usedCount: number; expiresAt?: number; createdAt: number;
 }
 export interface RPGPlatformSession {
-	token: string; accountId: string; activeTableId?: string; createdAt: number; expiresAt: number;
+	token: string; accountId: string; activeTableId?: string; membershipId?: string; role?: RPGTableRole;
+	createdAt: number; expiresAt: number;
 }
 export type RPGPublicPlatformAccount = Omit<RPGPlatformAccount, 'credential'>;
 export interface RPGPlatformSessionView {
@@ -644,8 +645,10 @@ export class RPGAccountManagement {
 		const stored = this.session(token);
 		const account = this.repository.getAccount(stored.accountId);
 		if (!account || account.status !== 'active') throw new Error('Conta indisponível');
+		const member = stored.activeTableId ? this.repository.getMembership(stored.activeTableId, stored.accountId) : undefined;
 		return {
 			session: { token, accountId: stored.accountId, activeTableId: stored.activeTableId,
+				...(member?.status === 'active' ? { membershipId: `${member.tableId}:${member.accountId}`, role: member.role } : {}),
 				createdAt: stored.createdAt, expiresAt: stored.expiresAt },
 			account: this.publicAccount(account),
 		};
@@ -998,8 +1001,14 @@ export class RPGAccountManagement {
 	}
 
 	selectTable(token: string, tableId: string): RPGPlatformSession {
-		const key = this.tokenHash(token); const session = this.session(token);
-		this.activeMember(tableId, session.accountId); session.activeTableId = toID(tableId); this.sessionRepository.set(session);
+		const session = this.session(token); const member = this.activeMember(tableId, session.accountId);
+		session.activeTableId = toID(tableId); this.sessionRepository.set(session);
+		return { ...structuredClone(session), token, membershipId: `${member.tableId}:${member.accountId}`, role: member.role };
+	}
+
+	deselectTable(token: string): RPGPlatformSession {
+		const session = this.session(token);
+		delete session.activeTableId; this.sessionRepository.set(session);
 		return { ...structuredClone(session), token };
 	}
 

@@ -177,6 +177,12 @@ describe('RPG HTTP frontend API', () => {
 		result = await request('/v2/session', { headers: playerHeaders });
 		assert.equal(result.data.account.displayName, 'Player V2');
 		assert.equal(result.data.session.activeTableId, tableId);
+		assert.equal(result.data.session.role, 'player');
+		assert.equal(result.data.session.membershipId, `${tableId}:${result.data.account.id}`);
+		result = await request('/v2/tables/deselect', { method: 'POST', headers: playerHeaders });
+		assert.equal(result.data.session.activeTableId, undefined);
+		result = await request(`/v2/tables/${tableId}/select`, { method: 'POST', headers: playerHeaders });
+		assert.equal(result.data.session.activeTableId, tableId);
 		result = await request('/v2/tables', { headers: playerHeaders });
 		assert.equal(result.data.tables[0].table.name, 'Mesa V2');
 		result = await request(`/v2/tables/${tableId}`, { method: 'DELETE', headers: masterHeaders });
