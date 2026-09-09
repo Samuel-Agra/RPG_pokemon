@@ -363,6 +363,14 @@ export class RPGHttpServer {
 			) });
 			return;
 		}
+		const characterOwnerMatch = /^\/api\/rpg\/characters\/([^/]+)\/owner$/.exec(url.pathname);
+		if (method === 'PUT' && characterOwnerMatch) {
+			const body = await this.body(req);
+			const character = this.login.transferCharacterOwnership(
+				this.token(req), decodeURIComponent(characterOwnerMatch[1]), this.string(body.accountId)
+			);
+			this.json(res, 200, { character }); return;
+		}
 
 		// Version 2 owns global accounts and table membership while version 1 remains available during migration.
 		if (method === 'POST' && url.pathname === '/api/rpg/v2/accounts') {

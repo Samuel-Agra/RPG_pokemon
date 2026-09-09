@@ -334,7 +334,7 @@ function toggleAccountTableMenu(card, entry, anchor) {
 		addAction('Editar mesa', () => openAccountTableDialog('edit', entry));
 		addAction('Arquivar', () => archiveAccountTable(entry), true);
 	} else if (entry.membership.role !== 'owner' && entry.table.status === 'active') {
-		addAction('Sair da mesa', () => leaveAccountTable(entry), true);
+		addAction('Sair da mesa', () => openLeaveTableConfirmation(entry), true);
 	}
 	if (entry.membership.role === 'owner' && entry.table.status === 'archived') {
 		addConfirmedAction('Excluir mesa', () => deleteAccountTable(entry));
@@ -459,12 +459,30 @@ async function archiveAccountTable(entry) {
 	} catch (error) { showToast(error.message, true); }
 }
 
-async function leaveAccountTable(entry) {
+async function leaveAccountTable(entry, layer) {
 	try {
 		await accountApi(`/tables/${encodeURIComponent(entry.table.id)}/membership`, { method: 'DELETE' });
+		layer?.remove();
+		if (state.accountSession?.activeTableId === entry.table.id) prepareTableTransition();
 		await refreshAccountTables();
+		await renderAccountTables();
 		showToast('Voc\u00ea saiu da mesa.');
 	} catch (error) { showToast(error.message, true); }
+}
+
+function openLeaveTableConfirmation(entry) {
+	const layer = createElement('div', 'modal-backdrop table-lifecycle-layer');
+	const dialog = createElement('section', 'panel table-lifecycle-dialog');
+	dialog.setAttribute('role', 'dialog'); dialog.setAttribute('aria-modal', 'true');
+	dialog.append(createElement('h2', '', 'Sair de ' + entry.table.name + '?'),
+		createElement('p', '', 'Voc\u00ea deixar\u00e1 de acessar esta mesa.'),
+		createElement('p', 'table-lifecycle-preserved', 'Seus personagens permanecer\u00e3o armazenados nela.'));
+	const actions = createElement('div', 'form-actions');
+	const leave = button('Sair da mesa', 'button danger'); const cancel = button('Cancelar', 'button');
+	leave.addEventListener('click', () => { leave.disabled = true; void leaveAccountTable(entry, layer); });
+	cancel.addEventListener('click', () => layer.remove()); actions.append(leave, cancel);
+	dialog.append(actions); layer.append(dialog); document.body.append(layer);
+	layer.addEventListener('pointerdown', event => { if (event.target === layer) layer.remove(); });
 }
 
 async function deleteAccountTable(entry) {
@@ -3231,7 +3249,7 @@ function memberStatusLabel(status) {
 	return ({ active: 'Ativo', pending: 'Pendente', left: 'Saiu', removed: 'Removido', blocked: 'Bloqueado' })[status] || status;
 }
 
-function openMemberDetails(entry, viewerRole, onChanged) {
+function openMemberDetails(entry, viewerRole, members, onChanged) {
 	document.querySelector('.member-details-layer')?.remove();
 	const tableId = state.accountSession.activeTableId;
 	const layer = createElement('div', 'modal-backdrop member-details-layer');
@@ -3299,10 +3317,42 @@ function openMemberDetails(entry, viewerRole, onChanged) {
 	}
 	if (entry.member.role !== 'owner' && entry.account.id !== state.account?.id &&
 		(viewerRole === 'owner' || entry.member.role !== 'master')) {
+		if (entry.characters?.length) {
+			const transferCharacter = button('Transferir personagem', 'button');
+			transferCharacter.addEventListener('click', () => {
+				if (actions.querySelector('.member-character-transfer')) return;
+				const panel = createElement('div', 'member-character-transfer');
+				panel.append(createElement('p', '', 'O personagem continuará nesta mesa, mas passará a ser controlado pela conta escolhida.'));
+				const characterSelect = createElement('select');
+				for (const character of entry.characters) {
+					const option = createElement('option', '', character.name); option.value = character.id; characterSelect.append(option);
+				}
+				const targetSelect = createElement('select');
+				for (const candidate of members.filter(candidate => candidate.account.id !== entry.account.id &&
+					candidate.member.status === 'active' && candidate.member.role !== 'spectator' && !candidate.characters?.length)) {
+					const option = createElement('option', '', candidate.account.displayName); option.value = candidate.account.id; targetSelect.append(option);
+				}
+				const confirm = button('Confirmar transferência', 'button danger'); confirm.disabled = !targetSelect.options.length;
+				if (!targetSelect.options.length) panel.append(createElement('small', 'form-error', 'Nenhuma conta disponível sem personagem nesta mesa.'));
+				confirm.addEventListener('click', async () => {
+					confirm.disabled = true;
+					try {
+						await api(`/characters/${encodeURIComponent(characterSelect.value)}/owner`, {
+							method: 'PUT', body: { accountId: targetSelect.value },
+						});
+						closeDialog(); await onChanged(); showToast('Personagem transferido sem apagar seus dados.');
+					} catch (error) { confirm.disabled = false; showToast(error.message, true); }
+				});
+				panel.append(characterSelect, targetSelect, confirm); actions.append(panel);
+			});
+			actions.append(transferCharacter);
+		}
 		const remove = button('Remover da mesa', 'button');
 		remove.addEventListener('click', async () => {
 			if (remove.dataset.confirm !== 'true') {
-				remove.dataset.confirm = 'true'; remove.classList.add('danger'); remove.textContent = 'Confirmar remoção'; return;
+				remove.dataset.confirm = 'true'; remove.classList.add('danger'); remove.textContent = 'Confirmar remoção';
+				actions.prepend(createElement('p', 'member-action-warning', 'O acesso será removido, mas todos os personagens permanecerão armazenados nesta mesa.'));
+				return;
 			}
 			remove.disabled = true;
 			try {
@@ -3311,6 +3361,20 @@ function openMemberDetails(entry, viewerRole, onChanged) {
 			} catch (error) { remove.disabled = false; showToast(error.message, true); }
 		});
 		actions.append(remove);
+		const block = button('Remover e bloquear', 'button');
+		block.addEventListener('click', async () => {
+			if (block.dataset.confirm !== 'true') {
+				block.dataset.confirm = 'true'; block.classList.add('danger'); block.textContent = 'Confirmar bloqueio';
+				actions.prepend(createElement('p', 'member-action-warning', 'Os personagens serão preservados, mas esta conta não poderá ingressar novamente na mesa.'));
+				return;
+			}
+			block.disabled = true;
+			try {
+				await accountApi(`/tables/${encodeURIComponent(tableId)}/members/${encodeURIComponent(entry.account.id)}/block`, { method: 'POST' });
+				closeDialog(); onChanged(null, entry.account.id);
+			} catch (error) { block.disabled = false; showToast(error.message, true); }
+		});
+		actions.append(block);
 	}
 	dialog.append(details, actions); layer.append(dialog);
 	const closeDialog = () => layer.remove(); close.addEventListener('click', closeDialog);
@@ -3337,9 +3401,10 @@ async function renderMasterMembers() {
 			createElement('span', '', characterLabel), createElement('span', '', accountRoleLabel(entry.member.role)),
 			createElement('span', 'member-status member-status-' + entry.member.status, memberStatusLabel(entry.member.status)),
 			createElement('span', 'master-member-open', 'Detalhes'));
-		row.addEventListener('click', () => openMemberDetails(entry, viewerRole, (changed, removedId) => {
+		row.addEventListener('click', () => openMemberDetails(entry, viewerRole, data.members, async (changed, removedId) => {
 			if (removedId) row.remove();
 			else if (changed) row.replaceWith(renderRow(changed));
+			else await renderDashboard();
 		}));
 		return row;
 	};
@@ -5726,7 +5791,12 @@ $('#current-table-settings').addEventListener('click', () => {
 	const entry = activeAccountTable(); closeCurrentTableMenu();
 	if (entry) openAccountTableDialog('edit', entry);
 });
-$('#current-table-leave').addEventListener('click', () => void leaveCurrentTableWorld());
+$('#current-table-leave').addEventListener('click', () => {
+	const entry = activeAccountTable(); closeCurrentTableMenu();
+	if (entry?.membership.role === 'owner') {
+		showToast('Transfira a propriedade antes de sair da mesa.', true);
+	} else if (entry) openLeaveTableConfirmation(entry);
+});
 
 $('#account-login-tab').addEventListener('click', () => setAccountAuthMode('login'));
 $('#account-register-tab').addEventListener('click', () => setAccountAuthMode('register'));

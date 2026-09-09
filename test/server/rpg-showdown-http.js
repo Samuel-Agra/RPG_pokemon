@@ -512,13 +512,16 @@ describe('RPG HTTP frontend API', () => {
 		const accounts = new RPGAccountManagement(new RPGMemoryAccountRepository());
 		accounts.createAccount('dono-multimesa', 'Dono', 'senha-segura');
 		accounts.createAccount('player-multimesa', 'Player', 'senha-segura');
+		accounts.createAccount('destino-multimesa', 'Destino', 'senha-segura');
 		const owner = accounts.login('dono-multimesa', 'senha-segura');
 		const player = accounts.login('player-multimesa', 'senha-segura');
+		const target = accounts.login('destino-multimesa', 'senha-segura');
 		const tableA = accounts.createTable(owner.token, { name: 'Mesa A' });
 		const tableB = accounts.createTable(owner.token, { name: 'Mesa B' });
 		for (const table of [tableA, tableB]) {
 			accounts.joinByInvite(player.token, accounts.createInvite(owner.token, table.id).code);
 		}
+		accounts.joinByInvite(target.token, accounts.createInvite(owner.token, tableB.id).code);
 		const emptySnapshot = tableId => ({
 			characters: [], battles: [], contests: [], tournaments: [], combos: [], customItems: [], shops: [],
 			masterNPCLibrary: null, playerDocuments: {}, campaign: null, platformAccounts: [], campaignTables: [],
@@ -563,6 +566,16 @@ describe('RPG HTTP frontend API', () => {
 			result = await scopedRequest('/characters/all', {}, owner.token);
 			assert.equal(result.response.status, 200, JSON.stringify(result.data));
 			assert.deepEqual(result.data.characters.map(character => character.id), ['personagemb']);
+			result = await scopedRequest('/characters/personagemb/owner', {
+				method: 'PUT', body: { accountId: target.accountId },
+			}, owner.token);
+			assert.equal(result.response.status, 200, JSON.stringify(result.data));
+			result = await scopedRequest('/character');
+			assert.notEqual(result.response.status, 200);
+			accounts.removeMember(owner.token, tableB.id, player.accountId);
+			accounts.selectTable(target.token, tableB.id);
+			result = await scopedRequest('/character', {}, target.token);
+			assert.equal(result.data.character.id, 'personagemb');
 		} finally {
 			await new Promise(resolve => scopedServer.close(resolve));
 		}

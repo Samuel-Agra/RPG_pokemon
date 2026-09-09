@@ -296,6 +296,7 @@ As contas globais e mesas da versao 2 usam um espaco de rotas separado durante a
 | `DELETE /api/rpg/v2/tables/:id/members/:accountId` | remove um membro |
 | `POST /api/rpg/v2/tables/:id/members/:accountId/block` | bloqueia um membro |
 | `DELETE /api/rpg/v2/tables/:id/membership` | sai voluntariamente da mesa |
+| `PUT /api/rpg/characters/:characterId/owner` | transfere um personagem preservado para outro membro da mesma mesa |
 
 Senhas e tokens nunca sao persistidos em texto puro. O codigo do convite aparece somente na
 resposta de criacao; seu hash interno nao faz parte do contrato HTTP.
@@ -310,6 +311,12 @@ As permissoes da versao 2 sao calculadas pelo cargo. O proprietario tem acesso i
 administram as atividades da campanha e membros comuns; Players participam e assistem; espectadores
 apenas acompanham atividades e a lista de membros. Excecoes individuais permanecem reservadas para
 uma etapa futura e ainda nao alteram esses padroes.
+
+Sair, remover ou bloquear desativa somente a associacao com a mesa e invalida seu contexto ativo;
+os personagens continuam armazenados. Uma conta removida pode receber um novo convite, enquanto
+uma conta bloqueada nao pode ingressar novamente ate que exista um fluxo explicito de desbloqueio.
+A transferencia de personagem altera apenas seu proprietario dentro da mesma mesa e nunca move seus
+dados para outra campanha.
 
 Na primeira inicializacao apos a migracao 003, a campanha da versao 1 recebe uma mesa deterministica.
 Cada personagem legado recebe `account_id` e `table_id`, reutiliza sua credencial scrypt em uma conta

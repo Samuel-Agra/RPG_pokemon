@@ -891,6 +891,29 @@ export class RPGLoginService {
 		return character;
 	}
 
+	/** Preserva o personagem e altera somente a conta que o controla dentro da mesma mesa. */
+	transferCharacterOwnership(token: string, characterId: string, targetAccountId: string): RPGCharacterSelection {
+		const session = this.getSession(token);
+		this.requireMasterMode(token); this.requirePlatformTablePermission(token, 'characters.manage');
+		if (!session.platformTableId || session.platformTableId !== this.legacyTableId) {
+			throw new Error('Mesa da sessão inválida');
+		}
+		const member = this.accounts.repository.getMembership(session.platformTableId, targetAccountId);
+		if (!member || member.status !== 'active' || member.role === 'spectator') {
+			throw new Error('O destino precisa ser um membro ativo capaz de controlar personagens');
+		}
+		const record = this.requireCharacter(characterId);
+		if (record.tableId !== session.platformTableId) throw new Error('O personagem não pertence a esta mesa');
+		if (record.accountId === member.accountId) return this.selection(record.state);
+		if (this.repository.list().some(candidate => candidate.accountId === member.accountId)) {
+			throw new Error('A conta de destino já possui um personagem nesta mesa');
+		}
+		return this.persistAtomically(() => {
+			record.accountId = member.accountId; record.state.updatedAt = this.now();
+			this.repository.set(record); return this.selection(record.state);
+		});
+	}
+
 	loginMaster(code: string): RPGSession {
 		const supplied = createHash('sha256').update(String(code)).digest();
 		if (!timingSafeEqual(this.masterCodeHash, supplied)) throw new Error('Invalid RPG master code');
@@ -1226,16 +1249,18 @@ export class RPGLoginService {
 		const elevated = context.membership.role === 'owner' || context.membership.role === 'master';
 		const spectator = context.membership.role === 'spectator';
 		const expectedRole: RPGAccountRole = elevated ? 'master' : spectator ? 'spectator' : 'player';
+		const character = elevated || spectator ? undefined :
+			this.repository.list().find(record => record.accountId === context.account.id);
 		const existing = this.sessions.get(this.tokenKey(token));
 		if (existing && existing.platformAccountId === context.account.id &&
 			existing.role === expectedRole) {
 			existing.platformTableRole = context.membership.role;
 			existing.platformTableId = context.table.id;
 			existing.platformMembershipId = `${context.membership.tableId}:${context.membership.accountId}`;
+			existing.characterId = character?.state.id;
 			existing.expiresAt = context.session.expiresAt; existing.lastSeenAt = this.now();
 			this.sessions.set(this.tokenKey(token), existing); return { ...structuredClone(existing), token };
 		}
-		const character = elevated ? undefined : this.repository.list().find(record => record.accountId === context.account.id);
 		const session: RPGInternalSession = {
 			version: RPG_SESSION_VERSION, role: expectedRole,
 			mode: elevated ? 'master' : spectator ? 'spectator' : 'player',

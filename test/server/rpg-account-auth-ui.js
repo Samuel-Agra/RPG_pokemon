@@ -98,4 +98,14 @@ describe('RPG version 2 account authentication frontend', () => {
 		assert(style.includes('.current-table-menu'));
 		assert(style.includes('.table-switcher-dialog'));
 	});
+
+	it('confirms leaving and preserves or transfers characters during member removal', () => {
+		assert(script.includes('openLeaveTableConfirmation(entry)'));
+		assert(script.includes('Seus personagens permanecer\\u00e3o armazenados nela.'));
+		assert(script.includes("'Remover e bloquear'"));
+		assert(script.includes("'Transferir personagem'"));
+		assert(script.includes('/owner`'));
+		assert(style.includes('.table-lifecycle-dialog'));
+		assert(style.includes('.member-character-transfer'));
+	});
 });
