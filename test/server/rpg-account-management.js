@@ -675,6 +675,24 @@ describe('RPG version 2 accounts and tables backend', () => {
 		assert(audit.some(entry => entry.action === 'member.blocked' && entry.targetId === playerAccount.id));
 	});
 
+	it('stores private member notes and transfers table ownership atomically', () => {
+		const accounts = service();
+		const firstAccount = accounts.createAccount('primeiro-dono', 'Primeiro', 'senha-segura');
+		const nextAccount = accounts.createAccount('proximo-dono', 'Próximo', 'senha-segura');
+		const first = accounts.login('primeiro-dono', 'senha-segura');
+		const next = accounts.login('proximo-dono', 'senha-segura');
+		const table = accounts.createTable(first.token, { name: 'Transferível' });
+		accounts.joinByInvite(next.token, accounts.createInvite(first.token, table.id).code);
+		assert.equal(accounts.updateMemberNote(first.token, table.id, nextAccount.id, 'Anotação privada').note,
+			'Anotação privada');
+		assert.equal(accounts.listMembers(next.token, table.id).find(entry => entry.account.id === nextAccount.id).member.note,
+			undefined);
+		const transferred = accounts.transferOwnership(first.token, table.id, nextAccount.id);
+		assert.equal(transferred.ownerAccountId, nextAccount.id);
+		assert.equal(accounts.listMembers(next.token, table.id).find(entry => entry.account.id === nextAccount.id).member.role, 'owner');
+		assert.equal(accounts.leaveTable(first.token, table.id).accountId, firstAccount.id);
+	});
+
 	it('supports directed, expiring, revocable, and configurable multi-use invites', () => {
 		let time = 1_700_000_000_000; let seed = 0;
 		const accounts = new RPGAccountManagement(new RPGMemoryAccountRepository(), () => time,
@@ -871,5 +889,12 @@ describe('RPG version 2 accounts and tables backend', () => {
 		assert.match(migration, /'active', 'pending', 'left', 'removed', 'blocked'/);
 		assert.match(migration, /request_invite_id VARCHAR\(100\)/);
 		assert.match(migration, /ON DELETE SET NULL/);
+	});
+
+	it('persists private member notes separately from role permissions', () => {
+		const migration = fs.readFileSync(path.resolve(
+			__dirname, '../../server/rpg-showdown/database/migrations/011-table-member-notes.sql'
+		), 'utf8');
+		assert.match(migration, /ADD COLUMN note TEXT NULL/);
 	});
 });

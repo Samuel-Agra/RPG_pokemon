@@ -579,12 +579,17 @@ export class RPGHttpServer {
 		}
 		const version2MembersMatch = /^\/api\/rpg\/v2\/tables\/([^/]+)\/members$/.exec(url.pathname);
 		if (method === 'GET' && version2MembersMatch) {
-			const members = this.login.accounts.listMembers(this.token(req), decodeURIComponent(version2MembersMatch[1]));
+			const tableId = decodeURIComponent(version2MembersMatch[1]);
+			const members = this.login.accounts.listMembers(this.token(req), tableId);
+			if (this.login.mysqlPersistence) {
+				const characters = await this.login.mysqlPersistence.listTableMemberCharacters(tableId);
+				for (const entry of members) entry.characters = characters.get(entry.account.id) || [];
+			}
 			await this.login.flushPersistence();
 			this.json(res, 200, { members });
 			return;
 		}
-		const version2MemberMatch = /^\/api\/rpg\/v2\/tables\/([^/]+)\/members\/([^/]+)(?:\/(block))?$/.exec(url.pathname);
+		const version2MemberMatch = /^\/api\/rpg\/v2\/tables\/([^/]+)\/members\/([^/]+)(?:\/(block|ownership|note))?$/.exec(url.pathname);
 		if (version2MemberMatch) {
 			const token = this.token(req); const tableId = decodeURIComponent(version2MemberMatch[1]);
 			const accountId = decodeURIComponent(version2MemberMatch[2]);
@@ -594,6 +599,15 @@ export class RPGHttpServer {
 					token, tableId, accountId, this.string(body.role) as 'master' | 'player' | 'spectator',
 					this.optionalString(body.reason)
 				);
+				await this.login.flushPersistence(); this.json(res, 200, { member }); return;
+			}
+			if (method === 'POST' && version2MemberMatch[3] === 'ownership') {
+				const table = this.login.accounts.transferOwnership(token, tableId, accountId);
+				await this.login.flushPersistence(); this.json(res, 200, { table }); return;
+			}
+			if (method === 'PUT' && version2MemberMatch[3] === 'note') {
+				const body = await this.body(req);
+				const member = this.login.accounts.updateMemberNote(token, tableId, accountId, this.optionalString(body.note) || '');
 				await this.login.flushPersistence(); this.json(res, 200, { member }); return;
 			}
 			if ((method === 'DELETE' && !version2MemberMatch[3]) ||
@@ -1777,10 +1791,11 @@ export class RPGHttpServer {
 			tableId: decodeURIComponent(administrativeView[1]), action: `${administrativeView[2]}.viewed`,
 			targetType: administrativeView[2],
 		};
-		const member = /^\/api\/rpg\/v2\/tables\/([^/]+)\/members\/([^/]+)(?:\/(block))?$/.exec(pathname);
-		if (member && ['PATCH', 'DELETE', 'POST'].includes(method)) return {
+		const member = /^\/api\/rpg\/v2\/tables\/([^/]+)\/members\/([^/]+)(?:\/(block|ownership|note))?$/.exec(pathname);
+		if (member && ['PATCH', 'DELETE', 'POST', 'PUT'].includes(method)) return {
 			tableId: decodeURIComponent(member[1]),
-			action: member[3] ? 'member.blocked' : method === 'PATCH' ? 'member.role.changed' : 'member.removed',
+			action: member[3] === 'ownership' ? 'table.ownership.transferred' : member[3] === 'note' ? 'member.note.updated' :
+			member[3] === 'block' ? 'member.blocked' : method === 'PATCH' ? 'member.role.changed' : 'member.removed',
 			targetType: 'member', targetId: decodeURIComponent(member[2]),
 		};
 		return undefined;

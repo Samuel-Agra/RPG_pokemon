@@ -61,7 +61,7 @@ describe('RPG Pokemon Center frontend', () => {
 	});
 
 	it('cache-busts the updated Pokemon Center assets', () => {
-		assert.match(html, /rpg\.css\?v=20260908-30/);
-		assert.match(html, /rpg\.js\?v=20260908-43/);
+		assert.match(html, /rpg\.css\?v=20260909-31/);
+		assert.match(html, /rpg\.js\?v=20260909-44/);
 	});
 });

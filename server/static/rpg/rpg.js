@@ -1231,7 +1231,7 @@ function dashboardNav(isMaster) {
 	const nurseryBlocked = !masterViewingPlayer && state.currentCharacter?.pageAccess?.nursery === false;
 	const shopsBlocked = !masterViewingPlayer && state.currentCharacter?.pageAccess?.shops === false;
 	const entries = isMaster ? [
-		['overview', 'Vis\u00e3o geral'], ['players', 'Jogadores'], ['shops', 'Lojas'], ['battles', 'Batalhas'], ['contests', 'Concursos'],
+		['overview', 'Vis\u00e3o geral'], ['members', 'Membros'], ['players', 'Jogadores'], ['shops', 'Lojas'], ['battles', 'Batalhas'], ['contests', 'Concursos'],
 		['npcs', 'NPCs e selvagens'], ['tournaments', 'Torneios'], ['nursery', 'Berçário'],
 	] : [
 		['overview', 'Vis\u00e3o geral'], ['team', 'Equipe'],
@@ -3122,6 +3122,138 @@ async function renderPokemonCenter(character) {
 	drawWelcome();
 	return root;
 }
+const MEMBER_PERMISSION_LABELS = {
+	'battles.create': 'Criar batalhas', 'battles.manage': 'Administrar batalhas', 'battles.participate': 'Participar de batalhas',
+	'battles.watch': 'Assistir batalhas', 'contests.create': 'Criar concursos', 'contests.manage': 'Administrar concursos',
+	'contests.participate': 'Participar de concursos', 'contests.watch': 'Assistir concursos',
+	'tournaments.create': 'Criar torneios', 'tournaments.manage': 'Administrar torneios',
+	'tournaments.participate': 'Participar de torneios', 'tournaments.watch': 'Assistir torneios',
+	'npcs.manage': 'Administrar NPCs', 'shops.manage': 'Administrar lojas', 'campaign.configure': 'Configurar campanha',
+	'campaign.advanceTime': 'Avançar o tempo', 'characters.manage': 'Administrar personagens',
+	'characters.viewPrivate': 'Ver dados privados', 'documents.manage': 'Administrar documentos',
+	'members.view': 'Ver membros', 'members.invite': 'Criar convites', 'members.manage': 'Administrar membros',
+};
+
+function memberStatusLabel(status) {
+	return ({ active: 'Ativo', pending: 'Pendente', left: 'Saiu', removed: 'Removido', blocked: 'Bloqueado' })[status] || status;
+}
+
+function openMemberDetails(entry, viewerRole, onChanged) {
+	document.querySelector('.member-details-layer')?.remove();
+	const tableId = state.accountSession.activeTableId;
+	const layer = createElement('div', 'modal-backdrop member-details-layer');
+	const dialog = createElement('div', 'panel member-details-dialog'); dialog.setAttribute('role', 'dialog'); dialog.setAttribute('aria-modal', 'true');
+	const heading = createElement('div', 'member-details-heading');
+	const identity = createElement('div'); identity.append(createElement('span', 'member-avatar', initials(entry.account.displayName)),
+		createElement('div', '', ''));
+	identity.lastElementChild.append(createElement('h2', '', entry.account.displayName), createElement('small', '', '@' + entry.account.username));
+	const close = button('Fechar', 'button'); close.type = 'button'; heading.append(identity, close); dialog.append(heading);
+	const details = createElement('div', 'member-details-grid');
+	const detail = (label, content) => {
+		const box = createElement('section', 'member-detail-box'); box.append(createElement('small', '', label));
+		box.append(typeof content === 'string' ? createElement('strong', '', content) : content); details.append(box);
+	};
+	detail('Função na mesa', accountRoleLabel(entry.member.role));
+	detail('Data de entrada', new Date(entry.member.joinedAt).toLocaleDateString('pt-BR'));
+	const characters = createElement('div', 'member-character-list');
+	characters.append(...(entry.characters?.length ? entry.characters.map(character => createElement('span', '', character.name)) :
+		[createElement('span', 'muted', 'Nenhum personagem')]));
+	detail('Personagens', characters);
+	const permissions = createElement('div', 'member-permission-list');
+	for (const [permission, enabled] of Object.entries(entry.effectivePermissions)) {
+		if (enabled) permissions.append(createElement('span', '', MEMBER_PERMISSION_LABELS[permission] || permission));
+	}
+	detail('Permissões especiais', permissions);
+	const noteBox = createElement('section', 'member-note-box'); noteBox.append(createElement('small', '', 'Anotações'));
+	const note = createElement('textarea'); note.value = entry.member.note || ''; note.maxLength = 10000; note.placeholder = 'Anotações privadas sobre este membro...';
+	const resize = () => { note.style.height = 'auto'; note.style.height = note.scrollHeight + 'px'; };
+	note.addEventListener('input', resize); noteBox.append(note); details.append(noteBox); window.setTimeout(resize, 0);
+	const actions = createElement('div', 'member-detail-actions');
+	const saveNote = button('Salvar anotações', 'button');
+	saveNote.addEventListener('click', async () => {
+		saveNote.disabled = true;
+		try {
+			const data = await accountApi(`/tables/${encodeURIComponent(tableId)}/members/${encodeURIComponent(entry.account.id)}/note`,
+				{ method: 'PUT', body: { note: note.value } });
+			entry.member.note = data.member.note; showToast('Anotações salvas.');
+		} catch (error) { showToast(error.message, true); } finally { saveNote.disabled = false; }
+	});
+	actions.append(saveNote);
+	if (viewerRole === 'owner' && entry.member.role !== 'owner') {
+		const nextRole = entry.member.role === 'master' ? 'player' : 'master';
+		const roleAction = button(nextRole === 'master' ? 'Promover a Mestre' : 'Rebaixar a Jogador', 'button');
+		roleAction.addEventListener('click', async () => {
+			roleAction.disabled = true;
+			try {
+				const data = await accountApi(`/tables/${encodeURIComponent(tableId)}/members/${encodeURIComponent(entry.account.id)}`,
+					{ method: 'PATCH', body: { role: nextRole } });
+				entry.member = data.member; closeDialog(); onChanged(entry);
+			} catch (error) { roleAction.disabled = false; showToast(error.message, true); }
+		});
+		actions.append(roleAction);
+		const transfer = button('Transferir propriedade', 'button');
+		transfer.addEventListener('click', async () => {
+			if (transfer.dataset.confirm !== 'true') {
+				transfer.dataset.confirm = 'true'; transfer.classList.add('danger'); transfer.textContent = 'Confirmar transferência'; return;
+			}
+			transfer.disabled = true;
+			try {
+				await accountApi(`/tables/${encodeURIComponent(tableId)}/members/${encodeURIComponent(entry.account.id)}/ownership`, { method: 'POST' });
+				closeDialog(); await refreshAccountTables(); await renderDashboard();
+			} catch (error) { transfer.disabled = false; showToast(error.message, true); }
+		});
+		actions.append(transfer);
+	}
+	if (entry.member.role !== 'owner' && entry.account.id !== state.account?.id &&
+		(viewerRole === 'owner' || entry.member.role !== 'master')) {
+		const remove = button('Remover da mesa', 'button');
+		remove.addEventListener('click', async () => {
+			if (remove.dataset.confirm !== 'true') {
+				remove.dataset.confirm = 'true'; remove.classList.add('danger'); remove.textContent = 'Confirmar remoção'; return;
+			}
+			remove.disabled = true;
+			try {
+				await accountApi(`/tables/${encodeURIComponent(tableId)}/members/${encodeURIComponent(entry.account.id)}`, { method: 'DELETE' });
+				closeDialog(); onChanged(null, entry.account.id);
+			} catch (error) { remove.disabled = false; showToast(error.message, true); }
+		});
+		actions.append(remove);
+	}
+	dialog.append(details, actions); layer.append(dialog);
+	const closeDialog = () => layer.remove(); close.addEventListener('click', closeDialog);
+	layer.addEventListener('pointerdown', event => { if (event.target === layer) closeDialog(); });
+	document.body.append(layer);
+}
+
+async function renderMasterMembers() {
+	const root = createElement('div', 'master-members-page'); const tableId = state.accountSession?.activeTableId;
+	if (!tableId) return root;
+	const data = await accountApi(`/tables/${encodeURIComponent(tableId)}/members`);
+	const tableEntry = state.accountTables.find(entry => entry.table.id === tableId);
+	const viewerRole = tableEntry?.membership.role || 'master';
+	const panel = section('Membros'); panel.panel.classList.add('master-members-panel');
+	const table = createElement('div', 'master-members-table');
+	const header = createElement('div', 'master-member-row master-member-header');
+	header.append(...['Avatar', 'Conta', 'Personagem', 'Função', 'Estado', 'Ações'].map(label => createElement('span', '', label)));
+	table.append(header);
+	const renderRow = entry => {
+		const row = createElement('button', 'master-member-row'); row.type = 'button'; row.dataset.accountId = entry.account.id;
+		const characterLabel = entry.characters?.length ? entry.characters.map(character => character.name).join(', ') : '—';
+		row.append(createElement('span', 'member-avatar', initials(entry.account.displayName)),
+			createElement('span', 'master-member-account', entry.account.displayName + ' (@' + entry.account.username + ')'),
+			createElement('span', '', characterLabel), createElement('span', '', accountRoleLabel(entry.member.role)),
+			createElement('span', 'member-status member-status-' + entry.member.status, memberStatusLabel(entry.member.status)),
+			createElement('span', 'master-member-open', 'Detalhes'));
+		row.addEventListener('click', () => openMemberDetails(entry, viewerRole, (changed, removedId) => {
+			if (removedId) row.remove();
+			else if (changed) row.replaceWith(renderRow(changed));
+		}));
+		return row;
+	};
+	for (const entry of data.members.filter(entry => entry.member.status === 'active')) table.append(renderRow(entry));
+	panel.body.append(table); root.append(panel.panel); return root;
+}
+
 async function renderMasterInvitationsPanel() {
 	const tableId = state.accountSession.activeTableId;
 	const wrapper = section('Convites e solicitações'); wrapper.panel.classList.add('master-invitations-panel');
@@ -5353,18 +5485,21 @@ async function renderDashboard() {
 			$('#dashboard-eyebrow').textContent = state.dashboardView === 'battles' ? 'CENTRO DE BATALHAS' :
 				state.dashboardView === 'contests' ? 'PALCO DE CONCURSOS' :
 				state.dashboardView === 'npcs' ? 'ARQUIVO DA CAMPANHA' :
+				state.dashboardView === 'members' ? 'ADMINISTRAÇÃO DA MESA' :
 				state.dashboardView === 'players' ? 'GESTÃO DE JOGADORES' :
 				state.dashboardView === 'tournaments' ? 'CENTRAL DE TORNEIOS' : 'PAINEL DO MESTRE';
 			$('#dashboard-eyebrow').classList.remove('hidden');
 			$('#dashboard-title').textContent = state.dashboardView === 'battles' ? 'Prepara\u00e7\u00e3o de batalhas' :
 				state.dashboardView === 'contests' ? 'Concursos Pok\u00e9mon' :
 				state.dashboardView === 'npcs' ? 'NPCs e selvagens' :
+				state.dashboardView === 'members' ? 'Membros' :
 				state.dashboardView === 'players' ? 'Jogadores' :
 				state.dashboardView === 'tournaments' ? 'Torneios' :
 				'Vis\u00e3o geral da campanha';
 			$('#dashboard-description').textContent = state.dashboardView === 'battles' ? 'Monte o confronto, envie convites e aguarde as confirma\u00e7\u00f5es.' :
 				state.dashboardView === 'contests' ? 'Organize apresenta\u00e7\u00f5es, participantes e convites do concurso.' :
 				state.dashboardView === 'npcs' ? 'Organize Pok\u00e9mon importantes e NPCs para batalhas e concursos.' :
+				state.dashboardView === 'members' ? 'Administre as contas e funções desta mesa.' :
 				state.dashboardView === 'players' ? 'Acompanhe e gerencie os treinadores desta campanha.' :
 				state.dashboardView === 'tournaments' ? 'Crie e acompanhe os torneios da campanha.' :
 				'Acompanhe personagens, equipes, recursos e batalhas.';
@@ -5375,6 +5510,7 @@ async function renderDashboard() {
 				state.dashboardView === 'battles' ? await renderMasterBattles(characters) :
 				state.dashboardView === 'contests' ? await window.RPGContestUI.render({ state, api, master: true, characters, rerender: renderDashboard }) :
 				state.dashboardView === 'npcs' ? await renderMasterNPCLibraryDashboard() :
+				state.dashboardView === 'members' ? await renderMasterMembers() :
 				state.dashboardView === 'tournaments' ? await renderMasterTournaments(characters) :
 				state.dashboardView === 'nursery' ? await renderNursery() :
 				state.dashboardView === 'shops' ? await renderShops() :

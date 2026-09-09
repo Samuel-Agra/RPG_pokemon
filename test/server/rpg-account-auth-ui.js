@@ -75,4 +75,15 @@ describe('RPG version 2 account authentication frontend', () => {
 		assert(script.includes("link.searchParams.set('invite', data.code)"));
 		assert(style.includes('.master-invite-dialog {'));
 	});
+
+	it('renders table members and opens their management without moving the page', () => {
+		assert(script.includes("['members', 'Membros']"));
+		assert(script.includes('renderMasterMembers'));
+		assert(script.includes("'Promover a Mestre'"));
+		assert(script.includes("'Transferir propriedade'"));
+		assert(script.includes("'Remover da mesa'"));
+		assert(script.includes('/note`'));
+		assert(style.includes('.member-details-layer'));
+		assert(style.includes('.master-member-row'));
+	});
 });

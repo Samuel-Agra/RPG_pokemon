@@ -100,7 +100,7 @@ export interface RPGCampaignTable {
 export interface RPGTableMember {
 	tableId: string; accountId: string; role: RPGTableRole;
 	status: 'active' | 'pending' | 'left' | 'removed' | 'blocked'; permissions: Record<string, boolean>;
-	requestInviteId?: string;
+	requestInviteId?: string; note?: string;
 	joinedAt: number; updatedAt: number; revision: number;
 }
 export interface RPGTableInvite {
@@ -121,6 +121,7 @@ export interface RPGPublicPlatformSession {
 export interface RPGTableMemberView {
 	member: RPGTableMember; account: RPGPublicPlatformAccount;
 	effectivePermissions: Record<RPGTablePermission, boolean>;
+	characters?: { id: string, name: string }[];
 }
 export interface RPGAccountTableView {
 	table: RPGCampaignTable; membership: RPGTableMember; owner: RPGPublicPlatformAccount;
@@ -760,8 +761,11 @@ export class RPGAccountManagement {
 	listMembers(token: string, tableId: string): RPGTableMemberView[] {
 		const session = this.session(token); const viewer = this.activeMember(tableId, session.accountId);
 		this.requirePermission(viewer, 'members.view');
+		const canManage = getRPGDefaultTablePermissions(viewer.role)['members.manage'];
 		return this.repository.listMembershipsForTable(tableId).flatMap(member => {
+			if (!canManage && member.status !== 'active') return [];
 			const account = this.repository.getAccount(member.accountId);
+			if (!canManage) member.note = undefined;
 			return account ? [{ member, account: this.publicAccount(account),
 				effectivePermissions: getRPGDefaultTablePermissions(member.role) }] : [];
 		});
@@ -802,6 +806,35 @@ export class RPGAccountManagement {
 			this.audit(actor, 'member.role.changed', 'member', target.accountId, {
 				previousRole, newRole: role, previousStatus, newStatus: target.status, reason: this.auditReason(reason),
 			});
+		});
+		return structuredClone(target);
+	}
+
+	transferOwnership(token: string, tableId: string, accountId: string): RPGCampaignTable {
+		const session = this.session(token); const owner = this.activeMember(tableId, session.accountId);
+		if (owner.role !== 'owner') throw new Error('Apenas o proprietário pode transferir a mesa');
+		const target = this.activeMember(tableId, accountId);
+		if (target.accountId === owner.accountId) throw new Error('Esta conta já é proprietária da mesa');
+		const table = this.repository.getTable(owner.tableId)!; const now = this.now();
+		this.atomic(() => {
+			owner.role = 'master'; owner.updatedAt = now; owner.revision++;
+			target.role = 'owner'; target.updatedAt = now; target.revision++;
+			table.ownerAccountId = target.accountId; table.updatedAt = now; table.revision++;
+			this.repository.setMembership(owner); this.repository.setMembership(target); this.repository.setTable(table);
+			this.audit(owner, 'table.ownership.transferred', 'member', target.accountId,
+				{ previousOwnerAccountId: owner.accountId, newOwnerAccountId: target.accountId });
+		});
+		return structuredClone(table);
+	}
+
+	updateMemberNote(token: string, tableId: string, accountId: string, note: string): RPGTableMember {
+		const actor = this.tableAdministrator(token, tableId);
+		const target = this.repository.getMembership(tableId, accountId);
+		if (!target) throw new Error('Membro não encontrado');
+		target.note = this.optionalText(note, 10_000); target.updatedAt = this.now(); target.revision++;
+		this.atomic(() => {
+			this.repository.setMembership(target);
+			this.audit(actor, 'member.note.updated', 'member', target.accountId);
 		});
 		return structuredClone(target);
 	}
