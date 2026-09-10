@@ -266,8 +266,8 @@ describe('RPG version 2 accounts and tables backend', () => {
 			auditEntry: () => { throw new Error('falha simulada'); },
 		});
 		const accounts = new RPGAccountManagement(repository);
-		accounts.createAccount('rollback', 'Rollback', 'senha-segura');
-		const login = accounts.login('rollback', 'senha-segura');
+		accounts.createAccount('rollback', 'Rollback', 'Senha1!Segura');
+		const login = accounts.login('rollback', 'Senha1!Segura');
 		assert.throws(() => accounts.createTable(login.token, { name: 'Não pode persistir pela metade' }), /falha simulada/);
 		assert.equal(tableWrites, 1);
 		assert.deepEqual(accounts.listTables(login.token), []);
@@ -276,19 +276,23 @@ describe('RPG version 2 accounts and tables backend', () => {
 
 	it('creates global accounts without exposing password credentials', () => {
 		const accounts = service();
-		const account = accounts.createAccount('Samuel.RPG', 'Samuel', 'senha-segura');
+		const account = accounts.createAccount('Samuel.RPG', 'Samuel', 'Senha1!Segura');
 		assert.equal(account.username, 'samuelrpg');
 		assert.equal(account.displayName, 'Samuel');
 		assert.equal(account.credential, undefined);
-		assert.throws(() => accounts.createAccount('samuel-rpg', 'Outro', 'outra-senha'), /já está em uso/);
+		assert.throws(() => accounts.createAccount('samuel-rpg', 'Outro', 'Outra1!Senha'), /já está em uso/);
 		assert.throws(() => accounts.login('samuelrpg', 'senha-errada'), /inválidos/);
+		for (const weakPassword of ['Curta1!', 'semsimbolo1A', 'SEMMINUSCULA1!', 'Semnumero!', 'semmaiuscula1!']) {
+			assert.throws(() => accounts.createAccount('fraca-' + weakPassword, 'Senha fraca', weakPassword),
+				/maiúscula, minúscula, número e caractere especial/);
+		}
 	});
 
 	it('uses asynchronous scrypt on the HTTP-facing authentication path', async () => {
 		const accounts = service();
-		await accounts.createAccountWithRecoveryCodesAsync('assincrona', 'Assíncrona', 'senha-segura');
+		await accounts.createAccountWithRecoveryCodesAsync('assincrona', 'Assíncrona', 'Senha1!Segura');
 		let eventLoopAdvanced = false;
-		const login = accounts.loginAsync('assincrona', 'senha-segura').then(value => {
+		const login = accounts.loginAsync('assincrona', 'Senha1!Segura').then(value => {
 			assert.equal(eventLoopAdvanced, true); return value;
 		});
 		await new Promise(resolve => setImmediate(() => { eventLoopAdvanced = true; resolve(); }));
@@ -298,99 +302,99 @@ describe('RPG version 2 accounts and tables backend', () => {
 	it('changes the password securely, revokes other sessions, and expires only after inactivity', async () => {
 		let time = 1_700_000_000_000;
 		const accounts = new RPGAccountManagement(new RPGMemoryAccountRepository(), () => time);
-		accounts.createAccount('senha-segura-v2', 'Senha segura', 'senha-antiga');
-		const current = accounts.login('senha-segura-v2', 'senha-antiga');
-		const other = accounts.login('senha-segura-v2', 'senha-antiga');
+		accounts.createAccount('Senha1!Segura-v2', 'Senha segura', 'Antiga1!Senha');
+		const current = accounts.login('Senha1!Segura-v2', 'Antiga1!Senha');
+		const other = accounts.login('Senha1!Segura-v2', 'Antiga1!Senha');
 		time += RPG_PLATFORM_SESSION_TTL / 2;
 		const renewed = accounts.getSession(current.token).session;
 		assert.equal(renewed.expiresAt, time + RPG_PLATFORM_SESSION_TTL);
 		time += RPG_PLATFORM_SESSION_TTL / 2 + 1;
 		assert(accounts.getSession(current.token).session.token);
-		await accounts.changePasswordAsync(current.token, 'senha-antiga', 'senha-nova-segura');
+		await accounts.changePasswordAsync(current.token, 'Antiga1!Senha', 'Nova1!SenhaSegura');
 		assert.throws(() => accounts.getSession(other.token), /inválida ou expirada/);
-		assert.throws(() => accounts.login('senha-segura-v2', 'senha-antiga'), /inválidos/);
-		assert(accounts.login('senha-segura-v2', 'senha-nova-segura').token);
+		assert.throws(() => accounts.login('Senha1!Segura-v2', 'Antiga1!Senha'), /inválidos/);
+		assert(accounts.login('Senha1!Segura-v2', 'Nova1!SenhaSegura').token);
 		time += RPG_PLATFORM_SESSION_TTL + 1;
 		assert.throws(() => accounts.getSession(current.token), /inválida ou expirada/);
 	});
 
 	it('issues one-time recovery codes and revokes every session after a password reset', () => {
 		const accounts = service();
-		const registration = accounts.createAccountWithRecoveryCodes('recuperar', 'Recuperar', 'senha-antiga');
+		const registration = accounts.createAccountWithRecoveryCodes('recuperar', 'Recuperar', 'Antiga1!Senha');
 		assert.equal(registration.recoveryCodes.length, 10);
 		assert(registration.recoveryCodes.every(code => /^(?:[0-9A-F]{4}-){3}[0-9A-F]{4}$/.test(code)));
-		const oldSession = accounts.login('recuperar', 'senha-antiga');
-		accounts.recoverPassword('recuperar', registration.recoveryCodes[0], 'senha-nova-segura');
+		const oldSession = accounts.login('recuperar', 'Antiga1!Senha');
+		accounts.recoverPassword('recuperar', registration.recoveryCodes[0], 'Nova1!SenhaSegura');
 		assert.throws(() => accounts.getSession(oldSession.token), /inválida ou expirada/);
-		assert.throws(() => accounts.login('recuperar', 'senha-antiga'), /inválidos/);
-		assert(accounts.login('recuperar', 'senha-nova-segura').token);
+		assert.throws(() => accounts.login('recuperar', 'Antiga1!Senha'), /inválidos/);
+		assert(accounts.login('recuperar', 'Nova1!SenhaSegura').token);
 		assert.throws(() => accounts.recoverPassword(
-			'recuperar', registration.recoveryCodes[0], 'outra-senha-segura'), /Código de recuperação inválido/);
+			'recuperar', registration.recoveryCodes[0], 'Outra1!SenhaSegura'), /Código de recuperação inválido/);
 	});
 
 	it('removes source-specific and account-wide login blocks after password recovery', () => {
 		const accounts = service();
-		const registration = accounts.createAccountWithRecoveryCodes('desbloquear', 'Desbloquear', 'senha-antiga');
+		const registration = accounts.createAccountWithRecoveryCodes('desbloquear', 'Desbloquear', 'Antiga1!Senha');
 		for (let index = 0; index < 5; index++) {
 			assert.throws(() => accounts.login('desbloquear', 'senha-incorreta', '10.0.0.1'), /inválidos/);
 		}
-		assert.throws(() => accounts.login('desbloquear', 'senha-antiga', '10.0.0.1'), /Muitas tentativas/);
-		assert.throws(() => accounts.login('desbloquear', 'senha-antiga', '10.0.0.2'), /Muitas tentativas/);
-		accounts.recoverPassword('desbloquear', registration.recoveryCodes[0], 'senha-nova-segura');
-		assert(accounts.login('desbloquear', 'senha-nova-segura', '10.0.0.1').token);
-		assert(accounts.login('desbloquear', 'senha-nova-segura', '10.0.0.2').token);
+		assert.throws(() => accounts.login('desbloquear', 'Antiga1!Senha', '10.0.0.1'), /Muitas tentativas/);
+		assert.throws(() => accounts.login('desbloquear', 'Antiga1!Senha', '10.0.0.2'), /Muitas tentativas/);
+		accounts.recoverPassword('desbloquear', registration.recoveryCodes[0], 'Nova1!SenhaSegura');
+		assert(accounts.login('desbloquear', 'Nova1!SenhaSegura', '10.0.0.1').token);
+		assert(accounts.login('desbloquear', 'Nova1!SenhaSegura', '10.0.0.2').token);
 	});
 
 	it('limits password recovery independently by account and origin', () => {
 		let time = 1_700_000_000_000;
 		const repository = new RPGMemoryAccountRepository();
 		const accounts = new RPGAccountManagement(repository, () => time);
-		const registration = accounts.createAccountWithRecoveryCodes('recuperacao-segura', 'Recuperação', 'senha-antiga');
+		const registration = accounts.createAccountWithRecoveryCodes('recuperacao-segura', 'Recuperação', 'Antiga1!Senha');
 		for (let index = 0; index < 5; index++) {
 			assert.throws(() => accounts.recoverPassword(
-				'recuperacao-segura', '0000-0000-0000', 'senha-nova-segura', `origem-${index}`),
+				'recuperacao-segura', '0000-0000-0000', 'Nova1!SenhaSegura', `origem-${index}`),
 			/Código de recuperação inválido/);
 		}
 		assert.throws(() => accounts.recoverPassword(
-			'recuperacao-segura', registration.recoveryCodes[0], 'senha-nova-segura', 'origem-nova'),
+			'recuperacao-segura', registration.recoveryCodes[0], 'Nova1!SenhaSegura', 'origem-nova'),
 		/Muitas tentativas de recuperação/);
 		// O bloqueio de recuperação não impede um login legítimo.
-		assert(accounts.login('recuperacao-segura', 'senha-antiga', 'origem-nova').token);
+		assert(accounts.login('recuperacao-segura', 'Antiga1!Senha', 'origem-nova').token);
 		const recoveryAccountKey = createHash('sha256').update('recovery:recuperacaosegura').digest('hex');
 		assert(repository.listLoginAttempts(recoveryAccountKey).some(value => value.failures === 5));
 		time += 15 * 60 * 1000 + 1;
 		accounts.recoverPassword(
-			'recuperacao-segura', registration.recoveryCodes[0], 'senha-nova-segura', 'origem-nova');
+			'recuperacao-segura', registration.recoveryCodes[0], 'Nova1!SenhaSegura', 'origem-nova');
 		assert.deepEqual(repository.listLoginAttempts(recoveryAccountKey), []);
-		assert(accounts.login('recuperacao-segura', 'senha-nova-segura', 'origem-nova').token);
+		assert(accounts.login('recuperacao-segura', 'Nova1!SenhaSegura', 'origem-nova').token);
 	});
 
 	it('temporarily blocks repeated login failures and clears attempts after success', () => {
 		let time = 1_700_000_000_000; let seed = 0;
 		const accounts = new RPGAccountManagement(new RPGMemoryAccountRepository(), () => time,
 			size => Buffer.alloc(size, ++seed));
-		accounts.createAccount('protegida', 'Protegida', 'senha-correta');
+		accounts.createAccount('protegida', 'Protegida', 'Correta1!Senha');
 		for (let index = 0; index < 5; index++) {
 			assert.throws(() => accounts.login('protegida', 'incorreta', '127.0.0.1'), /inválidos/);
 		}
-		assert.throws(() => accounts.login('protegida', 'senha-correta', '127.0.0.1'), /Muitas tentativas/);
+		assert.throws(() => accounts.login('protegida', 'Correta1!Senha', '127.0.0.1'), /Muitas tentativas/);
 		time += 15 * 60 * 1000 + 1;
-		assert(accounts.login('protegida', 'senha-correta', '127.0.0.1').token);
+		assert(accounts.login('protegida', 'Correta1!Senha', '127.0.0.1').token);
 	});
 
 	it('blocks account-wide attempts spread across different origins', () => {
 		let time = 1_700_000_000_000;
 		const repository = new RPGMemoryAccountRepository();
 		const accounts = new RPGAccountManagement(repository, () => time);
-		const account = accounts.createAccount('alvo-global', 'Alvo', 'senha-correta');
+		const account = accounts.createAccount('alvo-global', 'Alvo', 'Correta1!Senha');
 		for (let index = 0; index < 5; index++) {
 			assert.throws(() => accounts.login('alvo-global', 'incorreta', `origem-${index}`), /inválidos/);
 		}
-		assert.throws(() => accounts.login('alvo-global', 'senha-correta', 'origem-nova'), /Muitas tentativas/);
+		assert.throws(() => accounts.login('alvo-global', 'Correta1!Senha', 'origem-nova'), /Muitas tentativas/);
 		const attempts = repository.listLoginAttempts(createHash('sha256').update('alvoglobal').digest('hex'));
 		assert(attempts.some(attempt => attempt.failures === 5 && attempt.blockedUntil > time));
 		time += 15 * 60 * 1000 + 1;
-		assert.equal(accounts.login('alvo-global', 'senha-correta', 'origem-nova').accountId, account.id);
+		assert.equal(accounts.login('alvo-global', 'Correta1!Senha', 'origem-nova').accountId, account.id);
 		assert.deepEqual(repository.listLoginAttempts(createHash('sha256').update('alvoglobal').digest('hex')), []);
 	});
 
@@ -407,11 +411,11 @@ describe('RPG version 2 accounts and tables backend', () => {
 		const accounts = service();
 		for (let index = 0; index < 20; index++) {
 			assert.throws(() => accounts.recoverPassword(
-				`desconhecido-${index}`, '0000-0000-0000', 'senha-nova-segura', 'mesma-origem'
+				`desconhecido-${index}`, '0000-0000-0000', 'Nova1!SenhaSegura', 'mesma-origem'
 			), /Código de recuperação inválido/);
 		}
 		assert.throws(() => accounts.recoverPassword(
-			'mais-um-desconhecido', '0000-0000-0000', 'senha-nova-segura', 'mesma-origem'
+			'mais-um-desconhecido', '0000-0000-0000', 'Nova1!SenhaSegura', 'mesma-origem'
 		), /Muitas tentativas de recuperação/);
 	});
 
@@ -427,7 +431,7 @@ describe('RPG version 2 accounts and tables backend', () => {
 
 	it('rejects malformed persisted credentials instead of comparing empty hashes', async () => {
 		const accounts = service();
-		accounts.createAccount('credencial-quebrada', 'Credencial', 'senha-segura');
+		accounts.createAccount('credencial-quebrada', 'Credencial', 'Senha1!Segura');
 		const stored = accounts.repository.getAccountByUsername('credencial-quebrada');
 		stored.credential = { algorithm: 'scrypt', salt: '', hash: '' };
 		accounts.repository.setAccount(stored);
@@ -453,8 +457,8 @@ describe('RPG version 2 accounts and tables backend', () => {
 		let seed = 0; const bytes = size => Buffer.alloc(size, ++seed); const now = () => 1_700_000_000_000;
 		const first = new RPGAccountManagement(new RPGMemoryAccountRepository({}, changes), now, bytes,
 			new RPGMemoryPlatformSessionRepository([], sessionChanged));
-		const registration = first.createAccountWithRecoveryCodes('reinicio', 'Reinício', 'senha-antiga');
-		const owner = first.login('reinicio', 'senha-antiga');
+		const registration = first.createAccountWithRecoveryCodes('reinicio', 'Reinício', 'Antiga1!Senha');
+		const owner = first.login('reinicio', 'Antiga1!Senha');
 		const table = first.createTable(owner.token, { name: 'Mesa persistida' });
 		for (let index = 0; index < 5; index++) assert.throws(() => first.login('reinicio', 'errada', 'origem-a'));
 
@@ -464,27 +468,27 @@ describe('RPG version 2 accounts and tables backend', () => {
 			recoveryCodes: [...stored.recoveryCodes.values()], loginAttempts: [...stored.loginAttempts.values()],
 			auditEntries: [...stored.auditEntries.values()],
 		}, changes), now, bytes, new RPGMemoryPlatformSessionRepository([...stored.sessions.values()], sessionChanged));
-		assert.throws(() => restored.login('reinicio', 'senha-antiga', 'origem-a'), /Muitas tentativas/);
+		assert.throws(() => restored.login('reinicio', 'Antiga1!Senha', 'origem-a'), /Muitas tentativas/);
 		assert.equal(restored.listAudit(owner.token, table.id)[0].action, 'table.created');
-		restored.recoverPassword('reinicio', registration.recoveryCodes[0], 'senha-nova-segura');
-		assert(restored.login('reinicio', 'senha-nova-segura', 'origem-b').token);
+		restored.recoverPassword('reinicio', registration.recoveryCodes[0], 'Nova1!SenhaSegura');
+		assert(restored.login('reinicio', 'Nova1!SenhaSegura', 'origem-b').token);
 	});
 
 	it('consumes recovery codes and single-use invitations only once under competing requests', async () => {
 		const accounts = service();
-		const registration = accounts.createAccountWithRecoveryCodes('corrida', 'Corrida', 'senha-antiga');
+		const registration = accounts.createAccountWithRecoveryCodes('corrida', 'Corrida', 'Antiga1!Senha');
 		const recovery = await Promise.allSettled([0, 1].map(() => Promise.resolve().then(() =>
-			accounts.recoverPassword('corrida', registration.recoveryCodes[0], 'senha-nova-segura'))));
+			accounts.recoverPassword('corrida', registration.recoveryCodes[0], 'Nova1!SenhaSegura'))));
 		assert.equal(recovery.filter(result => result.status === 'fulfilled').length, 1);
 		assert.equal(recovery.filter(result => result.status === 'rejected').length, 1);
 
 		for (const name of ['dono-corrida', 'convidado-a', 'convidado-b']) {
-			accounts.createAccount(name, name, 'senha-segura');
+			accounts.createAccount(name, name, 'Senha1!Segura');
 		}
-		const owner = accounts.login('dono-corrida', 'senha-segura');
+		const owner = accounts.login('dono-corrida', 'Senha1!Segura');
 		const table = accounts.createTable(owner.token, { name: 'Convite concorrente' });
 		const code = accounts.createInvite(owner.token, table.id, 'player', undefined, 1).code;
-		const guests = ['convidado-a', 'convidado-b'].map(name => accounts.login(name, 'senha-segura'));
+		const guests = ['convidado-a', 'convidado-b'].map(name => accounts.login(name, 'Senha1!Segura'));
 		const joins = await Promise.allSettled(guests.map(guest => Promise.resolve().then(() =>
 			accounts.joinByInvite(guest.token, code))));
 		assert.equal(joins.filter(result => result.status === 'fulfilled').length, 1);
@@ -493,8 +497,8 @@ describe('RPG version 2 accounts and tables backend', () => {
 
 	it('keeps administrative audit records isolated between tables', () => {
 		const accounts = service();
-		accounts.createAccount('dono-isolado', 'Dono', 'senha-segura');
-		const owner = accounts.login('dono-isolado', 'senha-segura');
+		accounts.createAccount('dono-isolado', 'Dono', 'Senha1!Segura');
+		const owner = accounts.login('dono-isolado', 'Senha1!Segura');
 		const alpha = accounts.createTable(owner.token, { name: 'Alpha' });
 		const beta = accounts.createTable(owner.token, { name: 'Beta' });
 		accounts.createInvite(owner.token, alpha.id);
@@ -508,10 +512,10 @@ describe('RPG version 2 accounts and tables backend', () => {
 
 	it('audits a denied administrative attempt from an authenticated non-member', () => {
 		const accounts = service();
-		accounts.createAccount('dono-auditoria', 'Dono', 'senha-segura');
-		accounts.createAccount('intruso-auditoria', 'Intruso', 'senha-segura');
-		const owner = accounts.login('dono-auditoria', 'senha-segura');
-		const outsider = accounts.login('intruso-auditoria', 'senha-segura');
+		accounts.createAccount('dono-auditoria', 'Dono', 'Senha1!Segura');
+		accounts.createAccount('intruso-auditoria', 'Intruso', 'Senha1!Segura');
+		const owner = accounts.login('dono-auditoria', 'Senha1!Segura');
+		const outsider = accounts.login('intruso-auditoria', 'Senha1!Segura');
 		const table = accounts.createTable(owner.token, { name: 'Mesa auditada' });
 		accounts.recordAdministrativeFailure(
 			outsider.token, table.id, 'member.role.changed', 'member', 'alvo',
@@ -534,8 +538,8 @@ describe('RPG version 2 accounts and tables backend', () => {
 
 	it('resolves only the selected active table and rejects archived table contexts', () => {
 		const accounts = service();
-		accounts.createAccount('contexto', 'Contexto', 'senha-segura');
-		const login = accounts.login('contexto', 'senha-segura');
+		accounts.createAccount('contexto', 'Contexto', 'Senha1!Segura');
+		const login = accounts.login('contexto', 'Senha1!Segura');
 		const first = accounts.createTable(login.token, { name: 'Primeira' });
 		const second = accounts.createTable(login.token, { name: 'Segunda' });
 		accounts.selectTable(login.token, second.id);
@@ -553,12 +557,12 @@ describe('RPG version 2 accounts and tables backend', () => {
 
 	it('archives only as owner and invalidates selections, invitations, and table operations', () => {
 		const accounts = service();
-		accounts.createAccount('dono-arquivo', 'Dono', 'senha-segura');
-		accounts.createAccount('membro-arquivo', 'Membro', 'senha-segura');
-		accounts.createAccount('visitante-arquivo', 'Visitante', 'senha-segura');
-		const owner = accounts.login('dono-arquivo', 'senha-segura');
-		const member = accounts.login('membro-arquivo', 'senha-segura');
-		const visitor = accounts.login('visitante-arquivo', 'senha-segura');
+		accounts.createAccount('dono-arquivo', 'Dono', 'Senha1!Segura');
+		accounts.createAccount('membro-arquivo', 'Membro', 'Senha1!Segura');
+		accounts.createAccount('visitante-arquivo', 'Visitante', 'Senha1!Segura');
+		const owner = accounts.login('dono-arquivo', 'Senha1!Segura');
+		const member = accounts.login('membro-arquivo', 'Senha1!Segura');
+		const visitor = accounts.login('visitante-arquivo', 'Senha1!Segura');
 		const table = accounts.createTable(owner.token, { name: 'Mesa arquivada' });
 		const memberInvite = accounts.createInvite(owner.token, table.id);
 		accounts.joinByInvite(member.token, memberInvite.code);
@@ -580,8 +584,8 @@ describe('RPG version 2 accounts and tables backend', () => {
 
 	it('creates a table and its owner membership atomically at domain level', () => {
 		const accounts = service();
-		accounts.createAccount('samuel', 'Samuel', 'senha-segura');
-		const session = accounts.login('samuel', 'senha-segura');
+		accounts.createAccount('samuel', 'Samuel', 'Senha1!Segura');
+		const session = accounts.login('samuel', 'Senha1!Segura');
 		const table = accounts.createTable(session.token, {
 			name: 'Jornada de Kanto', description: 'Campanha principal', visibility: 'code', color: '#a52a2a',
 		});
@@ -603,10 +607,10 @@ describe('RPG version 2 accounts and tables backend', () => {
 
 	it('joins another account through a single-use hashed invite', () => {
 		const accounts = service();
-		accounts.createAccount('mestre', 'Mestre', 'senha-mestre');
-		accounts.createAccount('player', 'Player', 'senha-player');
-		const master = accounts.login('mestre', 'senha-mestre');
-		const player = accounts.login('player', 'senha-player');
+		accounts.createAccount('mestre', 'Mestre', 'Mestre1!Senha');
+		accounts.createAccount('player', 'Player', 'Player1!Senha');
+		const master = accounts.login('mestre', 'Mestre1!Senha');
+		const player = accounts.login('player', 'Player1!Senha');
 		const table = accounts.createTable(master.token, { name: 'Mesa teste' });
 		const invitation = accounts.createInvite(master.token, table.id, 'player');
 		assert.notEqual(invitation.invite.codeHash, invitation.code);
@@ -633,8 +637,8 @@ describe('RPG version 2 accounts and tables backend', () => {
 			new RPGMemoryAccountRepository({}, callbacks), now, bytes,
 			new RPGMemoryPlatformSessionRepository([], sessionsChanged)
 		);
-		first.createAccount('persistente', 'Conta persistente', 'senha-segura');
-		const login = first.login('persistente', 'senha-segura');
+		first.createAccount('persistente', 'Conta persistente', 'Senha1!Segura');
+		const login = first.login('persistente', 'Senha1!Segura');
 		const table = first.createTable(login.token, { name: 'Mesa persistente' });
 		first.createInvite(login.token, table.id);
 		first.selectTable(login.token, table.id);
@@ -643,7 +647,7 @@ describe('RPG version 2 accounts and tables backend', () => {
 			accounts: [...stored.accounts.values()], tables: [...stored.tables.values()],
 			members: [...stored.members.values()], invites: [...stored.invites.values()],
 		}, callbacks), now, bytes, new RPGMemoryPlatformSessionRepository([...stored.sessions.values()], sessionsChanged));
-		assert.equal(restored.login('persistente', 'senha-segura').accountId, login.accountId);
+		assert.equal(restored.login('persistente', 'Senha1!Segura').accountId, login.accountId);
 		assert.equal(restored.listTables(login.token)[0].table.name, 'Mesa persistente');
 		assert.equal(stored.sessions.size, 2, 'the restored token and the new login are persisted');
 		restored.logout(login.token);
@@ -652,9 +656,9 @@ describe('RPG version 2 accounts and tables backend', () => {
 
 	it('lists safe session identifiers and revokes one or every login without deleting its audit record', () => {
 		const accounts = service();
-		accounts.createAccount('sessoes', 'Sessões', 'senha-segura');
-		const first = accounts.login('sessoes', 'senha-segura');
-		const second = accounts.login('sessoes', 'senha-segura');
+		accounts.createAccount('sessoes', 'Sessões', 'Senha1!Segura');
+		const first = accounts.login('sessoes', 'Senha1!Segura');
+		const second = accounts.login('sessoes', 'Senha1!Segura');
 		const sessions = accounts.listSessions(first.token);
 		assert.equal(sessions.length, 2);
 		assert(sessions.every(session => /^[0-9a-f]{24}$/.test(session.id)));
@@ -668,12 +672,12 @@ describe('RPG version 2 accounts and tables backend', () => {
 
 	it('administers member roles, removal, blocking, and voluntary departure with owner safeguards', () => {
 		const accounts = service();
-		const ownerAccount = accounts.createAccount('proprietario', 'Proprietário', 'senha-segura');
-		const masterAccount = accounts.createAccount('assistente', 'Assistente', 'senha-segura');
-		const playerAccount = accounts.createAccount('membro', 'Membro', 'senha-segura');
-		const owner = accounts.login('proprietario', 'senha-segura');
-		const master = accounts.login('assistente', 'senha-segura');
-		const player = accounts.login('membro', 'senha-segura');
+		const ownerAccount = accounts.createAccount('proprietario', 'Proprietário', 'Senha1!Segura');
+		const masterAccount = accounts.createAccount('assistente', 'Assistente', 'Senha1!Segura');
+		const playerAccount = accounts.createAccount('membro', 'Membro', 'Senha1!Segura');
+		const owner = accounts.login('proprietario', 'Senha1!Segura');
+		const master = accounts.login('assistente', 'Senha1!Segura');
+		const player = accounts.login('membro', 'Senha1!Segura');
 		const table = accounts.createTable(owner.token, { name: 'Administração' });
 		accounts.joinByInvite(master.token, accounts.createInvite(owner.token, table.id, 'master').code);
 		accounts.joinByInvite(player.token, accounts.createInvite(master.token, table.id, 'player').code);
@@ -700,10 +704,10 @@ describe('RPG version 2 accounts and tables backend', () => {
 
 	it('stores private member notes and transfers table ownership atomically', () => {
 		const accounts = service();
-		const firstAccount = accounts.createAccount('primeiro-dono', 'Primeiro', 'senha-segura');
-		const nextAccount = accounts.createAccount('proximo-dono', 'Próximo', 'senha-segura');
-		const first = accounts.login('primeiro-dono', 'senha-segura');
-		const next = accounts.login('proximo-dono', 'senha-segura');
+		const firstAccount = accounts.createAccount('primeiro-dono', 'Primeiro', 'Senha1!Segura');
+		const nextAccount = accounts.createAccount('proximo-dono', 'Próximo', 'Senha1!Segura');
+		const first = accounts.login('primeiro-dono', 'Senha1!Segura');
+		const next = accounts.login('proximo-dono', 'Senha1!Segura');
 		const table = accounts.createTable(first.token, { name: 'Transferível' });
 		accounts.joinByInvite(next.token, accounts.createInvite(first.token, table.id).code);
 		assert.equal(accounts.updateMemberNote(first.token, table.id, nextAccount.id, 'Anotação privada').note,
@@ -720,14 +724,14 @@ describe('RPG version 2 accounts and tables backend', () => {
 		let time = 1_700_000_000_000; let seed = 0;
 		const accounts = new RPGAccountManagement(new RPGMemoryAccountRepository(), () => time,
 			size => Buffer.alloc(size, ++seed));
-		accounts.createAccount('dono', 'Dono', 'senha-segura');
-		accounts.createAccount('destino', 'Destino', 'senha-segura');
-		accounts.createAccount('outro', 'Outro', 'senha-segura');
-		accounts.createAccount('terceiro', 'Terceiro', 'senha-segura');
-		const owner = accounts.login('dono', 'senha-segura');
-		const target = accounts.login('destino', 'senha-segura');
-		const other = accounts.login('outro', 'senha-segura');
-		const third = accounts.login('terceiro', 'senha-segura');
+		accounts.createAccount('dono', 'Dono', 'Senha1!Segura');
+		accounts.createAccount('destino', 'Destino', 'Senha1!Segura');
+		accounts.createAccount('outro', 'Outro', 'Senha1!Segura');
+		accounts.createAccount('terceiro', 'Terceiro', 'Senha1!Segura');
+		const owner = accounts.login('dono', 'Senha1!Segura');
+		const target = accounts.login('destino', 'Senha1!Segura');
+		const other = accounts.login('outro', 'Senha1!Segura');
+		const third = accounts.login('terceiro', 'Senha1!Segura');
 		const table = accounts.createTable(owner.token, { name: 'Convites' });
 		const directed = accounts.createInvite(owner.token, table.id, 'player', time + 1000, 9, 'destino');
 		assert.equal(directed.invite.maxUses, 1);
@@ -746,12 +750,33 @@ describe('RPG version 2 accounts and tables backend', () => {
 		assert.equal(accounts.listInvites(owner.token, table.id).find(invite => invite.id === expiring.invite.id).status, 'expired');
 	});
 
+	it('discovers public tables and lets recipients manage directed invites without their codes', () => {
+		let seed = 0;
+		const accounts = new RPGAccountManagement(new RPGMemoryAccountRepository(), () => 1_700_000_000_000,
+			size => Buffer.alloc(size, ++seed));
+		accounts.createAccount('dono-publico', 'Dono', 'Senha1!Segura');
+		accounts.createAccount('convidado-direto', 'Convidado', 'Senha1!Segura');
+		const owner = accounts.login('dono-publico', 'Senha1!Segura');
+		const guest = accounts.login('convidado-direto', 'Senha1!Segura');
+		const publicTable = accounts.createTable(owner.token, { name: 'Mesa pública', visibility: 'public' });
+		accounts.createTable(owner.token, { name: 'Mesa privada', visibility: 'private' });
+		assert.deepEqual(accounts.discoverTables(guest.token).map(entry => entry.table.id), [publicTable.id]);
+		const accepted = accounts.createInvite(owner.token, publicTable.id, 'player', undefined, 1, 'convidado-direto');
+		assert.equal(accounts.listDirectedInvites(guest.token)[0].invite.id, accepted.invite.id);
+		assert.equal(accounts.acceptDirectedInvite(guest.token, accepted.invite.id).status, 'active');
+		assert.deepEqual(accounts.listDirectedInvites(guest.token), []);
+		const declined = accounts.createInvite(owner.token, publicTable.id, 'spectator', undefined, 1, 'convidado-direto');
+		accounts.leaveTable(guest.token, publicTable.id);
+		accounts.declineDirectedInvite(guest.token, declined.invite.id);
+		assert.deepEqual(accounts.listDirectedInvites(guest.token), []);
+	});
+
 	it('previews invitations and approves one idempotent join request', () => {
 		const accounts = service();
-		accounts.createAccount('dono-pedido', 'Samuel', 'senha-segura');
-		accounts.createAccount('convidado-pedido', 'Lucas', 'senha-segura');
-		const owner = accounts.login('dono-pedido', 'senha-segura');
-		const guest = accounts.login('convidado-pedido', 'senha-segura');
+		accounts.createAccount('dono-pedido', 'Samuel', 'Senha1!Segura');
+		accounts.createAccount('convidado-pedido', 'Lucas', 'Senha1!Segura');
+		const owner = accounts.login('dono-pedido', 'Senha1!Segura');
+		const guest = accounts.login('convidado-pedido', 'Senha1!Segura');
 		const table = accounts.createTable(owner.token, { name: 'Jornada de Kanto' });
 		accounts.updateTable(owner.token, table.id, { requireJoinApproval: true });
 		const invitation = accounts.createInvite(owner.token, table.id, 'player', undefined, 1);
@@ -785,10 +810,10 @@ describe('RPG version 2 accounts and tables backend', () => {
 		assert.equal(spectator['battles.participate'], false);
 
 		const accounts = service();
-		accounts.createAccount('dono-perm', 'Dono', 'senha-segura');
-		accounts.createAccount('player-perm', 'Player', 'senha-segura');
-		const ownerSession = accounts.login('dono-perm', 'senha-segura');
-		const playerSession = accounts.login('player-perm', 'senha-segura');
+		accounts.createAccount('dono-perm', 'Dono', 'Senha1!Segura');
+		accounts.createAccount('player-perm', 'Player', 'Senha1!Segura');
+		const ownerSession = accounts.login('dono-perm', 'Senha1!Segura');
+		const playerSession = accounts.login('player-perm', 'Senha1!Segura');
 		const table = accounts.createTable(ownerSession.token, { name: 'Permissões' });
 		accounts.joinByInvite(playerSession.token, accounts.createInvite(ownerSession.token, table.id).code);
 		assert.equal(accounts.getTablePermissions(playerSession.token, table.id)['contests.participate'], true);
@@ -797,8 +822,8 @@ describe('RPG version 2 accounts and tables backend', () => {
 
 	it('links a legacy character credential to one global account and table membership idempotently', () => {
 		const accounts = service();
-		accounts.createAccount('owner-link', 'Owner', 'senha-segura');
-		const owner = accounts.login('owner-link', 'senha-segura');
+		accounts.createAccount('owner-link', 'Owner', 'Senha1!Segura');
+		const owner = accounts.login('owner-link', 'Senha1!Segura');
 		const table = accounts.createTable(owner.token, { name: 'Legado' });
 		const credential = { algorithm: 'scrypt', salt: Buffer.alloc(16, 8).toString('base64'), hash: 'hash-legado' };
 		const first = accounts.linkLegacyCharacter({

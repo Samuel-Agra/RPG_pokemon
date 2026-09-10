@@ -18,6 +18,14 @@ describe('RPG version 2 account authentication frontend', () => {
 		assert(html.includes('autocomplete="username"'));
 		assert(html.includes('autocomplete="current-password"'));
 		assert(html.includes('autocomplete="new-password"'));
+		assert(html.includes('minlength="3" maxlength="40" placeholder="Login"'));
+		assert(html.includes('placeholder="Use pelo menos 8 caracteres."'));
+		assert(html.includes('rel="icon" type="image/png" href="./assets/pokemon-rpg-logo.png"'));
+		assert(style.includes("background: url('./assets/pokemon-rpg-logo.png') center / contain no-repeat"));
+		assert(!style.includes('background: linear-gradient(#e95959'));
+		assert(!html.includes('Uma &uacute;nica conta para participar de diferentes campanhas e personagens.'));
+		assert(style.includes('.account-auth { width: min(520px, 100%); overflow: hidden; }'));
+		assert(style.includes('.account-auth-intro { min-height: 132px;'));
 	});
 
 	it('uses the version 2 account endpoints and preserves its session separately', () => {
@@ -31,10 +39,19 @@ describe('RPG version 2 account authentication frontend', () => {
 
 	it('validates individual fields, toggles password visibility and supports Escape', () => {
 		assert(script.includes('accountFieldError(form'));
+		assert(script.includes('function accountPasswordError(password)'));
+		assert(script.includes('maiúscula, minúscula, número e caractere especial'));
 		assert(script.includes("String(values.confirmPassword || '') !== String(values.password || '')"));
 		assert(script.includes("dataset.accountAuthMode !== 'login'"));
 		assert(script.includes("setAccountAuthMode('login')"));
 		assert(html.match(/account-password-toggle/g)?.length >= 3);
+		assert(script.includes("toggle.append(createElement('span', 'account-password-eye', ''))"));
+		assert(style.includes('.account-password-eye::before'));
+		assert(style.includes('border-bottom: 2px solid currentColor'));
+		assert(style.includes('.account-password-toggle.revealed .account-password-eye {'));
+		assert(style.includes('.account-password-toggle.revealed .account-password-eye::before { opacity: 1; }'));
+		assert(style.includes('#account-register-form .account-field:focus-within:not(.invalid) .password-requirements'));
+		assert(html.includes('Use uma letra mai&uacute;scula, uma min&uacute;scula, um n&uacute;mero e um caractere especial.'));
 	});
 
 	it('renders a responsive Minhas mesas destination after authentication', () => {
@@ -43,7 +60,28 @@ describe('RPG version 2 account authentication frontend', () => {
 		assert(style.includes('.account-table-grid'));
 		assert(style.includes('.account-auth {'));
 		assert(style.includes('@media (max-width: 760px)'));
-		assert(html.includes('Mesas em que participo'));
+		assert(html.includes('Minhas participa&ccedil;&otilde;es'));
+		for (const label of ['Configura&ccedil;&otilde;es', 'Minhas mesas', 'Minhas participa&ccedil;&otilde;es', 'Descobrir mesas', 'Convites', 'Sair']) {
+			assert(html.includes(label), `missing account navigation option ${label}`);
+		}
+		assert(html.includes('class="panel account-navigation"'));
+		assert(script.includes('function setAccountTablesView(view)'));
+		assert(style.includes('position: fixed; z-index: 20; left: 0; top: 58px; bottom: 0'));
+		assert(style.includes('margin: 0 auto 0 245px'));
+		const navigation = html.slice(html.indexOf('<nav class="account-navigation-options">'), html.indexOf('</nav>', html.indexOf('<nav class="account-navigation-options">')));
+		const orderedLabels = ['Minhas mesas', 'Minhas participa&ccedil;&otilde;es', 'Descobrir mesas', 'Convites', 'Configura&ccedil;&otilde;es', 'Sair'];
+		for (let index = 1; index < orderedLabels.length; index++) {
+			assert(navigation.indexOf(orderedLabels[index - 1]) < navigation.indexOf(orderedLabels[index]));
+		}
+		assert(script.includes("['owner', 'master'].includes(entry.membership.role)"));
+		assert(script.includes("entry.membership.role === 'player'"));
+		assert(script.includes("accountApi('/tables/discover')"));
+		assert(script.includes("accountApi('/invites/directed')"));
+		assert(script.includes("'panel account-table-card account-directed-invite'"));
+		assert(script.includes("createElement('span', 'account-table-status', 'Convite')"));
+		assert(script.includes("const accept = button('Aceitar', 'button primary')"));
+		assert(script.includes("const decline = button('Recusar', 'button danger')"));
+		assert(style.includes('grid-template-columns: 190px minmax(0, 1fr)'));
 		assert(html.includes('Mesas arquivadas'));
 		assert(script.includes('reconcileAccountTableList'));
 		assert(script.includes('card.dataset.signature !== signature'));
@@ -97,6 +135,18 @@ describe('RPG version 2 account authentication frontend', () => {
 		assert(script.includes("new CustomEvent('rpg:table-changing')"));
 		assert(style.includes('.current-table-menu'));
 		assert(style.includes('.table-switcher-dialog'));
+	});
+
+	it('requires a Player without a table character to create one before opening the dashboard', () => {
+		assert(script.includes('function platformPlayerNeedsCharacter'));
+		assert(script.includes('if (platformPlayerNeedsCharacter(connected.session)) openCharacterCreation()'));
+		assert(script.includes("$('#player-name').value = state.account?.displayName || ''"));
+		assert(script.includes("const login = platformCreation ? await api('/session')"));
+		assert(script.includes("'character-password-field', 'character-password-confirmation-field'"));
+		assert(script.includes('input.disabled = required'));
+		assert(script.includes("void renderAccountTables()"));
+		assert(script.includes("finally {\n\t\t// O cartão é preservado entre renderizações"));
+		assert(script.includes("buttonElement.disabled = false; buttonElement.textContent = 'Entrar'"));
 	});
 
 	it('confirms leaving and preserves or transfers characters during member removal', () => {

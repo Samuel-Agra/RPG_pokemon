@@ -537,6 +537,23 @@ export class RPGHttpServer {
 			this.json(res, 200, { membership, pending: membership.status === 'pending' });
 			return;
 		}
+		if (method === 'GET' && url.pathname === '/api/rpg/v2/tables/discover') {
+			this.json(res, 200, { tables: this.login.accounts.discoverTables(this.token(req)) });
+			return;
+		}
+		if (method === 'GET' && url.pathname === '/api/rpg/v2/invites/directed') {
+			this.json(res, 200, { invites: this.login.accounts.listDirectedInvites(this.token(req)) });
+			return;
+		}
+		const directedInviteMatch = /^\/api\/rpg\/v2\/invites\/directed\/([^/]+)$/.exec(url.pathname);
+		if (directedInviteMatch && method === 'POST') {
+			const membership = this.login.accounts.acceptDirectedInvite(this.token(req), decodeURIComponent(directedInviteMatch[1]));
+			await this.login.flushPersistence(); this.json(res, 200, { membership }); return;
+		}
+		if (directedInviteMatch && method === 'DELETE') {
+			this.login.accounts.declineDirectedInvite(this.token(req), decodeURIComponent(directedInviteMatch[1]));
+			await this.login.flushPersistence(); this.json(res, 200, { ok: true }); return;
+		}
 		if (method === 'POST' && url.pathname === '/api/rpg/v2/invites/preview') {
 			const body = await this.body(req);
 			const preview = this.login.accounts.previewInvite(this.token(req), this.string(body.code));

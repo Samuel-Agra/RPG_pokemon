@@ -59,12 +59,41 @@ let tournamentRefreshTimer = null;
 let accountTableDialogMode = null;
 let accountTableDialogEntry = null;
 let accountTableCreationStep = 0;
+let accountTablesView = 'owned';
 
 const $ = selector => document.querySelector(selector);
 
 function show(screen) {
 	for (const element of screens) element.classList.toggle('hidden', element.id !== screen + '-screen');
 	window.scrollTo({ top: 0, behavior: 'instant' });
+}
+
+function platformPlayerNeedsCharacter(session = state.session) {
+	return !!state.accountSession?.activeTableId && session?.role === 'player' &&
+		session.mode === 'player' && !session.characterId;
+}
+
+/** Abre o cadastro compartilhado, mas mantém a conta global como dona do novo personagem. */
+function openCharacterCreation() {
+	setError('create-error', '');
+	$('#create-form').reset();
+	$('#initial-money').value = '3000';
+	$('#player-name').value = state.account?.displayName || '';
+	selectStarter('Squirtle');
+	$('#avatar').value = DEFAULT_AVATAR_ID;
+	renderAvatarPicker();
+	setAvatarPickerOpen(false);
+	setStarterPickerOpen(false);
+	const required = platformPlayerNeedsCharacter();
+	for (const id of ['character-password-field', 'character-password-confirmation-field']) {
+		$('#' + id).classList.toggle('hidden', required);
+		const input = $('#' + id).querySelector('input');
+		input.disabled = required;
+		input.required = !required;
+	}
+	const back = $('#create-screen [data-back]');
+	back.textContent = required ? '\u2039 Voltar \u00e0s mesas' : '\u2039 Voltar';
+	show('create');
 }
 
 function setHidden(element, hidden) {
@@ -199,6 +228,15 @@ function accountGeneralError(form, message) {
 	error.classList.remove('hidden');
 }
 
+function accountPasswordError(password) {
+	const value = String(password || '');
+	if (value.length < 8 || value.length > 200 || !/[a-z]/.test(value) || !/[A-Z]/.test(value) ||
+		!/[0-9]/.test(value) || !/[^A-Za-z0-9]/.test(value)) {
+		return 'Use 8 ou mais caracteres, incluindo maiúscula, minúscula, número e caractere especial.';
+	}
+	return '';
+}
+
 function validateAccountForm(form, register) {
 	clearAccountFormErrors(form);
 	const values = Object.fromEntries(new FormData(form));
@@ -212,7 +250,10 @@ function validateAccountForm(form, register) {
 		invalidate('displayName', 'Informe o nome que ser\u00e1 exibido nas mesas.');
 	}
 	if (!String(values.password || '')) invalidate('password', 'Informe sua senha.');
-	else if (register && String(values.password).length < 8) invalidate('password', 'Use pelo menos 8 caracteres.');
+	else if (register) {
+		const passwordError = accountPasswordError(values.password);
+		if (passwordError) invalidate('password', passwordError);
+	}
 	if (register && String(values.confirmPassword || '') !== String(values.password || '')) {
 		invalidate('confirmPassword', 'As senhas precisam ser iguais.');
 	}
@@ -358,11 +399,14 @@ async function enterAccountTable(entry) {
 		const connected = await api('/session');
 		saveSession(connected.session);
 		state.dashboardView = 'overview';
-		await renderDashboard();
+		if (platformPlayerNeedsCharacter(connected.session)) openCharacterCreation();
+		else await renderDashboard();
 		startBattleSessionSynchronization();
 	} catch (error) {
 		state.session = null;
 		showToast(error.message, true);
+	} finally {
+		// O cartão é preservado entre renderizações; não deixe nele o estado transitório da entrada.
 		if (buttonElement) { buttonElement.disabled = false; buttonElement.textContent = 'Entrar'; }
 	}
 }
@@ -515,12 +559,11 @@ function accountSettingsField(label, type = 'text') {
 }
 
 function openAccountSettings() {
-	document.querySelector('.account-settings-layer')?.remove();
-	const layer = createElement('div', 'modal-backdrop account-settings-layer');
-	const dialog = createElement('section', 'panel account-settings-dialog');
-	dialog.setAttribute('role', 'dialog'); dialog.setAttribute('aria-modal', 'true');
+	setAccountTablesView('settings');
+	const host = $('#account-settings-page'); host.replaceChildren();
+	const dialog = createElement('section', 'panel account-settings-dialog account-settings-inline');
 	const heading = createElement('div', 'account-settings-heading'); heading.append(createElement('h2', '', 'Configurações da conta'));
-	const close = button('Fechar', 'button'); heading.append(close); dialog.append(heading);
+	dialog.append(heading);
 	const tabs = createElement('div', 'account-settings-tabs'); const content = createElement('div', 'account-settings-content');
 	const sections = new Map();
 	const addTab = (id, label) => {
@@ -548,8 +591,13 @@ function openAccountSettings() {
 	const security = addTab('security', 'Segurança');
 	const currentPassword = accountSettingsField('Senha atual', 'password');
 	const newPassword = accountSettingsField('Nova senha', 'password'); newPassword.input.minLength = 8;
+	newPassword.input.maxLength = 200;
+	newPassword.field.append(createElement('small', 'password-requirements',
+		'8+ caracteres, com maiúscula, minúscula, número e caractere especial.'));
 	const changePassword = button('Alterar senha', 'button primary');
 	changePassword.addEventListener('click', async () => {
+		const passwordError = accountPasswordError(newPassword.input.value);
+		if (passwordError) { showToast(passwordError, true); newPassword.input.focus(); return; }
 		changePassword.disabled = true;
 		try {
 			await accountApi('/password', { method: 'PUT', body: {
@@ -585,7 +633,7 @@ function openAccountSettings() {
 			const endAll = button('Encerrar todas as sessões', 'button danger');
 			endAll.addEventListener('click', async () => {
 				if (endAll.dataset.confirm !== 'true') { endAll.dataset.confirm = 'true'; endAll.textContent = 'Confirmar encerramento'; return; }
-				await accountApi('/sessions', { method: 'DELETE' }); saveAccountSession(null); layer.remove(); show('entry');
+				await accountApi('/sessions', { method: 'DELETE' }); saveAccountSession(null); show('entry');
 			}); sessionsTab.section.replaceChildren(list, endAll);
 		} catch (error) { sessionsTab.section.replaceChildren(createElement('p', 'form-error', error.message)); }
 	};
@@ -604,9 +652,8 @@ function openAccountSettings() {
 	});
 	recovery.section.append(createElement('p', 'account-settings-help', 'Os códigos permitem recuperar a conta sem e-mail. Gerar um novo conjunto invalida o anterior.'), recoveryPassword.field, regenerate);
 
-	dialog.append(tabs, content); layer.append(dialog); document.body.append(layer);
-	const closeDialog = () => layer.remove(); close.addEventListener('click', closeDialog);
-	layer.addEventListener('pointerdown', event => { if (event.target === layer) closeDialog(); });
+	const shell = createElement('div', 'account-settings-shell'); shell.append(tabs, content);
+	dialog.append(shell); host.append(dialog);
 	profile.tab.click();
 }
 
@@ -855,8 +902,8 @@ async function refreshAccountTables() {
 	const data = await accountApi('/tables');
 	state.accountTables = data.tables || [];
 	const active = state.accountTables.filter(entry => entry.table.status === 'active');
-	const owned = active.filter(entry => entry.membership.role === 'owner');
-	const joined = active.filter(entry => entry.membership.role !== 'owner');
+	const owned = active.filter(entry => ['owner', 'master'].includes(entry.membership.role));
+	const joined = active.filter(entry => entry.membership.role === 'player');
 	const archived = state.accountTables.filter(entry => entry.table.status === 'archived');
 	reconcileAccountTableList($('#account-owned-table-list'), owned);
 	reconcileAccountTableList($('#account-joined-table-list'), joined);
@@ -868,8 +915,87 @@ async function refreshAccountTables() {
 	updateCurrentTableControl();
 }
 
+function renderDiscoveredTable(entry) {
+	const card = createElement('article', 'panel account-table-card account-discovered-table');
+	card.style.setProperty('--table-color', entry.table.color || '#406aa3');
+	const cover = createElement('div', 'account-table-cover'); cover.append(createElement('span', 'brand-ball'));
+	const content = createElement('div', 'account-table-content');
+	content.append(createElement('h3', '', entry.table.name),
+		createElement('p', 'account-table-owner', 'Por ' + entry.owner.displayName),
+		createElement('p', '', entry.table.description || 'Mesa pública'));
+	const facts = createElement('div', 'account-table-facts');
+	facts.append(createElement('span', '', `${entry.memberCount} membro${entry.memberCount === 1 ? '' : 's'}`));
+	if (entry.membership.status === 'active') facts.append(createElement('span', '', 'Você já participa'));
+	content.append(facts); card.append(cover, content); return card;
+}
+
+async function loadDiscoveredTables() {
+	const list = $('#account-discover-table-list');
+	list.replaceChildren(createElement('div', 'panel loading-block', 'Procurando mesas públicas...'));
+	try {
+		const data = await accountApi('/tables/discover'); const entries = data.tables || [];
+		list.replaceChildren(...entries.map(renderDiscoveredTable));
+		$('#account-discover-empty').classList.toggle('hidden', entries.length > 0);
+	} catch (error) { list.replaceChildren(createElement('div', 'panel empty-state', error.message)); }
+}
+
+async function loadDirectedInvites() {
+	const list = $('#account-directed-invite-list');
+	list.replaceChildren(createElement('div', 'panel loading-block', 'Carregando convites...'));
+	try {
+		const data = await accountApi('/invites/directed'); const entries = data.invites || []; list.replaceChildren();
+		for (const entry of entries) {
+			const card = createElement('article', 'panel account-table-card account-directed-invite');
+			card.style.setProperty('--table-color', entry.table.color || '#406aa3');
+			const cover = createElement('div', 'account-table-cover');
+			cover.append(createElement('span', 'brand-ball', ''), createElement('span', 'account-table-status', 'Convite'));
+			const content = createElement('div', 'account-table-content');
+			content.append(createElement('h3', '', entry.table.name),
+				createElement('p', 'account-table-owner', 'Por ' + entry.owner.displayName));
+			const facts = createElement('div', 'account-table-facts');
+			facts.append(createElement('span', '', accountRoleLabel(entry.invite.role)),
+				createElement('span', '', `${entry.memberCount} membro${entry.memberCount === 1 ? '' : 's'}`));
+			const invitation = createElement('div', 'account-table-character');
+			invitation.append(createElement('small', '', 'Participação'), createElement('strong', '', 'Aguardando sua resposta'));
+			const actions = createElement('div', 'account-table-footer account-invite-footer');
+			actions.append(createElement('small', '', 'Recebido: ' + relativeAccountActivity(entry.invite.createdAt)));
+			const accept = button('Aceitar', 'button primary'); const decline = button('Recusar', 'button danger');
+			accept.addEventListener('click', async () => {
+				accept.disabled = true;
+				try {
+					const result = await accountApi(`/invites/directed/${encodeURIComponent(entry.invite.id)}`, { method: 'POST' });
+					await refreshAccountTables(); await loadDirectedInvites();
+					showToast(result.membership.status === 'pending' ? 'Solicitação enviada para aprovação.' : 'Convite aceito.');
+				} catch (error) { accept.disabled = false; showToast(error.message, true); }
+			});
+			decline.addEventListener('click', async () => {
+				if (decline.dataset.confirm !== 'true') { decline.dataset.confirm = 'true'; decline.textContent = 'Confirmar recusa'; return; }
+				decline.disabled = true;
+				try { await accountApi(`/invites/directed/${encodeURIComponent(entry.invite.id)}`, { method: 'DELETE' }); await loadDirectedInvites(); showToast('Convite recusado.'); } catch (error) { decline.disabled = false; showToast(error.message, true); }
+			});
+			actions.append(accept, decline); content.append(facts, invitation, actions); card.append(cover, content); list.append(card);
+		}
+		$('#account-directed-invite-empty').classList.toggle('hidden', entries.length > 0);
+	} catch (error) { list.replaceChildren(createElement('div', 'panel empty-state', error.message)); }
+}
+
+function setAccountTablesView(view) {
+	accountTablesView = ['owned', 'joined', 'discover', 'invites', 'settings'].includes(view) ? view : 'owned';
+	for (const panel of document.querySelectorAll('[data-account-panel]')) {
+		panel.classList.toggle('hidden', panel.dataset.accountPanel !== accountTablesView);
+	}
+	for (const control of document.querySelectorAll('[data-account-view]')) {
+		const active = control.dataset.accountView === accountTablesView;
+		control.classList.toggle('active', active);
+		control.setAttribute('aria-current', active ? 'page' : 'false');
+	}
+	if (accountTablesView === 'discover') void loadDiscoveredTables();
+	if (accountTablesView === 'invites') void loadDirectedInvites();
+}
+
 async function renderAccountTables() {
 	show('tables');
+	setAccountTablesView(accountTablesView);
 	$('#account-profile-name').textContent = state.account?.displayName || 'Conta RPG';
 	$('#account-profile-username').textContent = '@' + (state.account?.username || 'usuario');
 	$('#account-profile-avatar').textContent = initials(state.account?.displayName);
@@ -5746,6 +5872,10 @@ async function confirmCharacterDeletion(event) {
 }
 
 async function renderDashboard() {
+	if (platformPlayerNeedsCharacter()) {
+		openCharacterCreation();
+		return;
+	}
 	show('dashboard');
 	if (state.dashboardView !== 'contests') window.RPGContestUI?.stopAudio?.();
 	document.getElementById('dashboard-screen').classList.remove('battle-mode', 'contest-mode');
@@ -5871,15 +6001,7 @@ $('#choose-master')?.addEventListener('click', () => {
 });
 $('#choose-player')?.addEventListener('click', loadCharacters);
 $('#open-create').addEventListener('click', () => {
-	setError('create-error', '');
-	$('#create-form').reset();
-	$('#initial-money').value = '3000';
-	selectStarter('Squirtle');
-	$('#avatar').value = DEFAULT_AVATAR_ID;
-	renderAvatarPicker();
-	setAvatarPickerOpen(false);
-	setStarterPickerOpen(false);
-	show('create');
+	openCharacterCreation();
 });
 $('#starter-picker-toggle').addEventListener('click', () => {
 	const open = $('#starter-picker-toggle').getAttribute('aria-expanded') !== 'true';
@@ -5929,6 +6051,7 @@ $('#account-open-recovery').addEventListener('click', () => setAccountAuthMode('
 $('#account-recovery-cancel').addEventListener('click', () => setAccountAuthMode('login'));
 
 for (const toggle of document.querySelectorAll('.account-password-toggle')) {
+	toggle.append(createElement('span', 'account-password-eye', ''));
 	toggle.addEventListener('click', () => {
 		const input = document.getElementById(toggle.dataset.target);
 		const visible = input.type === 'password';
@@ -6000,7 +6123,8 @@ $('#account-recovery-form').addEventListener('submit', async event => {
 	const values = Object.fromEntries(new FormData(form)); let valid = true;
 	if (!String(values.username || '').trim()) { accountFieldError(form, 'username', 'Informe seu nome de usuário.'); valid = false; }
 	if (!String(values.recoveryCode || '').trim()) { accountFieldError(form, 'recoveryCode', 'Informe um código de recuperação.'); valid = false; }
-	if (String(values.password || '').length < 8) { accountFieldError(form, 'password', 'Use pelo menos 8 caracteres.'); valid = false; }
+	const passwordError = accountPasswordError(values.password);
+	if (passwordError) { accountFieldError(form, 'password', passwordError); valid = false; }
 	if (!valid) return;
 	const submit = form.querySelector('[type="submit"]'); submit.disabled = true;
 	try {
@@ -6009,7 +6133,7 @@ $('#account-recovery-form').addEventListener('submit', async event => {
 			newPassword: String(values.password),
 		} });
 		form.reset(); setAccountAuthMode('login'); showToast('Senha redefinida. Entre com sua nova senha.');
-	} catch (error) { accountGeneralError(form, error.message); } finally { submit.disabled = false; }
+	} catch (error) { showAccountServerError(form, error); } finally { submit.disabled = false; }
 });
 
 $('#account-logout').addEventListener('click', async () => {
@@ -6022,6 +6146,10 @@ $('#account-logout').addEventListener('click', async () => {
 $('#account-settings').addEventListener('click', () => void openAccountSettings());
 $('#account-create-table').addEventListener('click', () => openAccountTableDialog('create'));
 $('#account-join-table').addEventListener('click', () => openAccountTableDialog('join'));
+$('#account-invites-join').addEventListener('click', () => openAccountTableDialog('join'));
+for (const control of document.querySelectorAll('[data-account-view]')) {
+	control.addEventListener('click', () => setAccountTablesView(control.dataset.accountView));
+}
 $('#account-table-dialog-cancel').addEventListener('click', closeAccountTableDialog);
 $('#account-table-dialog-back').addEventListener('click', () => {
 	if (accountTableDialogMode !== 'create' || accountTableCreationStep <= 0) return;
@@ -6044,7 +6172,11 @@ document.addEventListener('pointerdown', event => {
 
 for (const back of document.querySelectorAll('[data-back]')) {
 	back.addEventListener('click', () => {
-		if (back.dataset.back === 'player') loadCharacters();
+		if (back.dataset.back === 'player' && platformPlayerNeedsCharacter()) {
+			state.session = null;
+			localStorage.removeItem(STORAGE_KEY);
+			void renderAccountTables();
+		} else if (back.dataset.back === 'player') loadCharacters();
 		else show(back.dataset.back);
 	});
 }
@@ -6124,7 +6256,13 @@ function handleEscapeNavigation(event) {
 	}
 	if (visibleScreen === 'create-screen') {
 		event.preventDefault();
-		void loadCharacters();
+		if (platformPlayerNeedsCharacter()) {
+			state.session = null;
+			localStorage.removeItem(STORAGE_KEY);
+			void renderAccountTables();
+		} else {
+			void loadCharacters();
+		}
 		return;
 	}
 	if (visibleScreen !== 'dashboard-screen') return;
@@ -6203,7 +6341,7 @@ $('#create-form').addEventListener('submit', async event => {
 	const data = new FormData(form);
 	const password = String(data.get('password') || '');
 	const confirmation = String(data.get('confirmPassword') || '');
-	if (password !== confirmation) {
+	if (!platformPlayerNeedsCharacter() && password !== confirmation) {
 		setError('create-error', 'As duas senhas RPG precisam ser iguais.');
 		return;
 	}
@@ -6226,12 +6364,13 @@ $('#create-form').addEventListener('submit', async event => {
 	};
 	try {
 		const created = await api('/characters', { method: 'POST', body: request });
-		const login = await api('/session/player', {
-			method: 'POST',
-			body: { characterId: created.character.id, password },
+		const platformCreation = !!state.accountSession?.activeTableId;
+		const login = platformCreation ? await api('/session') : await api('/session/player', {
+			method: 'POST', body: { characterId: created.character.id, password },
 		});
 		form.reset();
 		saveSession(login.session);
+		state.dashboardView = 'overview';
 		await renderDashboard();
 		showToast('Personagem criado com sucesso.');
 	} catch (error) {

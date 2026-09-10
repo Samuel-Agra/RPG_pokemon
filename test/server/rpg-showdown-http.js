@@ -133,7 +133,7 @@ describe('RPG HTTP frontend API', () => {
 
 	it('serves version 2 accounts, persistent sessions, tables, and invitations separately', async () => {
 		let result = await request('/v2/accounts', {
-			method: 'POST', body: { username: 'mestre-v2', displayName: 'Mestre V2', password: 'senha-segura' },
+			method: 'POST', body: { username: 'mestre-v2', displayName: 'Mestre V2', password: 'Senha1!Segura' },
 		});
 		assert.equal(result.response.status, 201);
 		assert.equal(result.data.account.username, 'mestrev2');
@@ -141,10 +141,10 @@ describe('RPG HTTP frontend API', () => {
 		assert.equal(result.data.recoveryCodes.length, 10);
 
 		await request('/v2/accounts', {
-			method: 'POST', body: { username: 'player-v2', displayName: 'Player V2', password: 'senha-segura' },
+			method: 'POST', body: { username: 'player-v2', displayName: 'Player V2', password: 'Senha1!Segura' },
 		});
 		result = await request('/v2/session', {
-			method: 'POST', body: { username: 'mestre-v2', password: 'senha-segura' },
+			method: 'POST', body: { username: 'mestre-v2', password: 'Senha1!Segura' },
 		});
 		assert.equal(result.response.status, 200);
 		const masterToken = result.data.session.token;
@@ -164,7 +164,7 @@ describe('RPG HTTP frontend API', () => {
 		const inviteCode = result.data.code;
 
 		result = await request('/v2/session', {
-			method: 'POST', body: { username: 'player-v2', password: 'senha-segura' },
+			method: 'POST', body: { username: 'player-v2', password: 'Senha1!Segura' },
 		});
 		const playerToken = result.data.session.token;
 		const playerHeaders = { Authorization: `Bearer ${playerToken}` };
@@ -201,14 +201,14 @@ describe('RPG HTTP frontend API', () => {
 
 	it('lists and revokes version 2 sessions without exposing their token hashes', async () => {
 		await request('/v2/accounts', {
-			method: 'POST', body: { username: 'multissessao', displayName: 'Multissessão', password: 'senha-segura' },
+			method: 'POST', body: { username: 'multissessao', displayName: 'Multissessão', password: 'Senha1!Segura' },
 		});
 		let result = await request('/v2/session', {
-			method: 'POST', body: { username: 'multissessao', password: 'senha-segura' },
+			method: 'POST', body: { username: 'multissessao', password: 'Senha1!Segura' },
 		});
 		const firstToken = result.data.session.token;
 		result = await request('/v2/session', {
-			method: 'POST', body: { username: 'multissessao', password: 'senha-segura' },
+			method: 'POST', body: { username: 'multissessao', password: 'Senha1!Segura' },
 		});
 		const secondToken = result.data.session.token;
 		const firstHeaders = { Authorization: `Bearer ${firstToken}` };
@@ -228,32 +228,32 @@ describe('RPG HTTP frontend API', () => {
 
 	it('recovers passwords with a one-time code and rate-limits repeated login failures', async () => {
 		let result = await request('/v2/accounts', {
-			method: 'POST', body: { username: 'seguranca-http', displayName: 'Segurança', password: 'senha-antiga' },
+			method: 'POST', body: { username: 'seguranca-http', displayName: 'Segurança', password: 'Antiga1!Senha' },
 		});
 		const recoveryCode = result.data.recoveryCodes[0];
 		result = await request('/v2/password/recovery', {
-			method: 'POST', body: { username: 'seguranca-http', recoveryCode, newPassword: 'senha-nova-segura' },
+			method: 'POST', body: { username: 'seguranca-http', recoveryCode, newPassword: 'Nova1!SenhaSegura' },
 		});
 		assert.equal(result.response.status, 200);
 		result = await request('/v2/session', {
-			method: 'POST', body: { username: 'seguranca-http', password: 'senha-nova-segura' },
+			method: 'POST', body: { username: 'seguranca-http', password: 'Nova1!SenhaSegura' },
 		});
 		assert.equal(result.response.status, 200);
 		const securityHeaders = { Authorization: `Bearer ${result.data.session.token}` };
 		result = await request('/v2/password', {
 			method: 'PUT', headers: securityHeaders,
-			body: { currentPassword: 'senha-nova-segura', newPassword: 'senha-final-segura' },
+			body: { currentPassword: 'Nova1!SenhaSegura', newPassword: 'Final1!SenhaSegura' },
 		});
 		assert.equal(result.response.status, 200);
 		result = await request('/v2/recovery-codes', {
-			method: 'POST', headers: securityHeaders, body: { password: 'senha-final-segura' },
+			method: 'POST', headers: securityHeaders, body: { password: 'Final1!SenhaSegura' },
 		});
 		assert.equal(result.response.status, 200);
 		assert.equal(result.data.recoveryCodes.length, 10);
 		for (let index = 0; index < 5; index++) {
 			result = await request('/v2/password/recovery', {
 				method: 'POST', body: {
-					username: 'seguranca-http', recoveryCode: '0000-0000-0000', newPassword: 'outra-senha-segura',
+					username: 'seguranca-http', recoveryCode: '0000-0000-0000', newPassword: 'Outra1!SenhaSegura',
 				},
 			});
 			assert.equal(result.response.status, 400);
@@ -261,7 +261,7 @@ describe('RPG HTTP frontend API', () => {
 		result = await request('/v2/password/recovery', {
 			method: 'POST', body: {
 				username: 'seguranca-http', recoveryCode: result.data.recoveryCodes?.[0] || '1111-1111-1111',
-				newPassword: 'outra-senha-segura',
+				newPassword: 'Outra1!SenhaSegura',
 			},
 		});
 		assert.equal(result.response.status, 429);
@@ -276,10 +276,10 @@ describe('RPG HTTP frontend API', () => {
 
 	it('administers version 2 members and advanced invitations through protected routes', async () => {
 		for (const [username, displayName] of [['adminv2', 'Admin'], ['membrov2', 'Membro'], ['saidav2', 'Saída']]) {
-			await request('/v2/accounts', { method: 'POST', body: { username, displayName, password: 'senha-segura' } });
+			await request('/v2/accounts', { method: 'POST', body: { username, displayName, password: 'Senha1!Segura' } });
 		}
 		const login = async username => (await request('/v2/session', {
-			method: 'POST', body: { username, password: 'senha-segura' },
+			method: 'POST', body: { username, password: 'Senha1!Segura' },
 		})).data.session;
 		const owner = await login('adminv2'); const member = await login('membrov2'); const leaver = await login('saidav2');
 		const ownerHeaders = { Authorization: `Bearer ${owner.token}` };
@@ -515,12 +515,12 @@ describe('RPG HTTP frontend API', () => {
 	it('uses one global token while keeping each selected table world isolated', async () => {
 		const { RPGAccountManagement, RPGMemoryAccountRepository } = require('../../dist/server/rpg-showdown/account-management');
 		const accounts = new RPGAccountManagement(new RPGMemoryAccountRepository());
-		accounts.createAccount('dono-multimesa', 'Dono', 'senha-segura');
-		accounts.createAccount('player-multimesa', 'Player', 'senha-segura');
-		accounts.createAccount('destino-multimesa', 'Destino', 'senha-segura');
-		const owner = accounts.login('dono-multimesa', 'senha-segura');
-		const player = accounts.login('player-multimesa', 'senha-segura');
-		const target = accounts.login('destino-multimesa', 'senha-segura');
+		accounts.createAccount('dono-multimesa', 'Dono', 'Senha1!Segura');
+		accounts.createAccount('player-multimesa', 'Player', 'Senha1!Segura');
+		accounts.createAccount('destino-multimesa', 'Destino', 'Senha1!Segura');
+		const owner = accounts.login('dono-multimesa', 'Senha1!Segura');
+		const player = accounts.login('player-multimesa', 'Senha1!Segura');
+		const target = accounts.login('destino-multimesa', 'Senha1!Segura');
 		const tableA = accounts.createTable(owner.token, { name: 'Mesa A' });
 		const tableB = accounts.createTable(owner.token, { name: 'Mesa B' });
 		for (const table of [tableA, tableB]) {
@@ -555,11 +555,16 @@ describe('RPG HTTP frontend API', () => {
 		};
 		try {
 			accounts.selectTable(player.token, tableB.id);
+			let sessionResult = await scopedRequest('/session');
+			assert.equal(sessionResult.response.status, 200, JSON.stringify(sessionResult.data));
+			assert.equal(sessionResult.data.session.characterId, undefined);
 			let result = await scopedRequest('/characters', { method: 'POST', body: {
-				characterName: 'Personagem B', playerName: 'Player', avatar: 'red', password: 'senha-personagem',
+				characterName: 'Personagem B', playerName: 'Player', avatar: 'red',
 				initialMoney: 0, starter: { species: 'Squirtle', nickname: '', gender: 'M', level: 5 },
 			} });
 			assert.equal(result.response.status, 201, JSON.stringify(result.data));
+			sessionResult = await scopedRequest('/session');
+			assert.equal(sessionResult.data.session.characterId, 'personagemb');
 			accounts.selectTable(player.token, tableA.id);
 			result = await scopedRequest('/characters'); assert.deepEqual(result.data.characters, []);
 			accounts.selectTable(player.token, tableB.id);
@@ -589,10 +594,10 @@ describe('RPG HTTP frontend API', () => {
 	it('keeps owner-only campaign configuration away from auxiliary masters', async () => {
 		const { RPGAccountManagement, RPGMemoryAccountRepository } = require('../../dist/server/rpg-showdown/account-management');
 		const accounts = new RPGAccountManagement(new RPGMemoryAccountRepository());
-		accounts.createAccount('dono-campanha', 'Dono', 'senha-segura');
-		accounts.createAccount('mestre-auxiliar', 'Mestre auxiliar', 'senha-segura');
-		const owner = accounts.login('dono-campanha', 'senha-segura');
-		const auxiliary = accounts.login('mestre-auxiliar', 'senha-segura');
+		accounts.createAccount('dono-campanha', 'Dono', 'Senha1!Segura');
+		accounts.createAccount('mestre-auxiliar', 'Mestre auxiliar', 'Senha1!Segura');
+		const owner = accounts.login('dono-campanha', 'Senha1!Segura');
+		const auxiliary = accounts.login('mestre-auxiliar', 'Senha1!Segura');
 		const table = accounts.createTable(owner.token, { name: 'Mesa com auxiliares' });
 		accounts.joinByInvite(auxiliary.token, accounts.createInvite(owner.token, table.id, 'master').code);
 		accounts.selectTable(owner.token, table.id);
@@ -647,10 +652,10 @@ describe('RPG HTTP frontend API', () => {
 			RPGAccountManagement, RPGMemoryAccountRepository, RPGMemoryPlatformSessionRepository,
 		} = require('../../dist/server/rpg-showdown/account-management');
 		const seedAccounts = new RPGAccountManagement(new RPGMemoryAccountRepository());
-		const ownerAccount = seedAccounts.createAccount('dono-distribuido', 'Dono', 'senha-segura');
-		const playerAccount = seedAccounts.createAccount('player-distribuido', 'Player', 'senha-segura');
-		const owner = seedAccounts.login('dono-distribuido', 'senha-segura');
-		const player = seedAccounts.login('player-distribuido', 'senha-segura');
+		const ownerAccount = seedAccounts.createAccount('dono-distribuido', 'Dono', 'Senha1!Segura');
+		const playerAccount = seedAccounts.createAccount('player-distribuido', 'Player', 'Senha1!Segura');
+		const owner = seedAccounts.login('dono-distribuido', 'Senha1!Segura');
+		const player = seedAccounts.login('player-distribuido', 'Senha1!Segura');
 		const table = seedAccounts.createTable(owner.token, { name: 'Mesa distribuída' });
 		seedAccounts.joinByInvite(player.token, seedAccounts.createInvite(owner.token, table.id).code);
 		seedAccounts.selectTable(player.token, table.id);

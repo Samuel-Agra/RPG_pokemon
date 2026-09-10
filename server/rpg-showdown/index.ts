@@ -886,7 +886,12 @@ export class RPGLoginService {
 	createCharacterForPlatformSession(token: string, request: RPGCreateCharacterRequest): RPGCharacterSelection {
 		const session = this.getInternalSession(token);
 		if (!session.platformAccountId || session.role !== 'player') throw new Error('Sessão global de Player necessária');
-		const character = this.createCharacter(request, session.platformAccountId);
+		// A conta global autentica o dono. A credencial aleatória apenas mantém registros
+		// antigos compatíveis e nunca é exibida nem usada no fluxo da versão 2.
+		const character = this.createCharacter({
+			...request,
+			password: this.bytes(32).toString('base64url'),
+		}, session.platformAccountId);
 		session.characterId = character.id; this.sessions.set(this.tokenKey(token), session);
 		return character;
 	}
