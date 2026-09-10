@@ -159,17 +159,20 @@ function saveAccountSession(session, account = state.account) {
 
 function setAccountAuthMode(mode, focus = true) {
 	const register = mode === 'register';
+	const recovery = mode === 'recovery';
 	const shell = document.querySelector('.account-auth');
 	if (!shell) return;
-	shell.dataset.accountAuthMode = register ? 'register' : 'login';
-	$('#account-login-form').classList.toggle('hidden', register);
+	shell.dataset.accountAuthMode = recovery ? 'recovery' : register ? 'register' : 'login';
+	$('#account-login-form').classList.toggle('hidden', register || recovery);
 	$('#account-register-form').classList.toggle('hidden', !register);
-	for (const [tab, active] of [[$('#account-login-tab'), !register], [$('#account-register-tab'), register]]) {
+	$('#account-recovery-form').classList.toggle('hidden', !recovery);
+	for (const [tab, active] of [[$('#account-login-tab'), !register && !recovery], [$('#account-register-tab'), register]]) {
 		tab.classList.toggle('active', active);
 		tab.setAttribute('aria-selected', String(active));
 	}
-	clearAccountFormErrors(register ? $('#account-register-form') : $('#account-login-form'));
-	if (focus) $(register ? '#account-register-username' : '#account-login-username').focus();
+	const form = recovery ? $('#account-recovery-form') : register ? $('#account-register-form') : $('#account-login-form');
+	clearAccountFormErrors(form);
+	if (focus) form.querySelector('input')?.focus();
 }
 
 function clearAccountFormErrors(form) {
@@ -483,6 +486,128 @@ function openLeaveTableConfirmation(entry) {
 	cancel.addEventListener('click', () => layer.remove()); actions.append(leave, cancel);
 	dialog.append(actions); layer.append(dialog); document.body.append(layer);
 	layer.addEventListener('pointerdown', event => { if (event.target === layer) layer.remove(); });
+}
+
+function showRecoveryCodes(codes, message, onClose) {
+	const layer = createElement('div', 'modal-backdrop recovery-codes-layer');
+	const dialog = createElement('section', 'panel recovery-codes-dialog');
+	dialog.setAttribute('role', 'dialog'); dialog.setAttribute('aria-modal', 'true');
+	dialog.append(createElement('p', 'eyebrow', 'Segurança da conta'), createElement('h2', '', 'Códigos de recuperação'),
+		createElement('p', '', message || 'Guarde estes códigos em local seguro. Eles não serão mostrados novamente.'));
+	const list = createElement('div', 'recovery-code-list');
+	for (const code of codes) list.append(createElement('code', '', code));
+	const copy = button('Copiar códigos', 'button'); const finish = button('Já guardei', 'button primary');
+	copy.addEventListener('click', async () => {
+		try { await navigator.clipboard.writeText(codes.join('\n')); copy.textContent = 'Copiados'; } catch {
+			showToast('Não foi possível copiar. Selecione os códigos manualmente.', true);
+		}
+	});
+	const close = () => { layer.remove(); onClose?.(); };
+	finish.addEventListener('click', close);
+	const actions = createElement('div', 'form-actions'); actions.append(copy, finish);
+	dialog.append(list, actions); layer.append(dialog); document.body.append(layer);
+	layer.addEventListener('pointerdown', event => { if (event.target === layer) close(); });
+}
+
+function accountSettingsField(label, type = 'text') {
+	const field = createElement('label', 'account-security-field'); field.append(createElement('span', '', label));
+	const input = createElement('input'); input.type = type; field.append(input); return { field, input };
+}
+
+function openAccountSettings() {
+	document.querySelector('.account-settings-layer')?.remove();
+	const layer = createElement('div', 'modal-backdrop account-settings-layer');
+	const dialog = createElement('section', 'panel account-settings-dialog');
+	dialog.setAttribute('role', 'dialog'); dialog.setAttribute('aria-modal', 'true');
+	const heading = createElement('div', 'account-settings-heading'); heading.append(createElement('h2', '', 'Configurações da conta'));
+	const close = button('Fechar', 'button'); heading.append(close); dialog.append(heading);
+	const tabs = createElement('div', 'account-settings-tabs'); const content = createElement('div', 'account-settings-content');
+	const sections = new Map();
+	const addTab = (id, label) => {
+		const tab = button(label, 'account-settings-tab'); const section = createElement('section', 'account-settings-section hidden');
+		tab.addEventListener('click', () => {
+			for (const candidate of tabs.children) candidate.classList.toggle('active', candidate === tab);
+			for (const candidate of sections.values()) candidate.classList.toggle('hidden', candidate !== section);
+		});
+		tabs.append(tab); content.append(section); sections.set(id, section); return { tab, section };
+	};
+	const profile = addTab('profile', 'Perfil');
+	const displayName = accountSettingsField('Nome de exibição'); displayName.input.value = state.account?.displayName || '';
+	const saveProfile = button('Salvar perfil', 'button primary');
+	saveProfile.addEventListener('click', async () => {
+		saveProfile.disabled = true;
+		try {
+			const data = await accountApi('/account', { method: 'PATCH', body: { displayName: displayName.input.value } });
+			state.account = data.account; saveAccountSession(state.accountSession, data.account);
+			$('#account-profile-name').textContent = data.account.displayName; $('#account-profile-avatar').textContent = initials(data.account.displayName);
+			showToast('Perfil atualizado.');
+		} catch (error) { showToast(error.message, true); } finally { saveProfile.disabled = false; }
+	});
+	profile.section.append(displayName.field, saveProfile);
+
+	const security = addTab('security', 'Segurança');
+	const currentPassword = accountSettingsField('Senha atual', 'password');
+	const newPassword = accountSettingsField('Nova senha', 'password'); newPassword.input.minLength = 8;
+	const changePassword = button('Alterar senha', 'button primary');
+	changePassword.addEventListener('click', async () => {
+		changePassword.disabled = true;
+		try {
+			await accountApi('/password', { method: 'PUT', body: {
+				currentPassword: currentPassword.input.value, newPassword: newPassword.input.value,
+			} });
+			currentPassword.input.value = ''; newPassword.input.value = '';
+			showToast('Senha alterada. As outras sessões foram encerradas.');
+		} catch (error) { showToast(error.message, true); } finally { changePassword.disabled = false; }
+	});
+	security.section.append(createElement('p', 'account-settings-help', 'A senha usa hash scrypt com salt individual. Alterá-la encerra as outras sessões.'),
+		currentPassword.field, newPassword.field, changePassword);
+
+	const sessionsTab = addTab('sessions', 'Sessões conectadas');
+	const renderSessions = async () => {
+		sessionsTab.section.replaceChildren(createElement('div', 'loading-block', 'Carregando sessões...'));
+		try {
+			const data = await accountApi('/sessions'); const list = createElement('div', 'account-session-list');
+			for (const connected of data.sessions) {
+				const row = createElement('div', 'account-session-row'); const description = createElement('div');
+				const device = connected.current ? (/Android/i.test(navigator.userAgent) ? 'Android' : /Windows/i.test(navigator.userAgent) ? 'Windows' : 'Este dispositivo') : 'Outro dispositivo';
+				description.append(createElement('strong', '', device), createElement('small', '', connected.current ? 'Sessão atual' : 'Atividade ' + relativeAccountActivity(connected.lastSeenAt).toLowerCase()));
+				row.append(description);
+				if (!connected.current) {
+					const end = button('Encerrar', 'button danger'); end.addEventListener('click', async () => {
+						end.disabled = true;
+						try { await accountApi('/sessions/' + encodeURIComponent(connected.id), { method: 'DELETE' }); row.remove(); } catch (error) {
+							end.disabled = false; showToast(error.message, true);
+						}
+					}); row.append(end);
+				}
+				list.append(row);
+			}
+			const endAll = button('Encerrar todas as sessões', 'button danger');
+			endAll.addEventListener('click', async () => {
+				if (endAll.dataset.confirm !== 'true') { endAll.dataset.confirm = 'true'; endAll.textContent = 'Confirmar encerramento'; return; }
+				await accountApi('/sessions', { method: 'DELETE' }); saveAccountSession(null); layer.remove(); show('entry');
+			}); sessionsTab.section.replaceChildren(list, endAll);
+		} catch (error) { sessionsTab.section.replaceChildren(createElement('p', 'form-error', error.message)); }
+	};
+	sessionsTab.tab.addEventListener('click', () => void renderSessions());
+
+	const recovery = addTab('recovery', 'Código de recuperação');
+	const recoveryPassword = accountSettingsField('Confirme sua senha', 'password');
+	const regenerate = button('Gerar novos códigos', 'button primary');
+	regenerate.addEventListener('click', async () => {
+		regenerate.disabled = true;
+		try {
+			const data = await accountApi('/recovery-codes', { method: 'POST', body: { password: recoveryPassword.input.value } });
+			recoveryPassword.input.value = '';
+			showRecoveryCodes(data.recoveryCodes, 'Os códigos anteriores foram invalidados. Guarde os novos agora.');
+		} catch (error) { showToast(error.message, true); } finally { regenerate.disabled = false; }
+	});
+	recovery.section.append(createElement('p', 'account-settings-help', 'Os códigos permitem recuperar a conta sem e-mail. Gerar um novo conjunto invalida o anterior.'), recoveryPassword.field, regenerate);
+
+	dialog.append(tabs, content); layer.append(dialog); document.body.append(layer);
+	const closeDialog = () => layer.remove(); close.addEventListener('click', closeDialog);
+	layer.addEventListener('pointerdown', event => { if (event.target === layer) closeDialog(); });
+	profile.tab.click();
 }
 
 async function deleteAccountTable(entry) {
@@ -5800,6 +5925,8 @@ $('#current-table-leave').addEventListener('click', () => {
 
 $('#account-login-tab').addEventListener('click', () => setAccountAuthMode('login'));
 $('#account-register-tab').addEventListener('click', () => setAccountAuthMode('register'));
+$('#account-open-recovery').addEventListener('click', () => setAccountAuthMode('recovery'));
+$('#account-recovery-cancel').addEventListener('click', () => setAccountAuthMode('login'));
 
 for (const toggle of document.querySelectorAll('.account-password-toggle')) {
 	toggle.addEventListener('click', () => {
@@ -5846,7 +5973,7 @@ $('#account-register-form').addEventListener('submit', async event => {
 	submit.disabled = true;
 	submit.textContent = 'Criando conta...';
 	try {
-		await accountApi('/accounts', { method: 'POST', body: {
+		const registration = await accountApi('/accounts', { method: 'POST', body: {
 			username: String(values.username).trim(), displayName: String(values.displayName).trim(),
 			password: String(values.password),
 		} });
@@ -5858,13 +5985,31 @@ $('#account-register-form').addEventListener('submit', async event => {
 		saveAccountSession(current.session, current.account);
 		form.reset();
 		await renderAccountTables();
-		showToast('Conta criada com sucesso.');
+		showRecoveryCodes(registration.recoveryCodes,
+			'Guarde estes códigos em local seguro. Eles não serão mostrados novamente.');
 	} catch (error) {
 		showAccountServerError(form, error);
 	} finally {
 		submit.disabled = false;
 		submit.textContent = 'Criar conta';
 	}
+});
+
+$('#account-recovery-form').addEventListener('submit', async event => {
+	event.preventDefault(); const form = event.currentTarget; clearAccountFormErrors(form);
+	const values = Object.fromEntries(new FormData(form)); let valid = true;
+	if (!String(values.username || '').trim()) { accountFieldError(form, 'username', 'Informe seu nome de usuário.'); valid = false; }
+	if (!String(values.recoveryCode || '').trim()) { accountFieldError(form, 'recoveryCode', 'Informe um código de recuperação.'); valid = false; }
+	if (String(values.password || '').length < 8) { accountFieldError(form, 'password', 'Use pelo menos 8 caracteres.'); valid = false; }
+	if (!valid) return;
+	const submit = form.querySelector('[type="submit"]'); submit.disabled = true;
+	try {
+		await accountApi('/password/recovery', { method: 'POST', body: {
+			username: String(values.username).trim(), recoveryCode: String(values.recoveryCode).trim(),
+			newPassword: String(values.password),
+		} });
+		form.reset(); setAccountAuthMode('login'); showToast('Senha redefinida. Entre com sua nova senha.');
+	} catch (error) { accountGeneralError(form, error.message); } finally { submit.disabled = false; }
 });
 
 $('#account-logout').addEventListener('click', async () => {
@@ -5874,7 +6019,7 @@ $('#account-logout').addEventListener('click', async () => {
 	setAccountAuthMode('login', false);
 	$('#account-login-username').focus();
 });
-$('#account-settings').addEventListener('click', () => openAccountTableDialog('settings'));
+$('#account-settings').addEventListener('click', () => void openAccountSettings());
 $('#account-create-table').addEventListener('click', () => openAccountTableDialog('create'));
 $('#account-join-table').addEventListener('click', () => openAccountTableDialog('join'));
 $('#account-table-dialog-cancel').addEventListener('click', closeAccountTableDialog);
@@ -5972,7 +6117,7 @@ function handleEscapeNavigation(event) {
 		show('entry');
 		return;
 	}
-	if (visibleScreen === 'entry-screen' && document.querySelector('.account-auth')?.dataset.accountAuthMode === 'register') {
+	if (visibleScreen === 'entry-screen' && document.querySelector('.account-auth')?.dataset.accountAuthMode !== 'login') {
 		event.preventDefault();
 		setAccountAuthMode('login');
 		return;

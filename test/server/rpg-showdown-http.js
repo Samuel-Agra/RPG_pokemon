@@ -240,8 +240,13 @@ describe('RPG HTTP frontend API', () => {
 		});
 		assert.equal(result.response.status, 200);
 		const securityHeaders = { Authorization: `Bearer ${result.data.session.token}` };
+		result = await request('/v2/password', {
+			method: 'PUT', headers: securityHeaders,
+			body: { currentPassword: 'senha-nova-segura', newPassword: 'senha-final-segura' },
+		});
+		assert.equal(result.response.status, 200);
 		result = await request('/v2/recovery-codes', {
-			method: 'POST', headers: securityHeaders, body: { password: 'senha-nova-segura' },
+			method: 'POST', headers: securityHeaders, body: { password: 'senha-final-segura' },
 		});
 		assert.equal(result.response.status, 200);
 		assert.equal(result.data.recoveryCodes.length, 10);

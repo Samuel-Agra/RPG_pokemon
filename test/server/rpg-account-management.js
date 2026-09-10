@@ -6,7 +6,7 @@ const fs = require('fs');
 const path = require('path');
 const {
 	RPGAccountManagement, RPGMemoryAccountRepository, RPGMemoryPlatformSessionRepository,
-	getRPGDefaultTablePermissions,
+	RPG_PLATFORM_SESSION_TTL, getRPGDefaultTablePermissions,
 } = require('../../dist/server/rpg-showdown');
 const {
 	RPGMySQLPersistence, RPG_SECURITY_RETENTION_MS, reportRPGSecurityCleanupFailure, runRPGMigrationFile,
@@ -295,11 +295,30 @@ describe('RPG version 2 accounts and tables backend', () => {
 		assert((await login).token);
 	});
 
+	it('changes the password securely, revokes other sessions, and expires only after inactivity', async () => {
+		let time = 1_700_000_000_000;
+		const accounts = new RPGAccountManagement(new RPGMemoryAccountRepository(), () => time);
+		accounts.createAccount('senha-segura-v2', 'Senha segura', 'senha-antiga');
+		const current = accounts.login('senha-segura-v2', 'senha-antiga');
+		const other = accounts.login('senha-segura-v2', 'senha-antiga');
+		time += RPG_PLATFORM_SESSION_TTL / 2;
+		const renewed = accounts.getSession(current.token).session;
+		assert.equal(renewed.expiresAt, time + RPG_PLATFORM_SESSION_TTL);
+		time += RPG_PLATFORM_SESSION_TTL / 2 + 1;
+		assert(accounts.getSession(current.token).session.token);
+		await accounts.changePasswordAsync(current.token, 'senha-antiga', 'senha-nova-segura');
+		assert.throws(() => accounts.getSession(other.token), /inválida ou expirada/);
+		assert.throws(() => accounts.login('senha-segura-v2', 'senha-antiga'), /inválidos/);
+		assert(accounts.login('senha-segura-v2', 'senha-nova-segura').token);
+		time += RPG_PLATFORM_SESSION_TTL + 1;
+		assert.throws(() => accounts.getSession(current.token), /inválida ou expirada/);
+	});
+
 	it('issues one-time recovery codes and revokes every session after a password reset', () => {
 		const accounts = service();
 		const registration = accounts.createAccountWithRecoveryCodes('recuperar', 'Recuperar', 'senha-antiga');
 		assert.equal(registration.recoveryCodes.length, 10);
-		assert(registration.recoveryCodes.every(code => /^[0-9A-F]{4}-[0-9A-F]{4}-[0-9A-F]{4}$/.test(code)));
+		assert(registration.recoveryCodes.every(code => /^(?:[0-9A-F]{4}-){3}[0-9A-F]{4}$/.test(code)));
 		const oldSession = accounts.login('recuperar', 'senha-antiga');
 		accounts.recoverPassword('recuperar', registration.recoveryCodes[0], 'senha-nova-segura');
 		assert.throws(() => accounts.getSession(oldSession.token), /inválida ou expirada/);

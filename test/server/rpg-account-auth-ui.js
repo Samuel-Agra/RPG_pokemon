@@ -32,7 +32,7 @@ describe('RPG version 2 account authentication frontend', () => {
 	it('validates individual fields, toggles password visibility and supports Escape', () => {
 		assert(script.includes('accountFieldError(form'));
 		assert(script.includes("String(values.confirmPassword || '') !== String(values.password || '')"));
-		assert(script.includes("dataset.accountAuthMode === 'register'"));
+		assert(script.includes("dataset.accountAuthMode !== 'login'"));
 		assert(script.includes("setAccountAuthMode('login')"));
 		assert(html.match(/account-password-toggle/g)?.length >= 3);
 	});
@@ -107,5 +107,21 @@ describe('RPG version 2 account authentication frontend', () => {
 		assert(script.includes('/owner`'));
 		assert(style.includes('.table-lifecycle-dialog'));
 		assert(style.includes('.member-character-transfer'));
+	});
+
+	it('recovers accounts and administers profile, password, codes, and connected sessions', () => {
+		assert(html.includes('id="account-recovery-form"'));
+		assert(html.includes('id="account-open-recovery"'));
+		assert(script.includes("setAccountAuthMode('recovery')"));
+		assert(script.includes("accountApi('/password/recovery'"));
+		assert(script.includes('showRecoveryCodes(registration.recoveryCodes'));
+		for (const label of ['Perfil', 'Seguran\u00e7a', 'Sess\u00f5es conectadas', 'C\u00f3digo de recupera\u00e7\u00e3o']) {
+			assert(script.includes(`'${label}'`));
+		}
+		assert(script.includes("accountApi('/password'"));
+		assert(script.includes("accountApi('/sessions'"));
+		assert(script.includes("accountApi('/recovery-codes'"));
+		assert(style.includes('.account-settings-dialog'));
+		assert(style.includes('.recovery-code-list'));
 	});
 });

@@ -169,6 +169,8 @@ Durante o jogo, os participantes podem administrar equipe, Box, Bag, Pokédex, b
 
 ## Recursos principais
 
+- Contas independentes das campanhas, com cadastro, sessões por inatividade e recuperação por códigos de uso único.
+- Perfil, segurança, sessões conectadas e renovação dos códigos de recuperação na própria interface.
 - Personagens de jogadores e biblioteca de NPCs organizável em pastas.
 - Equipes predefinidas, Team Builder, evolução e Box.
 - Pokédex por região, formas alternativas e progresso individual.

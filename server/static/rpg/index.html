@@ -5,7 +5,7 @@
 	<meta name="viewport" content="width=device-width, initial-scale=1" />
 	<meta name="theme-color" content="#273b5b" />
 	<title>Pok&eacute;mon RPG</title>
-	<link rel="stylesheet" href="./rpg.css?v=20260909-33" />
+	<link rel="stylesheet" href="./rpg.css?v=20260909-34" />
 	<link rel="stylesheet" href="./battle-ui.css?v=20260830-5" />
 	<link rel="stylesheet" href="./battle-ui-v2.css?v=20260811-23" />
 	<link rel="stylesheet" href="./battle-room.css?v=20260828-6" />
@@ -81,6 +81,7 @@
 							</div>
 							<p class="form-error hidden" id="account-login-error" role="alert"></p>
 							<button class="button primary full-button account-submit" type="submit">Entrar</button>
+							<button class="account-recovery-link" id="account-open-recovery" type="button">Esqueci minha senha</button>
 						</form>
 
 						<form id="account-register-form" class="account-auth-form hidden" novalidate
@@ -123,6 +124,31 @@
 							</div>
 							<p class="form-error hidden" id="account-register-error" role="alert"></p>
 							<button class="button primary full-button account-submit" type="submit">Criar conta</button>
+						</form>
+
+						<form id="account-recovery-form" class="account-auth-form hidden" novalidate>
+							<h2>Recuperar conta</h2>
+							<div class="field account-field" data-account-field="username">
+								<label for="account-recovery-username">Nome de usu&aacute;rio</label>
+								<input id="account-recovery-username" name="username" autocomplete="username" required />
+								<small class="field-error hidden"></small>
+							</div>
+							<div class="field account-field" data-account-field="recoveryCode">
+								<label for="account-recovery-code">C&oacute;digo de recupera&ccedil;&atilde;o</label>
+								<input id="account-recovery-code" name="recoveryCode" autocomplete="off" required />
+								<small class="field-error hidden"></small>
+							</div>
+							<div class="field account-field" data-account-field="password">
+								<label for="account-recovery-password">Nova senha</label>
+								<div class="password-row">
+									<input id="account-recovery-password" name="password" type="password" autocomplete="new-password" minlength="8" required />
+									<button class="button icon-button account-password-toggle" type="button" data-target="account-recovery-password" aria-label="Mostrar senha" aria-pressed="false"></button>
+								</div>
+								<small class="field-error hidden"></small>
+							</div>
+							<p class="form-error hidden" role="alert"></p>
+							<button class="button primary full-button" type="submit">Definir nova senha</button>
+							<button class="button full-button" id="account-recovery-cancel" type="button">Voltar</button>
 						</form>
 					</div>
 				</div>
@@ -375,6 +401,6 @@
 	<script src="./nursery-ui.js?v=20260826-1"></script>
 	<script src="./contest-ui.js?v=20260905-39"></script>
 	<script src="./shop-ui.js?v=20260904-4"></script>
-	<script src="./rpg.js?v=20260909-46"></script>
+	<script src="./rpg.js?v=20260909-47"></script>
 </body>
 </html>

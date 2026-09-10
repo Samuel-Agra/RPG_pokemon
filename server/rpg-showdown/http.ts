@@ -403,6 +403,13 @@ export class RPGHttpServer {
 			);
 			await this.login.flushPersistence(); this.json(res, 200, { recoveryCodes }); return;
 		}
+		if (method === 'PUT' && url.pathname === '/api/rpg/v2/password') {
+			const body = await this.body(req);
+			await this.login.accounts.changePasswordAsync(
+				this.token(req), this.string(body.currentPassword), this.string(body.newPassword)
+			);
+			await this.login.flushPersistence(); this.json(res, 200, { ok: true }); return;
+		}
 		if (url.pathname === '/api/rpg/v2/session') {
 			const token = this.token(req);
 			if (method === 'GET') {

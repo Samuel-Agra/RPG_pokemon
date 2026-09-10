@@ -526,6 +526,24 @@ export class RPGAccountManagement {
 		return this.atomic(() => this.replaceRecoveryCodes(account.id));
 	}
 
+	async changePasswordAsync(token: string, currentPassword: string, newPassword: string): Promise<void> {
+		const currentHash = this.tokenHash(token); const session = this.session(token);
+		const account = this.repository.getAccount(session.accountId)!;
+		this.validatePassword(newPassword);
+		if (!await this.verifyPasswordAsync(currentPassword, account.credential)) {
+			throw new Error('Usuário ou senha inválidos');
+		}
+		const credential = await this.hashPasswordAsync(newPassword); const now = this.now();
+		this.atomic(() => {
+			account.credential = credential; account.updatedAt = now; account.revision++;
+			this.repository.setAccount(account);
+			for (const connected of this.sessionRepository.listByAccount(account.id)) {
+				if (connected.tokenHash === currentHash || connected.revokedAt) continue;
+				connected.revokedAt = now; this.sessionRepository.set(connected);
+			}
+		});
+	}
+
 	recoverPassword(username: string, recoveryCode: string, newPassword: string, source = ''): void {
 		const recovery = this.preparePasswordRecovery(username, recoveryCode, newPassword, source);
 		this.completePasswordRecovery(recovery, this.hashPassword(newPassword));
@@ -1052,7 +1070,9 @@ export class RPGAccountManagement {
 			session.revokedAt = this.now(); this.sessionRepository.set(session);
 			throw new Error('Sessão inválida ou expirada');
 		}
-		session.lastSeenAt = this.now(); this.sessionRepository.set(session);
+		session.lastSeenAt = this.now();
+		session.expiresAt = session.lastSeenAt + RPG_PLATFORM_SESSION_TTL;
+		this.sessionRepository.set(session);
 		return structuredClone(session);
 	}
 	private atomic<T>(action: () => T): T {
@@ -1095,7 +1115,7 @@ export class RPGAccountManagement {
 		for (const previous of this.repository.listRecoveryCodes(accountId)) {
 			if (!previous.usedAt) { previous.usedAt = now; this.repository.setRecoveryCode(previous); }
 		}
-		const codes = Array.from({ length: 10 }, () => this.bytes(6).toString('hex').toUpperCase().match(/.{1,4}/g)!.join('-'));
+		const codes = Array.from({ length: 10 }, () => this.bytes(8).toString('hex').toUpperCase().match(/.{1,4}/g)!.join('-'));
 		for (const code of codes) this.repository.setRecoveryCode({
 			id: this.id(), accountId, codeHash: this.tokenHash(code), createdAt: now,
 		});
