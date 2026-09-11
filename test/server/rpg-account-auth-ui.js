@@ -19,6 +19,8 @@ describe('RPG version 2 account authentication frontend', () => {
 		assert(html.includes('autocomplete="current-password"'));
 		assert(html.includes('autocomplete="new-password"'));
 		assert(html.includes('minlength="3" maxlength="40" placeholder="Login"'));
+		assert(html.includes('name="handle"'));
+		assert(html.includes('Diferente do login; será usado para receber convites.'));
 		assert(html.includes('placeholder="Use pelo menos 8 caracteres."'));
 		assert(html.includes('rel="icon" type="image/png" href="./assets/pokemon-rpg-logo.png"'));
 		assert(style.includes("background: url('./assets/pokemon-rpg-logo.png') center / contain no-repeat"));
@@ -61,7 +63,7 @@ describe('RPG version 2 account authentication frontend', () => {
 		assert(style.includes('.account-auth {'));
 		assert(style.includes('@media (max-width: 760px)'));
 		assert(html.includes('Minhas participa&ccedil;&otilde;es'));
-		for (const label of ['Configura&ccedil;&otilde;es', 'Minhas mesas', 'Minhas participa&ccedil;&otilde;es', 'Descobrir mesas', 'Convites', 'Sair']) {
+		for (const label of ['Configura&ccedil;&otilde;es', 'Minhas mesas', 'Minhas participa&ccedil;&otilde;es', 'Descobrir mesas', 'Convites', 'Logout']) {
 			assert(html.includes(label), `missing account navigation option ${label}`);
 		}
 		assert(html.includes('class="panel account-navigation"'));
@@ -69,13 +71,17 @@ describe('RPG version 2 account authentication frontend', () => {
 		assert(style.includes('position: fixed; z-index: 20; left: 0; top: 58px; bottom: 0'));
 		assert(style.includes('margin: 0 auto 0 245px'));
 		const navigation = html.slice(html.indexOf('<nav class="account-navigation-options">'), html.indexOf('</nav>', html.indexOf('<nav class="account-navigation-options">')));
-		const orderedLabels = ['Minhas mesas', 'Minhas participa&ccedil;&otilde;es', 'Descobrir mesas', 'Convites', 'Configura&ccedil;&otilde;es', 'Sair'];
+		const orderedLabels = ['Minhas mesas', 'Minhas participa&ccedil;&otilde;es', 'Descobrir mesas', 'Convites', 'Configura&ccedil;&otilde;es', 'Logout'];
 		for (let index = 1; index < orderedLabels.length; index++) {
 			assert(navigation.indexOf(orderedLabels[index - 1]) < navigation.indexOf(orderedLabels[index]));
 		}
 		assert(script.includes("['owner', 'master'].includes(entry.membership.role)"));
 		assert(script.includes("entry.membership.role === 'player'"));
 		assert(script.includes("accountApi('/tables/discover')"));
+		assert(html.includes('id="account-discover-refresh"'));
+		assert(script.includes("accountTablesView === 'discover' && previousView !== 'discover'"));
+		assert(!script.includes("loadDiscoveredTables(true)"));
+		assert(script.includes("createElement('div', 'account-table-card-reserved')"));
 		assert(script.includes("accountApi('/invites/directed')"));
 		assert(script.includes("'panel account-table-card account-directed-invite'"));
 		assert(script.includes("createElement('span', 'account-table-status', 'Convite')"));
@@ -85,6 +91,11 @@ describe('RPG version 2 account authentication frontend', () => {
 		assert(html.includes('Mesas arquivadas'));
 		assert(script.includes('reconcileAccountTableList'));
 		assert(script.includes('card.dataset.signature !== signature'));
+		assert(script.includes('function startApplicationRealtimeSynchronization()'));
+		assert(script.includes("new CustomEvent('rpg:realtime-sync'"));
+		assert(script.includes('if (applicationRealtimeBusy || document.hidden || !state.accountSession) return'));
+		assert(script.includes('await loadDirectedInvites(true)'));
+		assert(script.includes('await refreshMasterInvitationsPanel()'));
 		assert(script.includes("openAccountTableDialog('create')"));
 		assert(script.includes("openAccountTableDialog('join')"));
 		assert(script.includes('enterAccountTable(entry)'));
@@ -111,6 +122,9 @@ describe('RPG version 2 account authentication frontend', () => {
 		assert(script.includes("'Gerar convite'"));
 		assert(script.includes("'Revogar'"));
 		assert(script.includes("link.searchParams.set('invite', data.code)"));
+		assert(script.includes("target.value.split(',')"));
+		assert(script.includes('{ targetHandles: handles }'));
+		assert(script.includes('Convite enviado diretamente para @${handles[0]}'));
 		assert(style.includes('.master-invite-dialog {'));
 	});
 

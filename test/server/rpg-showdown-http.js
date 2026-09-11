@@ -156,6 +156,10 @@ describe('RPG HTTP frontend API', () => {
 		});
 		assert.equal(result.response.status, 201);
 		const tableId = result.data.table.id;
+		assert.equal(result.data.table.settings.requireJoinApproval, true);
+		await request(`/v2/tables/${tableId}`, {
+			method: 'PATCH', headers: masterHeaders, body: { requireJoinApproval: false },
+		});
 		result = await request(`/v2/tables/${tableId}/invites`, {
 			method: 'POST', headers: masterHeaders, body: { role: 'player' },
 		});
@@ -289,13 +293,17 @@ describe('RPG HTTP frontend API', () => {
 			method: 'POST', headers: ownerHeaders, body: { name: 'Membros HTTP' },
 		});
 		const tableId = result.data.table.id;
+		await request(`/v2/tables/${tableId}`, {
+			method: 'PATCH', headers: ownerHeaders, body: { requireJoinApproval: false },
+		});
 		result = await request(`/v2/tables/${tableId}/invites`, {
 			method: 'POST', headers: ownerHeaders,
 			body: { role: 'player', targetUsername: 'membrov2', maxUses: 10, expiresAt: Date.now() + 60_000 },
 		});
 		assert.equal(result.data.invite.maxUses, 1);
 		assert.equal(result.data.invite.codeHash, undefined);
-		await request('/v2/invites/join', { method: 'POST', headers: memberHeaders, body: { code: result.data.code } });
+		assert.equal(result.data.code, undefined);
+		await request(`/v2/invites/directed/${result.data.invite.id}`, { method: 'POST', headers: memberHeaders });
 		result = await request(`/v2/tables/${tableId}/invites`, {
 			method: 'POST', headers: memberHeaders, body: { role: 'player' },
 		});
@@ -524,6 +532,7 @@ describe('RPG HTTP frontend API', () => {
 		const tableA = accounts.createTable(owner.token, { name: 'Mesa A' });
 		const tableB = accounts.createTable(owner.token, { name: 'Mesa B' });
 		for (const table of [tableA, tableB]) {
+			accounts.updateTable(owner.token, table.id, { requireJoinApproval: false });
 			accounts.joinByInvite(player.token, accounts.createInvite(owner.token, table.id).code);
 		}
 		accounts.joinByInvite(target.token, accounts.createInvite(owner.token, tableB.id).code);
@@ -599,6 +608,7 @@ describe('RPG HTTP frontend API', () => {
 		const owner = accounts.login('dono-campanha', 'Senha1!Segura');
 		const auxiliary = accounts.login('mestre-auxiliar', 'Senha1!Segura');
 		const table = accounts.createTable(owner.token, { name: 'Mesa com auxiliares' });
+		accounts.updateTable(owner.token, table.id, { requireJoinApproval: false });
 		accounts.joinByInvite(auxiliary.token, accounts.createInvite(owner.token, table.id, 'master').code);
 		accounts.selectTable(owner.token, table.id);
 		accounts.selectTable(auxiliary.token, table.id);
@@ -657,6 +667,7 @@ describe('RPG HTTP frontend API', () => {
 		const owner = seedAccounts.login('dono-distribuido', 'Senha1!Segura');
 		const player = seedAccounts.login('player-distribuido', 'Senha1!Segura');
 		const table = seedAccounts.createTable(owner.token, { name: 'Mesa distribuída' });
+		seedAccounts.updateTable(owner.token, table.id, { requireJoinApproval: false });
 		seedAccounts.joinByInvite(player.token, seedAccounts.createInvite(owner.token, table.id).code);
 		seedAccounts.selectTable(player.token, table.id);
 		const accountIds = [ownerAccount.id, playerAccount.id];

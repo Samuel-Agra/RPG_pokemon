@@ -89,7 +89,7 @@ export function getRPGDefaultTablePermissions(role: RPGTableRole): Record<RPGTab
 
 interface RPGAccountCredential { algorithm: 'scrypt'; salt: string; hash: string }
 export interface RPGPlatformAccount {
-	id: string; username: string; displayName: string; credential: RPGAccountCredential;
+	id: string; username: string; handle: string; displayName: string; credential: RPGAccountCredential;
 	status: 'active' | 'disabled'; createdAt: number; updatedAt: number; revision: number;
 }
 export interface RPGCampaignTable {
@@ -126,7 +126,7 @@ export interface RPGTableMemberView {
 }
 export interface RPGAccountTableView {
 	table: RPGCampaignTable; membership: RPGTableMember; owner: RPGPublicPlatformAccount;
-	memberCount: number; lastActivityAt: number; character?: { id: string, name: string };
+	memberCount: number; lastActivityAt: number; ownerOnline: boolean; character?: { id: string, name: string };
 }
 export interface RPGDirectedInviteView {
 	invite: RPGPublicTableInvite; table: RPGCampaignTable; owner: RPGPublicPlatformAccount; memberCount: number;
@@ -167,6 +167,7 @@ export interface RPGAccountRepository {
 	transaction<T>(action: () => T): T;
 	getAccount(id: string): RPGPlatformAccount | undefined;
 	getAccountByUsername(username: string): RPGPlatformAccount | undefined;
+	getAccountByHandle(handle: string): RPGPlatformAccount | undefined;
 	setAccount(account: RPGPlatformAccount): void;
 	getTable(id: string): RPGCampaignTable | undefined;
 	listTables(): RPGCampaignTable[];
@@ -217,7 +218,11 @@ export class RPGMemoryAccountRepository implements RPGAccountRepository {
 	replace(snapshot: RPGAccountRepositorySnapshot): void {
 		this.accounts.clear(); this.tables.clear(); this.members.clear(); this.invites.clear();
 		this.recoveryCodes.clear(); this.loginAttempts.clear(); this.auditEntries.clear();
-		for (const value of snapshot.accounts || []) this.accounts.set(value.id, structuredClone(value));
+		for (const value of snapshot.accounts || []) {
+			const account = structuredClone(value);
+			account.handle ||= account.username;
+			this.accounts.set(account.id, account);
+		}
 		for (const value of snapshot.tables || []) this.tables.set(value.id, structuredClone(value));
 		for (const value of snapshot.members || []) this.members.set(`${value.tableId}:${value.accountId}`, structuredClone(value));
 		for (const value of snapshot.invites || []) this.invites.set(value.id, structuredClone(value));
@@ -233,6 +238,10 @@ export class RPGMemoryAccountRepository implements RPGAccountRepository {
 	getAccount(id: string) { return this.clone(this.accounts.get(toID(id))); }
 	getAccountByUsername(username: string) {
 		const normalized = toID(username); return this.clone([...this.accounts.values()].find(account => account.username === normalized));
+	}
+	getAccountByHandle(handle: string) {
+		const normalized = RPGAccountManagement.normalizeHandle(handle);
+		return this.clone([...this.accounts.values()].find(account => account.handle === normalized));
 	}
 	transaction<T>(action: () => T): T {
 		if (this.transactionEffects) return action();
@@ -364,6 +373,10 @@ export class RPGAccountManagement {
 		private readonly transaction: <T>(action: () => T) => T = action => action()
 	) {}
 
+	static normalizeHandle(value: string): string {
+		return String(value || '').trim().replace(/^@/, '').toLowerCase();
+	}
+
 	withAuditContext<T>(context: RPGAuditRequestContext, action: () => T): T {
 		return this.auditRequest.run(context, action);
 	}
@@ -382,39 +395,45 @@ export class RPGAccountManagement {
 		this.repository.replace(snapshot); this.sessionRepository.replace(sessions);
 	}
 
-	createAccount(username: string, displayName: string, password: string): RPGPublicPlatformAccount {
+	createAccount(username: string, displayName: string, password: string, handle?: string): RPGPublicPlatformAccount {
 		const normalized = toID(username);
+		const normalizedHandle = this.handle(handle || normalized);
 		if (normalized.length < 3 || normalized.length > 40) throw new Error('O usuário deve ter entre 3 e 40 caracteres');
 		if (this.repository.getAccountByUsername(normalized)) throw new Error('Este nome de usuário já está em uso');
+		if (this.repository.getAccountByHandle(normalizedHandle)) throw new Error('Este @ já está em uso');
 		this.validatePassword(password);
 		const now = this.now();
 		const account: RPGPlatformAccount = {
-			id: this.id(), username: normalized, displayName: this.text(displayName, 80, 'nome de exibição'),
+			id: this.id(), username: normalized, handle: normalizedHandle,
+			displayName: this.text(displayName, 80, 'nome de exibição'),
 			credential: this.hashPassword(password), status: 'active', createdAt: now, updatedAt: now, revision: 0,
 		};
 		this.repository.setAccount(account);
 		return this.publicAccount(account);
 	}
 
-	createAccountWithRecoveryCodes(username: string, displayName: string, password: string) {
+	createAccountWithRecoveryCodes(username: string, displayName: string, password: string, handle?: string) {
 		return this.atomic(() => {
-			const account = this.createAccount(username, displayName, password);
+			const account = this.createAccount(username, displayName, password, handle);
 			return { account, recoveryCodes: this.replaceRecoveryCodes(account.id) };
 		});
 	}
 
-	async createAccountWithRecoveryCodesAsync(username: string, displayName: string, password: string) {
+	async createAccountWithRecoveryCodesAsync(username: string, displayName: string, password: string, handle?: string) {
 		const normalized = toID(username);
+		const normalizedHandle = this.handle(handle || normalized);
 		if (normalized.length < 3 || normalized.length > 40) throw new Error('O usuário deve ter entre 3 e 40 caracteres');
 		if (this.repository.getAccountByUsername(normalized)) throw new Error('Este nome de usuário já está em uso');
+		if (this.repository.getAccountByHandle(normalizedHandle)) throw new Error('Este @ já está em uso');
 		this.validatePassword(password);
 		const display = this.text(displayName, 80, 'nome de exibição');
 		const credential = await this.hashPasswordAsync(password);
 		return this.atomic(() => {
 			if (this.repository.getAccountByUsername(normalized)) throw new Error('Este nome de usuário já está em uso');
+			if (this.repository.getAccountByHandle(normalizedHandle)) throw new Error('Este @ já está em uso');
 			const now = this.now();
 			const account: RPGPlatformAccount = {
-				id: this.id(), username: normalized, displayName: display, credential,
+				id: this.id(), username: normalized, handle: normalizedHandle, displayName: display, credential,
 				status: 'active', createdAt: now, updatedAt: now, revision: 0,
 			};
 			this.repository.setAccount(account);
@@ -433,7 +452,8 @@ export class RPGAccountManagement {
 			if (!account) {
 				const accountId = createHash('sha256').update(`pokemon-rpg:legacy-account:${username}`).digest('hex').slice(0, 36);
 				account = {
-					id: accountId, username, displayName: this.text(input.displayName, 80, 'nome de exibição'),
+					id: accountId, username, handle: username,
+					displayName: this.text(input.displayName, 80, 'nome de exibição'),
 					credential: structuredClone(input.credential), status: 'active', createdAt: input.createdAt,
 					updatedAt: input.createdAt, revision: 0,
 				};
@@ -682,10 +702,16 @@ export class RPGAccountManagement {
 		};
 	}
 
-	updateAccount(token: string, displayName: string): RPGPublicPlatformAccount {
+	updateAccount(token: string, displayName: string, handle?: string): RPGPublicPlatformAccount {
 		const session = this.session(token); const account = this.repository.getAccount(session.accountId);
 		if (!account || account.status !== 'active') throw new Error('Conta indisponível');
 		account.displayName = this.text(displayName, 80, 'nome de exibição');
+		if (handle !== undefined) {
+			const normalizedHandle = this.handle(handle);
+			const owner = this.repository.getAccountByHandle(normalizedHandle);
+			if (owner && owner.id !== account.id) throw new Error('Este @ já está em uso');
+			account.handle = normalizedHandle;
+		}
 		account.updatedAt = this.now(); account.revision++;
 		this.repository.setAccount(account);
 		return this.publicAccount(account);
@@ -699,7 +725,8 @@ export class RPGAccountManagement {
 		const table: RPGCampaignTable = {
 			id, ownerAccountId: session.accountId, name: this.text(input.name, 120, 'nome da mesa'),
 			description: this.optionalText(input.description, 500), color: this.color(input.color),
-			visibility: input.visibility || 'private', status: 'active', settings: {}, createdAt: now, updatedAt: now, revision: 0,
+			visibility: input.visibility || 'private', status: 'active', settings: { requireJoinApproval: true },
+			createdAt: now, updatedAt: now, revision: 0,
 		};
 		const owner: RPGTableMember = {
 			tableId: id, accountId: session.accountId, role: 'owner', status: 'active', permissions: {},
@@ -737,7 +764,7 @@ export class RPGAccountManagement {
 	}
 
 	listTables(token: string): RPGAccountTableView[] {
-		const session = this.session(token);
+		const session = this.session(token); const onlineSince = this.now() - 15_000;
 		return this.repository.listMemberships(session.accountId).filter(member => member.status === 'active').flatMap(member => {
 			const table = this.repository.getTable(member.tableId);
 			const owner = table && this.repository.getAccount(table.ownerAccountId);
@@ -745,14 +772,23 @@ export class RPGAccountManagement {
 			const members = this.repository.listMembershipsForTable(table.id).filter(value => value.status === 'active');
 			const lastActivityAt = Math.max(table.updatedAt, ...members.map(value => value.updatedAt),
 				...this.repository.listAuditEntries(table.id).map(value => value.createdAt));
-			return [{ table, membership: member, owner: this.publicAccount(owner),
+			const ownerOnline = this.sessionRepository.listByAccount(owner.id).some(value => !value.revokedAt &&
+				value.expiresAt > this.now() && value.lastSeenAt >= onlineSince && value.activeTableId === table.id);
+			return [{ table, membership: member, owner: this.publicAccount(owner), ownerOnline,
 				memberCount: members.length, lastActivityAt }];
-		});
+		}).sort((a, b) => Number(b.membership.permissions['ui.favoriteTable'] === true) -
+			Number(a.membership.permissions['ui.favoriteTable'] === true) || b.lastActivityAt - a.lastActivityAt);
 	}
 
 	discoverTables(token: string): RPGAccountTableView[] {
-		const session = this.session(token);
-		return this.repository.listTables().filter(table => table.status === 'active' && table.visibility === 'public')
+		const session = this.session(token); const onlineSince = this.now() - 15_000;
+		return this.repository.listTables().filter(table => {
+			if (table.status !== 'active' || table.visibility !== 'public' || table.ownerAccountId === session.accountId) {
+				return false;
+			}
+			const membership = this.repository.getMembership(table.id, session.accountId);
+			return !membership || !['active', 'pending', 'blocked'].includes(membership.status);
+		})
 			.map(table => {
 				const owner = this.repository.getAccount(table.ownerAccountId);
 				if (!owner) return undefined;
@@ -761,11 +797,44 @@ export class RPGAccountManagement {
 					tableId: table.id, accountId: session.accountId, role: 'player' as const, status: 'left' as const,
 					permissions: {}, joinedAt: 0, updatedAt: 0, revision: 0,
 				};
-				return { table, membership, owner: this.publicAccount(owner), memberCount: members.length,
+				const ownerOnline = this.sessionRepository.listByAccount(owner.id).some(value => !value.revokedAt &&
+					value.expiresAt > this.now() && value.lastSeenAt >= onlineSince && value.activeTableId === table.id);
+				return { table, membership, owner: this.publicAccount(owner), ownerOnline, memberCount: members.length,
 					lastActivityAt: Math.max(table.updatedAt, ...members.map(member => member.updatedAt)) };
 			})
 			.filter((entry): entry is RPGAccountTableView => !!entry)
 			.sort(() => this.bytes(4).readUInt32BE() - 0x80000000);
+	}
+
+	joinPublicTable(token: string, tableId: string): RPGTableMember {
+		const session = this.session(token); const table = this.repository.getTable(tableId);
+		if (!table || table.status !== 'active' || table.visibility !== 'public') throw new Error('Mesa pública indisponível');
+		if (table.ownerAccountId === session.accountId) throw new Error('Você já administra esta mesa');
+		const previous = this.repository.getMembership(table.id, session.accountId);
+		if (previous?.status === 'blocked') throw new Error('Esta conta está bloqueada nesta mesa');
+		if (previous?.status === 'active') throw new Error('A conta já participa desta mesa');
+		if (previous?.status === 'pending') return structuredClone(previous);
+		const now = this.now(); const requiresApproval = table.settings.requireJoinApproval !== false;
+		const member: RPGTableMember = {
+			tableId: table.id, accountId: session.accountId, role: 'player',
+			status: requiresApproval ? 'pending' : 'active', permissions: {},
+			joinedAt: previous?.joinedAt || now, updatedAt: now, revision: (previous?.revision || 0) + 1,
+		};
+		this.atomic(() => {
+			this.repository.setMembership(member);
+			this.audit(member, requiresApproval ? 'member.requested' : 'member.joined', 'member', member.accountId, {
+				previousRole: previous?.role, newRole: member.role, previousStatus: previous?.status, newStatus: member.status,
+				source: 'public-discovery',
+			});
+		});
+		return structuredClone(member);
+	}
+
+	setTableFavorite(token: string, tableId: string, favorite: boolean): RPGTableMember {
+		const session = this.session(token); const member = this.activeMember(tableId, session.accountId);
+		member.permissions['ui.favoriteTable'] = favorite; member.updatedAt = this.now(); member.revision++;
+		this.repository.setMembership(member);
+		return structuredClone(member);
 	}
 
 	listDirectedInvites(token: string): RPGDirectedInviteView[] {
@@ -949,30 +1018,75 @@ export class RPGAccountManagement {
 	}
 
 	createInvite(token: string, tableId: string, role: Exclude<RPGTableRole, 'owner'> = 'player', expiresAt?: number,
-		maxUses = 1, targetUsername?: string) {
+		maxUses = 1, targetHandle?: string) {
 		const session = this.session(token); const member = this.activeMember(tableId, session.accountId);
-		this.requirePermission(member, 'members.invite');
-		if (!['master', 'player', 'spectator'].includes(role)) throw new Error('Função de convite inválida');
-		if (member.role !== 'owner' && role === 'master') throw new Error('Apenas o proprietário pode convidar Mestres');
-		if (expiresAt !== undefined && expiresAt <= this.now()) throw new Error('A expiração deve estar no futuro');
-		if (!Number.isSafeInteger(maxUses) || maxUses < 1 || maxUses > 100) throw new Error('O limite de usos deve estar entre 1 e 100');
-		const target = targetUsername ? this.repository.getAccountByUsername(targetUsername) : undefined;
-		if (targetUsername && (!target || target.status !== 'active')) throw new Error('Conta convidada não encontrada');
-		if (target && this.repository.getMembership(tableId, target.id)?.status === 'blocked') {
-			throw new Error('Esta conta está bloqueada nesta mesa');
-		}
-		const compactCode = this.bytes(8).toString('base64url').replace(/[^A-Z0-9]/gi, '').toUpperCase().padEnd(8, 'X').slice(0, 8);
-		const code = compactCode.slice(0, 4) + '-' + compactCode.slice(4);
-		const invite: RPGTableInvite = {
-			id: this.id(), tableId: member.tableId, createdByAccountId: session.accountId, targetAccountId: target?.id,
-			codeHash: this.tokenHash(code), role, status: 'active', maxUses: target ? 1 : maxUses,
-			usedCount: 0, expiresAt, createdAt: this.now(),
-		};
+		this.validateInvite(member, role, expiresAt, maxUses);
+		const target = targetHandle ? this.inviteTarget(member.tableId, targetHandle, true) : undefined;
+		const { code, invite } = this.buildInvite(session.accountId, member.tableId, role, expiresAt, target, maxUses);
 		this.atomic(() => {
 			this.repository.setInvite(invite);
 			this.audit(member, 'invite.created', 'invite', invite.id, { role, maxUses: invite.maxUses });
 		});
 		return { code, invite: structuredClone(invite) };
+	}
+
+	createDirectedInvites(token: string, tableId: string, role: Exclude<RPGTableRole, 'owner'>,
+		expiresAt: number | undefined, targetHandles: string[]) {
+		const session = this.session(token); const member = this.activeMember(tableId, session.accountId);
+		this.validateInvite(member, role, expiresAt, 1);
+		const handles = targetHandles.map(value => this.handle(value));
+		if (!handles.length) throw new Error('Informe pelo menos um @');
+		if (handles.length > 50) throw new Error('Envie convites para no máximo 50 contas por vez');
+		if (new Set(handles).size !== handles.length) throw new Error('Não repita o mesmo @ no convite');
+		const targets = handles.map(handle => this.inviteTarget(member.tableId, handle));
+		const invitations = targets.map(target =>
+			this.buildInvite(session.accountId, member.tableId, role, expiresAt, target, 1));
+		this.atomic(() => {
+			for (const invitation of invitations) {
+				this.repository.setInvite(invitation.invite);
+				this.audit(member, 'invite.created', 'invite', invitation.invite.id,
+					{ role, maxUses: 1, targetAccountId: invitation.invite.targetAccountId });
+			}
+		});
+		return invitations.map(({ invite }) => structuredClone(invite));
+	}
+
+	private validateInvite(member: RPGTableMember, role: Exclude<RPGTableRole, 'owner'>,
+		expiresAt: number | undefined, maxUses: number): void {
+		this.requirePermission(member, 'members.invite');
+		if (!['master', 'player', 'spectator'].includes(role)) throw new Error('Função de convite inválida');
+		if (member.role !== 'owner' && role === 'master') throw new Error('Apenas o proprietário pode convidar Mestres');
+		if (expiresAt !== undefined && expiresAt <= this.now()) throw new Error('A expiração deve estar no futuro');
+		if (!Number.isSafeInteger(maxUses) || maxUses < 1 || maxUses > 100) {
+			throw new Error('O limite de usos deve estar entre 1 e 100');
+		}
+	}
+
+	private inviteTarget(tableId: string, handle: string, legacyUsername = false): RPGPlatformAccount {
+		const normalized = RPGAccountManagement.normalizeHandle(handle);
+		const target = (/^[a-z0-9_]{3,30}$/.test(normalized) ? this.repository.getAccountByHandle(normalized) : undefined) ||
+			(legacyUsername ? this.repository.getAccountByUsername(handle) : undefined);
+		if (!target || target.status !== 'active') throw new Error(`A conta @${handle.replace(/^@/, '')} não foi encontrada`);
+		const membership = this.repository.getMembership(tableId, target.id);
+		if (membership?.status === 'active' || membership?.status === 'pending') {
+			throw new Error(`@${target.handle} já está nesta mesa`);
+		}
+		if (membership?.status === 'blocked') throw new Error(`@${target.handle} está bloqueado nesta mesa`);
+		const duplicate = this.repository.listInvites(tableId).some(invite => invite.status === 'active' &&
+			invite.targetAccountId === target.id && (!invite.expiresAt || invite.expiresAt > this.now()));
+		if (duplicate) throw new Error(`@${target.handle} já possui um convite ativo para esta mesa`);
+		return target;
+	}
+
+	private buildInvite(createdByAccountId: string, tableId: string, role: Exclude<RPGTableRole, 'owner'>,
+		expiresAt: number | undefined, target: RPGPlatformAccount | undefined, maxUses: number) {
+		const compactCode = this.bytes(8).toString('base64url').replace(/[^A-Z0-9]/gi, '').toUpperCase().padEnd(8, 'X').slice(0, 8);
+		const code = compactCode.slice(0, 4) + '-' + compactCode.slice(4);
+		return { code, invite: {
+			id: this.id(), tableId, createdByAccountId, targetAccountId: target?.id,
+			codeHash: this.tokenHash(code), role, status: 'active' as const, maxUses: target ? 1 : maxUses,
+			usedCount: 0, expiresAt, createdAt: this.now(),
+		} };
 	}
 
 	joinByInvite(token: string, code: string): RPGTableMember {
@@ -994,7 +1108,7 @@ export class RPGAccountManagement {
 		if (previous?.status === 'blocked') throw new Error('Esta conta está bloqueada nesta mesa');
 		if (previous?.status === 'active') throw new Error('A conta já participa desta mesa');
 		const now = this.now();
-		const requiresApproval = table.settings.requireJoinApproval === true;
+		const requiresApproval = table.settings.requireJoinApproval !== false;
 		if (previous?.status === 'pending') return previous;
 		const member: RPGTableMember = {
 			tableId: invite.tableId, accountId, role: invite.role,
@@ -1025,7 +1139,7 @@ export class RPGAccountManagement {
 			table: { id: table.id, name: table.name, description: table.description, color: table.color },
 			owner: this.publicAccount(owner),
 			memberCount: this.repository.listMembershipsForTable(table.id).filter(member => member.status === 'active').length,
-			requiresApproval: table.settings.requireJoinApproval === true,
+			requiresApproval: table.settings.requireJoinApproval !== false,
 			membershipStatus: this.repository.getMembership(table.id, session.accountId)?.status,
 		};
 	}
@@ -1039,7 +1153,7 @@ export class RPGAccountManagement {
 		const request = this.repository.getMembership(tableId, accountId);
 		if (!request || request.status !== 'pending') throw new Error('Solicitação não encontrada');
 		const invite = request.requestInviteId ? this.repository.getInvite(request.requestInviteId) : undefined;
-		if (allow && (!invite || invite.status !== 'active' || (invite.expiresAt !== undefined && invite.expiresAt <= this.now()) ||
+		if (allow && invite && (invite.status !== 'active' || (invite.expiresAt !== undefined && invite.expiresAt <= this.now()) ||
 			invite.usedCount >= invite.maxUses)) throw new Error('O convite desta solicitação não está mais disponível');
 		const previousStatus = request.status;
 		request.status = allow ? 'active' : 'removed'; request.requestInviteId = undefined;
@@ -1246,6 +1360,13 @@ export class RPGAccountManagement {
 			!/[0-9]/.test(password) || !/[^A-Za-z0-9]/.test(password)) {
 			throw new Error('A senha deve ter entre 8 e 200 caracteres, com maiúscula, minúscula, número e caractere especial');
 		}
+	}
+	private handle(value: string): string {
+		const normalized = RPGAccountManagement.normalizeHandle(value);
+		if (normalized.includes(',') || !/^[a-z0-9_]{3,30}$/.test(normalized)) {
+			throw new Error('O @ deve ter de 3 a 30 caracteres e usar apenas letras, números ou _');
+		}
+		return normalized;
 	}
 	private publicAccount(account: RPGPlatformAccount) { const { credential: _credential, ...view } = account; return structuredClone(view); }
 	private tokenHash(value: string) { return createHash('sha256').update(value).digest('hex'); }

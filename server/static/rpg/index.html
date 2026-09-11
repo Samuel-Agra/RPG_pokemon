@@ -7,7 +7,7 @@
 	<title>Pok&eacute;mon RPG</title>
 	<link rel="icon" type="image/png" href="./assets/pokemon-rpg-logo.png" />
 	<link rel="apple-touch-icon" href="./assets/pokemon-rpg-logo.png" />
-	<link rel="stylesheet" href="./rpg.css?v=20260910-40" />
+	<link rel="stylesheet" href="./rpg.css?v=20260910-49" />
 	<link rel="stylesheet" href="./battle-ui.css?v=20260830-5" />
 	<link rel="stylesheet" href="./battle-ui-v2.css?v=20260811-23" />
 	<link rel="stylesheet" href="./battle-room.css?v=20260828-6" />
@@ -96,6 +96,14 @@
 								<small class="field-hint">Ser&aacute; usado para entrar na conta.</small>
 								<small class="field-error hidden" id="account-register-username-error"></small>
 							</div>
+							<div class="field account-field" data-account-field="handle">
+								<label for="account-register-handle">@ público</label>
+								<input id="account-register-handle" name="handle" autocomplete="off"
+									minlength="3" maxlength="30" placeholder="seu_identificador" required
+									aria-describedby="account-register-handle-error" />
+								<small class="field-hint">Diferente do login; será usado para receber convites.</small>
+								<small class="field-error hidden" id="account-register-handle-error"></small>
+							</div>
 							<div class="field account-field" data-account-field="displayName">
 								<label for="account-register-display-name">Nome de exibi&ccedil;&atilde;o</label>
 								<input id="account-register-display-name" name="displayName" autocomplete="name"
@@ -176,7 +184,7 @@
 							<button data-account-view="discover" type="button"><span aria-hidden="true">&#x2315;</span>Descobrir mesas</button>
 							<button data-account-view="invites" type="button"><span aria-hidden="true">&#x2709;</span>Convites</button>
 							<button id="account-settings" data-account-view="settings" type="button"><span aria-hidden="true">&#x2699;</span>Configura&ccedil;&otilde;es</button>
-							<button class="account-navigation-logout" id="account-logout" type="button"><span aria-hidden="true">&#x21AA;</span>Sair</button>
+							<button class="account-navigation-logout" id="account-logout" type="button"><span aria-hidden="true">&#x21AA;</span>Logout</button>
 						</nav>
 					</aside>
 					<div class="account-tables-content">
@@ -194,7 +202,7 @@
 							<div class="account-table-grid" id="account-joined-table-list" aria-live="polite"></div>
 							<p class="account-section-empty hidden" id="account-joined-table-empty">Nenhuma participa&ccedil;&atilde;o encontrada.</p>
 						</section>
-						<section class="account-table-view hidden" data-account-panel="discover"><div class="account-table-view-heading"><div><p class="eyebrow">Novas aventuras</p><h1>Descobrir mesas</h1></div></div><div class="account-table-grid" id="account-discover-table-list"></div><p class="account-section-empty hidden" id="account-discover-empty">Nenhuma mesa p&uacute;blica dispon&iacute;vel agora.</p></section>
+						<section class="account-table-view hidden" data-account-panel="discover"><div class="account-table-view-heading"><div><p class="eyebrow">Novas aventuras</p><h1>Descobrir mesas</h1></div><button class="button" id="account-discover-refresh" type="button">Atualizar</button></div><div class="account-table-grid" id="account-discover-table-list"></div><p class="account-section-empty hidden" id="account-discover-empty">Nenhuma mesa p&uacute;blica dispon&iacute;vel agora.</p></section>
 						<section class="account-table-view hidden" data-account-panel="invites"><div class="account-table-view-heading"><div><p class="eyebrow">Convites direcionados para voc&ecirc;</p><h1>Convites</h1></div><button class="button" id="account-invites-join" type="button">Inserir c&oacute;digo</button></div><div class="account-table-grid" id="account-directed-invite-list"></div><p class="account-section-empty hidden" id="account-directed-invite-empty">Voc&ecirc; n&atilde;o possui convites pendentes.</p></section>
 						<section class="account-settings-page hidden" data-account-panel="settings" id="account-settings-page"></section>
 					</div>
@@ -410,6 +418,6 @@
 	<script src="./nursery-ui.js?v=20260826-1"></script>
 	<script src="./contest-ui.js?v=20260905-39"></script>
 	<script src="./shop-ui.js?v=20260904-4"></script>
-	<script src="./rpg.js?v=20260910-56"></script>
+	<script src="./rpg.js?v=20260910-73"></script>
 </body>
 </html>

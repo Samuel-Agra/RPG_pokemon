@@ -5534,11 +5534,17 @@ export async function createRPGTableLoginServiceAsync(
 	const commerceRepository = new RPGMemoryCommerceRepository(snapshot.shops as RPGCommerceShopState[], shop =>
 		persistence.upsertJSON('rpg_shops', 'id', shop.id, 'state', shop,
 			{ shop_type: shop.type, revision: shop.revision }, tableId));
+	const table = snapshot.campaignTables.find(entry => entry.id === tableId);
+	const campaignSettings = snapshot.campaign || {
+		name: table?.name || 'Minha campanha',
+		currentDateTime: new Date(table?.createdAt || Date.now()).toISOString(),
+		quickNotes: '', events: [], playerNotes: {},
+	};
 	const service = new RPGLoginService({
 		masterCode: secureRandomBytes(32).toString('hex'), repository, battleSessionRepository, contestSessionRepository,
 		contestComboRepository, customItemRepository, commerceRepository, mysqlPersistence: persistence,
 		accountManagement: base.accounts, legacyTableId: tableId, masterNPCLibrary: snapshot.masterNPCLibrary,
-		playerDocuments: snapshot.playerDocuments, campaignSettings: snapshot.campaign,
+		playerDocuments: snapshot.playerDocuments, campaignSettings,
 		tournaments: snapshot.tournaments as RPGTournament[], sessionStore,
 		tournamentChanged: tournament => persistence.upsertJSON('rpg_tournaments', 'id', tournament.id, 'state', tournament,
 			{ activity: tournament.activity, status: tournament.status, updated_at: tournament.updatedAt }, tableId),

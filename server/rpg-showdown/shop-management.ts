@@ -295,7 +295,8 @@ function compareCommerceItems(left: RPGItemDefinition, right: RPGItemDefinition,
 export class RPGMemoryCommerceRepository implements RPGCommerceRepository {
 	private readonly shops: Map<string, RPGCommerceShopState>;
 	constructor(shops: RPGCommerceShopState[] = initialShops(), private readonly changed?: (shop: RPGCommerceShopState) => void) {
-		this.shops = new Map(shops.map(shop => [shop.id, normalizeShop(shop)]));
+		this.shops = new Map(initialShops().map(shop => [shop.id, normalizeShop(shop)]));
+		for (const shop of shops) this.shops.set(shop.id, normalizeShop(shop));
 	}
 
 	get(shopId: string): RPGCommerceShopState | undefined {

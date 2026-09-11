@@ -487,6 +487,7 @@ describe('RPG version 2 accounts and tables backend', () => {
 		}
 		const owner = accounts.login('dono-corrida', 'Senha1!Segura');
 		const table = accounts.createTable(owner.token, { name: 'Convite concorrente' });
+		accounts.updateTable(owner.token, table.id, { requireJoinApproval: false });
 		const code = accounts.createInvite(owner.token, table.id, 'player', undefined, 1).code;
 		const guests = ['convidado-a', 'convidado-b'].map(name => accounts.login(name, 'Senha1!Segura'));
 		const joins = await Promise.allSettled(guests.map(guest => Promise.resolve().then(() =>
@@ -564,6 +565,7 @@ describe('RPG version 2 accounts and tables backend', () => {
 		const member = accounts.login('membro-arquivo', 'Senha1!Segura');
 		const visitor = accounts.login('visitante-arquivo', 'Senha1!Segura');
 		const table = accounts.createTable(owner.token, { name: 'Mesa arquivada' });
+		accounts.updateTable(owner.token, table.id, { requireJoinApproval: false });
 		const memberInvite = accounts.createInvite(owner.token, table.id);
 		accounts.joinByInvite(member.token, memberInvite.code);
 		const pendingInvite = accounts.createInvite(owner.token, table.id);
@@ -612,6 +614,7 @@ describe('RPG version 2 accounts and tables backend', () => {
 		const master = accounts.login('mestre', 'Mestre1!Senha');
 		const player = accounts.login('player', 'Player1!Senha');
 		const table = accounts.createTable(master.token, { name: 'Mesa teste' });
+		accounts.updateTable(master.token, table.id, { requireJoinApproval: false });
 		const invitation = accounts.createInvite(master.token, table.id, 'player');
 		assert.notEqual(invitation.invite.codeHash, invitation.code);
 		assert.equal(accounts.joinByInvite(player.token, invitation.code).role, 'player');
@@ -679,6 +682,7 @@ describe('RPG version 2 accounts and tables backend', () => {
 		const master = accounts.login('assistente', 'Senha1!Segura');
 		const player = accounts.login('membro', 'Senha1!Segura');
 		const table = accounts.createTable(owner.token, { name: 'Administração' });
+		accounts.updateTable(owner.token, table.id, { requireJoinApproval: false });
 		accounts.joinByInvite(master.token, accounts.createInvite(owner.token, table.id, 'master').code);
 		accounts.joinByInvite(player.token, accounts.createInvite(master.token, table.id, 'player').code);
 		assert.equal(accounts.listMembers(owner.token, table.id).length, 3);
@@ -709,6 +713,7 @@ describe('RPG version 2 accounts and tables backend', () => {
 		const first = accounts.login('primeiro-dono', 'Senha1!Segura');
 		const next = accounts.login('proximo-dono', 'Senha1!Segura');
 		const table = accounts.createTable(first.token, { name: 'Transferível' });
+		accounts.updateTable(first.token, table.id, { requireJoinApproval: false });
 		accounts.joinByInvite(next.token, accounts.createInvite(first.token, table.id).code);
 		assert.equal(accounts.updateMemberNote(first.token, table.id, nextAccount.id, 'Anotação privada').note,
 			'Anotação privada');
@@ -733,6 +738,7 @@ describe('RPG version 2 accounts and tables backend', () => {
 		const other = accounts.login('outro', 'Senha1!Segura');
 		const third = accounts.login('terceiro', 'Senha1!Segura');
 		const table = accounts.createTable(owner.token, { name: 'Convites' });
+		accounts.updateTable(owner.token, table.id, { requireJoinApproval: false });
 		const directed = accounts.createInvite(owner.token, table.id, 'player', time + 1000, 9, 'destino');
 		assert.equal(directed.invite.maxUses, 1);
 		assert.throws(() => accounts.joinByInvite(other.token, directed.code), /outra conta/);
@@ -750,6 +756,26 @@ describe('RPG version 2 accounts and tables backend', () => {
 		assert.equal(accounts.listInvites(owner.token, table.id).find(invite => invite.id === expiring.invite.id).status, 'expired');
 	});
 
+	it('keeps public handles unique and creates directed invitations atomically for several accounts', () => {
+		const accounts = service();
+		accounts.createAccount('login-dono', 'Dono', 'Senha1!Segura', 'mestre_publico');
+		accounts.createAccount('login-um', 'Um', 'Senha1!Segura', 'teste1');
+		accounts.createAccount('login-dois', 'Dois', 'Senha1!Segura', 'teste2');
+		accounts.createAccount('login-tres', 'Três', 'Senha1!Segura', 'teste3');
+		assert.throws(() => accounts.createAccount('outro-login', 'Outro', 'Senha1!Segura', 'TESTE1'), /já está em uso/);
+		assert.throws(() => accounts.createAccount('login-virgula', 'Vírgula', 'Senha1!Segura', 'teste,quatro'), /O @/);
+		const owner = accounts.login('login-dono', 'Senha1!Segura');
+		const first = accounts.login('login-um', 'Senha1!Segura');
+		const table = accounts.createTable(owner.token, { name: 'Convites em lote' });
+		accounts.joinByInvite(first.token, accounts.createInvite(owner.token, table.id).code);
+		assert.throws(() => accounts.createDirectedInvites(owner.token, table.id, 'player', undefined,
+			['teste2', 'teste1']), /já está nesta mesa/);
+		assert.equal(accounts.listDirectedInvites(accounts.login('login-dois', 'Senha1!Segura').token).length, 0);
+		const created = accounts.createDirectedInvites(owner.token, table.id, 'player', undefined, ['teste2', '@teste3']);
+		assert.equal(created.length, 2);
+		assert.deepEqual(created.map(invite => invite.maxUses), [1, 1]);
+	});
+
 	it('discovers public tables and lets recipients manage directed invites without their codes', () => {
 		let seed = 0;
 		const accounts = new RPGAccountManagement(new RPGMemoryAccountRepository(), () => 1_700_000_000_000,
@@ -760,13 +786,26 @@ describe('RPG version 2 accounts and tables backend', () => {
 		const guest = accounts.login('convidado-direto', 'Senha1!Segura');
 		const publicTable = accounts.createTable(owner.token, { name: 'Mesa pública', visibility: 'public' });
 		accounts.createTable(owner.token, { name: 'Mesa privada', visibility: 'private' });
+		assert.equal(publicTable.settings.requireJoinApproval, true, 'aprovação deve ser o padrão de novas mesas');
+		assert.deepEqual(accounts.discoverTables(owner.token), [], 'a própria mesa não deve aparecer na descoberta');
 		assert.deepEqual(accounts.discoverTables(guest.token).map(entry => entry.table.id), [publicTable.id]);
+		accounts.selectTable(owner.token, publicTable.id);
+		assert.equal(accounts.discoverTables(guest.token)[0].ownerOnline, true);
+		accounts.deselectTable(owner.token);
+		assert.equal(accounts.discoverTables(guest.token)[0].ownerOnline, false);
+		const publicRequest = accounts.joinPublicTable(guest.token, publicTable.id);
+		assert.equal(publicRequest.status, 'pending');
+		assert.deepEqual(accounts.discoverTables(guest.token), []);
+		assert.equal(accounts.resolveJoinRequest(owner.token, publicTable.id, publicRequest.accountId, true).status, 'active');
+		accounts.leaveTable(guest.token, publicTable.id);
+		accounts.updateTable(owner.token, publicTable.id, { requireJoinApproval: false });
 		const accepted = accounts.createInvite(owner.token, publicTable.id, 'player', undefined, 1, 'convidado-direto');
 		assert.equal(accounts.listDirectedInvites(guest.token)[0].invite.id, accepted.invite.id);
 		assert.equal(accounts.acceptDirectedInvite(guest.token, accepted.invite.id).status, 'active');
+		assert.deepEqual(accounts.discoverTables(guest.token), [], 'mesas das quais a conta participa não devem aparecer');
 		assert.deepEqual(accounts.listDirectedInvites(guest.token), []);
-		const declined = accounts.createInvite(owner.token, publicTable.id, 'spectator', undefined, 1, 'convidado-direto');
 		accounts.leaveTable(guest.token, publicTable.id);
+		const declined = accounts.createInvite(owner.token, publicTable.id, 'spectator', undefined, 1, 'convidado-direto');
 		accounts.declineDirectedInvite(guest.token, declined.invite.id);
 		assert.deepEqual(accounts.listDirectedInvites(guest.token), []);
 	});
@@ -815,6 +854,7 @@ describe('RPG version 2 accounts and tables backend', () => {
 		const ownerSession = accounts.login('dono-perm', 'Senha1!Segura');
 		const playerSession = accounts.login('player-perm', 'Senha1!Segura');
 		const table = accounts.createTable(ownerSession.token, { name: 'Permissões' });
+		accounts.updateTable(ownerSession.token, table.id, { requireJoinApproval: false });
 		accounts.joinByInvite(playerSession.token, accounts.createInvite(ownerSession.token, table.id).code);
 		assert.equal(accounts.getTablePermissions(playerSession.token, table.id)['contests.participate'], true);
 		assert.throws(() => accounts.createInvite(playerSession.token, table.id), /Permissão necessária/);

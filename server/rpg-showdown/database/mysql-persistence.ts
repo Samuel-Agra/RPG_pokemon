@@ -254,8 +254,8 @@ export class RPGMySQLPersistence {
 				hash: scryptSync(masterCode, salt, 32).toString('base64'),
 			});
 			await connection.execute(`INSERT IGNORE INTO rpg_accounts
-				(id, username, display_name, credential, status, created_at, updated_at, revision)
-				VALUES (?, 'mestre', 'Mestre', CAST(? AS JSON), 'active', ?, ?, 0)`,
+				(id, username, handle, display_name, credential, status, created_at, updated_at, revision)
+				VALUES (?, 'mestre', 'mestre', 'Mestre', CAST(? AS JSON), 'active', ?, ?, 0)`,
 			[ownerAccountId, credential, now, now]);
 			const [ownerRows] = await connection.query<RowDataPacket[]>('SELECT id FROM rpg_accounts WHERE username = ?', ['mestre']);
 			const resolvedOwnerAccountId = String(ownerRows[0].id);
@@ -285,9 +285,9 @@ export class RPGMySQLPersistence {
 				const username = String(row.id).toLowerCase().replace(/[^a-z0-9]+/g, '').slice(0, 40) || accountId.slice(0, 12);
 				const displayName = String(state.playerName || row.display_name || row.id).slice(0, 80);
 				await connection.execute(`INSERT IGNORE INTO rpg_accounts
-					(id, username, display_name, credential, status, created_at, updated_at, revision)
-					VALUES (?, ?, ?, CAST(? AS JSON), 'active', ?, ?, 0)`,
-				[accountId, username, displayName, JSON.stringify(decoded(row.credential)), now, now]);
+					(id, username, handle, display_name, credential, status, created_at, updated_at, revision)
+					VALUES (?, ?, ?, ?, CAST(? AS JSON), 'active', ?, ?, 0)`,
+				[accountId, username, username, displayName, JSON.stringify(decoded(row.credential)), now, now]);
 				const [accountRows] = await connection.query<RowDataPacket[]>('SELECT id FROM rpg_accounts WHERE username = ?', [username]);
 				const resolvedAccountId = String(accountRows[0].id);
 				await connection.execute(`INSERT INTO rpg_table_members
@@ -344,7 +344,8 @@ export class RPGMySQLPersistence {
 				[String(row.character_id), decoded(row.state) as Record<string, unknown>])),
 			campaign: campaign[0] as Record<string, unknown> | undefined || null,
 			platformAccounts: accountRows[0].map(row => ({
-				id: String(row.id), username: String(row.username), displayName: String(row.display_name),
+				id: String(row.id), username: String(row.username), handle: String(row.handle || row.username),
+				displayName: String(row.display_name),
 				credential: decoded(row.credential) as RPGPlatformAccount['credential'], status: row.status,
 				createdAt: Number(row.created_at), updatedAt: Number(row.updated_at), revision: Number(row.revision),
 			})),
@@ -536,11 +537,11 @@ export class RPGMySQLPersistence {
 	}
 	upsertPlatformAccount(account: RPGPlatformAccount): void {
 		this.enqueue(`INSERT INTO rpg_accounts
-			(id, username, display_name, credential, status, created_at, updated_at, revision)
-			VALUES (?, ?, ?, CAST(? AS JSON), ?, ?, ?, ?)
-			ON DUPLICATE KEY UPDATE username=VALUES(username), display_name=VALUES(display_name),
+			(id, username, handle, display_name, credential, status, created_at, updated_at, revision)
+			VALUES (?, ?, ?, ?, CAST(? AS JSON), ?, ?, ?, ?)
+			ON DUPLICATE KEY UPDATE username=VALUES(username), handle=VALUES(handle), display_name=VALUES(display_name),
 			credential=VALUES(credential), status=VALUES(status), updated_at=VALUES(updated_at), revision=VALUES(revision)`, [
-			account.id, account.username, account.displayName, JSON.stringify(account.credential), account.status,
+			account.id, account.username, account.handle, account.displayName, JSON.stringify(account.credential), account.status,
 			account.createdAt, account.updatedAt, account.revision,
 		]);
 	}

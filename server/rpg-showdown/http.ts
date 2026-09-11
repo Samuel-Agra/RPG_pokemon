@@ -375,8 +375,9 @@ export class RPGHttpServer {
 		// Version 2 owns global accounts and table membership while version 1 remains available during migration.
 		if (method === 'POST' && url.pathname === '/api/rpg/v2/accounts') {
 			const body = await this.body(req);
+			const username = this.string(body.username);
 			const registration = await this.login.accounts.createAccountWithRecoveryCodesAsync(
-				this.string(body.username), this.string(body.displayName), this.string(body.password)
+				username, this.string(body.displayName), this.string(body.password), this.optionalString(body.handle)
 			);
 			await this.login.flushPersistence();
 			this.json(res, 201, registration);
@@ -427,7 +428,9 @@ export class RPGHttpServer {
 		}
 		if (method === 'PATCH' && url.pathname === '/api/rpg/v2/account') {
 			const body = await this.body(req);
-			const account = this.login.accounts.updateAccount(this.token(req), this.string(body.displayName));
+			const account = this.login.accounts.updateAccount(
+				this.token(req), this.string(body.displayName), this.optionalString(body.handle)
+			);
 			await this.login.flushPersistence(); this.json(res, 200, { account }); return;
 		}
 		if (url.pathname === '/api/rpg/v2/sessions') {
@@ -541,6 +544,22 @@ export class RPGHttpServer {
 			this.json(res, 200, { tables: this.login.accounts.discoverTables(this.token(req)) });
 			return;
 		}
+		const version2PublicJoinMatch = /^\/api\/rpg\/v2\/tables\/([^/]+)\/join$/.exec(url.pathname);
+		if (method === 'POST' && version2PublicJoinMatch) {
+			const membership = this.login.accounts.joinPublicTable(
+				this.token(req), decodeURIComponent(version2PublicJoinMatch[1])
+			);
+			await this.login.flushPersistence();
+			this.json(res, 200, { membership, pending: membership.status === 'pending' });
+			return;
+		}
+		const version2FavoriteMatch = /^\/api\/rpg\/v2\/tables\/([^/]+)\/favorite$/.exec(url.pathname);
+		if (method === 'PATCH' && version2FavoriteMatch) {
+			const body = await this.body(req);
+			const membership = this.login.accounts.setTableFavorite(this.token(req),
+				decodeURIComponent(version2FavoriteMatch[1]), body.favorite === true);
+			await this.login.flushPersistence(); this.json(res, 200, { membership }); return;
+		}
 		if (method === 'GET' && url.pathname === '/api/rpg/v2/invites/directed') {
 			this.json(res, 200, { invites: this.login.accounts.listDirectedInvites(this.token(req)) });
 			return;
@@ -595,13 +614,28 @@ export class RPGHttpServer {
 			const body = await this.body(req); const role = this.string(body.role) || 'player';
 			const expiresAt = typeof body.expiresAt === 'number' ? body.expiresAt : undefined;
 			const maxUses = typeof body.maxUses === 'number' ? body.maxUses : 1;
+			const rawTargetHandles = body.targetHandles;
+			const multipleTargets = Array.isArray(rawTargetHandles);
+			const targetHandles = multipleTargets ? rawTargetHandles.map(value => this.string(value)) :
+				(this.optionalString(body.targetUsername) ? [this.string(body.targetUsername)] : []);
+			if (targetHandles.length) {
+				const invites = this.login.accounts.createDirectedInvites(
+					token, tableId, role as 'master' | 'player' | 'spectator', expiresAt, targetHandles
+				);
+				await this.login.flushPersistence();
+				const safeInvites = invites.map(({ codeHash: _codeHash, ...invite }) => invite);
+				this.json(res, 201, multipleTargets ? { invites: safeInvites } : { invite: safeInvites[0] });
+				return;
+			}
 			const invitation = this.login.accounts.createInvite(
-				token, tableId, role as 'master' | 'player' | 'spectator', expiresAt, maxUses,
-				this.optionalString(body.targetUsername)
+				token, tableId, role as 'master' | 'player' | 'spectator', expiresAt, maxUses
 			);
 			await this.login.flushPersistence();
 			const { codeHash: _codeHash, ...safeInvite } = invitation.invite;
-			this.json(res, 201, { code: invitation.code, invite: safeInvite });
+			this.json(res, 201, {
+				invite: safeInvite,
+				...(invitation.invite.targetAccountId ? {} : { code: invitation.code }),
+			});
 			return;
 		}
 		const version2InviteMatch = /^\/api\/rpg\/v2\/tables\/([^/]+)\/invites\/([^/]+)$/.exec(url.pathname);
@@ -1918,7 +1952,8 @@ export class RPGHttpServer {
 			.some(part => message.includes(part))) {
 			status = 403; publicDomainError = true;
 		} else if (message.includes('already exists') || message.includes('já está em uso') ||
-			message.includes('já foi utilizado')) {
+			message.includes('já foi utilizado') || message.includes('já está nesta mesa') ||
+			message.includes('já possui um convite ativo')) {
 			status = 409; publicDomainError = true;
 		} else if (message.includes('Unknown RPG character') || message.includes('Convite inválido') ||
 			message.includes('Convite não encontrado') || message.includes('Conta convidada não encontrada')) {
@@ -1937,7 +1972,7 @@ export class RPGHttpServer {
 	/** Only established domain validation messages may cross the HTTP boundary. */
 	private isPublicValidationError(message: string): boolean {
 		if (/persisted|estado persistido|table scope|random source|repository|repositório/i.test(message)) return false;
-		return /^(?:RPG (?:request|session|password|character|player|master|battle|contest|tournament|Bag|Box|shop|commerce|nursery|team|held|move|starter|temporary|NPC)|Invalid RPG|Incorrect RPG|Unknown RPG|Apenas |Permissão necessária:|Usuário ou senha |Conta (?:indisponível|convidada)|Mesa (?:indisponível|arquivada)|Convite |Código de recuperação |Muitas tentativas |Pokémon |Item |Golpe |Equipe |Batalha |Concurso |Torneio |NPC |Pasta |Documento |Loja |Banco |Pokécoin |Quantidade |Valor |Nível |Formato |Participante |Treinador |Campanha |nome de exibição inválido|descrição inválido|Texto muito longo|Cor da mesa inválida|Visibilidade da mesa inválida|Função (?:de membro|de convite) inválida|Identificador de sessão inválido|Motivo da auditoria muito longo|A senha deve |O usuário deve |Este (?:nome de usuário|convite|Pokémon|held item)|Esta (?:conta|loja|procriação)|O (?:Mestre|acesso|valor|usuário|proprietário|limite|item|Pokémon|reembolso|prêmio)|Os documentos |A (?:conta|equipe|aposta|expiração|incubadora|recompensa|procriação|quantidade|sessão|natureza|habilidade|loja)|Nenhum (?:Pokémon|participante|item)|Não (?:é possível|foi possível|há|existe|pode))/.test(message);
+		return /^(?:RPG (?:request|session|password|character|player|master|battle|contest|tournament|Bag|Box|shop|commerce|nursery|team|held|move|starter|temporary|NPC)|Invalid RPG|Incorrect RPG|Unknown RPG|Apenas |Permissão necessária:|Usuário ou senha |Conta (?:indisponível|convidada)|Mesa (?:indisponível|arquivada)|Convite |Código de recuperação |Muitas tentativas |Pokémon |Item |Golpe |Equipe |Batalha |Concurso |Torneio |NPC |Pasta |Documento |Loja |Banco |Pokécoin |Quantidade |Valor |Nível |Formato |Participante |Treinador |Campanha |nome de exibição inválido|descrição inválido|Texto muito longo|Cor da mesa inválida|Visibilidade da mesa inválida|Função (?:de membro|de convite) inválida|Identificador de sessão inválido|Motivo da auditoria muito longo|A senha deve |O usuário deve |O @ deve |Este (?:nome de usuário|convite|Pokémon|held item|@)|Esta (?:conta|loja|procriação)|O (?:Mestre|acesso|valor|usuário|proprietário|limite|item|Pokémon|reembolso|prêmio)|Os documentos |A (?:conta|equipe|aposta|expiração|incubadora|recompensa|procriação|quantidade|sessão|natureza|habilidade|loja)|Informe pelo menos um @|Envie convites |Não repita o mesmo @|@[^ ]+ |Nenhum (?:Pokémon|participante|item)|Não (?:é possível|foi possível|há|existe|pode))/.test(message);
 	}
 
 	private isPersistenceError(error: { code?: unknown, sqlState?: unknown }): boolean {
