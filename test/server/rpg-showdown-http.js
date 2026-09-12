@@ -152,11 +152,16 @@ describe('RPG HTTP frontend API', () => {
 
 		result = await request('/v2/tables', {
 			method: 'POST', headers: masterHeaders,
-			body: { name: 'Mesa V2', description: 'Teste da API', visibility: 'code', color: '#355487' },
+			body: { name: 'Mesa V2', description: 'Teste da API', visibility: 'code', color: '#355487',
+				settings: { tableInformation: 'Detalhes da campanha', fullDescription: 'Descrição completa',
+					sessionDays: ['sun'], sessionTimes: { sun: '15:00' }, inDevelopment: false } },
 		});
 		assert.equal(result.response.status, 201);
 		const tableId = result.data.table.id;
 		assert.equal(result.data.table.settings.requireJoinApproval, true);
+		assert.deepEqual(result.data.table.settings.sessionDays, ['sun']);
+		assert.deepEqual(result.data.table.settings.sessionTimes, { sun: '15:00' });
+		assert.equal(result.data.table.settings.inDevelopment, false);
 		await request(`/v2/tables/${tableId}`, {
 			method: 'PATCH', headers: masterHeaders, body: { requireJoinApproval: false },
 		});

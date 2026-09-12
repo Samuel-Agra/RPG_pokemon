@@ -311,6 +311,139 @@ function accountTableSystemHeader() {
 	return header;
 }
 
+function accountTableDevelopmentTag(table) {
+	const inDevelopment = table.settings?.inDevelopment !== false;
+	return inDevelopment ? createElement('span', 'account-table-development-tag', 'Em desenvolvimento') : null;
+}
+
+function accountTableDate(timestamp) {
+	return new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit', year: 'numeric' }).format(new Date(timestamp));
+}
+
+const accountTableSessionDays = [
+	['sun', 'Domingo'], ['mon', 'Segunda'], ['tue', 'Terça'], ['wed', 'Quarta'],
+	['thu', 'Quinta'], ['fri', 'Sexta'], ['sat', 'Sábado'],
+];
+
+function accountTableScheduleLabel(settings = {}) {
+	if (!Array.isArray(settings.sessionDays) || !settings.sessionDays.length) return String(settings.sessionSchedule || 'Não definido');
+	const names = new Map([['sun', 'DOM'], ['mon', 'SEG'], ['tue', 'TER'], ['wed', 'QUA'],
+		['thu', 'QUI'], ['fri', 'SEX'], ['sat', 'SÁB']]);
+	return settings.sessionDays.map(day => `${names.get(day) || day}${settings.sessionTimes?.[day] ? `, ${settings.sessionTimes[day]}` : ''}`).join(' · ');
+}
+
+function closeAccountTableDetails() {
+	document.querySelector('.account-table-details-layer')?.remove();
+}
+
+async function openAccountTableDetails(entry, sourceCard) {
+	closeAccountTableDetails();
+	let details;
+	try {
+		details = (await accountApi(`/tables/${encodeURIComponent(entry.table.id)}/details`)).details;
+	} catch (error) { showToast(error.message, true); return; }
+	const layer = createElement('div', 'modal-backdrop account-table-details-layer');
+	const card = createElement('article', 'panel account-table-details');
+	card.style.setProperty('--table-color', details.table.color || '#406aa3');
+	const header = createElement('header', 'account-table-details-header');
+	header.append(accountTableSystemHeader());
+	const close = button('×', 'account-table-details-close'); close.type = 'button'; close.setAttribute('aria-label', 'Fechar');
+	header.append(close); card.append(header);
+	const body = createElement('div', 'account-table-details-body');
+	const introduction = createElement('div', 'account-table-details-introduction');
+	const mainImage = details.table.settings?.cardImage;
+	if (mainImage) { const image = createElement('img', 'account-table-details-main-image'); image.src = mainImage; image.alt = ''; introduction.append(image); }
+	const information = createElement('section', 'account-table-details-information');
+	information.append(createElement('h1', '', details.table.name));
+	const fullDescription = createElement('div', 'account-table-rich-output');
+	setAccountTableRichContent(fullDescription, details.table.settings?.fullDescription,
+		'A descrição completa da mesa ainda não foi preenchida.');
+	information.append(fullDescription);
+	introduction.append(information); body.append(introduction);
+	const tableInformation = createElement('section', 'account-table-details-description');
+	const tableInformationContent = createElement('div', 'account-table-rich-output');
+	setAccountTableRichContent(tableInformationContent, details.table.settings?.tableInformation,
+		'As informações completas da mesa ainda não foram preenchidas.');
+	tableInformation.append(createElement('h2', '', 'Informações da mesa'), tableInformationContent);
+	body.append(tableInformation);
+	const footer = createElement('div', 'account-table-details-footer');
+	const membersArea = createElement('div', 'account-table-details-members-area');
+	const membersToggle = button('•', 'account-table-members-toggle'); membersToggle.type = 'button';
+	membersToggle.setAttribute('aria-label', 'Mostrar participantes'); membersToggle.setAttribute('aria-expanded', 'false');
+	const owner = details.members.find(member => member.role === 'owner');
+	const ownerName = createElement('strong', owner?.online ? 'online' : '', details.owner.displayName);
+	const ownerRole = createElement('small', 'account-table-owner-role', accountRoleLabel('owner'));
+	const ownerStatus = createElement('span', 'account-table-member-status' + (owner?.online ? ' online' : ''), owner?.online ? 'Online' : 'Offline');
+	membersArea.append(membersToggle, ownerName, ownerRole, ownerStatus);
+	const membersPanel = createElement('div', 'account-table-members-panel hidden');
+	for (const member of details.members.filter(member => member.role !== 'owner')) {
+		const row = createElement('div', 'account-table-member-line');
+		row.append(createElement('span', member.online ? 'online' : '', member.account.displayName),
+			createElement('small', '', accountRoleLabel(member.role)),
+			createElement('span', 'account-table-member-status' + (member.online ? ' online' : ''), member.online ? 'Online' : 'Offline'));
+		membersPanel.append(row);
+	}
+	if (!membersPanel.children.length) membersPanel.append(createElement('p', '', 'Nenhum outro participante.'));
+	membersArea.append(membersPanel); footer.append(membersArea);
+	const created = createElement('div', 'account-table-details-fact');
+	created.append(createElement('small', '', 'Mesa criada em'), createElement('strong', '', accountTableDate(details.table.createdAt)));
+	const schedule = createElement('div', 'account-table-details-fact');
+	schedule.append(createElement('small', '', 'Sessões'), createElement('strong', '', accountTableScheduleLabel(details.table.settings)));
+	const developmentTag = accountTableDevelopmentTag(details.table);
+	if (developmentTag) { footer.classList.add('has-development-tag'); footer.append(developmentTag); }
+	footer.append(created, schedule); body.append(footer);
+	const actions = createElement('div', 'account-table-details-actions');
+	if (details.membership?.status === 'active' && details.table.status === 'active') {
+		const enter = button('Entrar na mesa', 'button primary');
+		enter.addEventListener('click', () => { closeAccountTableDetails(); void enterAccountTable(entry); }); actions.append(enter);
+	} else if (details.membership?.status === 'pending') {
+		const pending = button('Aguardando aprovação', 'button'); pending.disabled = true; actions.append(pending);
+	} else if (details.table.visibility === 'public') {
+		const requiresApproval = details.table.settings?.requireJoinApproval !== false;
+		const join = button(requiresApproval ? 'Solicitar entrada' : 'Entrar na mesa', 'button primary');
+		join.addEventListener('click', async () => {
+			join.disabled = true;
+			try {
+				const result = await accountApi(`/tables/${encodeURIComponent(details.table.id)}/join`, { method: 'POST' });
+				if (result.pending) { join.textContent = 'Aguardando aprovação'; showToast('Solicitação enviada ao Mestre.'); return; }
+				await refreshAccountTables(); closeAccountTableDetails();
+				const joined = state.accountTables.find(candidate => candidate.table.id === details.table.id);
+				if (joined) await enterAccountTable(joined);
+			} catch (error) { join.disabled = false; showToast(error.message, true); }
+		}); actions.append(join);
+	}
+	card.append(body);
+	const shell = createElement('div', 'account-table-details-shell'); shell.append(card);
+	if (actions.children.length) shell.append(actions);
+	layer.append(shell); document.body.append(layer);
+	const closeDetails = () => closeAccountTableDetails(); close.addEventListener('click', closeDetails);
+	layer.addEventListener('pointerdown', event => { if (event.target === layer) closeDetails(); });
+	membersToggle.addEventListener('click', event => {
+		event.stopPropagation(); const opening = membersPanel.classList.contains('hidden');
+		membersPanel.classList.toggle('hidden', !opening); membersToggle.setAttribute('aria-expanded', String(opening));
+		membersToggle.textContent = opening ? '⌄' : '•';
+	});
+	card.addEventListener('pointerdown', event => {
+		if (!membersPanel.classList.contains('hidden') && !membersArea.contains(event.target)) {
+			membersPanel.classList.add('hidden'); membersToggle.setAttribute('aria-expanded', 'false'); membersToggle.textContent = '•';
+		}
+	});
+	const start = sourceCard.getBoundingClientRect(); const finish = card.getBoundingClientRect();
+	const x = start.left + start.width / 2 - (finish.left + finish.width / 2);
+	const y = start.top + start.height / 2 - (finish.top + finish.height / 2);
+	card.animate([{ opacity: 0.25, transform: `translate(${x}px, ${y}px) scale(${Math.max(0.2, start.width / finish.width)})` },
+		{ opacity: 1, transform: 'translate(0, 0) scale(1)' }], { duration: 280, easing: 'cubic-bezier(.2,.75,.2,1)' });
+}
+
+function bindAccountTableDetailsCard(card, entry) {
+	card.tabIndex = 0;
+	card.onclick = () => void openAccountTableDetails(entry, card);
+	card.onkeydown = event => {
+		if (event.key !== 'Enter' && event.key !== ' ') return;
+		event.preventDefault(); card.click();
+	};
+}
+
 function updateAccountTableCard(card, entry) {
 	card.classList.add('account-member-table');
 	const selected = state.selectedAccountTableId === entry.table.id;
@@ -344,17 +477,16 @@ function updateAccountTableCard(card, entry) {
 	});
 	meta.append(favorite); content.append(meta);
 	const character = createElement('div', 'account-table-character');
-	character.append(createElement('small', '', 'Personagem'));
-	character.append(createElement('strong', '', entry.character?.name ||
+	const characterCopy = createElement('div', 'account-table-character-copy');
+	characterCopy.append(createElement('small', '', 'Personagem'));
+	characterCopy.append(createElement('strong', '', entry.character?.name ||
 	(entry.membership.role === 'owner' || entry.membership.role === 'master' ? 'Gerenciamento da campanha' : 'Nenhum personagem')));
+	character.append(characterCopy);
+	const developmentTag = accountTableDevelopmentTag(entry.table);
+	if (developmentTag) character.append(developmentTag);
 	content.append(character);
 	card.append(cover, content);
-	card.onclick = () => {
-		state.selectedAccountTableId = state.selectedAccountTableId === entry.table.id ? null : entry.table.id;
-		for (const tableCard of document.querySelectorAll('.account-table-card')) {
-			tableCard.classList.toggle('selected', tableCard.dataset.tableId === state.selectedAccountTableId);
-		}
-	};
+	bindAccountTableDetailsCard(card, entry);
 }
 
 function reconcileAccountTableList(container, entries) {
@@ -709,6 +841,239 @@ function accountDialogField(label, name, value = '', type = 'text') {
 	return field;
 }
 
+function accountTableOptionalField(label, name, value = '', type = 'text') {
+	const field = accountDialogField(label, name, value, type);
+	field.querySelector('input').required = false;
+	return field;
+}
+
+function accountTableTextarea(label, name, value = '', maximum = 5_000, hint = '') {
+	const field = createElement('div', 'field');
+	const id = 'account-dialog-' + name;
+	const caption = createElement('label', '', label); caption.htmlFor = id;
+	const textarea = createElement('textarea');
+	textarea.id = id; textarea.name = name; textarea.maxLength = maximum; textarea.value = value;
+	field.append(caption, textarea);
+	if (hint) field.append(createElement('small', 'field-hint', hint));
+	return field;
+}
+
+function setAccountTableRichContent(element, value, fallback) {
+	const sanitized = sanitizeMasterNoteHTML(value);
+	if (sanitized.trim()) element.innerHTML = sanitized;
+	else element.textContent = fallback;
+}
+
+function closeAccountTableRichToolbar(toolbar) {
+	if (!toolbar || toolbar.classList.contains('hidden') || toolbar.classList.contains('closing')) return;
+	toolbar.classList.add('closing');
+	const finish = () => { toolbar.classList.add('hidden'); toolbar.classList.remove('closing'); };
+	toolbar.addEventListener('animationend', finish, { once: true });
+}
+
+function openAccountTableRichToolbar(toolbar) {
+	if (!toolbar) return;
+	for (const other of document.querySelectorAll('.account-table-rich-toolbar:not(.hidden)')) {
+		if (other !== toolbar) closeAccountTableRichToolbar(other);
+	}
+	toolbar.classList.remove('hidden', 'closing');
+}
+
+function accountTableRichTextField(label, name, value = '', maximum = 20_000) {
+	const field = createElement('div', 'field account-table-rich-field');
+	const captionRow = createElement('div', 'account-table-rich-caption');
+	const caption = createElement('label', '', label); caption.htmlFor = `account-dialog-${name}-editor`;
+	const toggle = button('A', 'account-table-rich-toggle'); toggle.type = 'button'; toggle.setAttribute('aria-label', `Formatar ${label}`);
+	captionRow.append(caption, toggle);
+	const input = createElement('input'); input.type = 'hidden'; input.name = name; input.value = sanitizeMasterNoteHTML(value);
+	const editor = createElement('div', 'account-table-rich-editor'); editor.id = `account-dialog-${name}-editor`;
+	editor.contentEditable = 'true'; editor.setAttribute('role', 'textbox'); editor.setAttribute('aria-multiline', 'true');
+	editor.dataset.placeholder = `Escreva ${label.toLowerCase()}...`; editor.innerHTML = input.value;
+	const toolbar = createElement('div', 'master-note-toolbar account-table-rich-toolbar hidden');
+	let savedRange = null;
+	const saveSelection = () => {
+		const selection = window.getSelection();
+		if (!selection?.rangeCount || !editor.contains(selection.anchorNode)) return;
+		savedRange = selection.getRangeAt(0).cloneRange();
+		const background = String(document.queryCommandValue('hiliteColor') || '').toLowerCase();
+		const backgroundControl = colorControls.get('background');
+		const hasBackground = Boolean(background && background !== 'transparent' && background !== 'rgba(0, 0, 0, 0)');
+		if (backgroundControl) {
+			backgroundControl.enabled.checked = hasBackground; backgroundControl.wrapper.classList.toggle('selected', hasBackground);
+		}
+		const anchor = selection.anchorNode.nodeType === Node.TEXT_NODE ? selection.anchorNode.parentElement : selection.anchorNode;
+		const outlined = anchor?.closest?.('span');
+		const outlineWidth = outlined?.style.getPropertyValue('-webkit-text-stroke-width') || '0px';
+		const outlineControl = colorControls.get('outline'); const hasOutline = Number.parseFloat(outlineWidth) > 0;
+		if (outlineControl) {
+			outlineControl.enabled.checked = hasOutline; outlineControl.wrapper.classList.toggle('selected', hasOutline);
+		}
+	};
+	const restoreSelection = () => {
+		editor.focus(); if (!savedRange) return;
+		const selection = window.getSelection(); selection.removeAllRanges(); selection.addRange(savedRange);
+	};
+	const sync = (notify = false) => {
+		input.value = sanitizeMasterNoteHTML(editor.innerHTML).slice(0, maximum);
+		if (notify) input.dispatchEvent(new Event('input', { bubbles: true }));
+	};
+	const command = (title, name, commandValue = null) => {
+		const control = button('', 'master-note-format-button format-' + name.toLowerCase()); control.type = 'button'; control.setAttribute('aria-label', title);
+		control.append(masterNoteToolbarIcon(name)); control.addEventListener('mousedown', event => event.preventDefault());
+		control.addEventListener('click', () => { restoreSelection(); document.execCommand(name, false, commandValue); sync(true); saveSelection(); });
+		return control;
+	};
+	const selectCommand = (title, options, action) => {
+		const select = createElement('select', 'master-note-format-select'); select.setAttribute('aria-label', title);
+		for (const [text, optionValue] of options) select.append(new Option(text, optionValue));
+		select.addEventListener('change', () => { restoreSelection(); action(select.value); sync(true); saveSelection(); }); return select;
+	};
+	const format = selectCommand('Forma do texto', [['Texto', 'p'], ['Título', 'h2'], ['Subtítulo', 'h3'], ['Citação', 'blockquote']],
+		formatValue => document.execCommand('formatBlock', false, formatValue));
+	const fontNames = ['Arial', 'Arial Black', 'Calibri', 'Cambria', 'Century Gothic', 'Courier New', 'Garamond', 'Georgia', 'Impact', 'Segoe UI', 'Times New Roman', 'Verdana'];
+	const font = selectCommand('Fonte', fontNames.map(fontName => [fontName, fontName]), fontName => document.execCommand('fontName', false, fontName));
+	const sizes = [8, 9, 10, 11, 12, 14, 16, 18, 20, 24, 28, 32, 36, 48, 72];
+	const size = selectCommand('Escala', sizes.map(fontSize => [String(fontSize), String(fontSize)]), fontSize => {
+		document.execCommand('fontSize', false, '7');
+		for (const element of editor.querySelectorAll('font[size="7"]')) { element.removeAttribute('size'); element.style.fontSize = fontSize + 'pt'; }
+	}); size.value = '12';
+	const applyTextOutline = (property, value) => {
+		const selection = window.getSelection();
+		if (!selection?.rangeCount) return;
+		const range = selection.getRangeAt(0);
+		const commonNode = range.commonAncestorContainer;
+		const anchor = commonNode.nodeType === Node.TEXT_NODE ? commonNode.parentElement : commonNode;
+		let outline = anchor?.closest?.('[data-text-outline]');
+		const styledSpan = anchor?.closest?.('span');
+		if (!outline && styledSpan?.style.getPropertyValue('-webkit-text-stroke-width')) outline = styledSpan;
+		if (!outline || !editor.contains(outline)) {
+			outline = createElement('span'); outline.dataset.textOutline = 'true';
+			if (range.collapsed) {
+				const placeholder = document.createTextNode('\u200b'); outline.append(placeholder); range.insertNode(outline);
+				selection.removeAllRanges(); const caret = document.createRange(); caret.setStart(placeholder, 1); caret.collapse(true); selection.addRange(caret);
+			} else {
+				outline.append(range.extractContents()); range.insertNode(outline);
+				selection.removeAllRanges(); const outlinedRange = document.createRange(); outlinedRange.selectNodeContents(outline);
+				selection.addRange(outlinedRange);
+			}
+		}
+		if (property === 'color') {
+			outline.style.setProperty('-webkit-text-stroke-color', value);
+			if (!outline.style.getPropertyValue('-webkit-text-stroke-width')) outline.style.setProperty('-webkit-text-stroke-width', '1px');
+			outline.style.setProperty('paint-order', 'stroke fill');
+		} else {
+			outline.style.setProperty('-webkit-text-stroke-width', value);
+			if (value !== '0px' && !outline.style.getPropertyValue('-webkit-text-stroke-color')) {
+				outline.style.setProperty('-webkit-text-stroke-color', '#597596');
+			}
+			if (value !== '0px') outline.style.setProperty('paint-order', 'stroke fill');
+		}
+		const width = Number.parseFloat(outline.style.getPropertyValue('-webkit-text-stroke-width')) || 0;
+		const outlineColor = outline.style.getPropertyValue('-webkit-text-stroke-color') || '#597596';
+		if (!width) outline.style.removeProperty('text-shadow');
+		else {
+			const offsets = [[-width, 0], [width, 0], [0, -width], [0, width], [-width, -width],
+				[-width, width], [width, -width], [width, width]];
+			outline.style.textShadow = offsets.map(([x, y]) => `${x}px ${y}px 0 ${outlineColor}`).join(', ');
+		}
+	};
+	const colorControls = new Map();
+	const color = (title, commandName, initial, mode = '') => {
+		const wrapper = createElement('label', 'master-note-color-control'); wrapper.append(createElement('span', '', title));
+		let enabled = null;
+		if (mode) {
+			enabled = createElement('input', 'master-note-color-enabled'); enabled.type = 'checkbox';
+			enabled.setAttribute('aria-label', `Ativar ${title.toLowerCase()}`); wrapper.prepend(enabled);
+			colorControls.set(mode, { enabled, wrapper });
+		}
+		const picker = createElement('input'); picker.type = 'color'; picker.value = initial; picker.setAttribute('aria-label', title);
+		picker.addEventListener('pointerdown', saveSelection);
+		const apply = active => {
+			restoreSelection();
+			if (mode === 'outline') {
+				if (active) applyTextOutline('color', picker.value); else applyTextOutline('width', '0px');
+			} else if (mode === 'background') document.execCommand(commandName, false, active ? picker.value : 'transparent');
+			else document.execCommand(commandName, false, picker.value);
+			wrapper.classList.toggle('selected', Boolean(active)); sync(true); saveSelection();
+		};
+		picker.addEventListener('input', () => { if (enabled) enabled.checked = true; apply(true); });
+		if (enabled) {
+			enabled.addEventListener('pointerdown', saveSelection);
+			enabled.addEventListener('change', () => apply(enabled.checked));
+		}
+		wrapper.append(picker); return wrapper;
+	};
+	const outlineWidth = selectCommand('Espessura do contorno', [['Sem contorno', '0px'], ['Contorno fino', '0.5px'],
+		['Contorno médio', '1px'], ['Contorno grosso', '2px']], width => {
+		const control = colorControls.get('outline');
+		if (control) { control.enabled.checked = width !== '0px'; control.wrapper.classList.toggle('selected', width !== '0px'); }
+		applyTextOutline('width', width);
+	});
+	toolbar.append(format, font, size,
+		command('Desfazer', 'undo'), command('Refazer', 'redo'), command('Negrito', 'bold'), command('Itálico', 'italic'),
+		command('Sublinhado', 'underline'), command('Riscado', 'strikeThrough'), command('Subscrito', 'subscript'),
+		command('Sobrescrito', 'superscript'), command('Limpar formatação', 'removeFormat'),
+		color('Texto', 'foreColor', '#263d5a'), color('Fundo', 'hiliteColor', '#fff29a', 'background'),
+		color('Contorno', '', '#597596', 'outline'), outlineWidth,
+		command('Lista com marcadores', 'insertUnorderedList'), command('Lista numerada', 'insertOrderedList'),
+		command('Diminuir recuo', 'outdent'), command('Aumentar recuo', 'indent'), command('Alinhar à esquerda', 'justifyLeft'),
+		command('Centralizar', 'justifyCenter'), command('Alinhar à direita', 'justifyRight'), command('Justificar', 'justifyFull'),
+		command('Inserir linha divisória', 'insertHorizontalRule'));
+	editor.addEventListener('input', () => { sync(); saveSelection(); }); editor.addEventListener('keyup', saveSelection);
+	editor.addEventListener('mouseup', saveSelection);
+	editor.addEventListener('focus', () => openAccountTableRichToolbar(toolbar));
+	toggle.addEventListener('click', () => {
+		const opening = toolbar.classList.contains('hidden');
+		if (opening) { openAccountTableRichToolbar(toolbar); editor.focus(); } else closeAccountTableRichToolbar(toolbar);
+	});
+	field.append(captionRow, input, editor, toolbar); return field;
+}
+
+function closeAccountTableSessionDays(schedule) {
+	if (!schedule?.open || schedule.classList.contains('closing')) return;
+	schedule.classList.add('closing');
+	const finish = () => {
+		schedule.open = false; schedule.classList.remove('closing');
+	};
+	schedule.querySelector('.account-table-session-options')?.addEventListener('animationend', finish, { once: true });
+}
+
+function appendAccountTablePresentationFields(container, settings = {}) {
+	const statusField = createElement('div', 'field');
+	const statusLabel = createElement('label', '', 'Estado da mesa'); statusLabel.htmlFor = 'account-dialog-inDevelopment';
+	const status = createElement('select'); status.id = 'account-dialog-inDevelopment'; status.name = 'inDevelopment';
+	for (const [value, label] of [['true', 'Em desenvolvimento'], ['false', 'Pronta para jogar']]) {
+		const option = createElement('option', '', label); option.value = value;
+		option.selected = (settings.inDevelopment !== false) === (value === 'true'); status.append(option);
+	}
+	statusField.append(statusLabel, status);
+	const selectedDays = new Set(Array.isArray(settings.sessionDays) ? settings.sessionDays : []);
+	const schedule = createElement('details', 'account-table-session-days');
+	const scheduleSummary = createElement('summary', '', 'Dias das sessões');
+	scheduleSummary.addEventListener('click', event => {
+		if (!schedule.open) return;
+		event.preventDefault(); closeAccountTableSessionDays(schedule);
+	});
+	schedule.append(scheduleSummary);
+	const dayOptions = createElement('div', 'account-table-session-options');
+	for (const [day, label] of accountTableSessionDays) {
+		const row = createElement('label', 'account-table-session-day');
+		const checkbox = createElement('input'); checkbox.type = 'checkbox'; checkbox.name = `sessionDay-${day}`;
+		checkbox.dataset.sessionDay = day; checkbox.checked = selectedDays.has(day);
+		const time = createElement('input'); time.type = 'time'; time.name = `sessionTime-${day}`;
+		time.dataset.sessionTime = day; time.value = String(settings.sessionTimes?.[day] || ''); time.disabled = !checkbox.checked;
+		checkbox.addEventListener('change', () => { time.disabled = !checkbox.checked; if (checkbox.checked) time.focus(); });
+		row.append(checkbox, createElement('span', '', label), time); dayOptions.append(row);
+	}
+	schedule.append(dayOptions);
+	container.append(
+		statusField,
+		accountTableOptionalField('Imagem principal', 'cardImage', String(settings.cardImage || ''), 'url'),
+		accountTableRichTextField('Descrição da mesa', 'fullDescription', String(settings.fullDescription || ''), 20_000),
+		accountTableRichTextField('Informações da mesa', 'tableInformation', String(settings.tableInformation || ''), 5_000), schedule
+	);
+}
+
 function closeAccountTableDialog() {
 	$('#account-table-dialog-layer').classList.add('hidden');
 	$('#account-table-dialog-fields').replaceChildren();
@@ -756,38 +1121,94 @@ function renderAccountTableCreationStep() {
 	fields.querySelector('.account-table-step-panel:not(.hidden) input, .account-table-step-panel:not(.hidden) textarea')?.focus();
 }
 
-function buildAccountTableCreationFields(fields) {
-	fields.append(accountTableCreationStepper());
-	const identity = createElement('section', 'account-table-step-panel'); identity.dataset.tableStep = '0';
-	identity.append(accountDialogField('Nome da mesa', 'name'));
-	const description = createElement('div', 'field');
-	const descriptionLabel = createElement('label', '', 'Descrição curta'); descriptionLabel.htmlFor = 'account-dialog-description';
-	const textarea = createElement('textarea'); textarea.id = 'account-dialog-description'; textarea.name = 'description'; textarea.maxLength = 500;
-	description.append(descriptionLabel, textarea); identity.append(description);
-	const color = accountDialogField('Cor do cartão', 'color', '#406aa3', 'color'); color.classList.add('account-table-color-field');
-	identity.append(color); fields.append(identity);
+function accountTableEditorSelect(label, name, options, selected) {
+	const field = createElement('div', 'field');
+	const id = 'account-dialog-' + name; const caption = createElement('label', '', label); caption.htmlFor = id;
+	const select = createElement('select'); select.id = id; select.name = name;
+	for (const [value, text] of options) {
+		const option = createElement('option', '', text); option.value = value; option.selected = value === selected; select.append(option);
+	}
+	field.append(caption, select); return field;
+}
 
-	const entry = createElement('section', 'account-table-step-panel hidden'); entry.dataset.tableStep = '1';
-	entry.append(createElement('p', 'account-table-step-help', 'Escolha como novos jogadores poderão encontrar ou acessar esta mesa.'));
-	const choices = createElement('div', 'account-visibility-choices');
-	choices.append(
-		accountTableVisibilityChoice('private', 'Privada', 'Somente contas convidadas poderão entrar.', true),
-		accountTableVisibilityChoice('code', 'Com código', 'Quem receber o código poderá entrar.', false),
-		accountTableVisibilityChoice('public', 'Pública', 'Aparece em Descobrir mesas para novos jogadores.', false)
-	);
-	entry.append(choices); fields.append(entry);
+function accountTablePreviewValues(editor) {
+	const value = name => editor.querySelector(`[name="${name}"]`)?.value || '';
+	const sessionDays = [...editor.querySelectorAll('[data-session-day]:checked')].map(input => input.dataset.sessionDay);
+	const sessionTimes = Object.fromEntries(sessionDays.map(day => [day, value(`sessionTime-${day}`)]));
+	return {
+		name: value('name').trim() || 'Nome da mesa', description: value('description').trim() || 'Descrição curta da mesa.',
+		color: value('color') || '#406aa3', visibility: value('visibility') || 'private',
+		settings: { cardImage: value('cardImage').trim(), tableInformation: value('tableInformation').trim(),
+			fullDescription: value('fullDescription').trim(), sessionDays, sessionTimes,
+			requireJoinApproval: value('requireJoinApproval') !== 'false', inDevelopment: value('inDevelopment') !== 'false' },
+	};
+}
 
-	const review = createElement('section', 'account-table-step-panel hidden'); review.dataset.tableStep = '2';
-	review.append(createElement('p', 'account-table-step-help', 'Confira a identidade e a entrada de jogadores antes de criar.'));
-	const card = createElement('div', 'account-table-review');
-	const swatch = createElement('span', 'account-table-review-color'); swatch.id = 'account-table-review-color';
-	const summary = createElement('div');
-	const reviewName = createElement('strong'); reviewName.id = 'account-table-review-name';
-	const reviewDescription = createElement('p'); reviewDescription.id = 'account-table-review-description';
-	const reviewEntry = createElement('small'); reviewEntry.id = 'account-table-review-entry';
-	summary.append(reviewName, reviewDescription, reviewEntry); card.append(swatch, summary); review.append(card);
-	review.append(createElement('p', 'account-table-deferred-note', 'Horário e demais regras iniciais poderão ser configurados dentro da mesa.'));
-	fields.append(review);
+function renderAccountTableEditorPreview(editor, stage) {
+	const table = accountTablePreviewValues(editor); const large = stage.dataset.mode === 'large';
+	const card = createElement('article', large ? 'panel account-table-details account-table-live-preview large' :
+		'panel account-table-card account-member-table account-table-live-preview small');
+	card.style.setProperty('--table-color', table.color);
+	if (!large) {
+		const cover = createElement('div', 'account-table-cover'); cover.append(accountTableSystemHeader());
+		const content = createElement('div', 'account-table-content'); const summary = createElement('div', 'account-table-summary');
+		if (table.settings.cardImage) { const image = createElement('img', 'account-table-illustration'); image.src = table.settings.cardImage; image.alt = ''; summary.append(image); }
+		const copy = createElement('div', 'account-table-copy'); copy.append(createElement('h3', '', table.name), createElement('p', '', table.description));
+		summary.append(copy); content.append(summary);
+		const meta = createElement('div', 'account-table-meta'); meta.append(createElement('span', 'account-table-owner online', state.account?.displayName || 'Mestre'),
+			createElement('span', 'account-table-access', accountTableAccessLabel(table)), createElement('span', 'account-table-favorite', '☆'));
+		const character = createElement('div', 'account-table-character'); const characterCopy = createElement('div', 'account-table-character-copy');
+		characterCopy.append(createElement('small', '', 'Personagem'), createElement('strong', '', 'Gerenciamento da campanha'));
+		character.append(characterCopy); const tag = accountTableDevelopmentTag(table); if (tag) character.append(tag);
+		content.append(meta, character); card.append(cover, content);
+	} else {
+		const header = createElement('header', 'account-table-details-header'); header.append(accountTableSystemHeader(), createElement('span', 'account-table-details-close', '×'));
+		const body = createElement('div', 'account-table-details-body'); const introduction = createElement('div', 'account-table-details-introduction');
+		if (table.settings.cardImage) { const image = createElement('img', 'account-table-details-main-image'); image.src = table.settings.cardImage; image.alt = ''; introduction.append(image); }
+		const description = createElement('section', 'account-table-details-information');
+		const descriptionContent = createElement('div', 'account-table-rich-output');
+		setAccountTableRichContent(descriptionContent, table.settings.fullDescription, 'A descrição completa da mesa aparecerá aqui.');
+		description.append(createElement('h1', '', table.name), descriptionContent);
+		introduction.append(description); body.append(introduction);
+		const information = createElement('section', 'account-table-details-description');
+		const informationContent = createElement('div', 'account-table-rich-output');
+		setAccountTableRichContent(informationContent, table.settings.tableInformation, 'As informações completas da mesa aparecerão aqui.');
+		information.append(createElement('h2', '', 'Informações da mesa'), informationContent); body.append(information);
+		const footer = createElement('div', 'account-table-details-footer');
+		const owner = createElement('div', 'account-table-details-members-area'); owner.append(createElement('span', 'account-table-members-toggle', '•'),
+			createElement('strong', 'online', state.account?.displayName || 'Mestre'), createElement('small', 'account-table-owner-role', 'Proprietário'),
+			createElement('span', 'account-table-member-status online', 'Online')); footer.append(owner);
+		const tag = accountTableDevelopmentTag(table); if (tag) { footer.classList.add('has-development-tag'); footer.append(tag); }
+		const created = createElement('div', 'account-table-details-fact'); created.append(createElement('small', '', 'Mesa criada em'), createElement('strong', '', accountTableDate(Date.now())));
+		const schedule = createElement('div', 'account-table-details-fact'); schedule.append(createElement('small', '', 'Sessões'), createElement('strong', '', accountTableScheduleLabel(table.settings)));
+		footer.append(created, schedule); body.append(footer); card.append(header, body);
+	}
+	stage.replaceChildren(card);
+}
+
+function buildAccountTableEditor(fields, table = {}, heading = 'Configurar mesa') {
+	const layout = createElement('div', 'account-table-editor-layout'); const editor = createElement('section', 'account-table-editor-fields');
+	editor.append(createElement('h2', '', heading));
+	const identityRow = createElement('div', 'account-dialog-row');
+	const color = accountDialogField('Cor do cartão', 'color', table.color || '#406aa3', 'color'); color.classList.add('account-table-color-field');
+	identityRow.append(color, accountTableEditorSelect('Visibilidade', 'visibility', [['private', 'Privada'], ['code', 'Com código'], ['public', 'Pública']], table.visibility || 'private'));
+	editor.append(identityRow, accountDialogField('Nome da mesa', 'name', table.name || ''),
+		accountTableTextarea('Descrição curta', 'description', table.description || '', 500),
+		accountTableEditorSelect('Entrada de jogadores', 'requireJoinApproval',
+			[['true', 'Com aprovação do Mestre'], ['false', 'Entrada imediata']], table.settings?.requireJoinApproval === false ? 'false' : 'true'));
+	appendAccountTablePresentationFields(editor, table.settings || {});
+	const preview = createElement('aside', 'account-table-editor-preview'); preview.append(createElement('h3', '', 'Prévia do cartão'));
+	const carousel = createElement('div', 'account-table-preview-carousel'); const previous = button('‹', 'account-table-preview-arrow');
+	previous.type = 'button'; previous.setAttribute('aria-label', 'Mostrar cartão pequeno');
+	const stage = createElement('div', 'account-table-preview-stage'); stage.dataset.mode = 'small';
+	const next = button('›', 'account-table-preview-arrow'); next.type = 'button'; next.setAttribute('aria-label', 'Mostrar cartão grande');
+	carousel.append(previous, stage, next); preview.append(carousel);
+	layout.append(editor, preview); fields.append(layout);
+	const update = () => renderAccountTableEditorPreview(editor, stage);
+	const setMode = mode => { stage.dataset.mode = mode; update(); };
+	const toggleMode = () => setMode(stage.dataset.mode === 'large' ? 'small' : 'large');
+	previous.addEventListener('click', toggleMode); next.addEventListener('click', toggleMode);
+	editor.addEventListener('input', update); editor.addEventListener('change', update); update();
 }
 
 async function createFirstAccountTableInvite(table) {
@@ -829,6 +1250,7 @@ function renderAccountTableCreationSuccess(table) {
 function openAccountTableDialog(mode, entry = null) {
 	closeAccountTableMenus();
 	accountTableDialogMode = mode; accountTableDialogEntry = entry;
+	$('#account-table-dialog').classList.toggle('table-editor', mode === 'create' || mode === 'edit');
 	const fields = $('#account-table-dialog-fields'); fields.replaceChildren();
 	const title = $('#account-table-dialog-title'); const submit = $('#account-table-dialog-submit');
 	$('#account-table-dialog-actions').classList.remove('hidden'); $('#account-table-dialog-cancel').classList.remove('hidden');
@@ -840,29 +1262,13 @@ function openAccountTableDialog(mode, entry = null) {
 		title.textContent = 'Configura\u00e7\u00f5es da conta'; submit.textContent = 'Salvar';
 		fields.append(accountDialogField('Nome de exibi\u00e7\u00e3o', 'displayName', state.account?.displayName || ''));
 	} else if (mode === 'create') {
-		title.textContent = 'Criar mesa';
-		buildAccountTableCreationFields(fields);
-		renderAccountTableCreationStep();
+		title.textContent = 'Criar mesa'; submit.textContent = 'Criar mesa'; accountTableCreationStep = 2;
+		buildAccountTableEditor(fields, {}, 'Criar mesa');
 	} else {
 		const editing = mode === 'edit';
 		title.textContent = editing ? 'Editar mesa' : 'Criar mesa'; submit.textContent = editing ? 'Salvar' : 'Criar mesa';
 		const table = entry?.table || {};
-		fields.append(accountDialogField('Nome da mesa', 'name', table.name || ''));
-		const description = createElement('div', 'field');
-		const descriptionLabel = createElement('label', '', 'Descri\u00e7\u00e3o'); descriptionLabel.htmlFor = 'account-dialog-description';
-		const textarea = createElement('textarea'); textarea.id = 'account-dialog-description'; textarea.name = 'description';
-		textarea.maxLength = 500; textarea.value = table.description || '';
-		description.append(descriptionLabel, textarea); fields.append(description);
-		const row = createElement('div', 'account-dialog-row');
-		row.append(accountDialogField('Cor do cartão', 'color', table.color || '#406aa3', 'color'));
-		const visibility = createElement('div', 'field');
-		const visibilityLabel = createElement('label', '', 'Visibilidade'); visibilityLabel.htmlFor = 'account-dialog-visibility';
-		const select = createElement('select'); select.id = 'account-dialog-visibility'; select.name = 'visibility';
-		for (const [value, label] of [['private', 'Privada'], ['code', 'Por convite'], ['public', 'P\u00fablica']]) {
-			const option = createElement('option', '', label); option.value = value; option.selected = value === (table.visibility || 'private');
-			select.append(option);
-		}
-		visibility.append(visibilityLabel, select); row.append(visibility); fields.append(row);
+		buildAccountTableEditor(fields, table, 'Editar mesa');
 	}
 	$('#account-table-dialog-layer').classList.remove('hidden');
 	fields.querySelector('input, textarea, select')?.focus();
@@ -872,6 +1278,8 @@ async function submitAccountTableDialog(event) {
 	event.preventDefault();
 	const form = event.currentTarget; const values = Object.fromEntries(new FormData(form));
 	const submit = $('#account-table-dialog-submit'); submit.disabled = true;
+	const preserveActiveWorld = accountTableDialogMode === 'edit' &&
+		accountTableDialogEntry?.table.id === state.accountSession?.activeTableId && $('#tables-screen').classList.contains('hidden');
 	setError('account-table-dialog-error', '');
 	try {
 		if (accountTableDialogMode === 'create' && accountTableCreationStep < 2) {
@@ -911,7 +1319,19 @@ async function submitAccountTableDialog(event) {
 			showToast('Configura\u00e7\u00f5es salvas.');
 		} else {
 			const body = { name: String(values.name || '').trim(), description: String(values.description || '').trim(),
-				color: String(values.color || '#406aa3'), visibility: String(values.visibility || 'private') };
+				color: String(values.color || '#406aa3'), visibility: String(values.visibility || 'private'),
+				requireJoinApproval: String(values.requireJoinApproval || 'true') !== 'false',
+				settings: {
+					cardImage: String(values.cardImage || '').trim(),
+					tableInformation: String(values.tableInformation || '').trim(),
+					fullDescription: String(values.fullDescription || '').trim(),
+					sessionDays: [...form.querySelectorAll('[data-session-day]:checked')].map(input => input.dataset.sessionDay),
+					sessionTimes: Object.fromEntries([...form.querySelectorAll('[data-session-day]:checked')].map(input => {
+						const day = input.dataset.sessionDay; return [day, form.querySelector(`[data-session-time="${day}"]`)?.value || ''];
+					})),
+					inDevelopment: String(values.inDevelopment || 'true') !== 'false',
+				},
+			};
 			if (accountTableDialogMode === 'edit') {
 				await accountApi(`/tables/${encodeURIComponent(accountTableDialogEntry.table.id)}`, { method: 'PATCH', body });
 				showToast('Mesa atualizada.');
@@ -923,7 +1343,11 @@ async function submitAccountTableDialog(event) {
 			}
 		}
 		closeAccountTableDialog();
-		await renderAccountTables();
+		if (preserveActiveWorld) {
+			await refreshAccountTables();
+		} else {
+			await renderAccountTables();
+		}
 	} catch (error) {
 		setError('account-table-dialog-error', error.message);
 	} finally { submit.disabled = false; }
@@ -961,15 +1385,11 @@ function renderDiscoveredTable(entry) {
 	meta.append(createElement('span', entry.ownerOnline ? 'account-table-owner online' : 'account-table-owner', entry.owner.displayName),
 		createElement('span', 'account-table-access', accountTableAccessLabel(entry.table)));
 	content.append(meta);
-	content.append(createElement('div', 'account-table-card-reserved')); card.append(cover, content);
-	card.tabIndex = 0;
-	card.addEventListener('click', () => {
-		for (const other of document.querySelectorAll('.account-discovered-table.selected')) other.classList.remove('selected');
-		card.classList.add('selected'); card.focus();
-	});
-	card.addEventListener('keydown', event => {
-		if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); card.click(); }
-	});
+	const reserved = createElement('div', 'account-table-card-reserved');
+	const developmentTag = accountTableDevelopmentTag(entry.table);
+	if (developmentTag) reserved.append(developmentTag);
+	content.append(reserved); card.append(cover, content);
+	bindAccountTableDetailsCard(card, entry);
 	return card;
 }
 
@@ -5365,6 +5785,10 @@ function sanitizeMasterNoteHTML(value) {
 		const backgroundColor = child.style.backgroundColor;
 		const fontFamily = child.style.fontFamily;
 		const fontSize = child.style.fontSize;
+		const textStrokeColor = child.style.getPropertyValue('-webkit-text-stroke-color');
+		const textStrokeWidth = child.style.getPropertyValue('-webkit-text-stroke-width');
+		const paintOrder = child.style.paintOrder;
+		const textShadow = child.style.textShadow;
 		const face = child.getAttribute('face');
 		const size = child.getAttribute('size');
 		child.removeAttribute('style');
@@ -5374,6 +5798,10 @@ function sanitizeMasterNoteHTML(value) {
 		if (backgroundColor) child.style.backgroundColor = backgroundColor;
 		if (fontFamily && /^[\w\s,'-]+$/.test(fontFamily)) child.style.fontFamily = fontFamily;
 		if (fontSize && /^(?:\d+(?:\.\d+)?(?:px|pt|em|rem|%))$/.test(fontSize)) child.style.fontSize = fontSize;
+		if (textStrokeColor) child.style.setProperty('-webkit-text-stroke-color', textStrokeColor);
+		if (/^(?:0|0\.5|1|2)px$/.test(textStrokeWidth)) child.style.setProperty('-webkit-text-stroke-width', textStrokeWidth);
+		if (paintOrder === 'stroke fill') child.style.paintOrder = paintOrder;
+		if (textShadow && /^[\d\s.,()#a-fgrb-]+$/i.test(textShadow)) child.style.textShadow = textShadow;
 		if (child.tagName === 'FONT' && face && /^[\w\s,'-]+$/.test(face)) child.setAttribute('face', face);
 		if (child.tagName === 'FONT' && /^[1-7]$/.test(size || '')) child.setAttribute('size', size);
 	}
@@ -6308,6 +6736,12 @@ $('#account-archived-toggle').addEventListener('click', () => {
 document.addEventListener('pointerdown', event => {
 	if (!event.target.closest('.account-table-menu-button, .account-table-popover')) closeAccountTableMenus();
 	if (!event.target.closest('#current-table-shell')) closeCurrentTableMenu();
+	if (!event.target.closest('.account-table-session-days')) {
+		closeAccountTableSessionDays(document.querySelector('.account-table-session-days[open]'));
+	}
+	if (!event.target.closest('.account-table-rich-field')) {
+		for (const toolbar of document.querySelectorAll('.account-table-rich-toolbar:not(.hidden)')) closeAccountTableRichToolbar(toolbar);
+	}
 });
 
 for (const back of document.querySelectorAll('[data-back]')) {
@@ -6360,6 +6794,13 @@ function clickDashboardReturnControl() {
 function handleEscapeNavigation(event) {
 	if (event.key !== 'Escape' || event.defaultPrevented || event.repeat) return;
 	if (document.querySelector('.overview-pokedex-layer')) return;
+	const richToolbar = document.querySelector('.account-table-rich-toolbar:not(.hidden)');
+	if (richToolbar) {
+		event.preventDefault(); closeAccountTableRichToolbar(richToolbar); return;
+	}
+	if (document.querySelector('.account-table-details-layer')) {
+		event.preventDefault(); closeAccountTableDetails(); return;
+	}
 	if (!$('#current-table-menu').classList.contains('hidden')) {
 		event.preventDefault(); closeCurrentTableMenu(); return;
 	}

@@ -114,6 +114,43 @@ describe('RPG version 2 account authentication frontend', () => {
 		assert(style.includes('.account-visibility-choice'));
 	});
 
+	it('edits table properties beside a live small and complete card preview', () => {
+		assert(script.includes('account-table-editor-layout'));
+		assert(script.includes("stage.dataset.mode = 'small'"));
+		assert(script.includes("const toggleMode = () => setMode(stage.dataset.mode === 'large' ? 'small' : 'large')"));
+		assert(script.includes("editor.addEventListener('input', update)"));
+		assert(style.includes('.account-table-preview-arrow'));
+		assert.match(style, /\.account-table-live-preview\.large \{[^}]*width: 1180px;[^}]*height: 740px;[^}]*scale\(\.59\)/);
+	});
+
+	it('formats and safely previews the complete table description and information', () => {
+		assert(script.includes("accountTableRichTextField('Descrição da mesa'"));
+		assert(script.includes("accountTableRichTextField('Informações da mesa'"));
+		assert(script.includes("selectCommand('Espessura do contorno'"));
+		assert(script.includes('setAccountTableRichContent(descriptionContent'));
+		assert(script.includes('setAccountTableRichContent(tableInformationContent'));
+		assert(script.includes("editor.addEventListener('focus', () => openAccountTableRichToolbar(toolbar))"));
+		assert(script.includes('closeAccountTableRichToolbar(richToolbar)'));
+		assert(script.includes("color('Contorno', '', '#597596', 'outline')"));
+		assert(script.includes("setProperty('-webkit-text-stroke-color'"));
+		assert(script.includes('outline.style.textShadow = offsets.map'));
+		assert(script.includes("document.createTextNode('\\u200b')"));
+		assert(script.includes("input.dispatchEvent(new Event('input', { bubbles: true }))"));
+		assert(script.includes("enabled.type = 'checkbox'"));
+		assert(style.includes('.master-note-color-enabled:checked'));
+		assert(style.includes('.account-table-rich-toolbar'));
+		assert(style.includes('.account-table-rich-toolbar.master-note-toolbar.closing'));
+		assert.match(style, /\.account-table-rich-editor \{[^}]*height: 82px;[^}]*max-height: 82px;[^}]*overflow-y: auto;/);
+		assert.match(style, /\.account-table-editor-fields textarea \{[^}]*height: 82px;[^}]*resize: none;/);
+		assert(style.includes('.account-table-rich-output'));
+		assert.match(style, /\.account-table-details \{[^}]*height: 740px;[^}]*max-height: 740px;/);
+		assert.match(style, /\.account-table-details-introduction \{[^}]*height: 315px;[^}]*max-height: 315px;/);
+		assert.match(style, /\.account-table-details-description \{[^}]*height: 240px;[^}]*overflow: hidden;/);
+		assert.match(style, /\.account-table-details-footer \{[^}]*margin-top: auto;/);
+		assert.match(style, /\.account-table-rich-toolbar\.master-note-toolbar \{[^}]*right: calc\(100% \+ 28px\); bottom: 0;/);
+		assert.match(style, /\.account-table-session-options \{[^}]*right: calc\(100% \+ 28px\); bottom: 0;/);
+	});
+
 	it('previews invitation codes and lets the Master administer invitations and requests', () => {
 		assert(script.includes("accountApi('/invites/preview'"));
 		assert(script.includes("'Aguardando aprova\\u00e7\\u00e3o do Mestre'"));
@@ -149,6 +186,11 @@ describe('RPG version 2 account authentication frontend', () => {
 		assert(script.includes("new CustomEvent('rpg:table-changing')"));
 		assert(style.includes('.current-table-menu'));
 		assert(style.includes('.table-switcher-dialog'));
+	});
+
+	it('keeps the active RPG world open after saving its table settings', () => {
+		assert.match(script, /const preserveActiveWorld = accountTableDialogMode === 'edit'/);
+		assert.match(script, /if \(preserveActiveWorld\) \{\s*await refreshAccountTables\(\);\s*\} else \{\s*await renderAccountTables\(\);/);
 	});
 
 	it('requires a Player without a table character to create one before opening the dashboard', () => {

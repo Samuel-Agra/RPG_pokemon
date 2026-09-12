@@ -97,6 +97,11 @@ export interface RPGCampaignTable {
 	visibility: 'private' | 'code' | 'public'; status: 'active' | 'archived';
 	settings: Record<string, unknown>; createdAt: number; updatedAt: number; revision: number;
 }
+export interface RPGTablePresentationSettings {
+	cardImage: string; tableInformation: string; fullDescription: string;
+	sessionDays: string[]; sessionTimes: Record<string, string>;
+	inDevelopment: boolean;
+}
 export interface RPGTableMember {
 	tableId: string; accountId: string; role: RPGTableRole;
 	status: 'active' | 'pending' | 'left' | 'removed' | 'blocked'; permissions: Record<string, boolean>;
@@ -127,6 +132,10 @@ export interface RPGTableMemberView {
 export interface RPGAccountTableView {
 	table: RPGCampaignTable; membership: RPGTableMember; owner: RPGPublicPlatformAccount;
 	memberCount: number; lastActivityAt: number; ownerOnline: boolean; character?: { id: string, name: string };
+}
+export interface RPGTableCardDetails {
+	table: RPGCampaignTable; owner: RPGPublicPlatformAccount; membership?: RPGTableMember;
+	members: { account: RPGPublicPlatformAccount, role: RPGTableRole, lastSeenAt: number, online: boolean }[];
 }
 export interface RPGDirectedInviteView {
 	invite: RPGPublicTableInvite; table: RPGCampaignTable; owner: RPGPublicPlatformAccount; memberCount: number;
@@ -717,7 +726,9 @@ export class RPGAccountManagement {
 		return this.publicAccount(account);
 	}
 
-	createTable(token: string, input: Pick<RPGCampaignTable, 'name'> & Partial<Pick<RPGCampaignTable, 'description' | 'color' | 'visibility'>>): RPGCampaignTable {
+	createTable(token: string, input: Pick<RPGCampaignTable, 'name'> &
+		Partial<Pick<RPGCampaignTable, 'description' | 'color' | 'visibility'>> &
+		{ requireJoinApproval?: boolean, settings?: Partial<RPGTablePresentationSettings> }): RPGCampaignTable {
 		const session = this.session(token); const now = this.now(); const id = this.id();
 		if (input.visibility && !['private', 'code', 'public'].includes(input.visibility)) {
 			throw new Error('Visibilidade da mesa inválida');
@@ -725,7 +736,8 @@ export class RPGAccountManagement {
 		const table: RPGCampaignTable = {
 			id, ownerAccountId: session.accountId, name: this.text(input.name, 120, 'nome da mesa'),
 			description: this.optionalText(input.description, 500), color: this.color(input.color),
-			visibility: input.visibility || 'private', status: 'active', settings: { requireJoinApproval: true },
+			visibility: input.visibility || 'private', status: 'active',
+			settings: { requireJoinApproval: input.requireJoinApproval !== false, ...this.presentationSettings(input.settings) },
 			createdAt: now, updatedAt: now, revision: 0,
 		};
 		const owner: RPGTableMember = {
@@ -740,7 +752,10 @@ export class RPGAccountManagement {
 	}
 
 	updateTable(token: string, tableId: string, input: Partial<Pick<RPGCampaignTable,
-		'name' | 'description' | 'color' | 'visibility'>> & { requireJoinApproval?: boolean }): RPGCampaignTable {
+		'name' | 'description' | 'color' | 'visibility'>> & {
+			requireJoinApproval?: boolean,
+			settings?: Partial<RPGTablePresentationSettings>,
+		}): RPGCampaignTable {
 		const session = this.session(token); const member = this.activeMember(tableId, session.accountId);
 		if (member.role !== 'owner') throw new Error('Apenas o proprietário pode editar a mesa');
 		const table = this.repository.getTable(member.tableId)!;
@@ -754,6 +769,7 @@ export class RPGAccountManagement {
 		if (input.color !== undefined) table.color = this.color(input.color);
 		if (input.visibility !== undefined) table.visibility = input.visibility;
 		if (input.requireJoinApproval !== undefined) table.settings.requireJoinApproval = input.requireJoinApproval;
+		if (input.settings !== undefined) Object.assign(table.settings, this.presentationSettings(input.settings, table.settings));
 		table.updatedAt = this.now(); table.revision++;
 		this.atomic(() => {
 			this.repository.setTable(table);
@@ -835,6 +851,27 @@ export class RPGAccountManagement {
 		member.permissions['ui.favoriteTable'] = favorite; member.updatedAt = this.now(); member.revision++;
 		this.repository.setMembership(member);
 		return structuredClone(member);
+	}
+
+	getTableCardDetails(token: string, tableId: string): RPGTableCardDetails {
+		const session = this.session(token); const table = this.repository.getTable(tableId);
+		if (!table) throw new Error('Mesa indisponível');
+		const membership = this.repository.getMembership(table.id, session.accountId);
+		if (table.visibility !== 'public' && membership?.status !== 'active') throw new Error('Você não pode visualizar esta mesa');
+		const owner = this.repository.getAccount(table.ownerAccountId);
+		if (!owner) throw new Error('Proprietário da mesa indisponível');
+		const onlineSince = this.now() - 15_000;
+		const members = this.repository.listMembershipsForTable(table.id).filter(value => value.status === 'active').flatMap(value => {
+			const account = this.repository.getAccount(value.accountId);
+			if (!account) return [];
+			const sessions = this.sessionRepository.listByAccount(account.id);
+			const visits = sessions.filter(active => active.activeTableId === table.id);
+			const lastSeenAt = Math.max(value.updatedAt, ...visits.map(active => active.lastSeenAt));
+			const online = visits.some(active => !active.revokedAt && active.expiresAt > this.now() && active.lastSeenAt >= onlineSince);
+			return [{ account: this.publicAccount(account), role: value.role, lastSeenAt, online }];
+		});
+		return { table: structuredClone(table), owner: this.publicAccount(owner),
+			...(membership ? { membership: structuredClone(membership) } : {}), members };
 	}
 
 	listDirectedInvites(token: string): RPGDirectedInviteView[] {
@@ -1374,5 +1411,29 @@ export class RPGAccountManagement {
 	private id() { return this.bytes(18).toString('hex'); }
 	private text(value: string, maximum: number, label: string) { const result = String(value || '').trim(); if (!result || result.length > maximum) throw new Error(`${label} inválido`); return result; }
 	private optionalText(value: string | undefined, maximum: number) { const result = String(value || '').trim(); if (result.length > maximum) throw new Error('Texto muito longo'); return result; }
+	private presentationSettings(input: Partial<RPGTablePresentationSettings> | undefined,
+		current: Record<string, unknown> = {}): RPGTablePresentationSettings {
+		const validDays = new Set(['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat']);
+		const sourceDays = input?.sessionDays === undefined && Array.isArray(current.sessionDays) ? current.sessionDays : input?.sessionDays || [];
+		const sessionDays = [...new Set(sourceDays.map(day => String(day)).filter(day => validDays.has(day)))];
+		const currentTimes = current.sessionTimes && typeof current.sessionTimes === 'object' && !Array.isArray(current.sessionTimes) ?
+			current.sessionTimes as Record<string, unknown> : {};
+		const sourceTimes = input?.sessionTimes === undefined ? currentTimes : input.sessionTimes || {};
+		const sessionTimes: Record<string, string> = {};
+		for (const day of sessionDays) {
+			const time = String(sourceTimes[day] || '').trim();
+			if (time && !/^([01]\d|2[0-3]):[0-5]\d$/.test(time)) throw new Error('Horário de sessão inválido');
+			sessionTimes[day] = time;
+		}
+		return {
+			cardImage: this.optionalText(input?.cardImage === undefined ? String(current.cardImage || '') : input.cardImage, 2_000),
+			tableInformation: this.optionalText(input?.tableInformation === undefined ?
+				String(current.tableInformation || '') : input.tableInformation, 5_000),
+			fullDescription: this.optionalText(input?.fullDescription === undefined ?
+				String(current.fullDescription || '') : input.fullDescription, 20_000),
+			sessionDays, sessionTimes,
+			inDevelopment: input?.inDevelopment === undefined ? current.inDevelopment !== false : input.inDevelopment === true,
+		};
+	}
 	private color(value?: string) { const result = value || '#355487'; if (!/^#[0-9a-f]{6}$/i.test(result)) throw new Error('Cor da mesa inválida'); return result.toLowerCase(); }
 }

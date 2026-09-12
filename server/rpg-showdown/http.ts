@@ -473,10 +473,22 @@ export class RPGHttpServer {
 			if (method === 'POST') {
 				const body = await this.body(req);
 				const visibility = this.string(body.visibility);
+				const settings = body.settings && typeof body.settings === 'object' && !Array.isArray(body.settings) ?
+					body.settings as Record<string, unknown> : {};
 				const table = this.login.accounts.createTable(token, {
 					name: this.string(body.name), description: this.optionalString(body.description),
 					color: this.optionalString(body.color),
 					visibility: visibility ? visibility as 'private' | 'code' | 'public' : undefined,
+					requireJoinApproval: body.requireJoinApproval !== false,
+					settings: {
+						cardImage: this.optionalString(settings.cardImage),
+						tableInformation: this.optionalString(settings.tableInformation),
+						fullDescription: this.optionalString(settings.fullDescription),
+						sessionDays: Array.isArray(settings.sessionDays) ? settings.sessionDays.map(value => this.string(value)) : [],
+						sessionTimes: settings.sessionTimes && typeof settings.sessionTimes === 'object' && !Array.isArray(settings.sessionTimes) ?
+							Object.fromEntries(Object.entries(settings.sessionTimes).map(([day, value]) => [day, this.string(value)])) : {},
+						inDevelopment: settings.inDevelopment !== false,
+					},
 				});
 				await this.login.flushPersistence();
 				this.json(res, 201, { table });
@@ -496,6 +508,19 @@ export class RPGHttpServer {
 			if ('color' in body) update.color = this.string(body.color);
 			if ('visibility' in body) update.visibility = this.string(body.visibility) as 'private' | 'code' | 'public';
 			if ('requireJoinApproval' in body) update.requireJoinApproval = body.requireJoinApproval === true;
+			if (body.settings && typeof body.settings === 'object' && !Array.isArray(body.settings)) {
+				const settings = body.settings as Record<string, unknown>;
+				update.settings = {};
+				if ('cardImage' in settings) update.settings.cardImage = this.optionalString(settings.cardImage);
+				if ('tableInformation' in settings) update.settings.tableInformation = this.optionalString(settings.tableInformation);
+				if ('fullDescription' in settings) update.settings.fullDescription = this.optionalString(settings.fullDescription);
+				if ('sessionDays' in settings) update.settings.sessionDays = Array.isArray(settings.sessionDays) ?
+					settings.sessionDays.map(value => this.string(value)) : [];
+				if ('sessionTimes' in settings) update.settings.sessionTimes = settings.sessionTimes &&
+					typeof settings.sessionTimes === 'object' && !Array.isArray(settings.sessionTimes) ?
+					Object.fromEntries(Object.entries(settings.sessionTimes).map(([day, value]) => [day, this.string(value)])) : {};
+				if ('inDevelopment' in settings) update.settings.inDevelopment = settings.inDevelopment === true;
+			}
 			const table = this.login.accounts.updateTable(
 				this.token(req), decodeURIComponent(version2TableArchiveMatch[1]), update
 			);
@@ -559,6 +584,13 @@ export class RPGHttpServer {
 			const membership = this.login.accounts.setTableFavorite(this.token(req),
 				decodeURIComponent(version2FavoriteMatch[1]), body.favorite === true);
 			await this.login.flushPersistence(); this.json(res, 200, { membership }); return;
+		}
+		const version2TableDetailsMatch = /^\/api\/rpg\/v2\/tables\/([^/]+)\/details$/.exec(url.pathname);
+		if (method === 'GET' && version2TableDetailsMatch) {
+			const details = this.login.accounts.getTableCardDetails(
+				this.token(req), decodeURIComponent(version2TableDetailsMatch[1])
+			);
+			this.json(res, 200, { details }); return;
 		}
 		if (method === 'GET' && url.pathname === '/api/rpg/v2/invites/directed') {
 			this.json(res, 200, { invites: this.login.accounts.listDirectedInvites(this.token(req)) });

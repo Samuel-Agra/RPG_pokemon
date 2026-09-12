@@ -590,19 +590,28 @@ describe('RPG version 2 accounts and tables backend', () => {
 		const session = accounts.login('samuel', 'Senha1!Segura');
 		const table = accounts.createTable(session.token, {
 			name: 'Jornada de Kanto', description: 'Campanha principal', visibility: 'code', color: '#a52a2a',
+			settings: { cardImage: 'https://example.test/kanto.png', tableInformation: 'Informações completas',
+				fullDescription: 'Descrição completa',
+				sessionDays: ['sat'], sessionTimes: { sat: '19:00' }, inDevelopment: false },
 		});
 		const listed = accounts.listTables(session.token);
 		assert.equal(listed[0].table.id, table.id);
 		assert.equal(listed[0].membership.role, 'owner');
 		assert.equal(listed[0].owner.displayName, 'Samuel');
 		assert.equal(listed[0].memberCount, 1);
+		assert.deepEqual(table.settings.sessionDays, ['sat']);
+		assert.deepEqual(table.settings.sessionTimes, { sat: '19:00' });
+		assert.equal(table.settings.inDevelopment, false);
 		assert(listed[0].lastActivityAt >= table.updatedAt);
 		assert.equal(accounts.updateAccount(session.token, 'Samuel Atualizado').displayName, 'Samuel Atualizado');
 		const updated = accounts.updateTable(session.token, table.id, {
 			name: 'Kanto Atualizada', description: 'Nova descrição', color: '#335577', visibility: 'private',
+			settings: { fullDescription: 'Uma nova descrição completa' },
 		});
 		assert.equal(updated.name, 'Kanto Atualizada');
 		assert.equal(updated.color, '#335577');
+		assert.equal(updated.settings.fullDescription, 'Uma nova descrição completa');
+		assert.equal(updated.settings.cardImage, 'https://example.test/kanto.png');
 		assert.equal(accounts.listAudit(session.token, table.id)[0].action, 'table.updated');
 		assert.equal(accounts.selectTable(session.token, table.id).activeTableId, table.id);
 	});
