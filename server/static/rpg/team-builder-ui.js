@@ -140,6 +140,84 @@
 		document.body.append(backdrop);
 		cancel.focus();
 	}
+	async function openTeamGiftDialog(deps, pokemon) {
+		document.querySelector('.team-builder-context-menu')?.remove();
+		const backdrop = el('div', 'modal-backdrop team-builder-release-backdrop');
+		const dialog = el('section', 'panel team-builder-gift-dialog');
+		dialog.setAttribute('role', 'dialog');
+		dialog.setAttribute('aria-modal', 'true');
+		dialog.append(
+			el('h2', '', 'Dar ' + (pokemon.name || pokemon.species) + ' para'),
+			el('p', '', 'Escolha outro jogador que possua uma vaga livre na equipe.')
+		);
+		const list = el('div', 'team-builder-gift-list');
+		list.append(el('div', 'empty-state', 'Carregando jogadores...'));
+		const actions = el('div', 'team-builder-release-actions');
+		const cancel = button('Cancelar');
+		const confirm = button('Dar Pokémon', 'button primary');
+		confirm.disabled = true;
+		actions.append(cancel, confirm);
+		dialog.append(list, actions);
+		backdrop.append(dialog);
+		document.body.append(backdrop);
+		let selected = null;
+		const close = () => {
+			document.removeEventListener('keydown', onKeyDown);
+			backdrop.remove();
+		};
+		const onKeyDown = event => { if (event.key === 'Escape') close(); };
+		cancel.addEventListener('click', close);
+		backdrop.addEventListener('click', event => { if (event.target === backdrop) close(); });
+		document.addEventListener('keydown', onKeyDown);
+		confirm.addEventListener('click', async () => {
+			if (!selected) return;
+			cancel.disabled = true;
+			confirm.disabled = true;
+			try {
+				await deps.api('/box/give', { method: 'POST', body: {
+					toCharacterId: selected.id, pokemonId: pokemon.pokemonId,
+					sourceRevision: deps.boxRevision,
+				} });
+				close();
+				deps.toast((pokemon.name || pokemon.species) + ' foi dado para ' + selected.characterName + '.');
+				await deps.refresh();
+			} catch (error) {
+				cancel.disabled = false;
+				confirm.disabled = false;
+				deps.toast(error.message, true);
+			}
+		});
+		try {
+			const response = await deps.api('/players', { cache: 'no-store' });
+			const players = Array.isArray(response.players) ? response.players : [];
+			list.replaceChildren();
+			for (const player of players) {
+				const full = Number(player.occupiedTeamSlots || 0) >= 6;
+				const option = button('', 'team-builder-gift-player');
+				option.disabled = full;
+				const avatar = el('img', 'team-builder-gift-avatar');
+				avatar.src = deps.trainerSpriteUrl(player.avatar);
+				avatar.alt = '';
+				const copy = el('span', 'team-builder-gift-copy');
+				copy.append(el('strong', '', player.characterName), el('small', '', full ? 'Equipe cheia' :
+					(6 - Number(player.occupiedTeamSlots || 0)) + ' vaga(s) livre(s)'));
+				option.append(avatar, copy);
+				option.addEventListener('click', () => {
+					selected = player;
+					for (const entry of list.children) entry.classList.toggle('selected', entry === option);
+					confirm.disabled = false;
+				});
+				list.append(option);
+			}
+			if (!players.length) list.append(el('div', 'empty-state', 'Não há outro jogador nesta mesa.'));
+			else if (!players.some(player => Number(player.occupiedTeamSlots || 0) < 6)) {
+				list.append(el('p', 'team-builder-gift-warning', 'Nenhum jogador possui vaga livre na equipe.'));
+			}
+		} catch (error) {
+			list.replaceChildren(el('div', 'empty-state', error.message));
+		}
+		cancel.focus();
+	}
 	function bindTeamReleaseMenu(slot, deps, pokemon) {
 		if (pokemon?.virtualEgg) return;
 		slot.addEventListener('contextmenu', event => {
@@ -152,9 +230,13 @@
 			release.setAttribute('role', 'menuitem');
 			const reason = releaseBlockedReason(pokemon);
 			release.disabled = !!reason;
-			if (reason) menu.append(release, el('small', '', reason));
-			else menu.append(release);
+			const give = button('Dar para', 'team-builder-context-give');
+			give.setAttribute('role', 'menuitem');
+			give.disabled = !!reason || deps.isMaster === true || deps.readOnly === true;
+			menu.append(give, release);
+			if (reason) menu.append(el('small', '', reason));
 			release.addEventListener('click', () => openTeamReleaseConfirmation(deps, pokemon));
+			give.addEventListener('click', () => openTeamGiftDialog(deps, pokemon));
 			document.body.append(menu);
 			const bounds = menu.getBoundingClientRect();
 			menu.style.left = Math.max(8, Math.min(event.clientX, window.innerWidth - bounds.width - 8)) + 'px';

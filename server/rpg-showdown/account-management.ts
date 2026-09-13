@@ -163,6 +163,9 @@ export interface RPGAdminAuditEntry {
 	id: string; tableId: string; actorAccountId: string; action: string;
 	targetType: string; targetId?: string; metadata: Record<string, unknown>; createdAt: number;
 }
+export interface RPGAccountRelationNote {
+	authorAccountId: string; targetAccountId: string; note: string; updatedAt: number;
+}
 export interface RPGAuditRequestContext {
 	origin: string; sessionId?: string; method?: string; path?: string;
 }
@@ -170,6 +173,7 @@ export interface RPGAccountRepositorySnapshot {
 	accounts?: RPGPlatformAccount[]; tables?: RPGCampaignTable[];
 	members?: RPGTableMember[]; invites?: RPGTableInvite[];
 	recoveryCodes?: RPGRecoveryCode[]; loginAttempts?: RPGLoginAttempt[]; auditEntries?: RPGAdminAuditEntry[];
+	accountNotes?: RPGAccountRelationNote[];
 }
 
 export interface RPGAccountRepository {
@@ -198,6 +202,8 @@ export interface RPGAccountRepository {
 	setLoginAttempt(attempt: RPGLoginAttempt | null, key: string): void;
 	listAuditEntries(tableId: string): RPGAdminAuditEntry[];
 	addAuditEntry(entry: RPGAdminAuditEntry): void;
+	getAccountNote(authorAccountId: string, targetAccountId: string): RPGAccountRelationNote | undefined;
+	setAccountNote(note: RPGAccountRelationNote): void;
 }
 
 /** Repositório determinístico usado nos testes e como contrato para o adaptador MySQL. */
@@ -209,6 +215,7 @@ export class RPGMemoryAccountRepository implements RPGAccountRepository {
 	private recoveryCodes = new Map<string, RPGRecoveryCode>();
 	private loginAttempts = new Map<string, RPGLoginAttempt>();
 	private auditEntries = new Map<string, RPGAdminAuditEntry>();
+	private accountNotes = new Map<string, RPGAccountRelationNote>();
 	private transactionEffects: (() => void)[] | null = null;
 	constructor(
 		snapshot: RPGAccountRepositorySnapshot = {},
@@ -220,13 +227,14 @@ export class RPGMemoryAccountRepository implements RPGAccountRepository {
 			recoveryCode?: (value: RPGRecoveryCode) => void,
 			loginAttempt?: (value: RPGLoginAttempt | null, key: string) => void,
 			auditEntry?: (value: RPGAdminAuditEntry) => void,
+			accountNote?: (value: RPGAccountRelationNote) => void,
 		} = {}
 	) {
 		this.replace(snapshot);
 	}
 	replace(snapshot: RPGAccountRepositorySnapshot): void {
 		this.accounts.clear(); this.tables.clear(); this.members.clear(); this.invites.clear();
-		this.recoveryCodes.clear(); this.loginAttempts.clear(); this.auditEntries.clear();
+		this.recoveryCodes.clear(); this.loginAttempts.clear(); this.auditEntries.clear(); this.accountNotes.clear();
 		for (const value of snapshot.accounts || []) {
 			const account = structuredClone(value);
 			account.handle ||= account.username;
@@ -238,6 +246,9 @@ export class RPGMemoryAccountRepository implements RPGAccountRepository {
 		for (const value of snapshot.recoveryCodes || []) this.recoveryCodes.set(value.id, structuredClone(value));
 		for (const value of snapshot.loginAttempts || []) this.loginAttempts.set(value.key, structuredClone(value));
 		for (const value of snapshot.auditEntries || []) this.auditEntries.set(value.id, structuredClone(value));
+		for (const value of snapshot.accountNotes || []) {
+			this.accountNotes.set(`${value.authorAccountId}:${value.targetAccountId}`, structuredClone(value));
+		}
 	}
 	replaceAuditEntries(tableId: string, entries: RPGAdminAuditEntry[]): void {
 		const normalized = toID(tableId);
@@ -259,6 +270,7 @@ export class RPGMemoryAccountRepository implements RPGAccountRepository {
 			members: structuredClone(this.members), invites: structuredClone(this.invites),
 			recoveryCodes: structuredClone(this.recoveryCodes), loginAttempts: structuredClone(this.loginAttempts),
 			auditEntries: structuredClone(this.auditEntries),
+			accountNotes: structuredClone(this.accountNotes),
 		};
 		this.transactionEffects = [];
 		try {
@@ -269,6 +281,7 @@ export class RPGMemoryAccountRepository implements RPGAccountRepository {
 			this.accounts = snapshot.accounts; this.tables = snapshot.tables; this.members = snapshot.members;
 			this.invites = snapshot.invites; this.recoveryCodes = snapshot.recoveryCodes;
 			this.loginAttempts = snapshot.loginAttempts; this.auditEntries = snapshot.auditEntries;
+			this.accountNotes = snapshot.accountNotes;
 			this.transactionEffects = null; throw error;
 		}
 	}
@@ -297,6 +310,13 @@ export class RPGMemoryAccountRepository implements RPGAccountRepository {
 	setMembership(member: RPGTableMember) {
 		this.members.set(`${member.tableId}:${member.accountId}`, structuredClone(member));
 		this.effect(() => this.changed.member?.(member));
+	}
+	getAccountNote(authorAccountId: string, targetAccountId: string) {
+		return this.clone(this.accountNotes.get(`${toID(authorAccountId)}:${toID(targetAccountId)}`));
+	}
+	setAccountNote(note: RPGAccountRelationNote) {
+		this.accountNotes.set(`${note.authorAccountId}:${note.targetAccountId}`, structuredClone(note));
+		this.effect(() => this.changed.accountNote?.(note));
 	}
 	getInviteByCodeHash(codeHash: string) { return this.clone([...this.invites.values()].find(invite => invite.codeHash === codeHash)); }
 	getInvite(id: string) { return this.clone(this.invites.get(toID(id))); }
@@ -951,6 +971,7 @@ export class RPGAccountManagement {
 			if (!canManage && member.status !== 'active') return [];
 			const account = this.repository.getAccount(member.accountId);
 			if (!canManage) member.note = undefined;
+			member.note = this.repository.getAccountNote(session.accountId, member.accountId)?.note;
 			return account ? [{ member, account: this.publicAccount(account),
 				effectivePermissions: getRPGDefaultTablePermissions(member.role) }] : [];
 		});
@@ -1016,9 +1037,13 @@ export class RPGAccountManagement {
 		const actor = this.tableAdministrator(token, tableId);
 		const target = this.repository.getMembership(tableId, accountId);
 		if (!target) throw new Error('Membro não encontrado');
-		target.note = this.optionalText(note, 10_000); target.updatedAt = this.now(); target.revision++;
+		const relationNote: RPGAccountRelationNote = {
+			authorAccountId: actor.accountId, targetAccountId: target.accountId,
+			note: this.optionalText(note, 10_000) || '', updatedAt: this.now(),
+		};
+		target.note = relationNote.note;
 		this.atomic(() => {
-			this.repository.setMembership(target);
+			this.repository.setAccountNote(relationNote);
 			this.audit(actor, 'member.note.updated', 'member', target.accountId);
 		});
 		return structuredClone(target);

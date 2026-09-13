@@ -100,7 +100,7 @@ describe('RPG Team Builder frontend', () => {
 		assert.match(teamBuilder, /index < 6/);
 		assert.match(teamBuilder, /deps\.switchPokemon/);
 		assert.match(css, /grid-template-columns: repeat\(6/);
-		const navigation = rpg.slice(rpg.indexOf("['overview', 'Vis\\u00e3o geral'], ['team', 'Equipe']"));
+		const navigation = rpg.slice(rpg.indexOf("['overview', 'Vis\\u00e3o geral'], ['players', 'Players'], ['team', 'Equipe']"));
 		assert.ok(navigation.indexOf("['team-builder', 'Team Builder']") < navigation.indexOf("['bag', 'Bag', bagBlocked]"));
 		assert.ok(navigation.indexOf("['bag', 'Bag', bagBlocked]") < navigation.indexOf("['box', 'Box', boxBlocked]"));
 		assert.match(rpg, /masterViewingPlayer = state\.session\?\.role === 'master'/);
@@ -121,6 +121,18 @@ describe('RPG Team Builder frontend', () => {
 		assert.match(rpg, /boxRevision: character\.box\?\.revision/);
 		assert.match(css, /\.team-builder-context-menu/);
 		assert.match(css, /\.team-builder-release-dialog/);
+	});
+	it('lets the owning player give a Pokemon to another player with a free party slot', () => {
+		assert.match(teamBuilder, /Dar para/);
+		assert.match(teamBuilder, /openTeamGiftDialog/);
+		assert.match(teamBuilder, /api\('\/players'/);
+		assert.match(teamBuilder, /occupiedTeamSlots/);
+		assert.match(teamBuilder, /api\('\/box\/give'/);
+		assert.match(teamBuilder, /sourceRevision: deps\.boxRevision/);
+		assert.match(teamBuilder, /event\.target === backdrop/);
+		assert.match(teamBuilder, /event\.key === 'Escape'/);
+		assert.match(css, /\.team-builder-gift-dialog/);
+		assert.match(css, /\.team-builder-context-give/);
 	});
 	it('shows the new selected-Pokemon layout with integrated RPG information', () => {
 		assert.doesNotMatch(teamBuilder, /Equipe atual/);

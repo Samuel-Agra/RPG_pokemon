@@ -728,6 +728,11 @@ describe('RPG version 2 accounts and tables backend', () => {
 			'Anotação privada');
 		assert.equal(accounts.listMembers(next.token, table.id).find(entry => entry.account.id === nextAccount.id).member.note,
 			undefined);
+		const otherTable = accounts.createTable(first.token, { name: 'Outra campanha' });
+		accounts.updateTable(first.token, otherTable.id, { requireJoinApproval: false });
+		accounts.joinByInvite(next.token, accounts.createInvite(first.token, otherTable.id).code);
+		assert.equal(accounts.listMembers(first.token, otherTable.id)
+			.find(entry => entry.account.id === nextAccount.id).member.note, 'Anotação privada');
 		const transferred = accounts.transferOwnership(first.token, table.id, nextAccount.id);
 		assert.equal(transferred.ownerAccountId, nextAccount.id);
 		assert.equal(accounts.listMembers(next.token, table.id).find(entry => entry.account.id === nextAccount.id).member.role, 'owner');
@@ -973,7 +978,7 @@ describe('RPG version 2 accounts and tables backend', () => {
 		), 'utf8');
 		for (const method of [
 			'upsertPlatformAccount', 'upsertCampaignTable', 'upsertTableMember',
-			'upsertTableInvite', 'upsertPlatformSession', 'deletePlatformSession',
+			'upsertTableInvite', 'upsertPlatformSession', 'deletePlatformSession', 'upsertAccountRelationNote',
 		]) assert(source.includes(`${method}(`), method);
 		assert(source.includes('SELECT * FROM rpg_account_sessions'));
 		assert(!source.includes('token VARCHAR'), 'plain session tokens must never be persisted');
@@ -988,10 +993,11 @@ describe('RPG version 2 accounts and tables backend', () => {
 		assert.match(migration, /ON DELETE SET NULL/);
 	});
 
-	it('persists private member notes separately from role permissions', () => {
+	it('persists private account relation notes independently from tables and permissions', () => {
 		const migration = fs.readFileSync(path.resolve(
-			__dirname, '../../server/rpg-showdown/database/migrations/011-table-member-notes.sql'
+			__dirname, '../../server/rpg-showdown/database/migrations/013-account-relation-notes.sql'
 		), 'utf8');
-		assert.match(migration, /ADD COLUMN note TEXT NULL/);
+		assert.match(migration, /PRIMARY KEY \(author_account_id, target_account_id\)/);
+		assert.match(migration, /FOREIGN KEY \(target_account_id\)/);
 	});
 });

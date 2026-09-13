@@ -4,7 +4,7 @@ import { createHash, randomBytes, scryptSync } from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import mysql, { type Pool, type PoolConnection, type ResultSetHeader, type RowDataPacket } from 'mysql2/promise';
 import type {
-	RPGAdminAuditEntry, RPGCampaignTable, RPGLoginAttempt, RPGPlatformAccount, RPGRecoveryCode,
+	RPGAccountRelationNote, RPGAdminAuditEntry, RPGCampaignTable, RPGLoginAttempt, RPGPlatformAccount, RPGRecoveryCode,
 	RPGStoredPlatformSession, RPGTableInvite, RPGTableMember,
 } from '../account-management';
 
@@ -61,6 +61,7 @@ export interface RPGMySQLSnapshot {
 	recoveryCodes: RPGRecoveryCode[];
 	loginAttempts: RPGLoginAttempt[];
 	auditEntries: RPGAdminAuditEntry[];
+	accountNotes: RPGAccountRelationNote[];
 	legacyTableId?: string;
 }
 
@@ -319,7 +320,7 @@ export class RPGMySQLPersistence {
 		};
 		const [characters, battles, contests, tournaments, combos, customItems, shops,
 			masterNPC, documents, campaign, accountRows, tableRows, memberRows, inviteRows, sessionRows,
-			recoveryRows, attemptRows, auditRows] = await Promise.all([
+			recoveryRows, attemptRows, auditRows, accountNoteRows] = await Promise.all([
 			rows('rpg_characters', "JSON_OBJECT('credential', credential, 'state', state, 'accountId', account_id, 'tableId', table_id)", true),
 			rows('rpg_battle_sessions', 'state', true), rows('rpg_contest_sessions', 'state', true),
 			rows('rpg_tournaments', 'state', true), rows('rpg_contest_combos', 'definition', true),
@@ -336,6 +337,7 @@ export class RPGMySQLPersistence {
 			this.pool.query<RowDataPacket[]>('SELECT * FROM rpg_account_recovery_codes'),
 			this.pool.query<RowDataPacket[]>('SELECT * FROM rpg_login_attempts'),
 			this.pool.query<RowDataPacket[]>('SELECT * FROM rpg_admin_audit WHERE table_id = ?', [tableId]),
+			this.pool.query<RowDataPacket[]>('SELECT * FROM rpg_account_relation_notes'),
 		]);
 		return {
 			characters, battles, contests, tournaments, combos, customItems, shops,
@@ -386,6 +388,8 @@ export class RPGMySQLPersistence {
 				actorAccountId: String(row.actor_account_id), action: String(row.action), targetType: String(row.target_type),
 				targetId: row.target_id ? String(row.target_id) : undefined,
 				metadata: decoded(row.metadata) as Record<string, unknown>, createdAt: Number(row.created_at) })),
+			accountNotes: accountNoteRows[0].map(row => ({ authorAccountId: String(row.author_account_id),
+				targetAccountId: String(row.target_account_id), note: String(row.note), updatedAt: Number(row.updated_at) })),
 			legacyTableId: tableId,
 		};
 	}
@@ -573,6 +577,12 @@ export class RPGMySQLPersistence {
 			request_invite_id=VALUES(request_invite_id), note=VALUES(note), updated_at=VALUES(updated_at), revision=VALUES(revision)`, [
 			member.tableId, member.accountId, member.role, member.status, JSON.stringify(member.permissions),
 			member.requestInviteId, member.note, member.joinedAt, member.updatedAt, member.revision,
+		]);
+	}
+	upsertAccountRelationNote(note: RPGAccountRelationNote): void {
+		this.enqueue(`INSERT INTO rpg_account_relation_notes (author_account_id, target_account_id, note, updated_at)
+			VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE note=VALUES(note), updated_at=VALUES(updated_at)`, [
+			note.authorAccountId, note.targetAccountId, note.note, note.updatedAt,
 		]);
 	}
 	upsertTableInvite(invite: RPGTableInvite): void {

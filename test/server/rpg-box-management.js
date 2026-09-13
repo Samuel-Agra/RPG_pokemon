@@ -321,4 +321,44 @@ describe('RPG Box management backend', () => {
 		source = service.releaseBoxPokemon(player.token, second.challengeId, true);
 		assert.equal(source.results.length, 0);
 	});
+	it('lets a player give one team Pokemon directly to another player with a free team slot', () => {
+		const service = createService();
+		createCharacter(service, 'Samuel', 'Squirtle', 'senha-rpg');
+		createCharacter(service, 'Carlos', 'Charmander', 'outra-senha');
+		const player = service.loginPlayer('samuel', 'senha-rpg');
+		const sourceBefore = service.getBox(player.token);
+		const pokemon = sourceBefore.team[0];
+		const result = service.giveTeamPokemon(
+			player.token, 'carlos', pokemon.pokemonId, sourceBefore.revision
+		);
+		assert.equal(result.recipient.characterName, 'Carlos');
+		assert.equal(result.source.results.some(entry => entry.pokemonId === pokemon.pokemonId), false);
+		const recipient = service.repository.get('carlos').state;
+		assert.equal(recipient.team.length, 2);
+		assert.equal(recipient.box.party[1].pokemonId, pokemon.pokemonId);
+		assert.throws(
+			() => service.giveTeamPokemon(player.token, 'samuel', pokemon.pokemonId, result.source.revision),
+			/outro jogador/
+		);
+	});
+	it('lets the master create a configured Pokemon with automatic RPG stats for a player', () => {
+		const service = createService();
+		createCharacter(service, 'Samuel', 'Squirtle', 'senha-rpg');
+		const master = service.loginMaster('14081998');
+		const result = service.masterCreatePlayerPokemon(master.token, 'samuel', {
+			species: 'Bulbasaur', level: 12, gender: 'M', ability: 'Overgrow', nature: 'Modest', shiny: true,
+		});
+		assert.equal(result.destination, 'party');
+		assert.equal(result.pokemon.species, 'Bulbasaur');
+		assert.equal(result.pokemon.level, 12);
+		assert.equal(result.pokemon.ability, 'Overgrow');
+		assert.equal(result.pokemon.nature, 'Modest');
+		assert.equal(result.pokemon.shiny, true);
+		assert.deepEqual(result.pokemon.ivs, { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 });
+		assert.equal(Object.values(result.pokemon.evs).reduce((sum, value) => sum + value, 0), 508);
+		assert(result.pokemon.moves.length >= 1 && result.pokemon.moves.length <= 4);
+		const character = service.repository.get('samuel').state;
+		assert.equal(character.team.length, 2);
+		assert(character.profile.pokedex.caught.includes('bulbasaur'));
+	});
 });

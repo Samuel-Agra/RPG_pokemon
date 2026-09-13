@@ -179,6 +179,16 @@ export interface RPGCharacterSelection {
 	avatar: string;
 }
 
+export interface RPGPlayerRosterEntry extends RPGCharacterSelection {
+	occupiedTeamSlots: number;
+	team: {
+		species: string,
+		shiny?: boolean,
+		spriteId?: string,
+		baseSpriteId?: string,
+	}[];
+}
+
 export interface RPGCharacterPageAccess {
 	bank: boolean;
 	bag: boolean;
@@ -1039,6 +1049,30 @@ export class RPGLoginService {
 	listAllCharacters(token: string): RPGCharacterState[] {
 		this.requirePermission(token, 'characters:list-all');
 		return this.repository.list().map(record => this.characterView(record));
+	}
+
+	/** Returns only the visual roster data that another player is allowed to see. */
+	listOtherPlayers(token: string): RPGPlayerRosterEntry[] {
+		const session = this.getSession(token);
+		const currentCharacterId = session.viewAsCharacterId || session.characterId;
+		return this.repository.list()
+			.filter(record => record.state.id !== currentCharacterId)
+			.map(record => ({
+				...this.selection(record.state),
+				occupiedTeamSlots: Math.min(6, record.state.box.party.length + this.activeEggs(record).length),
+				team: record.state.team.slice(0, 6).map(pokemon => {
+					const visual = pokemon as typeof pokemon & {
+						shiny?: boolean, spriteId?: string, baseSpriteId?: string,
+					};
+					return {
+						species: String(pokemon.species || pokemon.name || 'Pokémon'),
+						...(visual.shiny ? { shiny: true } : {}),
+						...(visual.spriteId ? { spriteId: visual.spriteId } : {}),
+						...(visual.baseSpriteId ? { baseSpriteId: visual.baseSpriteId } : {}),
+					};
+				}),
+			}))
+			.sort((a, b) => a.characterName.localeCompare(b.characterName, 'pt-BR'));
 	}
 
 	advanceCampaignTime(token: string, hours: number): RPGCampaignTimeAdvanceResult {
@@ -3279,6 +3313,66 @@ export class RPGLoginService {
 		return this.managedBoxView(record);
 	}
 
+	masterCreatePlayerPokemon(token: string, characterId: string, input: {
+		species: string, level: number, gender: RPGCharacterGender,
+		ability: string, nature: string, shiny?: boolean,
+	}): { box: RPGBoxManagementView, pokemon: RPGCharacterState['team'][number], destination: 'party' | 'box' } {
+		this.requireMasterMode(token);
+		this.requirePlatformTablePermission(token, 'characters.manage');
+		const record = this.requireCharacter(characterId);
+		const dex = Dex.mod('gen9');
+		const species = dex.species.get(input.species);
+		if (!species.exists || species.isNonstandard || species.id === 'egg') {
+			throw new Error('Escolha uma espécie de Pokémon válida');
+		}
+		const level = Number(input.level);
+		if (!Number.isSafeInteger(level) || level < 1 || level > 100) {
+			throw new Error('O nível deve estar entre 1 e 100');
+		}
+		if (!['M', 'F', 'N'].includes(input.gender) || !getRPGAllowedSexes(species.name).includes(input.gender)) {
+			throw new Error('O gênero selecionado não está disponível para essa espécie');
+		}
+		const abilities = Object.entries(species.abilities)
+			.filter(([slot]) => slot !== 'S').map(([, ability]) => ability);
+		const ability = abilities.find(value => toID(value) === toID(input.ability));
+		if (!ability) throw new Error('A habilidade selecionada não está disponível para essa espécie');
+		const nature = dex.natures.get(input.nature);
+		if (!nature.exists) throw new Error('Escolha uma natureza válida');
+		const evs = this.randomEVs();
+		const ivs = { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 };
+		const moves = this.randomLevelMoves(species.id, level);
+		const experienceData = getSpeciesExperience(species.id);
+		const set: PokemonSet = {
+			name: species.name, species: species.name, level, gender: input.gender,
+			ability, nature: nature.name, shiny: input.shiny === true, item: '', moves, evs, ivs,
+			happiness: 50,
+			rpg: {
+				version: RPG_STATE_VERSION, level, evs, friendship: 50, item: '', captureBall: 'pokeball',
+				experience: experienceData ? getExperienceForLevel(experienceData.growthRate, level) : undefined,
+			},
+		};
+		const entry: RPGManagedStoredPokemon = {
+			pokemonId: `${record.state.id}:master:${this.bytes(12).toString('base64url')}`,
+			pokemon: this.toCapturedPokemon(set),
+			metadata: { ot: record.state.characterName, training: 'none' },
+		};
+		const destination = record.state.box.party.length + this.activeEggs(record).length < 6 ? 'party' : 'box';
+		const original = structuredClone(record);
+		try {
+			this.persistAtomically(() => {
+				if (destination === 'party') RPGBoxManagement.insertParty(record.state, entry);
+				else RPGBoxManagement.insert(record.state, entry);
+				this.addPokedexSpecies(this.trainerProfile(record.state), 'seen', species.name);
+				this.addPokedexSpecies(this.trainerProfile(record.state), 'caught', species.name);
+				this.persistBoxRecord(record);
+			});
+		} catch (error) {
+			this.repository.set(original);
+			throw error;
+		}
+		return { box: this.managedBoxView(record), pokemon: structuredClone(set), destination };
+	}
+
 	transferBoxPokemon(
 		token: string, fromCharacterId: string, toCharacterId: string, pokemonId: string,
 		sourceRevision: number, destinationRevision: number
@@ -3919,6 +4013,37 @@ export class RPGLoginService {
 			},
 			pokedex: { seen: starter ? [starter] : [], caught: starter ? [starter] : [] }, badges: {},
 		};
+	}
+
+	giveTeamPokemon(
+		token: string, toCharacterId: string, pokemonId: string, sourceRevision: number
+	): { source: RPGBoxManagementView, recipient: RPGCharacterSelection } {
+		const session = this.getSession(token);
+		if (session.role !== 'player' || !session.characterId) {
+			throw new Error('Apenas o dono do Pokémon pode presenteá-lo');
+		}
+		const source = this.requireBoxRecord(token, undefined, 'box:edit', true);
+		const destination = this.requireCharacter(toCharacterId);
+		if (source.state.id === destination.state.id) throw new Error('Escolha outro jogador para receber o Pokémon');
+		if (destination.state.box.party.length + this.activeEggs(destination).length >= 6) {
+			throw new Error('A equipe desse jogador está cheia');
+		}
+		this.requireAvailablePokemon(source, pokemonId);
+		const originalSource = structuredClone(source);
+		const originalDestination = structuredClone(destination);
+		try {
+			const entry = RPGBoxManagement.extract(source.state, pokemonId, sourceRevision);
+			RPGBoxManagement.insertParty(destination.state, entry);
+			this.persistAtomically(() => {
+				this.persistBoxRecord(source);
+				this.persistBoxRecord(destination);
+			});
+		} catch (error) {
+			this.repository.set(originalSource);
+			this.repository.set(originalDestination);
+			throw error;
+		}
+		return { source: this.managedBoxView(source), recipient: this.selection(destination.state) };
 	}
 
 	private trainerProfile(character: RPGCharacterState): RPGTrainerProfile {
@@ -4834,6 +4959,25 @@ export class RPGLoginService {
 		return moves;
 	}
 
+	private randomLevelMoves(speciesId: ID, level: number): string[] {
+		const learned = new Set<string>();
+		for (const data of Dex.mod('gen9').species.getFullLearnset(speciesId)) {
+			for (const [move, sources] of Object.entries(data.learnset)) {
+				if (sources.some(source => {
+					const match = /^9L(\d+)$/.exec(source);
+					return !!match && Number(match[1]) <= level;
+				})) learned.add(move);
+			}
+		}
+		const pool = [...learned];
+		if (!pool.length) throw new Error('Esse Pokémon não possui golpes por nível disponíveis nesse nível');
+		for (let index = pool.length - 1; index > 0; index--) {
+			const other = this.int(index + 1);
+			[pool[index], pool[other]] = [pool[other], pool[index]];
+		}
+		return pool.slice(0, 4);
+	}
+
 	private randomEVs(): StatsTable {
 		const values = [0, 0, 0, 0, 0, 0];
 		const available = [0, 1, 2, 3, 4, 5];
@@ -5464,7 +5608,7 @@ Promise<RPGLoginService> {
 	const accountRepository = new RPGMemoryAccountRepository({
 		accounts: snapshot.platformAccounts, tables: snapshot.campaignTables,
 		members: snapshot.tableMembers, invites: snapshot.tableInvites, recoveryCodes: snapshot.recoveryCodes,
-		loginAttempts: snapshot.loginAttempts, auditEntries: snapshot.auditEntries,
+		loginAttempts: snapshot.loginAttempts, auditEntries: snapshot.auditEntries, accountNotes: snapshot.accountNotes,
 	}, {
 		account: account => persistence.upsertPlatformAccount(account),
 		table: (table, id) => table ? persistence.upsertCampaignTable(table) : persistence.deleteCampaignTable(id),
@@ -5473,6 +5617,7 @@ Promise<RPGLoginService> {
 		recoveryCode: code => persistence.upsertRecoveryCode(code),
 		loginAttempt: (attempt, key) => attempt ? persistence.upsertLoginAttempt(attempt) : persistence.deleteLoginAttempt(key),
 		auditEntry: entry => persistence.insertAuditEntry(entry),
+		accountNote: note => persistence.upsertAccountRelationNote(note),
 	});
 	const accountSessionRepository = new RPGMemoryPlatformSessionRepository(snapshot.accountSessions, (session, tokenHash) => {
 		if (session) persistence.upsertPlatformSession(session);

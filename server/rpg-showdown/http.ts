@@ -113,7 +113,7 @@ export class RPGHttpServer {
 						accounts: snapshot.platformAccounts, tables: snapshot.campaignTables,
 						members: snapshot.tableMembers, invites: snapshot.tableInvites,
 						recoveryCodes: snapshot.recoveryCodes, loginAttempts: snapshot.loginAttempts,
-						auditEntries: snapshot.auditEntries,
+						auditEntries: snapshot.auditEntries, accountNotes: snapshot.accountNotes,
 					}, snapshot.accountSessions);
 				}
 				try {
@@ -154,7 +154,7 @@ export class RPGHttpServer {
 								accounts: snapshot.platformAccounts, tables: snapshot.campaignTables,
 								members: snapshot.tableMembers, invites: snapshot.tableInvites,
 								recoveryCodes: snapshot.recoveryCodes, loginAttempts: snapshot.loginAttempts,
-								auditEntries: snapshot.auditEntries,
+								auditEntries: snapshot.auditEntries, accountNotes: snapshot.accountNotes,
 							}, snapshot.accountSessions);
 						}
 						return this.service!.accounts.getActiveTableContext(match[1]);
@@ -352,6 +352,21 @@ export class RPGHttpServer {
 		}
 		if (method === 'GET' && url.pathname === '/api/rpg/characters/all') {
 			this.json(res, 200, { characters: this.login.listAllCharacters(this.token(req)) });
+			return;
+		}
+		if (method === 'GET' && url.pathname === '/api/rpg/players') {
+			this.json(res, 200, { players: this.login.listOtherPlayers(this.token(req)) });
+			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/characters/pokemon') {
+			const body = await this.body(req);
+			this.json(res, 201, this.login.masterCreatePlayerPokemon(
+				this.token(req), this.string(body.characterId), {
+					species: this.string(body.species), level: Number(body.level),
+					gender: this.string(body.gender) as RPGCharacterGender,
+					ability: this.string(body.ability), nature: this.string(body.nature), shiny: body.shiny === true,
+				}
+			));
 			return;
 		}
 		if (method === 'PUT' && url.pathname === '/api/rpg/characters/page-access') {
@@ -1455,6 +1470,16 @@ export class RPGHttpServer {
 			this.json(res, 200, { moves: getRPGContestMoveCatalog() });
 			return;
 		}
+		if (method === 'POST' && url.pathname === '/api/rpg/box/give') {
+			const body = await this.body(req);
+			this.json(res, 200, {
+				gift: this.login.giveTeamPokemon(
+					this.token(req), this.string(body.toCharacterId), this.string(body.pokemonId),
+					Number(body.sourceRevision)
+				),
+			});
+			return;
+		}
 		if (url.pathname === '/api/rpg/tournaments') {
 			const token = this.token(req);
 			if (method === 'GET') { this.json(res, 200, { tournaments: this.login.listTournaments(token) }); return; }
@@ -1830,7 +1855,7 @@ export class RPGHttpServer {
 					accounts: snapshot.platformAccounts, tables: snapshot.campaignTables,
 					members: snapshot.tableMembers, invites: snapshot.tableInvites,
 					recoveryCodes: snapshot.recoveryCodes, loginAttempts: snapshot.loginAttempts,
-					auditEntries: snapshot.auditEntries,
+					auditEntries: snapshot.auditEntries, accountNotes: snapshot.accountNotes,
 				}, snapshot.accountSessions);
 			}
 			this.service!.accounts.withAuditContext(context, () => this.service!.accounts.recordAdministrativeFailure(

@@ -102,6 +102,24 @@ describe('RPG version 2 account authentication frontend', () => {
 		assert(script.includes("addConfirmedAction('Excluir mesa'"));
 	});
 
+	it('shows a player-only roster with the other trainers and six team slots', () => {
+		assert(script.includes("['overview', 'Vis\\u00e3o geral'], ['players', 'Players'], ['team', 'Equipe']"));
+		assert(script.includes("async function renderPlayerRoster()"));
+		assert(script.includes("api('/players', { cache: 'no-store' })"));
+		assert(script.includes('for (let index = 0; index < 6; index++)'));
+		assert(style.includes('.player-roster-team { display: grid; grid-template-columns: repeat(6'));
+	});
+
+	it('lets the master configure and give a new Pokemon from the expanded player row', () => {
+		assert(script.includes("button('Dar novo Pokémon', 'button primary master-player-add-pokemon')"));
+		assert(script.includes('openMasterPlayerPokemonGift(character)'));
+		assert(script.includes("api('/characters/pokemon'"));
+		assert(script.includes('508 EVs aleatórios'));
+		assert(script.includes('IVs em 0'));
+		assert(script.includes("event.target === backdrop"));
+		assert(style.includes('.master-player-pokemon-gift-dialog'));
+	});
+
 	it('creates tables through short steps and exposes the post-creation actions', () => {
 		assert(html.includes('id="account-table-dialog-back"'));
 		assert(script.includes("['Identidade', 'Entrada de jogadores', 'Configurações iniciais']"));
@@ -174,6 +192,16 @@ describe('RPG version 2 account authentication frontend', () => {
 		assert(script.includes('/note`'));
 		assert(style.includes('.member-details-layer'));
 		assert(style.includes('.master-member-row'));
+		assert(script.includes("createElement('span', 'master-member-account', accountPublicHandle(entry.account))"));
+		assert(!script.includes("entry.account.displayName + ' (@'"));
+		assert(style.includes('.master-invite-approval-switch'));
+		assert(script.includes("'Solicitações precisam ser aceitas pelo Mestre'"));
+		assert(!script.includes("detail('Personagens', characters)"));
+		assert(!script.includes("detail('Permissões especiais', permissions)"));
+		assert(!script.includes("button('Salvar anotações'"));
+		assert(script.includes("noteTimer = window.setTimeout(() => void saveNote(), 500)"));
+		assert(style.includes('.member-note-status'));
+		assert(style.includes('.member-action-role'));
 	});
 
 	it('switches the active table from the RPG header without leaking transient world state', () => {

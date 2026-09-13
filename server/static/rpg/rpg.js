@@ -2113,7 +2113,7 @@ function dashboardNav(isMaster) {
 		['overview', 'Vis\u00e3o geral'], ['members', 'Membros'], ['players', 'Jogadores'], ['shops', 'Lojas'], ['battles', 'Batalhas'], ['contests', 'Concursos'],
 		['npcs', 'NPCs e selvagens'], ['tournaments', 'Torneios'], ['nursery', 'Berçário'],
 	] : [
-		['overview', 'Vis\u00e3o geral'], ['team', 'Equipe'],
+		['overview', 'Vis\u00e3o geral'], ['players', 'Players'], ['team', 'Equipe'],
 		['documents', 'Documentos'],
 		['team-builder', 'Team Builder'],
 		['center', 'Centro Pokémon', centerBlocked],
@@ -3293,6 +3293,42 @@ function renderPlayerTeamBody(character) {
 	return root;
 }
 
+async function renderPlayerRoster() {
+	const root = createElement('div', 'player-roster-page');
+	const data = await api('/players', { cache: 'no-store' });
+	const players = Array.isArray(data.players) ? data.players : [];
+	if (!players.length) {
+		root.append(createElement('div', 'panel empty-state', 'Ainda não há outros jogadores nesta mesa.'));
+		return root;
+	}
+	for (const player of players) {
+		const card = createElement('article', 'panel player-roster-card');
+		const identity = createElement('div', 'player-roster-identity');
+		const avatar = characterAvatarBadge(player);
+		avatar.classList.add('player-roster-avatar');
+		const names = createElement('div', 'player-roster-names');
+		names.append(createElement('strong', '', player.characterName), createElement('span', '', player.playerName));
+		identity.append(avatar, names);
+		const team = createElement('div', 'player-roster-team');
+		team.setAttribute('aria-label', 'Equipe de ' + player.characterName);
+		for (let index = 0; index < 6; index++) {
+			const pokemon = player.team?.[index];
+			const slot = createElement('div', 'player-roster-pokemon' + (pokemon ? '' : ' empty'));
+			if (pokemon) {
+				slot.append(pokemonSprite(pokemon));
+				slot.setAttribute('aria-label', pokemon.species);
+			} else {
+				slot.append(createElement('span', '', '—'));
+				slot.setAttribute('aria-label', 'Espaço vazio');
+			}
+			team.append(slot);
+		}
+		card.append(identity, team);
+		root.append(card);
+	}
+	return root;
+}
+
 function openTeamBuilder(pokemonId, returnView = state.dashboardView) {
 	if (!pokemonId) {
 		showToast('Não foi possível identificar este Pokémon.', true);
@@ -3355,6 +3391,7 @@ async function renderPlayerTeamBuilder(character) {
 		portableIncubators: character.portableIncubators || [], refresh: renderDashboard,
 		readOnly: !!selectedEgg || boxPokemonReadOnly, isMaster: state.session.role === 'master', toast: showToast,
 		spriteUrl: pokemon => spriteUrl(pokemon), eggVisual, portableIncubatorVisual,
+		trainerSpriteUrl: avatar => RPGAssets.url('sprites/trainers/' + String(avatar || '').replace(/\.png$/i, '') + '.png'),
 		switchPokemon: pokemonId => {
 			state.teamBuilderPokemonId = pokemonId;
 			state.dashboardView = 'team-builder';
@@ -4001,20 +4038,12 @@ async function renderPokemonCenter(character) {
 	drawWelcome();
 	return root;
 }
-const MEMBER_PERMISSION_LABELS = {
-	'battles.create': 'Criar batalhas', 'battles.manage': 'Administrar batalhas', 'battles.participate': 'Participar de batalhas',
-	'battles.watch': 'Assistir batalhas', 'contests.create': 'Criar concursos', 'contests.manage': 'Administrar concursos',
-	'contests.participate': 'Participar de concursos', 'contests.watch': 'Assistir concursos',
-	'tournaments.create': 'Criar torneios', 'tournaments.manage': 'Administrar torneios',
-	'tournaments.participate': 'Participar de torneios', 'tournaments.watch': 'Assistir torneios',
-	'npcs.manage': 'Administrar NPCs', 'shops.manage': 'Administrar lojas', 'campaign.configure': 'Configurar campanha',
-	'campaign.advanceTime': 'Avançar o tempo', 'characters.manage': 'Administrar personagens',
-	'characters.viewPrivate': 'Ver dados privados', 'documents.manage': 'Administrar documentos',
-	'members.view': 'Ver membros', 'members.invite': 'Criar convites', 'members.manage': 'Administrar membros',
-};
-
 function memberStatusLabel(status) {
 	return ({ active: 'Ativo', pending: 'Pendente', left: 'Saiu', removed: 'Removido', blocked: 'Bloqueado' })[status] || status;
+}
+
+function accountPublicHandle(account) {
+	return '@' + (account?.handle || 'indisponível');
 }
 
 function openMemberDetails(entry, viewerRole, members, onChanged) {
@@ -4026,7 +4055,7 @@ function openMemberDetails(entry, viewerRole, members, onChanged) {
 	const identity = createElement('div'); identity.append(createElement('span', 'member-avatar', initials(entry.account.displayName)),
 		createElement('div', '', ''));
 	identity.lastElementChild.append(createElement('h2', '', entry.account.displayName),
-		createElement('small', '', '@' + (entry.account.handle || entry.account.username)));
+		createElement('small', '', accountPublicHandle(entry.account)));
 	const close = button('Fechar', 'button'); close.type = 'button'; heading.append(identity, close); dialog.append(heading);
 	const details = createElement('div', 'member-details-grid');
 	const detail = (label, content) => {
@@ -4035,33 +4064,38 @@ function openMemberDetails(entry, viewerRole, members, onChanged) {
 	};
 	detail('Função na mesa', accountRoleLabel(entry.member.role));
 	detail('Data de entrada', new Date(entry.member.joinedAt).toLocaleDateString('pt-BR'));
-	const characters = createElement('div', 'member-character-list');
-	characters.append(...(entry.characters?.length ? entry.characters.map(character => createElement('span', '', character.name)) :
-		[createElement('span', 'muted', 'Nenhum personagem')]));
-	detail('Personagens', characters);
-	const permissions = createElement('div', 'member-permission-list');
-	for (const [permission, enabled] of Object.entries(entry.effectivePermissions)) {
-		if (enabled) permissions.append(createElement('span', '', MEMBER_PERMISSION_LABELS[permission] || permission));
-	}
-	detail('Permissões especiais', permissions);
-	const noteBox = createElement('section', 'member-note-box'); noteBox.append(createElement('small', '', 'Anotações'));
-	const note = createElement('textarea'); note.value = entry.member.note || ''; note.maxLength = 10000; note.placeholder = 'Anotações privadas sobre este membro...';
+	const noteBox = createElement('section', 'member-note-box');
+	const noteHeading = createElement('div', 'member-note-heading'); noteHeading.append(createElement('small', '', 'Anotações sobre esta pessoa'));
+	const noteStatus = createElement('span', 'member-note-status', 'Salvo'); noteHeading.append(noteStatus); noteBox.append(noteHeading);
+	const note = createElement('textarea'); note.value = entry.member.note || ''; note.maxLength = 10000;
+	note.placeholder = 'Esta anotação acompanha a pessoa nas mesas em que vocês estiverem juntos...';
 	const resize = () => { note.style.height = 'auto'; note.style.height = note.scrollHeight + 'px'; };
-	note.addEventListener('input', resize); noteBox.append(note); details.append(noteBox); window.setTimeout(resize, 0);
-	const actions = createElement('div', 'member-detail-actions');
-	const saveNote = button('Salvar anotações', 'button');
-	saveNote.addEventListener('click', async () => {
-		saveNote.disabled = true;
+	let noteTimer = 0; let savedNote = note.value; let savingNote = false;
+	const saveNote = async () => {
+		window.clearTimeout(noteTimer);
+		if (savingNote || note.value === savedNote) return;
+		savingNote = true; noteStatus.textContent = 'Salvando...'; noteStatus.classList.remove('error');
+		const value = note.value;
 		try {
 			const data = await accountApi(`/tables/${encodeURIComponent(tableId)}/members/${encodeURIComponent(entry.account.id)}/note`,
-				{ method: 'PUT', body: { note: note.value } });
-			entry.member.note = data.member.note; showToast('Anotações salvas.');
-		} catch (error) { showToast(error.message, true); } finally { saveNote.disabled = false; }
+				{ method: 'PUT', body: { note: value } });
+			entry.member.note = data.member.note; savedNote = value; noteStatus.textContent = 'Salvo';
+		} catch (error) {
+			noteStatus.textContent = 'Falha ao salvar'; noteStatus.classList.add('error'); showToast(error.message, true);
+		} finally {
+			savingNote = false;
+			if (note.value !== savedNote) noteTimer = window.setTimeout(() => void saveNote(), 500);
+		}
+	};
+	note.addEventListener('input', () => {
+		resize(); noteStatus.textContent = 'Alterado'; noteStatus.classList.remove('error');
+		window.clearTimeout(noteTimer); noteTimer = window.setTimeout(() => void saveNote(), 500);
 	});
-	actions.append(saveNote);
+	note.addEventListener('blur', () => void saveNote()); noteBox.append(note); details.append(noteBox); window.setTimeout(resize, 0);
+	const actions = createElement('div', 'member-detail-actions');
 	if (viewerRole === 'owner' && entry.member.role !== 'owner') {
 		const nextRole = entry.member.role === 'master' ? 'player' : 'master';
-		const roleAction = button(nextRole === 'master' ? 'Promover a Mestre' : 'Rebaixar a Jogador', 'button');
+		const roleAction = button(nextRole === 'master' ? 'Promover a Mestre' : 'Rebaixar a Jogador', 'button member-action-role');
 		roleAction.addEventListener('click', async () => {
 			roleAction.disabled = true;
 			try {
@@ -4071,7 +4105,7 @@ function openMemberDetails(entry, viewerRole, members, onChanged) {
 			} catch (error) { roleAction.disabled = false; showToast(error.message, true); }
 		});
 		actions.append(roleAction);
-		const transfer = button('Transferir propriedade', 'button');
+		const transfer = button('Transferir propriedade', 'button member-action-ownership');
 		transfer.addEventListener('click', async () => {
 			if (transfer.dataset.confirm !== 'true') {
 				transfer.dataset.confirm = 'true'; transfer.classList.add('danger'); transfer.textContent = 'Confirmar transferência'; return;
@@ -4087,7 +4121,7 @@ function openMemberDetails(entry, viewerRole, members, onChanged) {
 	if (entry.member.role !== 'owner' && entry.account.id !== state.account?.id &&
 		(viewerRole === 'owner' || entry.member.role !== 'master')) {
 		if (entry.characters?.length) {
-			const transferCharacter = button('Transferir personagem', 'button');
+			const transferCharacter = button('Transferir personagem', 'button member-action-transfer');
 			transferCharacter.addEventListener('click', () => {
 				if (actions.querySelector('.member-character-transfer')) return;
 				const panel = createElement('div', 'member-character-transfer');
@@ -4116,7 +4150,7 @@ function openMemberDetails(entry, viewerRole, members, onChanged) {
 			});
 			actions.append(transferCharacter);
 		}
-		const remove = button('Remover da mesa', 'button');
+		const remove = button('Remover da mesa', 'button member-action-remove');
 		remove.addEventListener('click', async () => {
 			if (remove.dataset.confirm !== 'true') {
 				remove.dataset.confirm = 'true'; remove.classList.add('danger'); remove.textContent = 'Confirmar remoção';
@@ -4130,7 +4164,7 @@ function openMemberDetails(entry, viewerRole, members, onChanged) {
 			} catch (error) { remove.disabled = false; showToast(error.message, true); }
 		});
 		actions.append(remove);
-		const block = button('Remover e bloquear', 'button');
+		const block = button('Remover e bloquear', 'button member-action-block');
 		block.addEventListener('click', async () => {
 			if (block.dataset.confirm !== 'true') {
 				block.dataset.confirm = 'true'; block.classList.add('danger'); block.textContent = 'Confirmar bloqueio';
@@ -4146,7 +4180,7 @@ function openMemberDetails(entry, viewerRole, members, onChanged) {
 		actions.append(block);
 	}
 	dialog.append(details, actions); layer.append(dialog);
-	const closeDialog = () => layer.remove(); close.addEventListener('click', closeDialog);
+	const closeDialog = () => { void saveNote(); layer.remove(); }; close.addEventListener('click', closeDialog);
 	layer.addEventListener('pointerdown', event => { if (event.target === layer) closeDialog(); });
 	document.body.append(layer);
 }
@@ -4167,8 +4201,7 @@ async function renderMasterMembers() {
 		const row = createElement('button', 'master-member-row'); row.type = 'button'; row.dataset.accountId = entry.account.id;
 		const characterLabel = entry.characters?.length ? entry.characters.map(character => character.name).join(', ') : '—';
 		row.append(createElement('span', 'member-avatar', initials(entry.account.displayName)),
-			createElement('span', 'master-member-account', entry.account.displayName + ' (@' +
-			(entry.account.handle || entry.account.username) + ')'),
+			createElement('span', 'master-member-account', accountPublicHandle(entry.account)),
 			createElement('span', '', characterLabel), createElement('span', '', accountRoleLabel(entry.member.role)),
 			createElement('span', 'member-status member-status-' + entry.member.status, memberStatusLabel(entry.member.status)),
 			createElement('span', 'master-member-open', 'Detalhes'));
@@ -4206,7 +4239,7 @@ async function renderMasterInvitationsPanel() {
 	for (const entry of requestData.requests) {
 		const row = createElement('div', 'master-join-request');
 		const identity = createElement('div'); identity.append(createElement('strong', '', entry.account.displayName),
-			createElement('small', '', '@' + (entry.account.handle || entry.account.username)));
+			createElement('small', '', accountPublicHandle(entry.account)));
 		const actions = createElement('div');
 		for (const [label, allow, className] of [['Permitir', true, 'primary'], ['Recusar', false, 'danger']]) {
 			const action = button(label, `button ${className}`);
@@ -4229,15 +4262,24 @@ async function renderMasterInvitationsPanel() {
 	const approval = createElement('label', 'master-invite-approval');
 	const approvalInput = createElement('input'); approvalInput.type = 'checkbox';
 	approvalInput.checked = tableEntry?.table.settings?.requireJoinApproval !== false;
-	approval.append(approvalInput, createElement('span', '', 'Exigir aprovação para entrar'));
+	const approvalSwitch = createElement('span', 'master-invite-approval-switch'); approvalSwitch.setAttribute('aria-hidden', 'true');
+	approvalSwitch.append(createElement('span'));
+	const approvalCopy = createElement('span', 'master-invite-approval-copy');
+	const approvalState = createElement('small');
+	const updateApprovalState = () => {
+		approvalState.textContent = approvalInput.checked ? 'Solicitações precisam ser aceitas pelo Mestre' : 'Novos membros entram imediatamente';
+	};
+	approvalCopy.append(createElement('strong', '', 'Exigir aprovação para entrar'), approvalState);
+	approval.append(approvalInput, approvalSwitch, approvalCopy); updateApprovalState();
 	approvalInput.addEventListener('change', async () => {
+		updateApprovalState();
 		approvalInput.disabled = true;
 		try {
 			const result = await accountApi(`/tables/${encodeURIComponent(tableId)}`, {
 				method: 'PATCH', body: { requireJoinApproval: approvalInput.checked },
 			});
 			if (tableEntry) tableEntry.table = result.table;
-		} catch (error) { approvalInput.checked = !approvalInput.checked; showToast(error.message, true); } finally {
+		} catch (error) { approvalInput.checked = !approvalInput.checked; updateApprovalState(); showToast(error.message, true); } finally {
 			approvalInput.disabled = false;
 		}
 	});
@@ -4336,6 +4378,90 @@ function openMasterInviteDialog(tableId, inviteList) {
 		}
 	});
 	document.body.append(layer); role.focus();
+}
+
+async function openMasterPlayerPokemonGift(character) {
+	document.querySelector('.master-player-pokemon-gift-backdrop')?.remove();
+	const backdrop = createElement('div', 'modal-backdrop master-player-pokemon-gift-backdrop');
+	const dialog = createElement('section', 'panel master-player-pokemon-gift-dialog');
+	dialog.setAttribute('role', 'dialog'); dialog.setAttribute('aria-modal', 'true');
+	const header = createElement('header', 'master-player-pokemon-gift-head');
+	header.append(createElement('div'), createElement('h2', '', 'Dar novo Pokémon para ' + character.characterName));
+	const closeButton = button('×', 'button'); closeButton.setAttribute('aria-label', 'Fechar'); header.append(closeButton);
+	const body = createElement('div', 'master-player-pokemon-gift-body');
+	const browser = createElement('div', 'master-player-pokemon-browser');
+	const search = createElement('input'); search.type = 'search'; search.placeholder = 'Buscar Pokémon...';
+	const results = createElement('div', 'master-player-pokemon-results');
+	browser.append(search, results);
+	const editor = createElement('form', 'master-player-pokemon-editor');
+	editor.append(createElement('div', 'empty-state', 'Selecione um Pokémon para configurar.'));
+	body.append(browser, editor); dialog.append(header, body); backdrop.append(dialog); document.body.append(backdrop);
+	let catalog = [];
+	let selected = null;
+	const natures = ['Hardy', 'Lonely', 'Brave', 'Adamant', 'Naughty', 'Bold', 'Docile', 'Relaxed', 'Impish', 'Lax', 'Timid', 'Hasty', 'Serious', 'Jolly', 'Naive', 'Modest', 'Mild', 'Quiet', 'Bashful', 'Rash', 'Calm', 'Gentle', 'Sassy', 'Careful', 'Quirky'];
+	const close = () => { document.removeEventListener('keydown', onKeyDown); backdrop.remove(); };
+	const onKeyDown = event => { if (event.key === 'Escape') close(); };
+	closeButton.addEventListener('click', close);
+	backdrop.addEventListener('click', event => { if (event.target === backdrop) close(); });
+	document.addEventListener('keydown', onKeyDown);
+	const drawEditor = pokemon => {
+		selected = pokemon;
+		editor.replaceChildren();
+		const portrait = createElement('div', 'master-player-pokemon-gift-portrait');
+		const sprite = createElement('div');
+		const shiny = createElement('input'); shiny.type = 'checkbox';
+		const drawSprite = () => sprite.replaceChildren(pokemonSprite({ ...pokemon, shiny: shiny.checked }));
+		drawSprite();
+		portrait.append(sprite, createElement('strong', '', pokemon.name));
+		const fields = createElement('div', 'master-player-pokemon-gift-fields');
+		const level = createElement('input'); level.type = 'number'; level.min = '1'; level.max = '100'; level.value = '5'; level.required = true;
+		const gender = createElement('select');
+		for (const value of pokemon.genders || ['M', 'F']) gender.append(new Option(value === 'M' ? 'Masculino' : value === 'F' ? 'Feminino' : 'Sem gênero', value));
+		const ability = createElement('select');
+		const abilityDetails = pokemon.abilityDetails || (pokemon.abilities || []).map(name => ({ name }));
+		for (const entry of abilityDetails) ability.append(new Option(entry.name, entry.name));
+		const nature = createElement('select'); for (const value of natures) nature.append(new Option(value, value)); nature.value = 'Serious';
+		const abilityDescription = createElement('small', 'master-player-pokemon-ability-description');
+		const updateAbility = () => { abilityDescription.textContent = abilityDetails.find(entry => entry.name === ability.value)?.description || 'Descrição indisponível.'; };
+		ability.addEventListener('change', updateAbility); updateAbility();
+		const control = (label, input) => { const field = createElement('label'); field.append(createElement('span', '', label), input); return field; };
+		shiny.addEventListener('change', drawSprite);
+		fields.append(control('Level', level), control('Gênero', gender), control('Habilidade', ability), abilityDescription,
+			control('Natureza', nature), control('Shiny', shiny));
+		const rules = createElement('div', 'master-player-pokemon-gift-rules');
+		rules.append(createElement('strong', '', 'Configuração automática'),
+			createElement('span', '', '508 EVs aleatórios · IVs em 0 · até 4 golpes aleatórios aprendidos por level'));
+		const actions = createElement('div', 'form-actions');
+		const cancel = button('Cancelar'); const submit = button('Dar Pokémon', 'button primary'); submit.type = 'submit';
+		cancel.addEventListener('click', close); actions.append(cancel, submit);
+		editor.append(portrait, fields, rules, actions);
+		editor.onsubmit = async event => {
+			event.preventDefault(); submit.disabled = true;
+			try {
+				const response = await api('/characters/pokemon', { method: 'POST', body: {
+					characterId: character.id, species: selected.name, level: Number(level.value),
+					gender: gender.value, ability: ability.value, nature: nature.value, shiny: shiny.checked,
+				} });
+				close();
+				showToast(selected.name + ' foi enviado para ' + character.characterName +
+					(response.destination === 'party' ? ' e entrou na equipe.' : ' e foi guardado na Box.'));
+				await renderDashboard();
+			} catch (error) { submit.disabled = false; showToast(error.message, true); }
+		};
+	};
+	const drawResults = () => {
+		const query = rpgSpriteKey(search.value); results.replaceChildren();
+		for (const pokemon of catalog.filter(entry => !query || rpgSpriteKey(entry.name).includes(query))) {
+			const option = button('', 'master-player-pokemon-option' + (selected?.name === pokemon.name ? ' selected' : ''));
+			option.append(pokemonSprite(pokemon), createElement('span', '', pokemon.name));
+			option.addEventListener('click', () => { drawEditor(pokemon); drawResults(); }); results.append(option);
+		}
+	};
+	search.addEventListener('input', drawResults);
+	results.append(createElement('div', 'loading-block', 'Carregando Pokémon...'));
+	try { catalog = await rpgLoadBattlePokemon(); drawResults(); search.focus(); } catch (error) {
+		results.replaceChildren(createElement('div', 'empty-state', error.message));
+	}
 }
 
 async function renderMasterBody(characters) {
@@ -4601,6 +4727,9 @@ async function renderMasterBody(characters) {
 		const tagline = createElement('blockquote', 'master-player-tagline',
 			'“' + (character.profile?.tagline || 'A aventura está apenas começando.') + '”');
 		details.append(tagline);
+		const addPokemon = button('Dar novo Pokémon', 'button primary master-player-add-pokemon');
+		addPokemon.addEventListener('click', () => void openMasterPlayerPokemonGift(character));
+		details.append(addPokemon);
 		const overview = createElement('div', 'master-player-overview-metrics');
 		const caught = character.profile?.pokedex?.caught?.length || 0;
 		overview.append(
@@ -6507,9 +6636,11 @@ async function renderDashboard() {
 			$('#dashboard-title').textContent = state.dashboardView === 'battles' ? 'Convites de batalha' :
 				state.dashboardView === 'contests' ? 'Concursos Pok\u00e9mon' :
 				state.dashboardView === 'tournaments' ? 'Torneios' :
+				state.dashboardView === 'players' ? 'Players' :
 				state.dashboardView === 'documents' ? 'Documentos' : 'Ol\u00e1, ' + character.characterName;
 			$('#dashboard-description').textContent = state.dashboardView === 'battles' ? 'Participe dos seus combates ou assista aos combates em andamento.' :
 				state.dashboardView === 'tournaments' ? 'Inscreva sua equipe e acompanhe as chaves dos torneios.' :
+				state.dashboardView === 'players' ? 'Veja os outros treinadores e suas equipes atuais.' :
 				state.dashboardView === 'documents' ? 'Organize suas pastas e blocos de notas.' : 'Sua equipe e seus recursos persistentes.';
 			const viewing = state.session.role === 'master';
 			$('#logout-button').textContent = viewing ? 'Voltar como Mestre' : 'Sair da sess\u00e3o';
@@ -6518,6 +6649,7 @@ async function renderDashboard() {
 			const playerView = state.dashboardView === 'battles' ? await renderPlayerBattles(character) :
 				state.dashboardView === 'contests' ? await window.RPGContestUI.render({ state, api, master: false, character, rerender: renderDashboard }) :
 				state.dashboardView === 'tournaments' ? await renderPlayerTournaments(character) :
+				state.dashboardView === 'players' ? await renderPlayerRoster() :
 				state.dashboardView === 'box' ? await renderPlayerBox(character) :
 				state.dashboardView === 'bag' ? await renderPlayerBag(character) :
 				state.dashboardView === 'team' ? renderPlayerTeamBody(character) :

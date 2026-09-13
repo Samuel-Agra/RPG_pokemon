@@ -117,6 +117,10 @@ describe('RPG HTTP frontend API', () => {
 		assert.equal(result.data.character.team[0].species, 'Squirtle');
 		assert.equal(result.data.character.money, 3000);
 
+		result = await request('/players', { headers: { Authorization: 'Bearer ' + token } });
+		assert.equal(result.response.status, 200);
+		assert.deepEqual(result.data.players, []);
+
 		result = await request('/bank', { headers: { Authorization: 'Bearer ' + token } });
 		assert.deepEqual(result.data.bank, { version: 1, balance: 0, revision: 0, money: 3000 });
 		result = await request('/bank/deposit', {
