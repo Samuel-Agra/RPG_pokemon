@@ -1347,7 +1347,15 @@ input, select {
 .player-roster-drawer-player:hover, .player-roster-drawer-player:focus-visible { border-color: #587da8; background: #e3effb; outline: 2px solid #789ac344; }
 .player-roster-drawer-player:disabled { cursor: default; opacity: 1; }
 .player-roster-drawer-avatar { width: 108px; height: 108px; }
-.player-roster-drawer-avatar img { max-width: 104px; max-height: 104px; }
+.player-roster-drawer-avatar img {
+	width: 104px;
+	height: 104px;
+	max-width: 104px;
+	max-height: 104px;
+	object-fit: contain;
+	transform: scale(1.7);
+	transform-origin: center;
+}
 .player-roster-drawer-handle { max-width: 100%; overflow: hidden; color: #60748b; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
 .player-roster-drawer-player > strong { max-width: 100%; overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
 .player-roster-drawer-team { display: grid; width: 100%; grid-template-columns: repeat(3, minmax(0, 1fr)); justify-items: center; gap: 4px; margin-top: 4px; }
