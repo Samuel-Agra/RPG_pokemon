@@ -7,7 +7,7 @@
 	<title>Pok&eacute;mon RPG</title>
 	<link rel="icon" type="image/png" href="./assets/pokemon-rpg-logo.png" />
 	<link rel="apple-touch-icon" href="./assets/pokemon-rpg-logo.png" />
-	<link rel="stylesheet" href="./rpg.css?v=20260913-94" />
+	<link rel="stylesheet" href="./rpg.css?v=20260913-107" />
 	<link rel="stylesheet" href="./battle-ui.css?v=20260830-5" />
 	<link rel="stylesheet" href="./battle-ui-v2.css?v=20260811-23" />
 	<link rel="stylesheet" href="./battle-room.css?v=20260828-6" />
@@ -27,15 +27,22 @@
 			<div class="current-table-shell hidden" id="current-table-shell">
 				<button class="current-table-toggle" id="current-table-toggle" type="button"
 					aria-expanded="false" aria-haspopup="menu">
-					<span id="current-table-name">Mesa atual</span><span aria-hidden="true">&#x25BE;</span>
+					<span id="current-table-name">Mesa atual</span>
+					<span class="current-table-notification hidden" id="current-table-notification" aria-label="Solicitações pendentes"></span>
+					<span aria-hidden="true">&#x25BE;</span>
 				</button>
 				<div class="current-table-menu hidden" id="current-table-menu" role="menu">
 					<button type="button" role="menuitem" id="current-table-switch">Trocar de mesa</button>
 					<button type="button" role="menuitem" id="current-table-settings">Configura&ccedil;&otilde;es da mesa</button>
+					<button class="current-table-invitations-entry hidden" type="button" role="menuitem" id="master-invitations-button">
+						<span>Convites e solicita&ccedil;&otilde;es</span><span class="menu-notification-count hidden" id="master-invitations-count"></span>
+					</button>
 					<button type="button" role="menuitem" id="current-table-leave">Sair da mesa</button>
 				</div>
 			</div>
-			<div class="session-chip hidden" id="session-chip"></div>
+			<div class="topbar-session-actions">
+				<div class="session-chip hidden" id="session-chip"></div>
+			</div>
 		</header>
 
 		<main class="viewport" id="app">
@@ -371,6 +378,21 @@
 						</div>
 						<div id="dashboard-body" aria-live="polite"></div>
 					</section>
+					<aside class="player-roster-drawer hidden" id="player-roster-drawer" aria-label="Comunicação da mesa">
+						<button class="player-chat-toggle" id="player-chat-toggle" type="button" aria-label="Abrir chat da mesa" aria-expanded="false">&#8250;</button>
+						<section class="player-roster-drawer-view" id="player-roster-drawer-view">
+							<strong>Players</strong>
+							<div id="player-roster-drawer-list"></div>
+						</section>
+						<section class="table-chat-view" id="table-chat-view" aria-label="Chat da mesa" aria-hidden="true" inert>
+							<strong>Chat da mesa</strong>
+							<div class="table-chat-messages" id="table-chat-messages" aria-live="polite"></div>
+							<form class="table-chat-form" id="table-chat-form">
+								<textarea id="table-chat-input" maxlength="1000" rows="2" placeholder="Escreva uma mensagem" aria-label="Mensagem"></textarea>
+								<button class="button primary" type="submit">Enviar</button>
+							</form>
+						</section>
+					</aside>
 				</div>
 			</section>
 		</main>
@@ -418,6 +440,6 @@
 	<script src="./nursery-ui.js?v=20260826-1"></script>
 	<script src="./contest-ui.js?v=20260905-39"></script>
 	<script src="./shop-ui.js?v=20260904-4"></script>
-	<script src="./rpg.js?v=20260913-105"></script>
+	<script src="./rpg.js?v=20260913-116"></script>
 </body>
 </html>

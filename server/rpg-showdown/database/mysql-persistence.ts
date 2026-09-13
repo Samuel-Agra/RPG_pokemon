@@ -15,9 +15,23 @@ const LEGACY_SCOPED_TABLES = new Set([
 
 export const RPG_SECURITY_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 export const RPG_SECURITY_CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000;
+export const RPG_TABLE_CHAT_CLEANUP_INTERVAL_MS = 60 * 1000;
 
 export interface RPGSecurityCleanupResult {
 	sessions: number; recoveryCodes: number; loginAttempts: number; invites: number; runtimes: number;
+}
+
+export interface RPGTableChatMessage {
+	id: string;
+	tableId: string;
+	authorAccountId: string;
+	authorHandle: string;
+	authorDisplayName: string;
+	authorCharacterName: string;
+	authorRole: RPGTableMember['role'];
+	message: string;
+	createdAt: number;
+	expiresAt: number;
 }
 
 /** Emits a safe operational signal without leaking SQL text, credentials, or stored values. */
@@ -96,6 +110,7 @@ export class RPGMySQLPersistence {
 	private transactionStatements: { sql: string, values: unknown[] }[] | null = null;
 	private readonly requestStatements = new AsyncLocalStorage<{ sql: string, values: unknown[] }[]>();
 	private securityCleanupTimer?: ReturnType<typeof setInterval>;
+	private tableChatCleanupTimer?: ReturnType<typeof setInterval>;
 
 	private constructor(private readonly pool: Pool) {}
 
@@ -185,6 +200,7 @@ export class RPGMySQLPersistence {
 		const persistence = new RPGMySQLPersistence(pool);
 		await persistence.cleanupSecurityData();
 		persistence.scheduleSecurityCleanup();
+		persistence.scheduleTableChatCleanup();
 		return persistence;
 	}
 
@@ -225,6 +241,14 @@ export class RPGMySQLPersistence {
 			void this.cleanupSecurityData().catch(error => reportRPGSecurityCleanupFailure(error));
 		}, RPG_SECURITY_CLEANUP_INTERVAL_MS);
 		this.securityCleanupTimer.unref();
+	}
+
+	private scheduleTableChatCleanup(): void {
+		this.tableChatCleanupTimer = setInterval(() => {
+			void this.pool.execute('DELETE FROM rpg_table_chat_messages WHERE expires_at <= ?', [Date.now()])
+				.catch(error => reportRPGOperationalFailure('Falha na limpeza programada do chat das mesas', error));
+		}, RPG_TABLE_CHAT_CLEANUP_INTERVAL_MS);
+		this.tableChatCleanupTimer.unref();
 	}
 
 	/** Imports the single-table version 1 world into deterministic version 2 ownership exactly once. */
@@ -405,6 +429,55 @@ export class RPGMySQLPersistence {
 			actorAccountId: String(row.actor_account_id), action: String(row.action), targetType: String(row.target_type),
 			targetId: row.target_id ? String(row.target_id) : undefined,
 			metadata: decoded(row.metadata) as Record<string, unknown>, createdAt: Number(row.created_at) }));
+	}
+
+	/** Returns the live table conversation and removes messages as each one reaches 48 hours. */
+	async loadTableChatMessages(tableId: string, now = Date.now(), limit = 200): Promise<RPGTableChatMessage[]> {
+		const scope = this.requireTableScope(tableId);
+		await this.pool.execute('DELETE FROM rpg_table_chat_messages WHERE table_id = ? AND expires_at <= ?', [scope, now]);
+		const safeLimit = Math.max(1, Math.min(500, Math.floor(Number(limit) || 200)));
+		const [rows] = await this.pool.query<RowDataPacket[]>(`SELECT chat.*, account.handle, account.display_name, member.role,
+			COALESCE((SELECT character.display_name FROM rpg_characters character
+				WHERE character.table_id = chat.table_id AND character.account_id = chat.author_account_id
+				ORDER BY character.updated_at DESC LIMIT 1), account.display_name) AS character_name
+			FROM rpg_table_chat_messages chat
+			JOIN rpg_accounts account ON account.id = chat.author_account_id
+			JOIN rpg_table_members member ON member.table_id = chat.table_id AND member.account_id = chat.author_account_id
+			WHERE chat.table_id = ? AND chat.expires_at > ?
+			ORDER BY chat.created_at DESC LIMIT ?`, [scope, now, safeLimit]);
+		return rows.reverse().map(row => ({
+			id: String(row.id), tableId: String(row.table_id), authorAccountId: String(row.author_account_id),
+			authorHandle: String(row.handle), authorDisplayName: String(row.display_name),
+			authorCharacterName: String(row.character_name), authorRole: row.role, message: String(row.message),
+			createdAt: Number(row.created_at), expiresAt: Number(row.expires_at),
+		}));
+	}
+
+	/** Persists a plain-text message after confirming that its author still belongs to the table. */
+	async createTableChatMessage(tableId: string, authorAccountId: string, message: string,
+		now = Date.now()): Promise<RPGTableChatMessage> {
+		const scope = this.requireTableScope(tableId);
+		const text = message.trim();
+		if (!text) throw new Error('A mensagem não pode ficar vazia');
+		if (text.length > 1000) throw new Error('A mensagem pode ter no máximo 1000 caracteres');
+		const [members] = await this.pool.query<RowDataPacket[]>(`SELECT account.handle, account.display_name, member.role,
+			COALESCE((SELECT character.display_name FROM rpg_characters character
+				WHERE character.table_id = member.table_id AND character.account_id = member.account_id
+				ORDER BY character.updated_at DESC LIMIT 1), account.display_name) AS character_name
+			FROM rpg_table_members member JOIN rpg_accounts account ON account.id = member.account_id
+			WHERE member.table_id = ? AND member.account_id = ? AND member.status = 'active' LIMIT 1`,
+		[scope, authorAccountId]);
+		if (!members.length) throw new Error('A conta não pertence a esta mesa');
+		const id = randomBytes(18).toString('hex');
+		const expiresAt = now + 48 * 60 * 60 * 1000;
+		await this.pool.execute(`INSERT INTO rpg_table_chat_messages
+			(id, table_id, author_account_id, message, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)`,
+		[id, scope, authorAccountId, text, now, expiresAt]);
+		return {
+			id, tableId: scope, authorAccountId, authorHandle: String(members[0].handle),
+			authorDisplayName: String(members[0].display_name), authorCharacterName: String(members[0].character_name),
+			authorRole: members[0].role, message: text, createdAt: now, expiresAt,
+		};
 	}
 
 	async loadRuntimeState(tableId: string, runtimeType: 'battle' | 'contest', sessionId: string): Promise<unknown> {
@@ -637,6 +710,7 @@ export class RPGMySQLPersistence {
 	}
 	async close(): Promise<void> {
 		if (this.securityCleanupTimer) clearInterval(this.securityCleanupTimer);
+		if (this.tableChatCleanupTimer) clearInterval(this.tableChatCleanupTimer);
 		await this.flush(); await this.pool.end();
 	}
 	private requireTableScope(tableId = this.legacyTableId): string {

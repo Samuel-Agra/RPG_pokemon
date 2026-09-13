@@ -354,6 +354,26 @@ export class RPGHttpServer {
 			this.json(res, 200, { characters: this.login.listAllCharacters(this.token(req)) });
 			return;
 		}
+		if (url.pathname === '/api/rpg/table-chat') {
+			const token = this.token(req);
+			const session = this.login.getSession(token);
+			const persistence = this.login.mysqlPersistence;
+			if (!persistence || !session.platformTableId || !session.platformAccountId) {
+				throw new RPGHttpError(503, 'O chat da mesa requer o banco de dados');
+			}
+			if (method === 'GET') {
+				this.json(res, 200, { messages: await persistence.loadTableChatMessages(session.platformTableId) });
+				return;
+			}
+			if (method === 'POST') {
+				const body = await this.body(req);
+				const message = await persistence.createTableChatMessage(
+					session.platformTableId, session.platformAccountId, this.string(body.message)
+				);
+				this.json(res, 201, { message });
+				return;
+			}
+		}
 		if (method === 'GET' && url.pathname === '/api/rpg/players') {
 			this.json(res, 200, { players: this.login.listOtherPlayers(this.token(req)) });
 			return;
@@ -2029,7 +2049,7 @@ export class RPGHttpServer {
 	/** Only established domain validation messages may cross the HTTP boundary. */
 	private isPublicValidationError(message: string): boolean {
 		if (/persisted|estado persistido|table scope|random source|repository|repositório/i.test(message)) return false;
-		return /^(?:RPG (?:request|session|password|character|player|master|battle|contest|tournament|Bag|Box|shop|commerce|nursery|team|held|move|starter|temporary|NPC)|Invalid RPG|Incorrect RPG|Unknown RPG|Apenas |Permissão necessária:|Usuário ou senha |Conta (?:indisponível|convidada)|Mesa (?:indisponível|arquivada)|Convite |Código de recuperação |Muitas tentativas |Pokémon |Item |Golpe |Equipe |Batalha |Concurso |Torneio |NPC |Pasta |Documento |Loja |Banco |Pokécoin |Quantidade |Valor |Nível |Formato |Participante |Treinador |Campanha |nome de exibição inválido|descrição inválido|Texto muito longo|Cor da mesa inválida|Visibilidade da mesa inválida|Função (?:de membro|de convite) inválida|Identificador de sessão inválido|Motivo da auditoria muito longo|A senha deve |O usuário deve |O @ deve |Este (?:nome de usuário|convite|Pokémon|held item|@)|Esta (?:conta|loja|procriação)|O (?:Mestre|acesso|valor|usuário|proprietário|limite|item|Pokémon|reembolso|prêmio)|Os documentos |A (?:conta|equipe|aposta|expiração|incubadora|recompensa|procriação|quantidade|sessão|natureza|habilidade|loja)|Informe pelo menos um @|Envie convites |Não repita o mesmo @|@[^ ]+ |Nenhum (?:Pokémon|participante|item)|Não (?:é possível|foi possível|há|existe|pode))/.test(message);
+		return /^(?:RPG (?:request|session|password|character|player|master|battle|contest|tournament|Bag|Box|shop|commerce|nursery|team|held|move|starter|temporary|NPC)|Invalid RPG|Incorrect RPG|Unknown RPG|Apenas |Permissão necessária:|Usuário ou senha |Conta (?:indisponível|convidada)|Mesa (?:indisponível|arquivada)|Convite |Código de recuperação |Muitas tentativas |Pokémon |Item |Golpe |Equipe |Batalha |Concurso |Torneio |NPC |Pasta |Documento |Loja |Banco |Pokécoin |Quantidade |Valor |Nível |Formato |Participante |Treinador |Campanha |nome de exibição inválido|descrição inválido|Texto muito longo|Cor da mesa inválida|Visibilidade da mesa inválida|Função (?:de membro|de convite) inválida|Identificador de sessão inválido|Motivo da auditoria muito longo|A senha deve |O usuário deve |O @ deve |Este (?:nome de usuário|convite|Pokémon|held item|@)|Esta (?:conta|loja|procriação)|O (?:Mestre|acesso|valor|usuário|proprietário|limite|item|Pokémon|reembolso|prêmio)|Os documentos |A (?:conta|equipe|aposta|expiração|incubadora|recompensa|procriação|quantidade|sessão|natureza|habilidade|loja|mensagem)|Informe pelo menos um @|Envie convites |Não repita o mesmo @|@[^ ]+ |Nenhum (?:Pokémon|participante|item)|Não (?:é possível|foi possível|há|existe|pode))/.test(message);
 	}
 
 	private isPersistenceError(error: { code?: unknown, sqlState?: unknown }): boolean {

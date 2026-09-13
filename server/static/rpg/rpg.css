@@ -15,7 +15,7 @@
 }
 
 * { box-sizing: border-box; }
-html, body { min-height: 100%; margin: 0; }
+html, body { min-height: 100%; margin: 0; overflow-x: clip; }
 body {
 	background:
 		linear-gradient(rgba(255, 255, 255, 0.55), rgba(255, 255, 255, 0.1)),
@@ -76,6 +76,11 @@ button { cursor: pointer; }
 	background: #192a43cc;
 	font-size: 12px;
 }
+.topbar-session-actions { display: flex; align-items: center; gap: 9px; }
+.master-invitations-window { width: min(960px, calc(100vw - 34px)); max-height: min(760px, calc(100vh - 34px)); overflow-y: auto; }
+.master-invitations-window > .master-invitations-window-heading { display: flex; align-items: center; justify-content: space-between; gap: 15px; padding: 14px 16px; color: #fff; background: linear-gradient(135deg, #405a84, #243a5d); }
+.master-invitations-window-heading h2 { margin: 0; font: 700 22px Georgia, serif; }
+.master-invitations-window > .master-invitations-panel { margin: 0; border: 0; border-radius: 0; box-shadow: none; }
 
 .current-table-shell {
 	position: absolute;
@@ -99,6 +104,20 @@ button { cursor: pointer; }
 .current-table-toggle:hover,
 .current-table-toggle[aria-expanded="true"] { background: #213a5d; }
 .current-table-toggle span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.current-table-notification {
+	display: grid;
+	min-width: 18px;
+	height: 18px;
+	padding: 0 5px;
+	place-items: center;
+	color: #fff;
+	background: #c43b3b;
+	border: 1px solid #ffb0a7;
+	border-radius: 999px;
+	box-shadow: 0 0 0 2px #7f171755;
+	font-size: 9px;
+	line-height: 1;
+}
 .current-table-menu {
 	position: absolute;
 	top: calc(100% + 7px);
@@ -124,6 +143,8 @@ button { cursor: pointer; }
 }
 .current-table-menu button:hover { background: #e6edf7; }
 .current-table-menu button:last-child { color: #8d2525; }
+.current-table-menu .current-table-invitations-entry { display: flex; align-items: center; justify-content: space-between; gap: 9px; }
+.menu-notification-count { display: grid; min-width: 19px; height: 19px; padding: 0 5px; place-items: center; color: #fff; background: #bd3535; border-radius: 999px; font-size: 9px; font-weight: bold; }
 .table-switcher-dialog { width: min(480px, calc(100vw - 32px)); padding: 20px; }
 .table-switcher-dialog h2 { margin: 0 0 15px; color: var(--navy); }
 .table-switcher-list { display: grid; gap: 8px; max-height: min(55vh, 430px); overflow-y: auto; }
@@ -832,10 +853,19 @@ input, select {
 	gap: 15px;
 	align-items: start;
 }
+.dashboard.has-player-roster-drawer {
+	width: min(1400px, 100%);
+	grid-template-columns: 220px minmax(0, 1fr) 174px;
+}
 .sidebar {
-	padding: 14px;
 	position: sticky;
 	top: 75px;
+	align-self: start;
+	max-height: calc(100vh - 90px);
+	padding: 14px;
+	overflow-x: hidden;
+	overflow-y: auto;
+	overscroll-behavior: contain;
 }
 .profile-summary { padding: 6px 4px 17px; text-align: center; border-bottom: 1px solid #ccc; }
 .profile-summary .avatar-badge {
@@ -1210,24 +1240,122 @@ input, select {
 .team-preset-editor-actions { display: flex; justify-content: flex-end; gap: 7px; }
 .team-preset-empty { grid-column: 1 / -1; margin: 0; padding: 18px; color: var(--muted); background: #f5f7fa; border: 1px dashed #b8c1cc; text-align: center; }
 .player-overview { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
-.player-roster-page { display: grid; gap: 12px; }
-.player-roster-card { display: grid; grid-template-columns: minmax(190px, .8fr) minmax(420px, 2fr); align-items: center; gap: 18px; width: 100%; padding: 14px 18px; color: inherit; font: inherit; text-align: left; cursor: pointer; }
-.player-roster-card:hover { border-color: #7890af; background: linear-gradient(#fff, #edf2f8); }
-.player-roster-card:focus-visible { outline: 3px solid #7798c455; outline-offset: 2px; }
-.player-roster-card:disabled { cursor: default; opacity: 1; }
-.player-roster-identity { display: flex; align-items: center; min-width: 0; gap: 13px; }
-.player-roster-avatar { flex: 0 0 82px; width: 82px; height: 82px; }
-.player-roster-avatar img { max-width: 76px; max-height: 76px; }
-.player-roster-names { display: grid; min-width: 0; gap: 3px; }
-.player-roster-names strong { overflow: hidden; color: #263f60; font-size: 18px; text-overflow: ellipsis; white-space: nowrap; }
-.player-roster-names span { overflow: hidden; color: #697b8f; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
-.player-roster-team { display: grid; grid-template-columns: repeat(6, minmax(58px, 1fr)); gap: 7px; }
-.player-roster-pokemon { display: grid; place-items: center; min-width: 0; height: 78px; background: linear-gradient(#fafdff, #e8eef5); border: 1px solid #b8c4d1; border-radius: 6px; }
-.player-roster-pokemon .pokemon-sprite { width: 72px; height: 68px; }
-.player-roster-pokemon .pokemon-sprite img { max-width: 70px; max-height: 66px; }
-.player-roster-pokemon.empty { color: #a8b2bd; background: #f1f4f7; border-style: dashed; font-size: 18px; }
-@media (max-width: 900px) { .player-roster-card { grid-template-columns: 1fr; } }
-@media (max-width: 620px) { .player-roster-team { grid-template-columns: repeat(3, minmax(58px, 1fr)); } }
+.player-roster-drawer {
+	position: sticky;
+	top: 75px;
+	align-self: start;
+	box-sizing: border-box;
+	width: calc(174px + max(0px, (100vw - 1400px) / 2));
+	height: calc(100vh - 90px);
+	padding: 10px;
+	overflow: visible;
+	background: transparent;
+	border: 0;
+	box-shadow: none;
+}
+.player-roster-drawer-view {
+	display: grid;
+	width: 100%;
+	max-height: calc(100vh - 112px);
+	grid-template-rows: auto minmax(0, 1fr);
+	overflow: hidden;
+}
+.player-roster-drawer-view > strong {
+	display: block;
+	margin-bottom: 9px;
+	padding: 8px 7px;
+	color: #304966;
+	background: #fff;
+	border: 1px solid #b5c2d0;
+	border-radius: 6px;
+	box-shadow: 0 2px 5px #26394f24;
+	font-size: 12px;
+	text-align: center;
+	text-transform: uppercase;
+}
+.table-chat-view > strong { display: block; margin-bottom: 9px; color: #304966; font-size: 12px; text-align: center; text-transform: uppercase; }
+#player-roster-drawer-list {
+	display: grid;
+	width: 100%;
+	min-height: 0;
+	align-content: start;
+	gap: 10px;
+	overflow-x: hidden;
+	overflow-y: auto;
+	scrollbar-width: none;
+}
+#player-roster-drawer-list::-webkit-scrollbar { display: none; width: 0; height: 0; }
+.player-chat-toggle {
+	position: absolute;
+	z-index: 4;
+	top: 50%;
+	left: calc(100% - 28px);
+	display: grid;
+	width: 28px;
+	height: 38px;
+	padding: 0;
+	place-items: center;
+	color: #fff;
+	background: linear-gradient(#55779f, #304e72);
+	border: 1px solid #263f60;
+	border-right: 0;
+	border-radius: 18px 0 0 18px;
+	box-shadow: 0 3px 8px #25384d42;
+	font-size: 24px;
+	font-weight: bold;
+	cursor: pointer;
+	transform: translateY(-50%);
+	transition: left .38s cubic-bezier(.22, .78, .24, 1), background .15s ease;
+}
+.player-chat-toggle:hover, .player-chat-toggle:focus-visible { background: linear-gradient(#678bb5, #3e628b); outline: 2px solid #8eb1d866; }
+.player-roster-drawer.chat-open .player-chat-toggle { left: -27px; }
+.table-chat-view {
+	position: absolute;
+	z-index: 3;
+	inset: 0;
+	display: grid;
+	width: 100%;
+	min-width: 0;
+	height: 100%;
+	padding: 10px;
+	grid-template-rows: auto minmax(0, 1fr) auto;
+	gap: 8px;
+	background: linear-gradient(#fff, #f2f2f2);
+	border-left: 1px solid var(--border);
+	transform: translateX(101%);
+	visibility: hidden;
+	transition: transform .38s cubic-bezier(.22, .78, .24, 1), visibility 0s linear .38s;
+}
+.player-roster-drawer.chat-open .table-chat-view {
+	transform: translateX(0);
+	visibility: visible;
+	transition-delay: 0s;
+}
+.table-chat-messages { min-width: 0; min-height: 180px; padding: 5px 8px 5px 2px; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
+.table-chat-message { padding: 8px 9px; background: #f8fafc; border: 1px solid #c4cfda; border-radius: 6px; }
+.table-chat-message + .table-chat-message { margin-top: 7px; }
+.table-chat-message-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.table-chat-message-heading strong { min-width: 0; overflow: hidden; color: #304e72; font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.table-chat-message-heading time { flex: none; color: #7a8999; font-size: 9px; }
+.table-chat-message p { margin: 4px 0 0; color: #31475f; font-size: 11px; line-height: 1.38; overflow-wrap: anywhere; white-space: pre-wrap; }
+.table-chat-empty { padding: 22px 10px; color: #7a8999; font-size: 10px; text-align: center; }
+.table-chat-form { display: grid; min-width: 0; grid-template-columns: minmax(0, 1fr) auto; align-items: end; gap: 7px; }
+.table-chat-form textarea { width: 100%; min-width: 0; min-height: 46px; max-height: 100px; resize: none; }
+.table-chat-form .button { min-height: 46px; }
+.player-roster-drawer-player { display: grid; width: 100%; min-width: 0; grid-template-columns: 138px minmax(0, 1fr); justify-items: center; gap: 4px; padding: 9px 7px; color: #304966; background: linear-gradient(#fff, #e8eef5); border: 1px solid #b5c2d0; border-radius: 6px; font: inherit; cursor: pointer; }
+.player-roster-drawer-player > * { grid-column: 1; }
+.player-roster-drawer-player:hover, .player-roster-drawer-player:focus-visible { border-color: #587da8; background: #e3effb; outline: 2px solid #789ac344; }
+.player-roster-drawer-player:disabled { cursor: default; opacity: 1; }
+.player-roster-drawer-avatar { width: 108px; height: 108px; }
+.player-roster-drawer-avatar img { max-width: 104px; max-height: 104px; }
+.player-roster-drawer-handle { max-width: 100%; overflow: hidden; color: #60748b; font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.player-roster-drawer-player > strong { max-width: 100%; overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.player-roster-drawer-team { display: grid; width: 100%; grid-template-columns: repeat(3, minmax(0, 1fr)); justify-items: center; gap: 4px; margin-top: 4px; }
+.player-roster-drawer-pokemon { display: grid; width: 100%; min-width: 0; height: 48px; place-items: center; background: #f8fafc; border: 1px solid #c4cfda; border-radius: 5px; }
+.player-roster-drawer-pokemon .pokemon-sprite { width: 46px; height: 44px; }
+.player-roster-drawer-pokemon .pokemon-sprite img { max-width: 44px; max-height: 42px; }
+.player-roster-drawer-pokemon.empty { color: #a1acb8; border-style: dashed; }
+.player-roster-drawer-empty { padding: 15px 5px; color: #7a8898; font-size: 10px; text-align: center; }
 .player-overview > .overview-identity, .player-overview > .overview-badges-panel { grid-column: 1 / -1; }
 .overview-identity { display: flex; align-items: center; gap: 24px; padding: 22px 28px; background: linear-gradient(120deg, #fdfefe, #e7eef7); }
 .overview-identity .overview-avatar { width: 126px; height: 126px; flex: 0 0 126px; border: 3px solid #fff; box-shadow: 0 0 0 2px #47658c, 0 7px 18px #23374d38; }
@@ -1634,7 +1762,15 @@ input, select {
 	.form-grid { grid-template-columns: 1fr; padding: 18px; }
 	.full-field { grid-column: auto; }
 	.dashboard { grid-template-columns: 1fr; }
-	.sidebar { position: static; }
+	.dashboard.has-player-roster-drawer { grid-template-columns: 1fr; }
+	.sidebar { position: static; max-height: none; overflow: visible; }
+	.player-roster-drawer { position: static; width: 100%; height: 520px; max-height: 520px; }
+	.player-roster-drawer > strong, #player-roster-drawer-list { width: auto; }
+	.player-roster-drawer-view { width: 100%; max-height: 500px; }
+	#player-roster-drawer-list { width: 100%; }
+	.player-roster-drawer-player { grid-template-columns: 1fr; }
+	.player-chat-toggle { width: 28px; height: 38px; }
+	.table-chat-view { height: 480px; }
 	.sidebar nav { grid-template-columns: repeat(3, 1fr); }
 	.nav-button { text-align: center; font-size: 11px; }
 	.stat-grid { grid-template-columns: 1fr 1fr; }

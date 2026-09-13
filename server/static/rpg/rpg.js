@@ -50,6 +50,7 @@ const state = {
 	expandedShopAccessIds: new Set(),
 	expandedMasterPlayerIds: new Set(),
 	dashboardHistory: [],
+	tableChatOpen: false,
 };
 let battleSessionSyncBusy = false;
 let battleSessionSyncTimer = null;
@@ -67,6 +68,7 @@ const $ = selector => document.querySelector(selector);
 
 function show(screen) {
 	for (const element of screens) element.classList.toggle('hidden', element.id !== screen + '-screen');
+	if (screen !== 'dashboard') $('#master-invitations-button').classList.add('hidden');
 	window.scrollTo({ top: 0, behavior: 'instant' });
 }
 
@@ -1656,9 +1658,16 @@ async function synchronizeApplicationRealtime() {
 				detail: { tableId: state.accountSession.activeTableId, view: state.dashboardView },
 			}));
 			const masterMode = state.session.role === 'master' && state.session.mode === 'master';
-			if (masterMode && state.dashboardView === 'members') {
-				await refreshMasterMembersPage();
+			if (masterMode && document.querySelector('.master-invitations-window-layer')) {
 				await refreshMasterInvitationsPanel();
+			}
+			if (masterMode) await refreshMasterInvitationNotification();
+			if (['player', 'master'].includes(state.session.role) &&
+				!['battles', 'contests'].includes(state.dashboardView)) {
+				await renderPlayerRosterDrawer();
+			}
+			if (state.tableChatOpen && !['battles', 'contests'].includes(state.dashboardView)) {
+				await renderTableChat();
 			}
 		}
 	} catch (error) {
@@ -2110,22 +2119,29 @@ function dashboardNav(isMaster) {
 	const nurseryBlocked = !masterViewingPlayer && state.currentCharacter?.pageAccess?.nursery === false;
 	const shopsBlocked = !masterViewingPlayer && state.currentCharacter?.pageAccess?.shops === false;
 	const entries = isMaster ? [
-		['overview', 'Vis\u00e3o geral'], ['members', 'Membros'], ['players', 'Jogadores'], ['shops', 'Lojas'], ['battles', 'Batalhas'], ['contests', 'Concursos'],
-		['npcs', 'NPCs e selvagens'], ['tournaments', 'Torneios'], ['nursery', 'Berçário'],
-	] : [
-		['overview', 'Vis\u00e3o geral'], ['players', 'Players'], ['team', 'Equipe'],
-		['documents', 'Documentos'],
-		['team-builder', 'Team Builder'],
-		['center', 'Centro Pokémon', centerBlocked],
-		['fossils', 'Paleontologia', fossilsBlocked],
-		['nursery', 'Berçário', nurseryBlocked],
-		['shops', 'Lojas', shopsBlocked],
-		['bag', 'Bag', bagBlocked],
-		['box', 'Box', boxBlocked],
+		['overview', 'Vis\u00e3o geral'],
+		['players', 'Jogadores'],
+		['npcs', 'NPCs e selvagens'],
+		['shops', 'Lojas'],
+		['nursery', 'Berçário'],
 		['battles', 'Batalhas'],
 		['contests', 'Concursos'],
 		['tournaments', 'Torneios'],
-	].filter(([view]) => !masterViewingPlayer || view !== 'players');
+	] : [
+		['overview', 'Vis\u00e3o geral'],
+		['team-builder', 'Team Builder'],
+		['team', 'Equipe'],
+		['bag', 'Bag', bagBlocked],
+		['box', 'Box', boxBlocked],
+		['center', 'Centro Pokémon', centerBlocked],
+		['shops', 'Lojas', shopsBlocked],
+		['nursery', 'Berçário', nurseryBlocked],
+		['fossils', 'Paleontologia', fossilsBlocked],
+		['documents', 'Documentos'],
+		['battles', 'Batalhas'],
+		['contests', 'Concursos'],
+		['tournaments', 'Torneios'],
+	];
 	const currentEntry = entries.find(([view]) => view === state.dashboardView);
 	if ((!currentEntry && state.dashboardView !== 'team-builder') || currentEntry?.[2]) {
 		state.dashboardView = 'overview';
@@ -3293,8 +3309,9 @@ function renderPlayerTeamBody(character) {
 	return root;
 }
 
-async function renderPlayerRoster() {
-	const root = createElement('div', 'player-roster-page');
+async function renderPlayerRosterDrawer() {
+	const drawer = $('#player-roster-drawer');
+	const list = $('#player-roster-drawer-list');
 	const tableId = state.accountSession?.activeTableId;
 	const [data, memberData] = await Promise.all([
 		api('/players', { cache: 'no-store' }),
@@ -3302,24 +3319,27 @@ async function renderPlayerRoster() {
 	]);
 	const players = Array.isArray(data.players) ? data.players : [];
 	const members = Array.isArray(memberData.members) ? memberData.members : [];
+	const tableEntry = state.accountTables.find(entry => entry.table.id === tableId);
+	const viewerRole = state.session.role === 'master' ? tableEntry?.membership.role || 'master' : 'player';
 	const membersByAccount = new Map(members.map(entry => [entry.account.id, entry]));
+	const signature = JSON.stringify({ players, members: members.map(entry => ({ member: entry.member, account: entry.account })) });
+	if (drawer.dataset.realtimeSignature === signature) return;
+	drawer.dataset.realtimeSignature = signature;
+	const content = document.createDocumentFragment();
 	if (!players.length) {
-		root.append(createElement('div', 'panel empty-state', 'Ainda não há outros jogadores nesta mesa.'));
-		return root;
+		content.append(createElement('div', 'player-roster-drawer-empty', 'Nenhum outro Player.'));
 	}
 	for (const player of players) {
-		const card = createElement('button', 'panel player-roster-card'); card.type = 'button';
-		const identity = createElement('div', 'player-roster-identity');
+		const card = createElement('button', 'player-roster-drawer-player'); card.type = 'button';
 		const avatar = characterAvatarBadge(player);
-		avatar.classList.add('player-roster-avatar');
-		const names = createElement('div', 'player-roster-names');
-		names.append(createElement('strong', '', player.characterName), createElement('span', '', player.playerName));
-		identity.append(avatar, names);
-		const team = createElement('div', 'player-roster-team');
+		avatar.classList.add('player-roster-drawer-avatar');
+		const memberEntry = membersByAccount.get(player.accountId);
+		const handle = memberEntry ? accountPublicHandle(memberEntry.account) : '@indisponível';
+		const team = createElement('div', 'player-roster-drawer-team');
 		team.setAttribute('aria-label', 'Equipe de ' + player.characterName);
 		for (let index = 0; index < 6; index++) {
 			const pokemon = player.team?.[index];
-			const slot = createElement('div', 'player-roster-pokemon' + (pokemon ? '' : ' empty'));
+			const slot = createElement('div', 'player-roster-drawer-pokemon' + (pokemon ? '' : ' empty'));
 			if (pokemon) {
 				slot.append(pokemonSprite(pokemon));
 				slot.setAttribute('aria-label', pokemon.species);
@@ -3329,18 +3349,89 @@ async function renderPlayerRoster() {
 			}
 			team.append(slot);
 		}
-		card.append(identity, team);
-		const memberEntry = membersByAccount.get(player.accountId);
+		card.append(avatar, createElement('span', 'player-roster-drawer-handle', handle),
+			createElement('strong', '', player.characterName), team);
 		if (memberEntry) {
 			card.setAttribute('aria-label', 'Ver informações de ' + player.characterName);
-			card.addEventListener('click', () => openMemberDetails(memberEntry, 'player', members, () => {}));
+			card.addEventListener('click', () => openMemberDetails(memberEntry, viewerRole, members,
+				() => void renderPlayerRosterDrawer()));
 		} else {
 			card.disabled = true;
 		}
-		root.append(card);
+		content.append(card);
 	}
-	return root;
+	list.replaceChildren(content);
 }
+
+function formatChatTime(value) {
+	return new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' }).format(new Date(value));
+}
+
+async function renderTableChat() {
+	const root = $('#table-chat-messages');
+	if (!root || $('#player-roster-drawer').classList.contains('hidden')) return;
+	const data = await api('/table-chat', { cache: 'no-store' });
+	const messages = Array.isArray(data.messages) ? data.messages : [];
+	const signature = JSON.stringify(messages);
+	if (root.dataset.realtimeSignature === signature) return;
+	const wasNearBottom = root.scrollHeight - root.scrollTop - root.clientHeight < 45;
+	root.dataset.realtimeSignature = signature;
+	root.replaceChildren(...(messages.length ? messages.map(entry => {
+		const item = createElement('article', 'table-chat-message');
+		const heading = createElement('div', 'table-chat-message-heading');
+		const authorName = entry.authorRole === 'owner' ? 'Mestre proprietário' :
+			entry.authorRole === 'master' ? 'Mestre' :
+			entry.authorCharacterName || entry.authorDisplayName || 'Membro da mesa';
+		heading.append(createElement('strong', '', authorName),
+			createElement('time', '', formatChatTime(entry.createdAt)));
+		item.append(heading, createElement('p', '', entry.message));
+		return item;
+	}) : [createElement('div', 'table-chat-empty', 'Nenhuma mensagem nas últimas 48 horas.')]));
+	if (wasNearBottom || !root.dataset.initialized) root.scrollTop = root.scrollHeight;
+	root.dataset.initialized = 'true';
+}
+
+function setTableChatOpen(open) {
+	state.tableChatOpen = !!open;
+	const drawer = $('#player-roster-drawer');
+	const toggle = $('#player-chat-toggle');
+	const roster = $('#player-roster-drawer-view');
+	const chat = $('#table-chat-view');
+	drawer.classList.toggle('chat-open', state.tableChatOpen);
+	roster.inert = state.tableChatOpen;
+	chat.inert = !state.tableChatOpen;
+	roster.setAttribute('aria-hidden', String(state.tableChatOpen));
+	chat.setAttribute('aria-hidden', String(!state.tableChatOpen));
+	toggle.setAttribute('aria-expanded', String(state.tableChatOpen));
+	toggle.setAttribute('aria-label', state.tableChatOpen ? 'Mostrar Players' : 'Abrir chat da mesa');
+	toggle.textContent = state.tableChatOpen ? '\u2039' : '\u203a';
+	if (state.tableChatOpen) void renderTableChat();
+}
+
+$('#player-chat-toggle').addEventListener('click', () => setTableChatOpen(!state.tableChatOpen));
+$('#table-chat-form').addEventListener('submit', async event => {
+	event.preventDefault();
+	const input = $('#table-chat-input');
+	const message = input.value.trim();
+	if (!message) return;
+	const submit = event.submitter || event.currentTarget.querySelector('button[type="submit"]');
+	submit.disabled = true;
+	try {
+		await api('/table-chat', { method: 'POST', body: { message } });
+		input.value = '';
+		await renderTableChat();
+	} catch (error) {
+		showToast(error.message, true);
+	} finally {
+		submit.disabled = false;
+	}
+});
+$('#table-chat-input').addEventListener('keydown', event => {
+	if (event.key !== 'Enter' || event.shiftKey) return;
+	event.preventDefault();
+	const form = $('#table-chat-form');
+	form.requestSubmit(form.querySelector('button[type="submit"]'));
+});
 
 function openTeamBuilder(pokemonId, returnView = state.dashboardView) {
 	if (!pokemonId) {
@@ -4261,7 +4352,8 @@ async function renderMasterInvitationsPanel() {
 				try {
 					await accountApi(`/tables/${encodeURIComponent(tableId)}/join-requests/${encodeURIComponent(entry.account.id)}`,
 						{ method: 'POST', body: { allow } });
-					row.remove(); showToast(allow ? 'Solicitação aceita.' : 'Solicitação recusada.');
+					row.remove(); void refreshMasterInvitationNotification();
+					showToast(allow ? 'Solicitação aceita.' : 'Solicitação recusada.');
 				} catch (error) { action.disabled = false; showToast(error.message, true); }
 			});
 			actions.append(action);
@@ -4317,6 +4409,47 @@ async function renderMasterInvitationsPanel() {
 	invitationArea.append(list); wrapper.body.append(requests, invitationArea);
 	generate.addEventListener('click', () => openMasterInviteDialog(tableId, list));
 	return wrapper.panel;
+}
+
+async function refreshMasterInvitationNotification() {
+	const indicator = $('#current-table-notification');
+	const menuCount = $('#master-invitations-count');
+	const tableId = state.accountSession?.activeTableId;
+	const masterMode = state.session?.role === 'master' && state.session.mode === 'master';
+	if (!tableId || !masterMode) {
+		indicator.classList.add('hidden'); menuCount.classList.add('hidden');
+		return;
+	}
+	try {
+		const data = await accountApi(`/tables/${encodeURIComponent(tableId)}/join-requests`);
+		const count = (data.requests || []).length;
+		for (const element of [indicator, menuCount]) {
+			element.textContent = count ? String(count) : '';
+			element.classList.toggle('hidden', count === 0);
+		}
+		$('#current-table-toggle').setAttribute('aria-label', count ?
+			`${count} ${count === 1 ? 'solicitação pendente' : 'solicitações pendentes'} na mesa` : 'Abrir menu da mesa');
+	} catch {
+		indicator.classList.add('hidden'); menuCount.classList.add('hidden');
+	}
+}
+
+async function openMasterInvitationsWindow() {
+	document.querySelector('.master-invitations-window-layer')?.remove();
+	const layer = createElement('div', 'modal-backdrop master-invitations-window-layer');
+	const dialog = createElement('div', 'panel master-invitations-window');
+	dialog.setAttribute('role', 'dialog'); dialog.setAttribute('aria-modal', 'true');
+	const heading = createElement('div', 'master-invitations-window-heading');
+	heading.append(createElement('h2', '', 'Convites e solicitações'));
+	dialog.append(heading, createElement('div', 'loading-block', 'Carregando...')); layer.append(dialog);
+	const closeWindow = () => layer.remove();
+	layer.addEventListener('pointerdown', event => { if (event.target === layer) closeWindow(); });
+	document.body.append(layer);
+	try {
+		dialog.lastElementChild.replaceWith(await renderMasterInvitationsPanel());
+	} catch (error) {
+		dialog.lastElementChild.replaceWith(createElement('div', 'empty-state', error.message));
+	}
 }
 
 async function refreshMasterInvitationsPanel() {
@@ -6642,10 +6775,20 @@ async function renderDashboard() {
 	const body = $('#dashboard-body');
 	body.replaceChildren(createElement('div', 'panel loading-block', 'Carregando painel...'));
 	const isMasterMode = state.session.role === 'master' && state.session.mode === 'master';
+	const showPlayerDrawer = !!state.accountSession?.activeTableId &&
+		!['battles', 'contests'].includes(state.dashboardView);
+	const showPlayerRoster = (state.session.role === 'player' && state.session.mode === 'player') || isMasterMode;
+	const dashboard = document.querySelector('#dashboard-screen .dashboard');
+	dashboard.classList.toggle('has-player-roster-drawer', showPlayerDrawer);
+	$('#player-roster-drawer').classList.toggle('hidden', !showPlayerDrawer);
+	$('#player-chat-toggle').classList.toggle('hidden', !showPlayerRoster);
+	$('#master-invitations-button').classList.toggle('hidden', !isMasterMode);
+	void refreshMasterInvitationNotification();
 	dashboardNav(isMasterMode);
 
 	try {
 		if (isMasterMode) {
+			if (showPlayerRoster) await renderPlayerRosterDrawer();
 			$('.dashboard-heading').classList.toggle('hidden', ['overview', 'nursery', 'shops'].includes(state.dashboardView));
 			$('.dashboard-heading').classList.toggle('master-section-heading', state.dashboardView !== 'overview');
 			$('#dashboard-heading-status').classList.toggle('hidden', state.dashboardView === 'overview');
@@ -6658,21 +6801,18 @@ async function renderDashboard() {
 			$('#dashboard-eyebrow').textContent = state.dashboardView === 'battles' ? 'CENTRO DE BATALHAS' :
 				state.dashboardView === 'contests' ? 'PALCO DE CONCURSOS' :
 				state.dashboardView === 'npcs' ? 'ARQUIVO DA CAMPANHA' :
-				state.dashboardView === 'members' ? 'ADMINISTRAÇÃO DA MESA' :
 				state.dashboardView === 'players' ? 'GESTÃO DE JOGADORES' :
 				state.dashboardView === 'tournaments' ? 'CENTRAL DE TORNEIOS' : 'PAINEL DO MESTRE';
 			$('#dashboard-eyebrow').classList.remove('hidden');
 			$('#dashboard-title').textContent = state.dashboardView === 'battles' ? 'Prepara\u00e7\u00e3o de batalhas' :
 				state.dashboardView === 'contests' ? 'Concursos Pok\u00e9mon' :
 				state.dashboardView === 'npcs' ? 'NPCs e selvagens' :
-				state.dashboardView === 'members' ? 'Membros' :
 				state.dashboardView === 'players' ? 'Jogadores' :
 				state.dashboardView === 'tournaments' ? 'Torneios' :
 				'Vis\u00e3o geral da campanha';
 			$('#dashboard-description').textContent = state.dashboardView === 'battles' ? 'Monte o confronto, envie convites e aguarde as confirma\u00e7\u00f5es.' :
 				state.dashboardView === 'contests' ? 'Organize apresenta\u00e7\u00f5es, participantes e convites do concurso.' :
 				state.dashboardView === 'npcs' ? 'Organize Pok\u00e9mon importantes e NPCs para batalhas e concursos.' :
-				state.dashboardView === 'members' ? 'Administre as contas e funções desta mesa.' :
 				state.dashboardView === 'players' ? 'Acompanhe e gerencie os treinadores desta campanha.' :
 				state.dashboardView === 'tournaments' ? 'Crie e acompanhe os torneios da campanha.' :
 				'Acompanhe personagens, equipes, recursos e batalhas.';
@@ -6683,7 +6823,6 @@ async function renderDashboard() {
 				state.dashboardView === 'battles' ? await renderMasterBattles(characters) :
 				state.dashboardView === 'contests' ? await window.RPGContestUI.render({ state, api, master: true, characters, rerender: renderDashboard }) :
 				state.dashboardView === 'npcs' ? await renderMasterNPCLibraryDashboard() :
-				state.dashboardView === 'members' ? await renderMasterMembers() :
 				state.dashboardView === 'tournaments' ? await renderMasterTournaments(characters) :
 				state.dashboardView === 'nursery' ? await renderNursery() :
 				state.dashboardView === 'shops' ? await renderShops() :
@@ -6697,6 +6836,7 @@ async function renderDashboard() {
 			const character = data.character;
 			state.currentCharacter = character;
 			dashboardNav(false);
+			if (showPlayerRoster) await renderPlayerRosterDrawer();
 			setProfileAvatar(character);
 			$('#profile-name').textContent = character.characterName;
 			$('#profile-role').textContent = state.session.role === 'master' ? 'Visualiza\u00e7\u00e3o do Mestre' : character.playerName;
@@ -6718,7 +6858,6 @@ async function renderDashboard() {
 			const playerView = state.dashboardView === 'battles' ? await renderPlayerBattles(character) :
 				state.dashboardView === 'contests' ? await window.RPGContestUI.render({ state, api, master: false, character, rerender: renderDashboard }) :
 				state.dashboardView === 'tournaments' ? await renderPlayerTournaments(character) :
-				state.dashboardView === 'players' ? await renderPlayerRoster() :
 				state.dashboardView === 'box' ? await renderPlayerBox(character) :
 				state.dashboardView === 'bag' ? await renderPlayerBag(character) :
 				state.dashboardView === 'team' ? renderPlayerTeamBody(character) :
@@ -6731,6 +6870,7 @@ async function renderDashboard() {
 				await renderPlayerBody(character);
 			body.replaceChildren(playerView);
 		}
+		if (showPlayerDrawer && state.tableChatOpen) await renderTableChat();
 	} catch (error) {
 		if (/session/i.test(error.message)) {
 			saveSession(null);
@@ -6810,6 +6950,10 @@ $('#current-table-leave').addEventListener('click', () => {
 	if (entry?.membership.role === 'owner') {
 		showToast('Transfira a propriedade antes de sair da mesa.', true);
 	} else if (entry) openLeaveTableConfirmation(entry);
+});
+$('#master-invitations-button').addEventListener('click', () => {
+	closeCurrentTableMenu();
+	void openMasterInvitationsWindow();
 });
 
 $('#account-login-tab').addEventListener('click', () => setAccountAuthMode('login'));
@@ -6995,6 +7139,10 @@ function clickDashboardReturnControl() {
 function handleEscapeNavigation(event) {
 	if (event.key !== 'Escape' || event.defaultPrevented || event.repeat) return;
 	if (document.querySelector('.overview-pokedex-layer')) return;
+	const invitationsWindow = document.querySelector('.master-invitations-window-layer');
+	if (invitationsWindow && !document.querySelector('.master-invite-dialog-layer')) {
+		event.preventDefault(); invitationsWindow.remove(); return;
+	}
 	const richToolbar = document.querySelector('.account-table-rich-toolbar:not(.hidden)');
 	if (richToolbar) {
 		event.preventDefault(); closeAccountTableRichToolbar(richToolbar); return;

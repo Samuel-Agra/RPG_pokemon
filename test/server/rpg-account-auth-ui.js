@@ -102,14 +102,18 @@ describe('RPG version 2 account authentication frontend', () => {
 		assert(script.includes("addConfirmedAction('Excluir mesa'"));
 	});
 
-	it('shows a player-only roster with the other trainers and six team slots', () => {
-		assert(script.includes("['overview', 'Vis\\u00e3o geral'], ['players', 'Players'], ['team', 'Equipe']"));
-		assert(script.includes("async function renderPlayerRoster()"));
+	it('shows the persistent Player drawer to Players and Masters with six team slots', () => {
+		assert(!script.includes("['players', 'Players']"));
+		assert(script.indexOf("['team-builder', 'Team Builder']") < script.indexOf("['team', 'Equipe']"));
+		assert(script.includes("async function renderPlayerRosterDrawer()"));
 		assert(script.includes("api('/players', { cache: 'no-store' })"));
 		assert(script.includes('for (let index = 0; index < 6; index++)'));
-		assert(script.includes("openMemberDetails(memberEntry, 'player'"));
-		assert(script.includes("!masterViewingPlayer || view !== 'players'"));
-		assert(style.includes('.player-roster-team { display: grid; grid-template-columns: repeat(6'));
+		assert(script.includes('openMemberDetails(memberEntry, viewerRole'));
+		assert(script.includes("state.session.role === 'master' ? tableEntry?.membership.role || 'master' : 'player'"));
+		assert(script.includes("!['battles', 'contests'].includes(state.dashboardView)"));
+		assert(style.includes('.player-roster-drawer-team'));
+		assert.match(style, /\.player-roster-drawer-team \{[^}]*grid-template-columns: repeat\(3/);
+		assert(style.includes('.player-roster-drawer-pokemon'));
 	});
 
 	it('lets the master configure and give a new Pokemon from the expanded player row', () => {
@@ -193,7 +197,16 @@ describe('RPG version 2 account authentication frontend', () => {
 	});
 
 	it('renders table members and opens their management without moving the page', () => {
-		assert(script.includes("['members', 'Membros']"));
+		assert(!script.includes("['members', 'Membros']"));
+		assert(script.includes('openMasterInvitationsWindow'));
+		assert(html.includes('id="master-invitations-button"'));
+		assert(!script.includes("const close = button('Fechar', 'button'); close.type = 'button';\n\theading.append(createElement('h2', '', 'Convites e solicitações'), close)"));
+		assert(script.includes("const invitationsWindow = document.querySelector('.master-invitations-window-layer')"));
+		assert(html.indexOf('id="current-table-settings"') < html.indexOf('id="master-invitations-button"'));
+		assert(html.indexOf('id="master-invitations-button"') < html.indexOf('id="current-table-leave"'));
+		assert(html.includes('id="current-table-notification"'));
+		assert(html.includes('id="master-invitations-count"'));
+		assert(script.includes('refreshMasterInvitationNotification'));
 		assert(script.includes('renderMasterMembers'));
 		assert(script.includes("'Promover a Mestre'"));
 		assert(script.includes("'Transferir propriedade'"));

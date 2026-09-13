@@ -1055,8 +1055,8 @@ export class RPGLoginService {
 	/** Returns only the visual roster data that another player is allowed to see. */
 	listOtherPlayers(token: string): RPGPlayerRosterEntry[] {
 		const session = this.getSession(token);
-		if (session.role !== 'player' || session.mode !== 'player') {
-			throw new Error('A lista de Players está disponível apenas para jogadores');
+		if (!['player', 'master'].includes(session.role) || !['player', 'master'].includes(session.mode)) {
+			throw new Error('A lista de Players não está disponível nesta visualização');
 		}
 		const currentCharacterId = session.viewAsCharacterId || session.characterId;
 		return this.repository.list()

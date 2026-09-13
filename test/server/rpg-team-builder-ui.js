@@ -100,7 +100,9 @@ describe('RPG Team Builder frontend', () => {
 		assert.match(teamBuilder, /index < 6/);
 		assert.match(teamBuilder, /deps\.switchPokemon/);
 		assert.match(css, /grid-template-columns: repeat\(6/);
-		const navigation = rpg.slice(rpg.indexOf("['overview', 'Vis\\u00e3o geral'], ['players', 'Players'], ['team', 'Equipe']"));
+		const navigation = rpg.slice(rpg.indexOf("['overview', 'Vis\\u00e3o geral']"));
+		assert.ok(navigation.indexOf("['team-builder', 'Team Builder']") < navigation.indexOf("['team', 'Equipe']"));
+		assert.ok(navigation.indexOf("['team', 'Equipe']") < navigation.indexOf("['bag', 'Bag', bagBlocked]"));
 		assert.ok(navigation.indexOf("['team-builder', 'Team Builder']") < navigation.indexOf("['bag', 'Bag', bagBlocked]"));
 		assert.ok(navigation.indexOf("['bag', 'Bag', bagBlocked]") < navigation.indexOf("['box', 'Box', boxBlocked]"));
 		assert.match(rpg, /masterViewingPlayer = state\.session\?\.role === 'master'/);
