@@ -19,6 +19,7 @@ import { getRPGItemIconPath } from './item-icons';
 import { getRPGAbilityDescriptionPTBR } from './ability-descriptions-pt-br';
 import { RPGBagManagement } from './bag-management';
 import { getRPGMoveMetadata, type RPGMoveMetadata } from './battle-move-analysis';
+import { getRPGContestPerformance } from './contest-progression';
 import {
 	RPGBoxManagement,
 	type RPGBoxCharacterData,
@@ -146,6 +147,10 @@ export interface RPGTeamBuilderManagementView {
 		current: number,
 		currentLevelMinimum?: number,
 		nextLevel?: number,
+	};
+	progression: {
+		friendship: number,
+		performance: number,
 	};
 	permanentState: {
 		hp: number,
@@ -299,6 +304,10 @@ export class RPGTeamBuilderManagement {
 				current: pokemon.experience,
 				...(currentLevelMinimum === undefined ? {} : { currentLevelMinimum }),
 				...(nextLevel === undefined ? {} : { nextLevel }),
+			},
+			progression: {
+				friendship: Math.max(0, Math.min(255, Math.floor(set.rpg?.friendship ?? set.happiness ?? 50))),
+				performance: getRPGContestPerformance(set, character.id),
 			},
 			permanentState: {
 				hp: pokemon.hp, maxHP: pokemon.maxHP, status: pokemon.status,

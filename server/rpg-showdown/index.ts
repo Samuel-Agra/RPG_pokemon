@@ -180,6 +180,7 @@ export interface RPGCharacterSelection {
 }
 
 export interface RPGPlayerRosterEntry extends RPGCharacterSelection {
+	accountId?: string;
 	occupiedTeamSlots: number;
 	team: {
 		species: string,
@@ -1054,11 +1055,15 @@ export class RPGLoginService {
 	/** Returns only the visual roster data that another player is allowed to see. */
 	listOtherPlayers(token: string): RPGPlayerRosterEntry[] {
 		const session = this.getSession(token);
+		if (session.role !== 'player' || session.mode !== 'player') {
+			throw new Error('A lista de Players está disponível apenas para jogadores');
+		}
 		const currentCharacterId = session.viewAsCharacterId || session.characterId;
 		return this.repository.list()
 			.filter(record => record.state.id !== currentCharacterId)
 			.map(record => ({
 				...this.selection(record.state),
+				...(record.accountId ? { accountId: record.accountId } : {}),
 				occupiedTeamSlots: Math.min(6, record.state.box.party.length + this.activeEggs(record).length),
 				team: record.state.team.slice(0, 6).map(pokemon => {
 					const visual = pokemon as typeof pokemon & {

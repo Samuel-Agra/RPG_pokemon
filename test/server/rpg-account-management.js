@@ -728,6 +728,12 @@ describe('RPG version 2 accounts and tables backend', () => {
 			'Anotação privada');
 		assert.equal(accounts.listMembers(next.token, table.id).find(entry => entry.account.id === nextAccount.id).member.note,
 			undefined);
+		assert.equal(accounts.updateMemberNote(next.token, table.id, firstAccount.id, 'Anotação do segundo jogador').note,
+			'Anotação do segundo jogador');
+		assert.equal(accounts.listMembers(next.token, table.id)
+			.find(entry => entry.account.id === firstAccount.id).member.note, 'Anotação do segundo jogador');
+		assert.equal(accounts.listMembers(first.token, table.id)
+			.find(entry => entry.account.id === nextAccount.id).member.note, 'Anotação privada');
 		const otherTable = accounts.createTable(first.token, { name: 'Outra campanha' });
 		accounts.updateTable(first.token, otherTable.id, { requireJoinApproval: false });
 		accounts.joinByInvite(next.token, accounts.createInvite(first.token, otherTable.id).code);

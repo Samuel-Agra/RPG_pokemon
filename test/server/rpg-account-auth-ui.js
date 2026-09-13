@@ -107,6 +107,8 @@ describe('RPG version 2 account authentication frontend', () => {
 		assert(script.includes("async function renderPlayerRoster()"));
 		assert(script.includes("api('/players', { cache: 'no-store' })"));
 		assert(script.includes('for (let index = 0; index < 6; index++)'));
+		assert(script.includes("openMemberDetails(memberEntry, 'player'"));
+		assert(script.includes("!masterViewingPlayer || view !== 'players'"));
 		assert(style.includes('.player-roster-team { display: grid; grid-template-columns: repeat(6'));
 	});
 
@@ -116,8 +118,15 @@ describe('RPG version 2 account authentication frontend', () => {
 		assert(script.includes("api('/characters/pokemon'"));
 		assert(script.includes('508 EVs aleatórios'));
 		assert(script.includes('IVs em 0'));
+		assert(script.includes('master-player-gift-nature-panel'));
+		assert(script.includes("createElement('div', 'contest-nature-grid')"));
+		assert(script.includes("createElement('label', 'master-player-pokemon-gift-shiny')"));
 		assert(script.includes("event.target === backdrop"));
 		assert(style.includes('.master-player-pokemon-gift-dialog'));
+		assert(style.includes('height: min(665px, calc(92vh - 60px))'));
+		assert(style.includes('scrollbar-gutter: stable'));
+		assert(style.includes('.contest-nature-panel.master-player-gift-nature-panel'));
+		assert(style.includes('min-width: 650px'));
 	});
 
 	it('creates tables through short steps and exposes the post-creation actions', () => {

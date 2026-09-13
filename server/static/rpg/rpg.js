@@ -2125,7 +2125,7 @@ function dashboardNav(isMaster) {
 		['battles', 'Batalhas'],
 		['contests', 'Concursos'],
 		['tournaments', 'Torneios'],
-	];
+	].filter(([view]) => !masterViewingPlayer || view !== 'players');
 	const currentEntry = entries.find(([view]) => view === state.dashboardView);
 	if ((!currentEntry && state.dashboardView !== 'team-builder') || currentEntry?.[2]) {
 		state.dashboardView = 'overview';
@@ -3295,14 +3295,20 @@ function renderPlayerTeamBody(character) {
 
 async function renderPlayerRoster() {
 	const root = createElement('div', 'player-roster-page');
-	const data = await api('/players', { cache: 'no-store' });
+	const tableId = state.accountSession?.activeTableId;
+	const [data, memberData] = await Promise.all([
+		api('/players', { cache: 'no-store' }),
+		tableId ? accountApi(`/tables/${encodeURIComponent(tableId)}/members`) : Promise.resolve({ members: [] }),
+	]);
 	const players = Array.isArray(data.players) ? data.players : [];
+	const members = Array.isArray(memberData.members) ? memberData.members : [];
+	const membersByAccount = new Map(members.map(entry => [entry.account.id, entry]));
 	if (!players.length) {
 		root.append(createElement('div', 'panel empty-state', 'Ainda não há outros jogadores nesta mesa.'));
 		return root;
 	}
 	for (const player of players) {
-		const card = createElement('article', 'panel player-roster-card');
+		const card = createElement('button', 'panel player-roster-card'); card.type = 'button';
 		const identity = createElement('div', 'player-roster-identity');
 		const avatar = characterAvatarBadge(player);
 		avatar.classList.add('player-roster-avatar');
@@ -3324,6 +3330,13 @@ async function renderPlayerRoster() {
 			team.append(slot);
 		}
 		card.append(identity, team);
+		const memberEntry = membersByAccount.get(player.accountId);
+		if (memberEntry) {
+			card.setAttribute('aria-label', 'Ver informações de ' + player.characterName);
+			card.addEventListener('click', () => openMemberDetails(memberEntry, 'player', members, () => {}));
+		} else {
+			card.disabled = true;
+		}
 		root.append(card);
 	}
 	return root;
@@ -4118,7 +4131,7 @@ function openMemberDetails(entry, viewerRole, members, onChanged) {
 		});
 		actions.append(transfer);
 	}
-	if (entry.member.role !== 'owner' && entry.account.id !== state.account?.id &&
+	if (viewerRole !== 'player' && entry.member.role !== 'owner' && entry.account.id !== state.account?.id &&
 		(viewerRole === 'owner' || entry.member.role !== 'master')) {
 		if (entry.characters?.length) {
 			const transferCharacter = button('Transferir personagem', 'button member-action-transfer');
@@ -4398,21 +4411,31 @@ async function openMasterPlayerPokemonGift(character) {
 	body.append(browser, editor); dialog.append(header, body); backdrop.append(dialog); document.body.append(backdrop);
 	let catalog = [];
 	let selected = null;
+	let natureDismiss = null;
 	const natures = ['Hardy', 'Lonely', 'Brave', 'Adamant', 'Naughty', 'Bold', 'Docile', 'Relaxed', 'Impish', 'Lax', 'Timid', 'Hasty', 'Serious', 'Jolly', 'Naive', 'Modest', 'Mild', 'Quiet', 'Bashful', 'Rash', 'Calm', 'Gentle', 'Sassy', 'Careful', 'Quirky'];
-	const close = () => { document.removeEventListener('keydown', onKeyDown); backdrop.remove(); };
+	const close = () => {
+		document.removeEventListener('keydown', onKeyDown);
+		if (natureDismiss) document.removeEventListener('pointerdown', natureDismiss, true);
+		backdrop.remove();
+	};
 	const onKeyDown = event => { if (event.key === 'Escape') close(); };
 	closeButton.addEventListener('click', close);
 	backdrop.addEventListener('click', event => { if (event.target === backdrop) close(); });
 	document.addEventListener('keydown', onKeyDown);
 	const drawEditor = pokemon => {
 		selected = pokemon;
+		backdrop.querySelector('.master-player-gift-nature-panel')?.remove();
+		if (natureDismiss) document.removeEventListener('pointerdown', natureDismiss, true);
+		natureDismiss = null;
 		editor.replaceChildren();
 		const portrait = createElement('div', 'master-player-pokemon-gift-portrait');
 		const sprite = createElement('div');
 		const shiny = createElement('input'); shiny.type = 'checkbox';
 		const drawSprite = () => sprite.replaceChildren(pokemonSprite({ ...pokemon, shiny: shiny.checked }));
 		drawSprite();
-		portrait.append(sprite, createElement('strong', '', pokemon.name));
+		const shinyControl = createElement('label', 'master-player-pokemon-gift-shiny');
+		shinyControl.append(shiny, createElement('span', '', 'Shiny'));
+		portrait.append(sprite, createElement('strong', '', pokemon.name), shinyControl);
 		const fields = createElement('div', 'master-player-pokemon-gift-fields');
 		const level = createElement('input'); level.type = 'number'; level.min = '1'; level.max = '100'; level.value = '5'; level.required = true;
 		const gender = createElement('select');
@@ -4421,13 +4444,59 @@ async function openMasterPlayerPokemonGift(character) {
 		const abilityDetails = pokemon.abilityDetails || (pokemon.abilities || []).map(name => ({ name }));
 		for (const entry of abilityDetails) ability.append(new Option(entry.name, entry.name));
 		const nature = createElement('select'); for (const value of natures) nature.append(new Option(value, value)); nature.value = 'Serious';
+		const naturePicker = createElement('div', 'contest-nature-picker master-player-gift-nature-picker');
+		const natureButton = button('', 'contest-nature-button'); natureButton.type = 'button';
+		const natureValue = createElement('strong', '', nature.value);
+		natureButton.append(createElement('span', '', 'Natureza'), natureValue);
+		const naturePanel = createElement('div', 'contest-nature-panel master-player-gift-nature-panel hidden');
+		const natureMatrix = [['Hardy', 'Bold', 'Modest', 'Calm', 'Timid'], ['Lonely', 'Docile', 'Mild', 'Gentle', 'Hasty'], ['Adamant', 'Impish', 'Bashful', 'Careful', 'Jolly'], ['Naughty', 'Lax', 'Rash', 'Quirky', 'Naive'], ['Brave', 'Relaxed', 'Quiet', 'Sassy', 'Serious']];
+		const natureStats = ['Attack', 'Defense', 'Sp. Attack', 'Sp. Defense', 'Speed'];
+		const natureGrid = createElement('div', 'contest-nature-grid');
+		const natureCorner = createElement('div', 'contest-nature-corner');
+		natureCorner.append(createElement('span', '', '\u2212'), createElement('strong', '', '+')); natureGrid.append(natureCorner);
+		for (const stat of natureStats) natureGrid.append(createElement('strong', 'contest-nature-axis increase', '+ ' + stat));
+		for (let row = 0; row < 5; row++) {
+			natureGrid.append(createElement('strong', 'contest-nature-axis decrease', '\u2212 ' + natureStats[row]));
+			for (let column = 0; column < 5; column++) {
+				const name = natureMatrix[row][column]; const neutral = row === column;
+				const option = button('', 'contest-nature-option' + (neutral ? ' neutral' : '') + (name === nature.value ? ' selected' : ''));
+				option.type = 'button'; option.dataset.nature = name; option.append(createElement('strong', '', name));
+				if (neutral) option.append(createElement('small', 'contest-nature-neutral-label', 'Neutro'));
+				else option.append(createElement('small', 'contest-nature-increase', '+ ' + natureStats[column]),
+					createElement('small', 'contest-nature-decrease', '\u2212 ' + natureStats[row]));
+				option.addEventListener('click', () => {
+					nature.value = name; natureValue.textContent = name;
+					natureGrid.querySelectorAll('.contest-nature-option').forEach(node => node.classList.toggle('selected', node.dataset.nature === name));
+					naturePanel.classList.add('hidden');
+				});
+				natureGrid.append(option);
+			}
+		}
+		naturePanel.append(natureGrid); backdrop.append(naturePanel); naturePicker.append(nature, natureButton);
+		natureButton.addEventListener('click', event => {
+			event.stopPropagation();
+			const opening = naturePanel.classList.contains('hidden');
+			naturePanel.classList.toggle('hidden', !opening);
+			if (!opening) return;
+			const bounds = natureButton.getBoundingClientRect();
+			const width = Math.min(690, window.innerWidth - 24);
+			naturePanel.style.width = width + 'px';
+			naturePanel.style.left = Math.max(12, Math.min(bounds.right - width, window.innerWidth - width - 12)) + 'px';
+			naturePanel.style.top = Math.max(12, bounds.top - naturePanel.offsetHeight - 7) + 'px';
+			natureDismiss = outside => {
+				if (naturePanel.contains(outside.target) || natureButton.contains(outside.target)) return;
+				naturePanel.classList.add('hidden');
+				document.removeEventListener('pointerdown', natureDismiss, true); natureDismiss = null;
+			};
+			document.addEventListener('pointerdown', natureDismiss, true);
+		});
 		const abilityDescription = createElement('small', 'master-player-pokemon-ability-description');
 		const updateAbility = () => { abilityDescription.textContent = abilityDetails.find(entry => entry.name === ability.value)?.description || 'Descrição indisponível.'; };
 		ability.addEventListener('change', updateAbility); updateAbility();
 		const control = (label, input) => { const field = createElement('label'); field.append(createElement('span', '', label), input); return field; };
 		shiny.addEventListener('change', drawSprite);
 		fields.append(control('Level', level), control('Gênero', gender), control('Habilidade', ability), abilityDescription,
-			control('Natureza', nature), control('Shiny', shiny));
+			naturePicker);
 		const rules = createElement('div', 'master-player-pokemon-gift-rules');
 		rules.append(createElement('strong', '', 'Configuração automática'),
 			createElement('span', '', '508 EVs aleatórios · IVs em 0 · até 4 golpes aleatórios aprendidos por level'));

@@ -199,8 +199,8 @@
 				avatar.src = deps.trainerSpriteUrl(player.avatar);
 				avatar.alt = '';
 				const copy = el('span', 'team-builder-gift-copy');
-				copy.append(el('strong', '', player.characterName), el('small', '', full ? 'Equipe cheia' :
-					(6 - Number(player.occupiedTeamSlots || 0)) + ' vaga(s) livre(s)'));
+				copy.append(el('strong', '', player.characterName));
+				if (full) copy.append(el('small', '', 'Equipe cheia'));
 				option.append(avatar, copy);
 				option.addEventListener('click', () => {
 					selected = player;
@@ -858,6 +858,8 @@
 			for (const [label, value] of [
 				['Shiny', data.pokemon.shiny ? 'Sim' : 'Não'], ['Gênero', data.pokemon.gender || 'N'],
 				['Level', levelControl], ['XP', xpControl],
+				['Amizade', String(data.progression.friendship)],
+				['Performance', String(data.progression.performance)],
 			]) {
 				const cell = el('div', 'team-builder-detail-cell');
 				cell.append(el('small', '', label), typeof value === 'string' ? el('strong', '', value) : value);

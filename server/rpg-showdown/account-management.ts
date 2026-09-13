@@ -1034,9 +1034,9 @@ export class RPGAccountManagement {
 	}
 
 	updateMemberNote(token: string, tableId: string, accountId: string, note: string): RPGTableMember {
-		const actor = this.tableAdministrator(token, tableId);
-		const target = this.repository.getMembership(tableId, accountId);
-		if (!target) throw new Error('Membro não encontrado');
+		const session = this.session(token); const actor = this.activeMember(tableId, session.accountId);
+		this.requirePermission(actor, 'members.view');
+		const target = this.activeMember(tableId, accountId);
 		const relationNote: RPGAccountRelationNote = {
 			authorAccountId: actor.accountId, targetAccountId: target.accountId,
 			note: this.optionalText(note, 10_000) || '', updatedAt: this.now(),

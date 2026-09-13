@@ -127,6 +127,7 @@ describe('RPG Team Builder frontend', () => {
 		assert.match(teamBuilder, /openTeamGiftDialog/);
 		assert.match(teamBuilder, /api\('\/players'/);
 		assert.match(teamBuilder, /occupiedTeamSlots/);
+		assert.doesNotMatch(teamBuilder, /vaga\(s\) livre\(s\)/);
 		assert.match(teamBuilder, /api\('\/box\/give'/);
 		assert.match(teamBuilder, /sourceRevision: deps\.boxRevision/);
 		assert.match(teamBuilder, /event\.target === backdrop/);
@@ -149,6 +150,10 @@ describe('RPG Team Builder frontend', () => {
 		assert.ok(selectedCard.indexOf("['Shiny'") < selectedCard.indexOf("['Gênero'"));
 		assert.ok(selectedCard.indexOf("['Gênero'") < selectedCard.indexOf("['Level'"));
 		assert.ok(selectedCard.indexOf("['Level'") < selectedCard.indexOf("['XP'"));
+		assert.ok(selectedCard.indexOf("['XP'") < selectedCard.indexOf("['Amizade'"));
+		assert.ok(selectedCard.indexOf("['Amizade'") < selectedCard.indexOf("['Performance'"));
+		assert.match(selectedCard, /data\.progression\.friendship/);
+		assert.match(selectedCard, /data\.progression\.performance/);
 		assert.match(css, /\.team-builder-detail-cell small[\s\S]*position: absolute/);
 		assert.match(teamBuilder, /data\.permanentState\.hp/);
 		assert.match(teamBuilder, /function hpTone\(value, maximum\)/);

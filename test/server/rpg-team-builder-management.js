@@ -95,6 +95,8 @@ describe('RPG Team Builder management backend', () => {
 		assert.match(view.items.choices.find(item => item.id === 'teralizaowater').icon, /tera-water\.png/);
 		assert.equal(view.ivs.vitamins.find(item => item.id === 'hpup').quantity, 2);
 		assert.equal(view.moves.choices.some(move => move.source === 'level'), true);
+		assert.equal(view.progression.friendship, 50);
+		assert.equal(view.progression.performance, 0);
 		assert.equal(view.permissions.training, true);
 		assert.equal(view.stats.length, 6);
 		assert.equal(view.stats.every(stat => Number.isSafeInteger(stat.total)), true);

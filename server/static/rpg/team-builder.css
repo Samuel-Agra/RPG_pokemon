@@ -753,7 +753,7 @@
 }
 .team-builder-detail-grid {
 	display: grid;
-	grid-template-columns: .7fr .8fr .7fr 1.8fr;
+	grid-template-columns: .65fr .75fr .65fr 1.65fr .85fr 1fr;
 	border: 1px solid #b7c0cd;
 	border-radius: 4px;
 	background: #f8fafc;
@@ -1215,7 +1215,7 @@ button.team-builder-main-property:hover { border-color: #5a7ead; box-shadow: 0 0
 }
 /* RPG Team Builder battle-style move row and aligned header */
 .team-builder-showdown-toolbar {
-	grid-template-columns: 180px minmax(360px, 1fr) minmax(300px, .72fr);
+	grid-template-columns: 180px minmax(0, 1fr) 120px;
 }
 .team-builder-main-item {
 	align-items: center;
@@ -1381,12 +1381,33 @@ button.team-builder-main-property:hover { border-color: #5a7ead; box-shadow: 0 0
 }
 @media (max-width: 1050px) {
 	.team-builder-showdown-toolbar {
-		grid-template-columns: 150px minmax(330px, 1fr);
+		grid-template-columns: 150px minmax(0, 1fr) 120px;
+	}
+	.team-builder-detail-grid {
+		grid-template-columns: repeat(3, minmax(0, 1fr));
+	}
+	.team-builder-detail-cell:nth-child(3) {
+		border-right: 0;
+	}
+	.team-builder-detail-cell:nth-child(n + 4) {
+		border-top: 1px solid #cbd2dc;
 	}
 }
 @media (max-width: 700px) {
 	.team-builder-showdown-toolbar {
 		grid-template-columns: 1fr;
+	}
+	.team-builder-detail-grid {
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+	}
+	.team-builder-detail-cell:nth-child(3) {
+		border-right: 1px solid #cbd2dc;
+	}
+	.team-builder-detail-cell:nth-child(even) {
+		border-right: 0;
+	}
+	.team-builder-detail-cell:nth-child(n + 3) {
+		border-top: 1px solid #cbd2dc;
 	}
 }
 /* RPG Team Builder IV summary and held-item vertical alignment */
