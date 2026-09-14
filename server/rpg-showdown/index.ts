@@ -182,6 +182,7 @@ export interface RPGCharacterSelection {
 export interface RPGPlayerRosterEntry extends RPGCharacterSelection {
 	accountId?: string;
 	online: boolean;
+	presence: 'online' | 'idle' | 'offline';
 	occupiedTeamSlots: number;
 	team: {
 		species: string,
@@ -302,7 +303,9 @@ export interface RPGSession {
 	expiresAt: number;
 }
 
-export type RPGInternalSession = Omit<RPGSession, 'token'> & { lastSeenAt: number, activeArea?: string };
+export type RPGInternalSession = Omit<RPGSession, 'token'> & {
+	lastSeenAt: number, activeArea?: string, idle?: boolean,
+};
 
 export interface RPGCharacterDeletionChallenge {
 	challengeId: string;
@@ -1060,7 +1063,14 @@ export class RPGLoginService {
 			throw new Error('A lista de Players não está disponível nesta visualização');
 		}
 		const currentCharacterId = session.viewAsCharacterId || session.characterId;
-		const onlineThreshold = this.now() - 15_000;
+		const onlineThreshold = this.now() - 90_000;
+		const presenceByCharacter = new Map<string, 'online' | 'idle'>();
+		for (const active of this.sessions.values()) {
+			if (!(active.role === 'player' && active.characterId && active.expiresAt > this.now() &&
+				active.lastSeenAt >= onlineThreshold)) continue;
+			const current = presenceByCharacter.get(active.characterId);
+			if (current !== 'online') presenceByCharacter.set(active.characterId, active.idle ? 'idle' : 'online');
+		}
 		const onlineCharacterIds = new Set([...this.sessions.values()].filter(active =>
 			active.role === 'player' && active.characterId && active.expiresAt > this.now() &&
 			active.lastSeenAt >= onlineThreshold
@@ -1071,6 +1081,7 @@ export class RPGLoginService {
 				...this.selection(record.state),
 				...(record.accountId ? { accountId: record.accountId } : {}),
 				online: onlineCharacterIds.has(record.state.id),
+				presence: presenceByCharacter.get(record.state.id) || 'offline',
 				occupiedTeamSlots: Math.min(6, record.state.box.party.length + this.activeEggs(record).length),
 				team: record.state.team.slice(0, 6).map(pokemon => {
 					const visual = pokemon as typeof pokemon & {
@@ -1456,7 +1467,7 @@ export class RPGLoginService {
 	} {
 		this.requireMasterRole(token);
 		const onlineCharacterIds = new Set<string>();
-		const onlineThreshold = this.now() - 15_000;
+		const onlineThreshold = this.now() - 90_000;
 		for (const session of this.sessions.values()) {
 			if (session.role === 'player' && session.characterId && session.expiresAt > this.now() &&
 				session.lastSeenAt >= onlineThreshold) {
@@ -1486,16 +1497,19 @@ export class RPGLoginService {
 		return { currentDateTime: this.campaignSettings.currentDateTime };
 	}
 
-	updatePlayerPresence(token: string, area: unknown): { online: boolean, area: string } {
+	updatePlayerPresence(token: string, area: unknown, idle: unknown): {
+		online: boolean, idle: boolean, area: string,
+	} {
 		const key = this.tokenKey(token);
 		const publicSession = this.getSession(token);
-		if (publicSession.role !== 'player') return { online: false, area: '' };
+		if (publicSession.role !== 'player') return { online: false, idle: false, area: '' };
 		const allowedAreas = new Set(['center', 'fossils', 'nursery', 'shops', 'box']);
 		const activeArea = typeof area === 'string' && allowedAreas.has(area) ? area : '';
 		const session = this.sessions.get(key)!;
 		session.activeArea = activeArea;
+		session.idle = idle === true;
 		this.sessions.set(key, session);
-		return { online: true, area: activeArea };
+		return { online: true, idle: session.idle, area: activeArea };
 	}
 
 	setCampaignSettings(token: string, input: unknown): { name: string, currentDateTime: string } {

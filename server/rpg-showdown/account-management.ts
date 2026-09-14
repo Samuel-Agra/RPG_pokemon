@@ -826,7 +826,7 @@ export class RPGAccountManagement {
 	}
 
 	listTables(token: string): RPGAccountTableView[] {
-		const session = this.session(token); const onlineSince = this.now() - 15_000;
+		const session = this.session(token); const onlineSince = this.now() - 90_000;
 		return this.repository.listMemberships(session.accountId).filter(member => member.status === 'active').flatMap(member => {
 			const table = this.repository.getTable(member.tableId);
 			const owner = table && this.repository.getAccount(table.ownerAccountId);
@@ -843,7 +843,7 @@ export class RPGAccountManagement {
 	}
 
 	discoverTables(token: string): RPGAccountTableView[] {
-		const session = this.session(token); const onlineSince = this.now() - 15_000;
+		const session = this.session(token); const onlineSince = this.now() - 90_000;
 		return this.repository.listTables().filter(table => {
 			if (table.status !== 'active' || table.visibility !== 'public' || table.ownerAccountId === session.accountId) {
 				return false;
@@ -907,7 +907,7 @@ export class RPGAccountManagement {
 		if (table.visibility !== 'public' && membership?.status !== 'active') throw new Error('Você não pode visualizar esta mesa');
 		const owner = this.repository.getAccount(table.ownerAccountId);
 		if (!owner) throw new Error('Proprietário da mesa indisponível');
-		const onlineSince = this.now() - 15_000;
+		const onlineSince = this.now() - 90_000;
 		const members = this.repository.listMembershipsForTable(table.id).filter(value => value.status === 'active').flatMap(value => {
 			const account = this.repository.getAccount(value.accountId);
 			if (!account) return [];
@@ -1020,7 +1020,7 @@ export class RPGAccountManagement {
 		const session = this.session(token); const viewer = this.activeMember(tableId, session.accountId);
 		this.requirePermission(viewer, 'members.view');
 		const canManage = getRPGDefaultTablePermissions(viewer.role)['members.manage'];
-		const onlineSince = this.now() - 15_000;
+		const onlineSince = this.now() - 90_000;
 		return this.repository.listMembershipsForTable(tableId).flatMap(member => {
 			if (!canManage && member.status !== 'active') return [];
 			const account = this.repository.getAccount(member.accountId);

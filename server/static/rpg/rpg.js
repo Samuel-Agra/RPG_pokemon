@@ -59,8 +59,13 @@ let battleSessionSyncBusy = false;
 let battleSessionSyncTimer = null;
 let masterPresenceSyncTimer = null;
 let playerPresenceHeartbeatTimer = null;
+let playerPresenceLastInteractionAt = Date.now();
+let playerPresenceIdle = false;
+let playerPresenceHeartbeatBusy = false;
 let tableChatTypingTimer = null;
 let tableChatTypingActive = false;
+let tableChatRefreshTimer = null;
+let tableChatRenderBusy = false;
 let tournamentRefreshTimer = null;
 let applicationRealtimeTimer = null;
 let applicationRealtimeBusy = false;
@@ -1677,10 +1682,22 @@ function startBattleSessionSynchronization() {
 	}
 	if (!playerPresenceHeartbeatTimer) {
 		const heartbeat = async () => {
-			if (!state.session || state.session.role !== 'player' || document.hidden) return;
-			try { await api('/presence', { method: 'POST', body: { area: state.dashboardView } }); } catch {}
+			if (!state.session || state.session.role !== 'player' || playerPresenceHeartbeatBusy) return;
+			const idle = Date.now() - playerPresenceLastInteractionAt >= 60_000;
+			playerPresenceIdle = idle;
+			playerPresenceHeartbeatBusy = true;
+			try {
+				await api('/presence', { method: 'POST', body: { area: state.dashboardView, idle } });
+			} catch {} finally { playerPresenceHeartbeatBusy = false; }
 		};
 		playerPresenceHeartbeatTimer = window.setInterval(heartbeat, 4000);
+		const registerInteraction = () => {
+			playerPresenceLastInteractionAt = Date.now();
+			if (playerPresenceIdle) void heartbeat();
+		};
+		for (const eventName of ['pointerdown', 'keydown', 'input']) {
+			document.addEventListener(eventName, registerInteraction, { passive: true });
+		}
 		void heartbeat();
 	}
 }
@@ -3391,7 +3408,9 @@ async function renderPlayerRosterDrawer() {
 		const avatar = characterAvatarBadge(player);
 		avatar.classList.add('player-roster-drawer-avatar');
 		const memberEntry = membersByAccount.get(player.accountId);
-		avatar.classList.add((memberEntry?.online ?? player.online) ? 'is-online' : 'is-offline');
+		const presence = player.presence || ((memberEntry?.online ?? player.online) ? 'online' : 'offline');
+		avatar.classList.add('is-' + presence);
+		avatar.setAttribute('aria-label', presence === 'online' ? 'Online' : presence === 'idle' ? 'Ocioso' : 'Offline');
 		const handle = memberEntry ? accountPublicHandle(memberEntry.account) : '@indisponível';
 		const team = createElement('div', 'player-roster-drawer-team');
 		team.setAttribute('aria-label', 'Equipe de ' + player.characterName);
@@ -3515,8 +3534,14 @@ window.RPGTableCommunication = { setActivity: setTableActivity, clearActivity: c
 
 async function renderTableChat() {
 	const root = $('#table-chat-messages');
-	if (!root || $('#player-roster-drawer').classList.contains('hidden')) return;
-	const data = await api('/table-chat', { cache: 'no-store' });
+	if (!root || $('#player-roster-drawer').classList.contains('hidden') || tableChatRenderBusy) return;
+	tableChatRenderBusy = true;
+	let data;
+	try {
+		data = await api('/table-chat', { cache: 'no-store' });
+	} finally {
+		tableChatRenderBusy = false;
+	}
 	const messages = Array.isArray(data.messages) ? data.messages : [];
 	const typing = Array.isArray(data.typing) ? data.typing : [];
 	const signature = JSON.stringify({ messages, typing });
@@ -3537,34 +3562,44 @@ async function renderTableChat() {
 	if (wasNearBottom || !root.dataset.initialized) root.scrollTop = root.scrollHeight;
 	root.dataset.initialized = 'true';
 	const typingRoot = $('#table-chat-typing');
-	if (typing.length === 1) {
-		typingRoot.textContent = typing[0] + ' está digitando...';
-	} else if (typing.length === 2) {
-		typingRoot.textContent = typing[0] + ' e ' + typing[1] + ' estão digitando...';
-	} else if (typing.length > 2) {
-		typingRoot.textContent = typing[0] + ', ' + typing[1] + ' e mais ' + (typing.length - 2) + ' estão digitando...';
-	} else {
-		typingRoot.textContent = '';
-	}
+	typingRoot.replaceChildren();
+	if (typing.length) {
+		const names = typing.length === 1 ? typing[0] :
+			typing.length === 2 ? typing.join(' e ') : typing.slice(0, -1).join(', ') + ' e ' + typing.at(-1);
+		const phrase = names + (typing.length === 1 ? ' está digitando' : ' estão digitando');
+		const dots = createElement('span', 'table-chat-typing-dots');
+		dots.setAttribute('aria-hidden', 'true');
+		typingRoot.setAttribute('aria-label', phrase + '...');
+		typingRoot.append(document.createTextNode(phrase), dots);
+	} else typingRoot.removeAttribute('aria-label');
 	typingRoot.classList.toggle('hidden', !typing.length);
 }
 
 async function sendTableChatTyping(typing) {
-	if (!state.session || !state.accountSession?.activeTableId) return;
+	if (!state.session) return;
 	try { await api('/table-chat/typing', { method: 'POST', body: { typing } }); } catch {}
 }
 
-function stopTableChatTyping() {
+function synchronizeTableChat(open) {
+	if (tableChatRefreshTimer) window.clearInterval(tableChatRefreshTimer);
+	tableChatRefreshTimer = null;
+	if (!open) return;
+	tableChatRefreshTimer = window.setInterval(() => {
+		if (!document.hidden && state.tableChatOpen && state.tableCommunicationView === 'chat') void renderTableChat();
+	}, 1000);
+}
+
+function stopTableChatTyping(clearRemote = true) {
 	if (tableChatTypingTimer) window.clearInterval(tableChatTypingTimer);
 	tableChatTypingTimer = null;
-	if (!tableChatTypingActive) return;
+	const wasActive = tableChatTypingActive;
 	tableChatTypingActive = false;
-	void sendTableChatTyping(false);
+	if (clearRemote && wasActive) void sendTableChatTyping(false);
 }
 
 function startTableChatTyping() {
 	const input = $('#table-chat-input');
-	if (!state.tableChatOpen || !input.value.trim()) {
+	if (!state.tableChatOpen || !input.value.length) {
 		stopTableChatTyping();
 		return;
 	}
@@ -3574,10 +3609,12 @@ function startTableChatTyping() {
 	}
 	if (tableChatTypingTimer) return;
 	tableChatTypingTimer = window.setInterval(() => {
-		if (document.hidden || !state.tableChatOpen || !input.value.trim()) {
+		if (!state.tableChatOpen || !input.value.length) {
 			stopTableChatTyping();
 			return;
 		}
+		// Navegadores podem reduzir a frequência deste timer em segundo plano;
+		// o TTL do servidor existe apenas como proteção contra abas encerradas.
 		void sendTableChatTyping(true);
 	}, 3000);
 }
@@ -3598,9 +3635,16 @@ function setTableChatOpen(open) {
 		(state.tableActivity ? 'Recolher comunicação' : 'Mostrar Players') : 'Abrir comunicação da mesa');
 	toggle.textContent = state.tableChatOpen ? '\u2039' : '\u203a';
 	if (state.tableChatOpen) {
+		synchronizeTableChat(true);
 		if (state.tableCommunicationView === 'log') void renderTableSystemLog();
-		else void renderTableChat();
-	} else stopTableChatTyping();
+		else {
+			void renderTableChat();
+			startTableChatTyping();
+		}
+	} else {
+		synchronizeTableChat(false);
+		stopTableChatTyping();
+	}
 }
 
 function setTableCommunicationView(view) {
@@ -3616,10 +3660,13 @@ function setTableCommunicationView(view) {
 		button.setAttribute('aria-pressed', String(active));
 	}
 	if (view === 'log') {
+		synchronizeTableChat(false);
 		stopTableChatTyping();
 		void renderTableSystemLog();
 	} else {
+		synchronizeTableChat(state.tableChatOpen);
 		void renderTableChat();
+		startTableChatTyping();
 	}
 }
 
@@ -3657,7 +3704,6 @@ $('#table-chat-input').addEventListener('keydown', event => {
 	form.requestSubmit(form.querySelector('button[type="submit"]'));
 });
 $('#table-chat-input').addEventListener('input', startTableChatTyping);
-$('#table-chat-input').addEventListener('blur', stopTableChatTyping);
 
 function openTeamBuilder(pokemonId, returnView = state.dashboardView) {
 	if (!pokemonId) {

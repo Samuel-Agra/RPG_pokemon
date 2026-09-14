@@ -842,7 +842,7 @@ export class RPGHttpServer {
 		}
 		if (method === 'POST' && url.pathname === '/api/rpg/presence') {
 			const body = await this.body(req);
-			this.json(res, 200, this.login.updatePlayerPresence(this.token(req), body.area));
+			this.json(res, 200, this.login.updatePlayerPresence(this.token(req), body.area, body.idle));
 			return;
 		}
 		if (url.pathname === '/api/rpg/master-npc-library') {

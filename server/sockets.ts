@@ -340,7 +340,11 @@ export class ServerStream extends Streams.ObjectReadWriteStream<string> {
 
 		// Static server
 		try {
-			const staticServer = new StaticServer('./server/static');
+			// A interface RPG evolui junto do servidor e não pode permanecer presa a
+			// JavaScript/CSS antigos por uma hora depois de uma atualização local.
+			const staticServer = new StaticServer('./server/static', {
+				cacheTime: process.env.PS_RPG_MODE === '1' ? 0 : undefined,
+			});
 			const staticRequestHandler = (req: http.IncomingMessage, res: http.ServerResponse) => {
 				// console.log(`static rq: ${req.socket.remoteAddress}:${req.socket.remotePort} -> ${req.socket.localAddress}:${req.socket.localPort} - ${req.method} ${req.url} ${req.httpVersion} - ${req.rawHeaders.join('|')}`);
 				if (RPG_HTTP_SERVER.handle(req, res)) return;

@@ -1366,7 +1366,9 @@ input, select {
 .table-activity-log-entry p { margin-top: 0; }
 .table-activity-log-sequence { color: #718195; font-size: 9px; font-weight: bold; }
 .table-chat-messages { min-width: 0; min-height: 180px; padding: 5px 8px 5px 2px; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
-.table-chat-typing { min-height: 14px; color: #62768d; font-size: 10px; font-style: italic; line-height: 14px; }
+.table-chat-typing { min-height: 17px; padding: 2px 3px 1px; color: #526b86; font-size: 10px; font-style: italic; line-height: 14px; }
+.table-chat-typing-dots::after { display: inline-block; width: 1.2em; overflow: hidden; vertical-align: bottom; content: '...'; animation: table-chat-typing-dots 1.15s steps(4, end) infinite; }
+@keyframes table-chat-typing-dots { from { width: 0; } to { width: 1.2em; } }
 .table-chat-message { padding: 8px 9px; background: #f8fafc; border: 1px solid #c4cfda; border-radius: 6px; }
 .table-chat-message + .table-chat-message { margin-top: 7px; }
 .table-chat-message-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
@@ -1383,6 +1385,7 @@ input, select {
 .player-roster-drawer-player:disabled { cursor: default; opacity: 1; }
 .player-roster-drawer-avatar { width: 108px; height: 108px; }
 .player-roster-drawer-avatar.is-online { border-color: #38a85c; box-shadow: 0 0 0 2px #237a40, 0 3px 8px #20384b42; }
+.player-roster-drawer-avatar.is-idle { border-color: #e1ae32; box-shadow: 0 0 0 2px #a87717, 0 3px 8px #20384b42; }
 .player-roster-drawer-avatar.is-offline { border-color: #d65252; box-shadow: 0 0 0 2px #9b3434, 0 3px 8px #20384b42; }
 .player-roster-drawer-avatar img {
 	width: 104px;

@@ -16,7 +16,9 @@ const LEGACY_SCOPED_TABLES = new Set([
 export const RPG_SECURITY_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 export const RPG_SECURITY_CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000;
 export const RPG_TABLE_CHAT_CLEANUP_INTERVAL_MS = 60 * 1000;
-export const RPG_TABLE_CHAT_TYPING_TTL_MS = 8_000;
+// Evita indicadores abandonados quando o navegador fecha sem conseguir enviar
+// `typing: false`, sem derrubar uma digitação válida em uma aba desfocada.
+export const RPG_TABLE_CHAT_TYPING_TTL_MS = 10 * 60 * 1000;
 export const RPG_TABLE_SYSTEM_LOG_RETENTION_MS = 3 * 24 * 60 * 60 * 1000;
 
 export interface RPGSecurityCleanupResult {
@@ -462,9 +464,9 @@ export class RPGMySQLPersistence {
 		await this.pool.execute('DELETE FROM rpg_table_chat_messages WHERE table_id = ? AND expires_at <= ?', [scope, now]);
 		const safeLimit = Math.max(1, Math.min(500, Math.floor(Number(limit) || 200)));
 		const [rows] = await this.pool.query<RowDataPacket[]>(`SELECT chat.*, account.handle, account.display_name, member.role,
-			COALESCE((SELECT character.display_name FROM rpg_characters character
-				WHERE character.table_id = chat.table_id AND character.account_id = chat.author_account_id
-				ORDER BY character.updated_at DESC LIMIT 1), account.display_name) AS character_name
+			COALESCE((SELECT owned_character.display_name FROM rpg_characters owned_character
+				WHERE owned_character.table_id = chat.table_id AND owned_character.account_id = chat.author_account_id
+				ORDER BY owned_character.updated_at DESC LIMIT 1), account.display_name) AS character_name
 			FROM rpg_table_chat_messages chat
 			JOIN rpg_accounts account ON account.id = chat.author_account_id
 			JOIN rpg_table_members member ON member.table_id = chat.table_id AND member.account_id = chat.author_account_id
@@ -486,9 +488,9 @@ export class RPGMySQLPersistence {
 		if (!text) throw new Error('A mensagem não pode ficar vazia');
 		if (text.length > 1000) throw new Error('A mensagem pode ter no máximo 1000 caracteres');
 		const [members] = await this.pool.query<RowDataPacket[]>(`SELECT account.handle, account.display_name, member.role,
-			COALESCE((SELECT character.display_name FROM rpg_characters character
-				WHERE character.table_id = member.table_id AND character.account_id = member.account_id
-				ORDER BY character.updated_at DESC LIMIT 1), account.display_name) AS character_name
+			COALESCE((SELECT owned_character.display_name FROM rpg_characters owned_character
+				WHERE owned_character.table_id = member.table_id AND owned_character.account_id = member.account_id
+				ORDER BY owned_character.updated_at DESC LIMIT 1), account.display_name) AS character_name
 			FROM rpg_table_members member JOIN rpg_accounts account ON account.id = member.account_id
 			WHERE member.table_id = ? AND member.account_id = ? AND member.status = 'active' LIMIT 1`,
 		[scope, authorAccountId]);
@@ -524,9 +526,9 @@ export class RPGMySQLPersistence {
 		const scope = this.requireTableScope(tableId); const cutoff = now - RPG_TABLE_CHAT_TYPING_TTL_MS;
 		await this.pool.execute('DELETE FROM rpg_table_chat_typing WHERE table_id = ? AND updated_at < ?', [scope, cutoff]);
 		const [rows] = await this.pool.query<RowDataPacket[]>(`SELECT
-			COALESCE((SELECT character.display_name FROM rpg_characters character
-				WHERE character.table_id = typing.table_id AND character.account_id = typing.account_id
-				ORDER BY character.updated_at DESC LIMIT 1), account.display_name) AS name
+			COALESCE((SELECT owned_character.display_name FROM rpg_characters owned_character
+				WHERE owned_character.table_id = typing.table_id AND owned_character.account_id = typing.account_id
+				ORDER BY owned_character.updated_at DESC LIMIT 1), account.display_name) AS name
 			FROM rpg_table_chat_typing typing JOIN rpg_accounts account ON account.id = typing.account_id
 			WHERE typing.table_id = ? AND typing.account_id <> ? AND typing.updated_at >= ?
 			ORDER BY name`, [scope, viewerAccountId, cutoff]);
