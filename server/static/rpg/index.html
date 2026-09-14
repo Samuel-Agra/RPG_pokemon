@@ -7,7 +7,7 @@
 	<title>Pok&eacute;mon RPG</title>
 	<link rel="icon" type="image/png" href="./assets/pokemon-rpg-logo.png" />
 	<link rel="apple-touch-icon" href="./assets/pokemon-rpg-logo.png" />
-	<link rel="stylesheet" href="./rpg.css?v=20260914-178" />
+	<link rel="stylesheet" href="./rpg.css?v=20260914-180" />
 	<link rel="stylesheet" href="./battle-ui.css?v=20260830-5" />
 	<link rel="stylesheet" href="./battle-ui-v2.css?v=20260811-23" />
 	<link rel="stylesheet" href="./battle-room.css?v=20260828-6" />
@@ -389,6 +389,10 @@
 					<aside class="player-roster-drawer hidden" id="player-roster-drawer" aria-label="Comunicação da mesa">
 						<button class="player-chat-toggle" id="player-chat-toggle" type="button" aria-label="Abrir chat da mesa" aria-expanded="false">&#8250;</button>
 						<section class="player-roster-drawer-view" id="player-roster-drawer-view">
+							<div class="player-roster-master-section">
+								<strong>Mestres</strong>
+								<div class="player-roster-master-list" id="player-roster-master-list"></div>
+							</div>
 							<strong>Players</strong>
 							<div id="player-roster-drawer-list"></div>
 						</section>
@@ -460,6 +464,6 @@
 	<script src="./nursery-ui.js?v=20260826-1"></script>
 	<script src="./contest-ui.js?v=20260914-40"></script>
 	<script src="./shop-ui.js?v=20260904-4"></script>
-	<script src="./rpg.js?v=20260914-178"></script>
+	<script src="./rpg.js?v=20260914-180"></script>
 </body>
 </html>

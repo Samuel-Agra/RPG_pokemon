@@ -1234,10 +1234,11 @@ input, select {
 	display: grid;
 	width: 100%;
 	max-height: calc(100vh - 112px);
-	grid-template-rows: auto minmax(0, 1fr);
+	grid-template-rows: auto auto minmax(0, 1fr);
 	overflow: hidden;
 }
-.player-roster-drawer-view > strong {
+.player-roster-drawer-view > strong,
+.player-roster-master-section > strong {
 	display: block;
 	margin-bottom: 9px;
 	padding: 8px 7px;
@@ -1250,6 +1251,51 @@ input, select {
 	text-align: center;
 	text-transform: uppercase;
 }
+.player-roster-master-section { min-width: 0; margin-bottom: 10px; }
+.player-roster-master-list {
+	display: flex;
+	justify-content: center;
+	gap: 7px;
+	min-width: 0;
+	padding: 1px 1px 5px;
+	overflow-x: auto;
+	overflow-y: hidden;
+	scrollbar-width: none;
+}
+.player-roster-master-list::-webkit-scrollbar { display: none; width: 0; height: 0; }
+.player-roster-master-list:has(> :nth-child(3)) { justify-content: flex-start; }
+.player-roster-master-card {
+	display: grid;
+	flex: 0 0 62px;
+	min-width: 0;
+	justify-items: center;
+	gap: 4px;
+	padding: 2px;
+	color: #304966;
+	background: transparent;
+	border: 0;
+	font: inherit;
+	cursor: pointer;
+}
+.player-roster-master-avatar {
+	display: grid;
+	width: 52px;
+	height: 52px;
+	place-items: center;
+	color: #fff;
+	background: linear-gradient(145deg, #6888ba, #425f90);
+	border: 2px solid #8da4c4;
+	border-radius: 6px;
+	box-shadow: 0 2px 5px #21364d42;
+	font-size: 16px;
+	font-weight: 900;
+}
+.player-roster-master-avatar.is-online { border-color: #38a85c; box-shadow: 0 0 0 1px #237a40, 0 2px 5px #21364d42; }
+.player-roster-master-avatar.is-offline { border-color: #d65252; box-shadow: 0 0 0 1px #9b3434, 0 2px 5px #21364d42; }
+.player-roster-master-card:hover .player-roster-master-avatar,
+.player-roster-master-card:focus-visible .player-roster-master-avatar { filter: brightness(1.08); transform: translateY(-1px); }
+.player-roster-master-card:focus-visible { outline: 2px solid #789ac366; border-radius: 5px; }
+.player-roster-master-handle { width: 100%; overflow: hidden; color: #60748b; font-size: 9px; text-align: center; text-overflow: ellipsis; white-space: nowrap; }
 #player-roster-drawer-list {
 	display: grid;
 	width: 100%;
@@ -3024,6 +3070,26 @@ input, select {
 .master-player-summary-row:hover,
 .master-player-summary-row:focus-visible { background: #edf3fa; box-shadow: inset 4px 0 #587da7; outline: 0; }
 .master-player-summary-row[aria-expanded="true"] { background: #e7eef7; box-shadow: inset 4px 0 #466d9a; }
+.master-campaign-master-header,
+.master-campaign-master-row { display: grid; grid-template-columns: 84px minmax(180px, 1fr) minmax(150px, .7fr) 120px; align-items: center; gap: 14px; padding: 12px 18px; }
+.master-campaign-master-header { color: #66778e; font-size: 11px; font-weight: 800; text-transform: uppercase; }
+.master-campaign-master-card { overflow: hidden; }
+.master-campaign-master-row { min-height: 72px; color: #30435f; }
+.master-campaign-master-row[role="button"] { cursor: pointer; }
+.master-campaign-master-row[role="button"]:hover,
+.master-campaign-master-row[aria-expanded="true"] { background: #e7eef7; box-shadow: inset 4px 0 #466d9a; }
+.campaign-master-presence { font-weight: 800; }
+.campaign-master-presence.is-online { color: #287a43; }
+.campaign-master-presence.is-offline { color: #9a3f3f; }
+.campaign-master-permissions { padding: 18px; border-top: 1px solid #c5d0dd; background: #f8fafc; }
+.campaign-master-permissions h3 { margin: 0 0 14px; color: #2c4564; }
+.campaign-master-permissions-grid { display: grid; grid-template-columns: repeat(3, minmax(190px, 1fr)); gap: 9px 14px; margin-bottom: 16px; }
+.campaign-master-permission { display: flex; align-items: center; gap: 8px; min-height: 34px; padding: 6px 9px; border: 1px solid #ccd5df; border-radius: 5px; background: #fff; color: #3d526d; font-weight: 700; }
+.campaign-master-permission input { width: 17px; height: 17px; margin: 0; accent-color: #466e9b; }
+@media (max-width: 900px) {
+	.master-campaign-master-header, .master-campaign-master-row { grid-template-columns: 62px minmax(120px, 1fr) 110px 80px; }
+	.campaign-master-permissions-grid { grid-template-columns: repeat(2, minmax(160px, 1fr)); }
+}
 .master-player-summary-row .avatar-badge { width: 52px; height: 52px; }
 .master-player-summary-row .avatar-badge img { max-width: 48px; max-height: 48px; }
 .master-player-character-name { overflow: hidden; color: #293f5d; font-size: 14px; text-overflow: ellipsis; white-space: nowrap; }

@@ -119,9 +119,20 @@ describe('RPG version 2 account authentication frontend', () => {
 		assert(style.includes('.player-roster-drawer-team'));
 		assert.match(style, /\.player-roster-drawer-team \{[^}]*grid-template-columns: repeat\(3/);
 		assert(style.includes('.player-roster-drawer-pokemon'));
+		assert(html.includes('id="player-roster-master-list"'));
+		assert(script.includes("master.member.role === 'owner' ? 'PM' : 'M'"));
+		assert(script.includes("['owner', 'master'].includes(entry.member.role)"));
+		assert(script.includes("master.online ? 'is-online' : 'is-offline'"));
+		assert(script.includes('openMemberDetails(master, viewerRole, members'));
+		assert(style.includes('.player-roster-master-list:has(> :nth-child(3))'));
+		assert(script.includes('masters.splice(Math.floor(masters.length / 2), 0, owner)'));
+		assert(script.includes('const presenceOrder = { online: 0, idle: 1, offline: 2 }'));
+		assert(script.includes("localeCompare(String(second.characterName || ''), 'pt-BR'"));
 	});
 
 	it('lets the master configure and give a new Pokemon from the expanded player row', () => {
+		assert(script.includes('state.expandedMasterPlayerIds.clear();'));
+		assert(script.includes('state.expandedMasterPlayerIds.add(character.id);'));
 		assert(script.includes("button('Dar novo Pokémon', 'button primary master-player-add-pokemon')"));
 		assert(script.includes('openMasterPlayerPokemonGift(character)'));
 		assert(script.includes("api('/characters/pokemon'"));
@@ -136,6 +147,16 @@ describe('RPG version 2 account authentication frontend', () => {
 		assert(style.includes('scrollbar-gutter: stable'));
 		assert(style.includes('.contest-nature-panel.master-player-gift-nature-panel'));
 		assert(style.includes('min-width: 650px'));
+	});
+
+	it('lists campaign Masters below Players and reserves permission editing for the owner', () => {
+		assert(script.includes("section('Mestres da campanha')"));
+		assert(script.includes("['owner', 'master'].includes(entry.member.role)"));
+		assert(script.includes("const isOwner = tableEntry?.membership.role === 'owner'"));
+		assert(script.includes('state.expandedCampaignMasterIds.clear();'));
+		assert(script.includes("'Salvar permissões'"));
+		assert(script.includes("/permissions`,\n\t\t\t\t\t\t\t\t{ method: 'PUT'"));
+		assert(style.includes('.campaign-master-permissions-grid'));
 	});
 
 	it('creates tables through short steps and exposes the post-creation actions', () => {

@@ -49,6 +49,7 @@ const state = {
 	dismissedBattleSessionIds: new Set(),
 	expandedShopAccessIds: new Set(),
 	expandedMasterPlayerIds: new Set(),
+	expandedCampaignMasterIds: new Set(),
 	dashboardHistory: [],
 	tableChatOpen: false,
 	tableCommunicationView: 'chat',
@@ -608,6 +609,7 @@ function prepareTableTransition() {
 	state.battleSessions = []; state.dismissedBattleSessionIds.clear();
 	state.deletionChallenge = null; state.teamBuilderPokemonId = null;
 	state.dashboardHistory = []; state.expandedShopAccessIds.clear(); state.expandedMasterPlayerIds.clear();
+	state.expandedCampaignMasterIds.clear();
 	state.dashboardView = 'overview';
 	masterNPCLibraryLoadedFromServer = false; masterNPCLastCreatedFolderId = '';
 	saveSession(null);
@@ -3386,6 +3388,7 @@ function renderPlayerTeamBody(character) {
 async function renderPlayerRosterDrawer() {
 	const drawer = $('#player-roster-drawer');
 	const list = $('#player-roster-drawer-list');
+	const masterList = $('#player-roster-master-list');
 	const tableId = state.accountSession?.activeTableId;
 	const [data, memberData] = await Promise.all([
 		api('/players', { cache: 'no-store' }),
@@ -3396,19 +3399,47 @@ async function renderPlayerRosterDrawer() {
 	const tableEntry = state.accountTables.find(entry => entry.table.id === tableId);
 	const viewerRole = state.session.role === 'master' ? tableEntry?.membership.role || 'master' : 'player';
 	const membersByAccount = new Map(members.map(entry => [entry.account.id, entry]));
-	const signature = JSON.stringify({ players, members: members.map(entry => ({ member: entry.member, account: entry.account })) });
+	const signature = JSON.stringify({ players, members: members.map(entry => ({
+		member: entry.member, account: entry.account, online: entry.online,
+	})) });
 	if (drawer.dataset.realtimeSignature === signature) return;
 	drawer.dataset.realtimeSignature = signature;
+	const masterContent = document.createDocumentFragment();
+	const campaignMasters = members.filter(entry => entry.member.status === 'active' &&
+		['owner', 'master'].includes(entry.member.role));
+	const owner = campaignMasters.find(entry => entry.member.role === 'owner');
+	const masters = campaignMasters.filter(entry => entry.member.role === 'master')
+		.sort((first, second) => first.member.joinedAt - second.member.joinedAt ||
+			accountPublicHandle(first.account).localeCompare(accountPublicHandle(second.account), 'pt-BR'));
+	if (owner) masters.splice(Math.floor(masters.length / 2), 0, owner);
+	for (const master of masters) {
+		const card = createElement('button', 'player-roster-master-card'); card.type = 'button';
+		const badge = createElement('span', 'player-roster-master-avatar ' + (master.online ? 'is-online' : 'is-offline'),
+			master.member.role === 'owner' ? 'PM' : 'M');
+		badge.setAttribute('aria-label', master.online ? 'Online' : 'Offline');
+		card.append(badge, createElement('span', 'player-roster-master-handle', accountPublicHandle(master.account)));
+		card.setAttribute('aria-label', `Ver informações de ${accountPublicHandle(master.account)}`);
+		card.addEventListener('click', () => openMemberDetails(master, viewerRole, members,
+			() => void renderPlayerRosterDrawer()));
+		masterContent.append(card);
+	}
+	masterList.replaceChildren(masterContent);
 	const content = document.createDocumentFragment();
 	if (!players.length) {
 		content.append(createElement('div', 'player-roster-drawer-empty', 'Nenhum outro Player.'));
 	}
-	for (const player of players) {
+	const playerPresence = player => player.presence ||
+		((membersByAccount.get(player.accountId)?.online ?? player.online) ? 'online' : 'offline');
+	const presenceOrder = { online: 0, idle: 1, offline: 2 };
+	const orderedPlayers = [...players].sort((first, second) =>
+		(presenceOrder[playerPresence(first)] ?? 2) - (presenceOrder[playerPresence(second)] ?? 2) ||
+		String(first.characterName || '').localeCompare(String(second.characterName || ''), 'pt-BR', { sensitivity: 'base' }));
+	for (const player of orderedPlayers) {
 		const card = createElement('button', 'player-roster-drawer-player'); card.type = 'button';
 		const avatar = characterAvatarBadge(player);
 		avatar.classList.add('player-roster-drawer-avatar');
 		const memberEntry = membersByAccount.get(player.accountId);
-		const presence = player.presence || ((memberEntry?.online ?? player.online) ? 'online' : 'offline');
+		const presence = playerPresence(player);
 		avatar.classList.add('is-' + presence);
 		avatar.setAttribute('aria-label', presence === 'online' ? 'Online' : presence === 'idle' ? 'Ocioso' : 'Offline');
 		const handle = memberEntry ? accountPublicHandle(memberEntry.account) : '@indisponível';
@@ -5160,7 +5191,10 @@ async function renderMasterBody(characters) {
 		row.append(team);
 		const toggleExpanded = () => {
 			if (state.expandedMasterPlayerIds.has(character.id)) state.expandedMasterPlayerIds.delete(character.id);
-			else state.expandedMasterPlayerIds.add(character.id);
+			else {
+				state.expandedMasterPlayerIds.clear();
+				state.expandedMasterPlayerIds.add(character.id);
+			}
 			void renderDashboard();
 		};
 		row.addEventListener('click', toggleExpanded);
@@ -5366,6 +5400,91 @@ async function renderMasterBody(characters) {
 	}
 	players.body.append(list);
 	root.append(players.panel);
+
+	const tableId = state.accountSession?.activeTableId;
+	if (tableId) {
+		const memberData = await accountApi(`/tables/${encodeURIComponent(tableId)}/members`);
+		const tableEntry = state.accountTables.find(entry => entry.table.id === tableId);
+		const isOwner = tableEntry?.membership.role === 'owner';
+		const campaignMasters = (memberData.members || []).filter(entry =>
+			entry.member.status === 'active' && ['owner', 'master'].includes(entry.member.role));
+		const masters = section('Mestres da campanha');
+		masters.panel.classList.add('master-campaign-masters-panel');
+		const masterList = createElement('div', 'master-list master-campaign-masters-list');
+		const masterHeader = createElement('div', 'master-campaign-master-header');
+		masterHeader.append(...['Avatar', 'Conta', 'Função', 'Estado'].map(label => createElement('span', '', label)));
+		masterList.append(masterHeader);
+		const permissionLabels = {
+			'battles.create': 'Criar batalhas', 'battles.manage': 'Gerenciar batalhas',
+			'battles.participate': 'Participar de batalhas', 'battles.watch': 'Assistir batalhas',
+			'contests.create': 'Criar concursos', 'contests.manage': 'Gerenciar concursos',
+			'contests.participate': 'Participar de concursos', 'contests.watch': 'Assistir concursos',
+			'tournaments.create': 'Criar torneios', 'tournaments.manage': 'Gerenciar torneios',
+			'tournaments.participate': 'Participar de torneios', 'tournaments.watch': 'Assistir torneios',
+			'npcs.manage': 'Gerenciar NPCs', 'shops.manage': 'Gerenciar lojas',
+			'campaign.configure': 'Configurar campanha', 'campaign.advanceTime': 'Avançar o tempo',
+			'characters.manage': 'Gerenciar personagens', 'characters.viewPrivate': 'Ver dados privados',
+			'documents.manage': 'Gerenciar documentos', 'members.view': 'Ver membros',
+			'members.invite': 'Convidar membros', 'members.manage': 'Gerenciar membros',
+		};
+		for (const entry of campaignMasters) {
+			const card = createElement('div', 'master-player-card master-campaign-master-card');
+			const row = createElement('div', 'master-campaign-master-row');
+			const expanded = isOwner && state.expandedCampaignMasterIds.has(entry.account.id);
+			row.append(
+				createElement('span', 'member-avatar', initials(entry.account.displayName)),
+				createElement('strong', '', accountPublicHandle(entry.account)),
+				createElement('span', '', accountRoleLabel(entry.member.role)),
+				createElement('span', `campaign-master-presence ${entry.online ? 'is-online' : 'is-offline'}`,
+					entry.online ? 'Online' : 'Offline')
+			);
+			if (isOwner) {
+				row.tabIndex = 0; row.setAttribute('role', 'button'); row.setAttribute('aria-expanded', String(expanded));
+				const toggle = () => {
+					if (state.expandedCampaignMasterIds.has(entry.account.id)) state.expandedCampaignMasterIds.clear();
+					else { state.expandedCampaignMasterIds.clear(); state.expandedCampaignMasterIds.add(entry.account.id); }
+					void renderDashboard();
+				};
+				row.addEventListener('click', toggle);
+				row.addEventListener('keydown', event => {
+					if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggle(); }
+				});
+			}
+			card.append(row);
+			if (expanded) {
+				const permissionPanel = createElement('div', 'campaign-master-permissions');
+				permissionPanel.append(createElement('h3', '', entry.member.role === 'owner' ?
+					'Permissões do proprietário' : 'Permissões deste Mestre'));
+				const grid = createElement('div', 'campaign-master-permissions-grid');
+				const draft = { ...entry.effectivePermissions };
+				for (const [permission, label] of Object.entries(permissionLabels)) {
+					const option = createElement('label', 'campaign-master-permission');
+					const input = createElement('input'); input.type = 'checkbox'; input.checked = draft[permission] === true;
+					input.disabled = entry.member.role === 'owner';
+					input.addEventListener('change', () => { draft[permission] = input.checked; });
+					option.append(input, createElement('span', '', label)); grid.append(option);
+				}
+				permissionPanel.append(grid);
+				if (entry.member.role === 'master') {
+					const save = button('Salvar permissões', 'button primary');
+					save.addEventListener('click', async event => {
+						event.stopPropagation(); save.disabled = true;
+						try {
+							await accountApi(`/tables/${encodeURIComponent(tableId)}/members/${encodeURIComponent(entry.account.id)}/permissions`,
+								{ method: 'PUT', body: { permissions: draft } });
+							showToast('Permissões do Mestre atualizadas.'); await renderDashboard();
+						} catch (error) { save.disabled = false; showToast(error.message, true); }
+					});
+					permissionPanel.append(save);
+				} else {
+					permissionPanel.append(createElement('small', '', 'O proprietário possui todas as permissões da mesa.'));
+				}
+				card.append(permissionPanel);
+			}
+			masterList.append(card);
+		}
+		masters.body.append(masterList); root.append(masters.panel);
+	}
 	return root;
 }
 

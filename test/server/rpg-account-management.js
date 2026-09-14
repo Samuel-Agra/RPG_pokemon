@@ -870,7 +870,7 @@ describe('RPG version 2 accounts and tables backend', () => {
 		assert.equal(accounts.listInvites(owner.token, table.id)[0].usedCount, 1);
 	});
 
-	it('applies fixed default permissions for every table role without member overrides', () => {
+	it('applies role defaults and lets only the owner customize Master permissions', () => {
 		const owner = getRPGDefaultTablePermissions('owner');
 		const master = getRPGDefaultTablePermissions('master');
 		const player = getRPGDefaultTablePermissions('player');
@@ -894,6 +894,14 @@ describe('RPG version 2 accounts and tables backend', () => {
 		accounts.joinByInvite(playerSession.token, accounts.createInvite(ownerSession.token, table.id).code);
 		assert.equal(accounts.getTablePermissions(playerSession.token, table.id)['contests.participate'], true);
 		assert.throws(() => accounts.createInvite(playerSession.token, table.id), /Permissão necessária/);
+		accounts.changeMemberRole(ownerSession.token, table.id, playerSession.accountId, 'master');
+		accounts.updateMasterPermissions(ownerSession.token, table.id, playerSession.accountId, {
+			'battles.create': false, 'campaign.configure': true,
+		});
+		assert.equal(accounts.getTablePermissions(playerSession.token, table.id)['battles.create'], false);
+		assert.equal(accounts.getTablePermissions(playerSession.token, table.id)['campaign.configure'], true);
+		assert.throws(() => accounts.updateMasterPermissions(playerSession.token, table.id, playerSession.accountId, {}),
+			/Apenas o proprietário/);
 	});
 
 	it('links a legacy character credential to one global account and table membership idempotently', () => {

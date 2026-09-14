@@ -87,6 +87,15 @@ export function getRPGDefaultTablePermissions(role: RPGTableRole): Record<RPGTab
 		Record<RPGTablePermission, boolean>;
 }
 
+export function getRPGEffectiveTablePermissions(member: Pick<RPGTableMember, 'role' | 'permissions'>): Record<RPGTablePermission, boolean> {
+	const defaults = getRPGDefaultTablePermissions(member.role);
+	if (member.role === 'owner') return defaults;
+	for (const permission of RPG_TABLE_PERMISSIONS) {
+		if (typeof member.permissions[permission] === 'boolean') defaults[permission] = member.permissions[permission];
+	}
+	return defaults;
+}
+
 interface RPGAccountCredential { algorithm: 'scrypt'; salt: string; hash: string }
 export interface RPGPlatformAccount {
 	id: string; username: string; handle: string; displayName: string; credential: RPGAccountCredential;
@@ -1019,7 +1028,7 @@ export class RPGAccountManagement {
 	listMembers(token: string, tableId: string): RPGTableMemberView[] {
 		const session = this.session(token); const viewer = this.activeMember(tableId, session.accountId);
 		this.requirePermission(viewer, 'members.view');
-		const canManage = getRPGDefaultTablePermissions(viewer.role)['members.manage'];
+		const canManage = getRPGEffectiveTablePermissions(viewer)['members.manage'];
 		const onlineSince = this.now() - 90_000;
 		return this.repository.listMembershipsForTable(tableId).flatMap(member => {
 			if (!canManage && member.status !== 'active') return [];
@@ -1031,13 +1040,33 @@ export class RPGAccountManagement {
 				active.activeTableId === tableId
 			);
 			return account ? [{ member, account: this.publicAccount(account),
-				effectivePermissions: getRPGDefaultTablePermissions(member.role), online }] : [];
+				effectivePermissions: getRPGEffectiveTablePermissions(member), online }] : [];
 		});
 	}
 
 	getTablePermissions(token: string, tableId: string): Record<RPGTablePermission, boolean> {
 		const session = this.session(token); const member = this.activeMember(tableId, session.accountId);
-		return getRPGDefaultTablePermissions(member.role);
+		return getRPGEffectiveTablePermissions(member);
+	}
+
+	updateMasterPermissions(token: string, tableId: string, accountId: string,
+		permissions: Partial<Record<RPGTablePermission, boolean>>): RPGTableMember {
+		const session = this.session(token); const owner = this.activeMember(tableId, session.accountId);
+		if (owner.role !== 'owner') throw new Error('Apenas o proprietário pode alterar permissões de Mestres');
+		const target = this.activeMember(tableId, accountId);
+		if (target.role !== 'master') throw new Error('As permissões individuais são exclusivas dos Mestres auxiliares');
+		const previous = getRPGEffectiveTablePermissions(target);
+		for (const permission of RPG_TABLE_PERMISSIONS) {
+			if (typeof permissions[permission] === 'boolean') target.permissions[permission] = permissions[permission];
+		}
+		target.updatedAt = this.now(); target.revision++;
+		this.atomic(() => {
+			this.repository.setMembership(target);
+			this.audit(owner, 'member.permissions.changed', 'member', target.accountId, {
+				previousPermissions: previous, newPermissions: getRPGEffectiveTablePermissions(target),
+			});
+		});
+		return structuredClone(target);
 	}
 
 	getActiveTableContext(token: string): RPGActiveTableContext {
@@ -1065,6 +1094,7 @@ export class RPGAccountManagement {
 		}
 		const previousRole = target.role; const previousStatus = target.status;
 		target.role = role; target.updatedAt = this.now(); target.revision++;
+		for (const permission of RPG_TABLE_PERMISSIONS) delete target.permissions[permission];
 		this.atomic(() => {
 			this.repository.setMembership(target);
 			this.notify(target.accountId, target.tableId, 'role_changed', 'Sua função foi alterada',
@@ -1318,7 +1348,7 @@ export class RPGAccountManagement {
 	private notifyTableManagers(table: RPGCampaignTable, requesterAccountId: string): void {
 		const requester = this.repository.getAccount(requesterAccountId)?.displayName || 'Uma conta';
 		for (const manager of this.repository.listMembershipsForTable(table.id)) {
-			if (manager.status !== 'active' || !getRPGDefaultTablePermissions(manager.role)['members.manage']) continue;
+			if (manager.status !== 'active' || !getRPGEffectiveTablePermissions(manager)['members.manage']) continue;
 			this.notify(manager.accountId, table.id, 'join_request', 'Nova solicitação de entrada',
 				`${requester} quer participar de ${table.name}.`, 'tables');
 		}
@@ -1435,7 +1465,7 @@ export class RPGAccountManagement {
 		return member;
 	}
 	private requirePermission(member: RPGTableMember, permission: RPGTablePermission) {
-		if (!getRPGDefaultTablePermissions(member.role)[permission]) {
+		if (!getRPGEffectiveTablePermissions(member)[permission]) {
 			throw new Error(`Permissão necessária: ${permission}`);
 		}
 	}

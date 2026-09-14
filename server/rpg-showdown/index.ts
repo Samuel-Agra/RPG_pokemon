@@ -299,6 +299,7 @@ export interface RPGSession {
 	platformMembershipId?: string;
 	/** Papel da conta na mesa selecionada, preservado ao entrar no mundo RPG. */
 	platformTableRole?: RPGTableRole;
+	platformTablePermissions?: Partial<Record<RPGTablePermission, boolean>>;
 	createdAt: number;
 	expiresAt: number;
 }
@@ -1321,6 +1322,7 @@ export class RPGLoginService {
 		if (existing && existing.platformAccountId === context.account.id &&
 			existing.role === expectedRole) {
 			existing.platformTableRole = context.membership.role;
+			existing.platformTablePermissions = { ...context.membership.permissions };
 			existing.platformTableId = context.table.id;
 			existing.platformMembershipId = `${context.membership.tableId}:${context.membership.accountId}`;
 			existing.characterId = character?.state.id;
@@ -1335,6 +1337,7 @@ export class RPGLoginService {
 			platformTableId: context.table.id,
 			platformMembershipId: `${context.membership.tableId}:${context.membership.accountId}`,
 			platformTableRole: context.membership.role,
+			platformTablePermissions: { ...context.membership.permissions },
 			expiresAt: context.session.expiresAt, lastSeenAt: this.now(),
 		};
 		this.sessions.set(this.tokenKey(token), session);
@@ -4733,7 +4736,12 @@ export class RPGLoginService {
 	private requirePlatformTablePermission(token: string, permission: RPGTablePermission): void {
 		const session = this.getSession(token);
 		if (!session.platformAccountId) return;
-		if (!session.platformTableRole || !getRPGDefaultTablePermissions(session.platformTableRole)[permission]) {
+		const permissions = session.platformTableRole ? getRPGDefaultTablePermissions(session.platformTableRole) : null;
+		if (permissions && session.platformTableRole !== 'owner' &&
+			typeof session.platformTablePermissions?.[permission] === 'boolean') {
+			permissions[permission] = session.platformTablePermissions[permission];
+		}
+		if (!permissions?.[permission]) {
 			throw new Error('Permissão necessária: ' + permission);
 		}
 	}

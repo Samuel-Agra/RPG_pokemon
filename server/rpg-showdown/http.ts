@@ -775,7 +775,7 @@ export class RPGHttpServer {
 			this.json(res, 200, { members });
 			return;
 		}
-		const version2MemberMatch = /^\/api\/rpg\/v2\/tables\/([^/]+)\/members\/([^/]+)(?:\/(block|ownership|note))?$/.exec(url.pathname);
+		const version2MemberMatch = /^\/api\/rpg\/v2\/tables\/([^/]+)\/members\/([^/]+)(?:\/(block|ownership|note|permissions))?$/.exec(url.pathname);
 		if (version2MemberMatch) {
 			const token = this.token(req); const tableId = decodeURIComponent(version2MemberMatch[1]);
 			const accountId = decodeURIComponent(version2MemberMatch[2]);
@@ -794,6 +794,14 @@ export class RPGHttpServer {
 			if (method === 'PUT' && version2MemberMatch[3] === 'note') {
 				const body = await this.body(req);
 				const member = this.login.accounts.updateMemberNote(token, tableId, accountId, this.optionalString(body.note) || '');
+				await this.login.flushPersistence(); this.json(res, 200, { member }); return;
+			}
+			if (method === 'PUT' && version2MemberMatch[3] === 'permissions') {
+				const body = await this.body(req);
+				const raw = body.permissions && typeof body.permissions === 'object' && !Array.isArray(body.permissions) ?
+					body.permissions as Record<string, unknown> : {};
+				const permissions = Object.fromEntries(Object.entries(raw).filter(([, value]) => typeof value === 'boolean'));
+				const member = this.login.accounts.updateMasterPermissions(token, tableId, accountId, permissions);
 				await this.login.flushPersistence(); this.json(res, 200, { member }); return;
 			}
 			if ((method === 'DELETE' && !version2MemberMatch[3]) ||

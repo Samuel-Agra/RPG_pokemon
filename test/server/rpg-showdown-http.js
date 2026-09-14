@@ -352,6 +352,14 @@ describe('RPG HTTP frontend API', () => {
 			method: 'PATCH', headers: ownerHeaders, body: { role: 'master', reason: 'Auxiliar da campanha' },
 		});
 		assert.equal(result.data.member.role, 'master');
+		result = await request(`/v2/tables/${tableId}/members/${member.accountId}/permissions`, {
+			method: 'PUT', headers: ownerHeaders,
+			body: { permissions: { 'battles.create': false, 'campaign.configure': true } },
+		});
+		assert.equal(result.data.member.permissions['battles.create'], false);
+		result = await request(`/v2/tables/${tableId}/permissions`, { headers: memberHeaders });
+		assert.equal(result.data.permissions['battles.create'], false);
+		assert.equal(result.data.permissions['campaign.configure'], true);
 		result = await request(`/v2/tables/${tableId}/membership`, { method: 'DELETE', headers: leaverHeaders });
 		assert.equal(result.data.member.status, 'left');
 		result = await request(`/v2/tables/${tableId}/invites`, { headers: ownerHeaders });
