@@ -921,52 +921,6 @@ input, select {
 .master-campaign-metric small { color: #65758a; font-weight: bold; }
 .master-campaign-metric strong { color: #263d5c; font-size: 25px; }
 .master-campaign-metric span { color: #78879a; font-size: 11px; }
-.master-campaign-metric.is-interactive { position: relative; cursor: pointer; transition: background .15s ease, box-shadow .15s ease; }
-.master-campaign-metric.is-interactive:hover,
-.master-campaign-metric.is-interactive:focus-visible { background: #eef5fd; box-shadow: inset 0 -3px #527aa8; outline: 0; }
-.master-campaign-metric.is-interactive[aria-expanded="true"] { background: #e7f0fa; box-shadow: inset 0 -3px #3f6f9f; }
-.master-online-players-drawer {
-	position: absolute;
-	z-index: 12;
-	top: calc(100% + 8px);
-	left: 12px;
-	display: flex;
-	box-sizing: border-box;
-	flex-direction: column;
-	align-items: stretch;
-	gap: 9px;
-	width: 320px;
-	max-width: calc(100vw - 70px);
-	padding: 13px 14px;
-	background: #f5f8fc;
-	border: 1px solid #9eb0c4;
-	border-radius: 6px;
-	box-shadow: 0 9px 22px #1d30494a;
-}
-.master-online-players-drawer::before {
-	position: absolute;
-	top: -7px;
-	left: 23px;
-	width: 12px;
-	height: 12px;
-	background: #f5f8fc;
-	border-top: 1px solid #9eb0c4;
-	border-left: 1px solid #9eb0c4;
-	content: '';
-	transform: rotate(45deg);
-}
-.master-online-players-drawer > strong { flex: none; color: #294664; font-size: 12px; text-transform: uppercase; letter-spacing: .055em; }
-.master-online-players-list { display: flex; max-height: 180px; overflow-y: auto; flex-wrap: wrap; gap: 7px; }
-.master-online-players-list span {
-	padding: 4px 9px;
-	color: #284966;
-	background: #fff;
-	border: 1px solid #aebfd0;
-	border-radius: 999px;
-	font-size: 12px;
-	font-weight: bold;
-}
-.master-online-players-list small { color: #6e7d8e; }
 .master-area-presence-panel { margin-bottom: 14px; }
 .master-area-presence-panel .section-body { padding: 14px; }
 .master-area-presence-grid { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 10px; }
@@ -1296,7 +1250,6 @@ input, select {
 	text-align: center;
 	text-transform: uppercase;
 }
-.table-chat-view > strong { display: block; margin-bottom: 9px; color: #304966; font-size: 12px; text-align: center; text-transform: uppercase; }
 #player-roster-drawer-list {
 	display: grid;
 	width: 100%;
@@ -1341,7 +1294,7 @@ input, select {
 	min-width: 0;
 	height: 100%;
 	padding: 10px;
-	grid-template-rows: auto minmax(0, 1fr) auto;
+	grid-template-rows: auto minmax(0, 1fr);
 	gap: 8px;
 	background: linear-gradient(#fff, #f2f2f2);
 	border-left: 1px solid var(--border);
@@ -1349,12 +1302,71 @@ input, select {
 	visibility: hidden;
 	transition: transform .38s cubic-bezier(.22, .78, .24, 1), visibility 0s linear .38s;
 }
+.table-communication-tabs { display: grid; gap: 6px; margin: 2px -10px 2px; }
+.table-communication-tabs > div { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.table-communication-tabs button {
+	min-width: 0;
+	min-height: 34px;
+	padding: 7px 8px;
+	color: #536a84;
+	background: linear-gradient(#fff, #e4eaf1);
+	border: 1px solid #aebdcd;
+	border-radius: 0;
+	font: inherit;
+	font-size: 11px;
+	font-weight: bold;
+	text-transform: uppercase;
+	cursor: pointer;
+}
+.table-communication-tabs > div button + button { border-left: 0; }
+.table-communication-tabs > button { width: 100%; min-height: 38px; }
+.table-communication-tabs button.active { color: #fff; background: linear-gradient(#587ca7, #36587f); border-color: #29496f; box-shadow: inset 0 -2px #203d60; }
+.table-communication-tabs button.future { cursor: default; opacity: .58; }
+.table-chat-content { display: grid; min-width: 0; min-height: 0; grid-template-rows: minmax(0, 1fr) auto auto; gap: 8px; }
+.table-system-log { min-width: 0; min-height: 0; overflow: hidden; }
+#table-system-log-entries { height: 100%; min-width: 0; padding-right: 5px; overflow-x: hidden; overflow-y: auto; }
+.table-system-log-entry { padding: 9px; background: #f8fafc; border: 1px solid #c3cfdb; border-left: 3px solid #617c9a; border-radius: 5px; }
+.table-system-log-entry + .table-system-log-entry { margin-top: 7px; }
+.table-system-log-heading { display: flex; align-items: center; justify-content: space-between; gap: 7px; margin-bottom: 5px; }
+.table-system-log-category { padding: 2px 6px; color: #fff; background: #617c9a; border-radius: 8px; font-size: 8px; font-weight: bold; text-transform: uppercase; }
+.table-system-log-category.battle { background: #a94d45; }
+.table-system-log-category.contest { background: #8d5899; }
+.table-system-log-category.training { background: #477eaa; }
+.table-system-log-category.fossil { background: #8b6d46; }
+.table-system-log-category.breeding, .table-system-log-category.incubation { background: #a55d7d; }
+.table-system-log-heading time { flex: none; color: #7b8998; font-size: 8px; }
+.table-system-log-entry > strong { display: block; color: #304966; font-size: 11px; }
+.table-system-log-entry p { margin: 4px 0 0; color: #556a80; font-size: 10px; line-height: 1.38; overflow-wrap: anywhere; }
 .player-roster-drawer.chat-open .table-chat-view {
 	transform: translateX(0);
 	visibility: visible;
 	transition-delay: 0s;
 }
+.player-roster-drawer.activity-overlay {
+	position: fixed;
+	z-index: 90;
+	top: 58px;
+	right: 0;
+	width: clamp(310px, 28vw, 400px);
+	height: calc(100vh - 58px);
+	max-height: none;
+	padding: 0;
+	pointer-events: none;
+}
+.player-roster-drawer.activity-overlay .player-roster-drawer-view { display: none; }
+.player-roster-drawer.activity-overlay .player-chat-toggle,
+.player-roster-drawer.activity-overlay .table-chat-view { pointer-events: auto; }
+.player-roster-drawer.activity-overlay .table-chat-view {
+	height: 100%;
+	padding: 12px;
+	border-top: 1px solid var(--border);
+	box-shadow: -8px 0 22px #182b4247;
+}
+.player-roster-drawer.activity-overlay .table-communication-tabs { margin-top: 0; }
+.table-activity-log-entry p { margin-top: 0; }
+.table-activity-log-sequence { color: #718195; font-size: 9px; font-weight: bold; }
 .table-chat-messages { min-width: 0; min-height: 180px; padding: 5px 8px 5px 2px; overflow-x: hidden; overflow-y: auto; overscroll-behavior: contain; }
+.table-chat-typing { min-height: 14px; color: #62768d; font-size: 10px; font-style: italic; line-height: 14px; }
 .table-chat-message { padding: 8px 9px; background: #f8fafc; border: 1px solid #c4cfda; border-radius: 6px; }
 .table-chat-message + .table-chat-message { margin-top: 7px; }
 .table-chat-message-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
@@ -1370,6 +1382,8 @@ input, select {
 .player-roster-drawer-player:hover, .player-roster-drawer-player:focus-visible { border-color: #587da8; background: #e3effb; outline: 2px solid #789ac344; }
 .player-roster-drawer-player:disabled { cursor: default; opacity: 1; }
 .player-roster-drawer-avatar { width: 108px; height: 108px; }
+.player-roster-drawer-avatar.is-online { border-color: #38a85c; box-shadow: 0 0 0 2px #237a40, 0 3px 8px #20384b42; }
+.player-roster-drawer-avatar.is-offline { border-color: #d65252; box-shadow: 0 0 0 2px #9b3434, 0 3px 8px #20384b42; }
 .player-roster-drawer-avatar img {
 	width: 104px;
 	height: 104px;
@@ -4684,3 +4698,15 @@ input, select {
 
 /* Escalas distintas para Eggs livres e Eggs dentro da incubadora portátil. */
 .plain-egg-visual{transform:scale(1.75);transform-origin:center}
+
+@media (max-width: 980px) {
+	.player-roster-drawer.activity-overlay {
+		position: fixed;
+		top: 58px;
+		right: 0;
+		width: min(88vw, 380px);
+		height: calc(100vh - 58px);
+		max-height: none;
+	}
+	.player-roster-drawer.activity-overlay .table-chat-view { height: 100%; }
+}

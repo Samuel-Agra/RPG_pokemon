@@ -1566,8 +1566,16 @@ export class RPGBattleRuntimeManager {
 	}
 	private readableLog(lines: string[]): string[] {
 		const result: string[] = [];
-		for (const line of lines) {
+		for (let index = 0; index < lines.length; index++) {
+			const line = lines[index];
 			const parts = line.split('|');
+			// O protocolo |split| grava em seguida uma linha privada e uma
+			// compartilhada. O painel usa somente a compartilhada para não mostrar
+			// o mesmo efeito duas vezes nem revelar HP exato ao adversário.
+			if (parts[1] === 'split') {
+				index++;
+				continue;
+			}
 			if (parts[1] === 'turn') result.push(`Turno ${parts[2]}`);
 			if (parts[1] === 'move') result.push(`${this.logName(parts[2])} usou ${parts[3]}.`);
 			if (parts[1] === '-damage') result.push(`${this.logName(parts[2])}: ${parts[3]}.`);

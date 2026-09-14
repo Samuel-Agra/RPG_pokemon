@@ -102,6 +102,7 @@ describe('RPG contest runtime', () => {
 		assert.ok(masterRoundView.participants[0].roundScores[0].comboScore <= 15);
 		assert.ok(masterRoundView.participants[0].roundScores[0].fieldInteractionScore > 0);
 		assert.ok(masterRoundView.participants[0].roundStages[0].moves[0].transformations.includes('field:wetstage'));
+		assert.equal(new Set(masterRoundView.events.map(event => event.sequence)).size, masterRoundView.events.length);
 		assert.equal(runtime.snapshot('contest-runtime', { master: true }).canJudge, true);
 		assert.throws(() => runtime.action('contest-runtime', judging(), { characterId: 'may' }), /Only the Master/);
 		view = runtime.action('contest-runtime', judging({ comment: 'Uma apresentação muito harmoniosa.' }), { master: true });

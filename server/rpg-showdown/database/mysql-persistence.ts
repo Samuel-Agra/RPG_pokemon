@@ -16,6 +16,8 @@ const LEGACY_SCOPED_TABLES = new Set([
 export const RPG_SECURITY_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
 export const RPG_SECURITY_CLEANUP_INTERVAL_MS = 6 * 60 * 60 * 1000;
 export const RPG_TABLE_CHAT_CLEANUP_INTERVAL_MS = 60 * 1000;
+export const RPG_TABLE_CHAT_TYPING_TTL_MS = 8_000;
+export const RPG_TABLE_SYSTEM_LOG_RETENTION_MS = 3 * 24 * 60 * 60 * 1000;
 
 export interface RPGSecurityCleanupResult {
 	sessions: number; recoveryCodes: number; loginAttempts: number; invites: number; runtimes: number;
@@ -30,6 +32,17 @@ export interface RPGTableChatMessage {
 	authorCharacterName: string;
 	authorRole: RPGTableMember['role'];
 	message: string;
+	createdAt: number;
+	expiresAt: number;
+}
+
+export interface RPGTableSystemLogEntry {
+	id: string;
+	tableId: string;
+	category: string;
+	title: string;
+	description: string;
+	audienceCharacterIds: string[];
 	createdAt: number;
 	expiresAt: number;
 }
@@ -246,7 +259,13 @@ export class RPGMySQLPersistence {
 
 	private scheduleTableChatCleanup(): void {
 		this.tableChatCleanupTimer = setInterval(() => {
-			void this.pool.execute('DELETE FROM rpg_table_chat_messages WHERE expires_at <= ?', [Date.now()])
+			const now = Date.now();
+			void Promise.all([
+				this.pool.execute('DELETE FROM rpg_table_chat_messages WHERE expires_at <= ?', [now]),
+				this.pool.execute('DELETE FROM rpg_table_chat_typing WHERE updated_at < ?',
+					[now - RPG_TABLE_CHAT_TYPING_TTL_MS]),
+				this.pool.execute('DELETE FROM rpg_table_system_log WHERE expires_at <= ?', [now]),
+			])
 				.catch(error => reportRPGOperationalFailure('Falha na limpeza programada do chat das mesas', error));
 		}, RPG_TABLE_CHAT_CLEANUP_INTERVAL_MS);
 		this.tableChatCleanupTimer.unref();
@@ -484,6 +503,71 @@ export class RPGMySQLPersistence {
 			authorDisplayName: String(members[0].display_name), authorCharacterName: String(members[0].character_name),
 			authorRole: members[0].role, message: text, createdAt: now, expiresAt,
 		};
+	}
+
+	/** Shares short-lived typing presence without retaining it as chat history. */
+	async setTableChatTyping(tableId: string, accountId: string, typing: boolean, now = Date.now()): Promise<void> {
+		const scope = this.requireTableScope(tableId);
+		if (!typing) {
+			await this.pool.execute('DELETE FROM rpg_table_chat_typing WHERE table_id = ? AND account_id = ?',
+				[scope, accountId]);
+			return;
+		}
+		const [members] = await this.pool.query<RowDataPacket[]>(`SELECT 1 FROM rpg_table_members
+			WHERE table_id = ? AND account_id = ? AND status = 'active' LIMIT 1`, [scope, accountId]);
+		if (!members.length) throw new Error('A conta não pertence a esta mesa');
+		await this.pool.execute(`INSERT INTO rpg_table_chat_typing (table_id, account_id, updated_at)
+			VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE updated_at=VALUES(updated_at)`, [scope, accountId, now]);
+	}
+
+	async loadTableChatTyping(tableId: string, viewerAccountId: string, now = Date.now()): Promise<string[]> {
+		const scope = this.requireTableScope(tableId); const cutoff = now - RPG_TABLE_CHAT_TYPING_TTL_MS;
+		await this.pool.execute('DELETE FROM rpg_table_chat_typing WHERE table_id = ? AND updated_at < ?', [scope, cutoff]);
+		const [rows] = await this.pool.query<RowDataPacket[]>(`SELECT
+			COALESCE((SELECT character.display_name FROM rpg_characters character
+				WHERE character.table_id = typing.table_id AND character.account_id = typing.account_id
+				ORDER BY character.updated_at DESC LIMIT 1), account.display_name) AS name
+			FROM rpg_table_chat_typing typing JOIN rpg_accounts account ON account.id = typing.account_id
+			WHERE typing.table_id = ? AND typing.account_id <> ? AND typing.updated_at >= ?
+			ORDER BY name`, [scope, viewerAccountId, cutoff]);
+		return rows.map(row => String(row.name));
+	}
+
+	/** Queues one table activity atomically with the domain operation that produced it. */
+	appendTableSystemLog(tableId: string, category: string, title: string, description: string,
+		audienceCharacterIds: readonly string[], now = Date.now()): void {
+		const scope = this.requireTableScope(tableId);
+		const audience = [...new Set(audienceCharacterIds.filter(Boolean))];
+		if (!audience.length) return;
+		this.enqueue(`INSERT INTO rpg_table_system_log
+			(id, table_id, category, title, description, audience_character_ids, created_at, expires_at)
+			VALUES (?, ?, ?, ?, ?, CAST(? AS JSON), ?, ?)`, [
+			randomBytes(18).toString('hex'), scope, category.slice(0, 32), title.slice(0, 160),
+			description.slice(0, 1000), JSON.stringify(audience), now, now + RPG_TABLE_SYSTEM_LOG_RETENTION_MS,
+		]);
+	}
+
+	/** Masters receive the whole table log; a Player receives only entries addressed to their character. */
+	async loadTableSystemLog(tableId: string, viewer: { master: boolean, characterId?: string },
+		now = Date.now(), limit = 200): Promise<RPGTableSystemLogEntry[]> {
+		const scope = this.requireTableScope(tableId);
+		await this.pool.execute('DELETE FROM rpg_table_system_log WHERE table_id = ? AND expires_at <= ?', [scope, now]);
+		if (!viewer.master && !viewer.characterId) return [];
+		const safeLimit = Math.max(1, Math.min(500, Math.floor(Number(limit) || 200)));
+		const parameters: unknown[] = [scope, now];
+		const audienceFilter = viewer.master ? '' :
+			' AND JSON_CONTAINS(audience_character_ids, JSON_QUOTE(?))';
+		if (!viewer.master) parameters.push(viewer.characterId!);
+		parameters.push(safeLimit);
+		const [rows] = await this.pool.query<RowDataPacket[]>(`SELECT * FROM rpg_table_system_log
+			WHERE table_id = ? AND expires_at > ?${audienceFilter}
+			ORDER BY created_at DESC LIMIT ?`, parameters);
+		return rows.map(row => ({
+			id: String(row.id), tableId: String(row.table_id), category: String(row.category),
+			title: String(row.title), description: String(row.description),
+			audienceCharacterIds: decoded(row.audience_character_ids) as string[],
+			createdAt: Number(row.created_at), expiresAt: Number(row.expires_at),
+		}));
 	}
 
 	async loadRuntimeState(tableId: string, runtimeType: 'battle' | 'contest', sessionId: string): Promise<unknown> {

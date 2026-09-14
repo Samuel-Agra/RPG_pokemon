@@ -356,6 +356,30 @@ export class RPGHttpServer {
 			this.json(res, 200, { characters: this.login.listAllCharacters(this.token(req)) });
 			return;
 		}
+		if (method === 'POST' && url.pathname === '/api/rpg/table-chat/typing') {
+			const session = this.login.getSession(this.token(req));
+			const persistence = this.login.mysqlPersistence;
+			if (!persistence || !session.platformTableId || !session.platformAccountId) {
+				throw new RPGHttpError(503, 'O chat da mesa requer o banco de dados');
+			}
+			const body = await this.body(req);
+			const typing = body.typing === true;
+			await persistence.setTableChatTyping(session.platformTableId, session.platformAccountId, typing);
+			this.json(res, 200, { typing });
+			return;
+		}
+		if (method === 'GET' && url.pathname === '/api/rpg/table-log') {
+			const session = this.login.getSession(this.token(req));
+			const persistence = this.login.mysqlPersistence;
+			if (!persistence || !session.platformTableId) {
+				throw new RPGHttpError(503, 'O registro da mesa requer o banco de dados');
+			}
+			const characterId = session.viewAsCharacterId || session.characterId;
+			this.json(res, 200, { entries: await persistence.loadTableSystemLog(session.platformTableId, {
+				master: session.role === 'master', ...(characterId ? { characterId } : {}),
+			}) });
+			return;
+		}
 		if (url.pathname === '/api/rpg/table-chat') {
 			const token = this.token(req);
 			const session = this.login.getSession(token);
@@ -364,7 +388,11 @@ export class RPGHttpServer {
 				throw new RPGHttpError(503, 'O chat da mesa requer o banco de dados');
 			}
 			if (method === 'GET') {
-				this.json(res, 200, { messages: await persistence.loadTableChatMessages(session.platformTableId) });
+				const [messages, typing] = await Promise.all([
+					persistence.loadTableChatMessages(session.platformTableId),
+					persistence.loadTableChatTyping(session.platformTableId, session.platformAccountId),
+				]);
+				this.json(res, 200, { messages, typing });
 				return;
 			}
 			if (method === 'POST') {

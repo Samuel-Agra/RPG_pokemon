@@ -7,7 +7,7 @@
 	<title>Pok&eacute;mon RPG</title>
 	<link rel="icon" type="image/png" href="./assets/pokemon-rpg-logo.png" />
 	<link rel="apple-touch-icon" href="./assets/pokemon-rpg-logo.png" />
-	<link rel="stylesheet" href="./rpg.css?v=20260913-110" />
+	<link rel="stylesheet" href="./rpg.css?v=20260914-113" />
 	<link rel="stylesheet" href="./battle-ui.css?v=20260830-5" />
 	<link rel="stylesheet" href="./battle-ui-v2.css?v=20260811-23" />
 	<link rel="stylesheet" href="./battle-room.css?v=20260828-6" />
@@ -392,13 +392,25 @@
 							<strong>Players</strong>
 							<div id="player-roster-drawer-list"></div>
 						</section>
-						<section class="table-chat-view" id="table-chat-view" aria-label="Chat da mesa" aria-hidden="true" inert>
-							<strong>Chat da mesa</strong>
-							<div class="table-chat-messages" id="table-chat-messages" aria-live="polite"></div>
-							<form class="table-chat-form" id="table-chat-form">
-								<textarea id="table-chat-input" maxlength="1000" rows="2" placeholder="Escreva uma mensagem" aria-label="Mensagem"></textarea>
-								<button class="button primary" type="submit">Enviar</button>
-							</form>
+						<section class="table-chat-view" id="table-chat-view" aria-label="Comunicação da mesa" aria-hidden="true" inert>
+							<nav class="table-communication-tabs" aria-label="Áreas de comunicação da mesa">
+								<div>
+									<button type="button" data-table-communication-view="log">Registro da mesa</button>
+									<button class="future" type="button" aria-label="Área reservada para implementação futura" disabled>&nbsp;</button>
+								</div>
+								<button class="active" type="button" data-table-communication-view="chat">Chat da mesa</button>
+							</nav>
+							<section class="table-system-log hidden" id="table-system-log" aria-label="Registro da mesa">
+								<div id="table-system-log-entries" aria-live="polite"></div>
+							</section>
+							<section class="table-chat-content" id="table-chat-content">
+								<div class="table-chat-messages" id="table-chat-messages" aria-live="polite"></div>
+								<div class="table-chat-typing hidden" id="table-chat-typing" aria-live="polite"></div>
+								<form class="table-chat-form" id="table-chat-form">
+									<textarea id="table-chat-input" maxlength="1000" rows="2" placeholder="Escreva uma mensagem" aria-label="Mensagem"></textarea>
+									<button class="button primary" type="submit">Enviar</button>
+								</form>
+							</section>
 						</section>
 					</aside>
 				</div>
@@ -440,14 +452,14 @@
 	<script src="./vendor/showdown/battle-animations.js?v=20260725-16"></script>
 	<script src="./vendor/showdown/battle-animations-moves.js?v=20260801-2"></script>
 	<script src="./contest-animation-adapter.js?v=20260830-1"></script>
-	<script src="./battle-room.js?v=20260901-10"></script>
+	<script src="./battle-room.js?v=20260914-11"></script>
 	<script src="./box-ui.js?v=20260822-1"></script>
 	<script src="./team-builder-ui.js?v=20260913-7"></script>
 	<script src="./bag-ui.js?v=20260821-3"></script>
 	<script src="./fossil-lab-ui.js?v=20260820-9"></script>
 	<script src="./nursery-ui.js?v=20260826-1"></script>
-	<script src="./contest-ui.js?v=20260905-39"></script>
+	<script src="./contest-ui.js?v=20260914-40"></script>
 	<script src="./shop-ui.js?v=20260904-4"></script>
-	<script src="./rpg.js?v=20260913-117"></script>
+	<script src="./rpg.js?v=20260914-121"></script>
 </body>
 </html>

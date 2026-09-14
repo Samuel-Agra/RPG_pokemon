@@ -51,12 +51,16 @@ const state = {
 	expandedMasterPlayerIds: new Set(),
 	dashboardHistory: [],
 	tableChatOpen: false,
+	tableCommunicationView: 'chat',
+	tableActivity: null,
 	accountNotifications: [],
 };
 let battleSessionSyncBusy = false;
 let battleSessionSyncTimer = null;
 let masterPresenceSyncTimer = null;
 let playerPresenceHeartbeatTimer = null;
+let tableChatTypingTimer = null;
+let tableChatTypingActive = false;
 let tournamentRefreshTimer = null;
 let applicationRealtimeTimer = null;
 let applicationRealtimeBusy = false;
@@ -1666,11 +1670,6 @@ function startBattleSessionSynchronization() {
 			try {
 				const data = await api('/campaign/settings', { cache: 'no-store' });
 				value.textContent = String(data.settings?.onlinePlayers || 0) + '/' + String(state.campaignCharacters.length);
-				const list = document.querySelector('[data-master-online-list]');
-				if (list) {
-					const names = data.settings?.onlinePlayerNames || [];
-					list.replaceChildren(...(names.length ? names.map(name => createElement('span', '', name)) : [createElement('small', '', 'Nenhum player online.')]));
-				}
 				const areas = document.querySelector('[data-master-area-presence]');
 				if (areas) renderMasterAreaPresence(areas, data.settings?.onlinePlayerAreas || []);
 			} catch {}
@@ -1723,8 +1722,9 @@ async function synchronizeApplicationRealtime() {
 				!['battles', 'contests'].includes(state.dashboardView)) {
 				await renderPlayerRosterDrawer();
 			}
-			if (state.tableChatOpen && !['battles', 'contests'].includes(state.dashboardView)) {
-				await renderTableChat();
+			if (state.tableChatOpen) {
+				if (state.tableCommunicationView === 'log') await renderTableSystemLog();
+				else await renderTableChat();
 			}
 		}
 	} catch (error) {
@@ -3391,6 +3391,7 @@ async function renderPlayerRosterDrawer() {
 		const avatar = characterAvatarBadge(player);
 		avatar.classList.add('player-roster-drawer-avatar');
 		const memberEntry = membersByAccount.get(player.accountId);
+		avatar.classList.add((memberEntry?.online ?? player.online) ? 'is-online' : 'is-offline');
 		const handle = memberEntry ? accountPublicHandle(memberEntry.account) : '@indisponível';
 		const team = createElement('div', 'player-roster-drawer-team');
 		team.setAttribute('aria-label', 'Equipe de ' + player.characterName);
@@ -3424,12 +3425,101 @@ function formatChatTime(value) {
 	return new Intl.DateTimeFormat('pt-BR', { hour: '2-digit', minute: '2-digit' }).format(new Date(value));
 }
 
+function formatTableLogTime(value) {
+	return new Intl.DateTimeFormat('pt-BR', {
+		day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
+	}).format(new Date(value));
+}
+
+async function renderTableSystemLog() {
+	const root = $('#table-system-log-entries');
+	if (!root || !state.tableChatOpen || state.tableCommunicationView !== 'log') return;
+	if (state.tableActivity) {
+		renderTableActivityLog();
+		return;
+	}
+	const data = await api('/table-log', { cache: 'no-store' });
+	const entries = Array.isArray(data.entries) ? data.entries : [];
+	const signature = JSON.stringify(entries);
+	if (root.dataset.realtimeSignature === signature) return;
+	root.dataset.realtimeSignature = signature;
+	const categoryLabels = {
+		battle: 'Batalha', contest: 'Concurso', training: 'Treinamento', fossil: 'Paleontologia',
+		breeding: 'Berçário', incubation: 'Incubação', tournament: 'Torneio',
+	};
+	root.replaceChildren(...(entries.length ? entries.map(entry => {
+		const item = createElement('article', 'table-system-log-entry');
+		const heading = createElement('div', 'table-system-log-heading');
+		heading.append(createElement('span', 'table-system-log-category ' + entry.category,
+			categoryLabels[entry.category] || 'Sistema'), createElement('time', '', formatTableLogTime(entry.createdAt)));
+		item.append(heading, createElement('strong', '', entry.title), createElement('p', '', entry.description));
+		return item;
+	}) : [createElement('div', 'table-chat-empty', 'Nenhum registro dos últimos três dias.')]));
+}
+
+function renderTableActivityLog() {
+	const root = $('#table-system-log-entries');
+	const activity = state.tableActivity;
+	if (!root || !activity || state.tableCommunicationView !== 'log') return;
+	const entries = Array.isArray(activity.entries) ? activity.entries : [];
+	const signature = JSON.stringify([activity.kind, activity.id, entries]);
+	if (root.dataset.realtimeSignature === signature) return;
+	const wasNearBottom = root.scrollHeight - root.scrollTop - root.clientHeight < 45;
+	root.dataset.realtimeSignature = signature;
+	root.replaceChildren(...(entries.length ? entries.map((entry, index) => {
+		const item = createElement('article', 'table-system-log-entry table-activity-log-entry');
+		const heading = createElement('div', 'table-system-log-heading');
+		heading.append(createElement('span', 'table-system-log-category ' + activity.kind,
+			entry.label || (activity.kind === 'battle' ? 'Batalha' : 'Concurso')),
+		createElement('span', 'table-activity-log-sequence', '#' + (entry.sequence ?? index + 1)));
+		item.append(heading, createElement('p', '', entry.text || String(entry)));
+		return item;
+	}) : [createElement('div', 'table-chat-empty', activity.kind === 'battle' ?
+		'A batalha ainda não possui movimentos.' : 'O concurso ainda não possui apresentações.')]));
+	if (wasNearBottom || !root.dataset.activityInitialized) root.scrollTop = root.scrollHeight;
+	root.dataset.activityInitialized = 'true';
+}
+
+function setTableActivity(kind, activityId, entries = []) {
+	if (!['battle', 'contest'].includes(kind) || !activityId) return;
+	const changed = state.tableActivity?.kind !== kind || state.tableActivity?.id !== activityId;
+	state.tableActivity = { kind, id: activityId, entries };
+	const drawer = $('#player-roster-drawer');
+	drawer.classList.add('activity-overlay');
+	drawer.classList.remove('hidden');
+	$('#player-chat-toggle').classList.remove('hidden');
+	const logButton = $('[data-table-communication-view="log"]');
+	logButton.textContent = kind === 'battle' ? 'Log da batalha' : 'Log do concurso';
+	$('#table-system-log').setAttribute('aria-label', logButton.textContent);
+	if (changed) {
+		setTableChatOpen(false);
+		setTableCommunicationView('log');
+	} else if (state.tableChatOpen && state.tableCommunicationView === 'log') {
+		renderTableActivityLog();
+	}
+}
+
+function clearTableActivity() {
+	const wasActive = !!state.tableActivity;
+	state.tableActivity = null;
+	if (wasActive) setTableChatOpen(false);
+	const drawer = $('#player-roster-drawer');
+	drawer.classList.remove('activity-overlay');
+	$('#table-system-log-entries').removeAttribute('data-activity-initialized');
+	const logButton = $('[data-table-communication-view="log"]');
+	logButton.textContent = 'Registro da mesa';
+	$('#table-system-log').setAttribute('aria-label', 'Registro da mesa');
+}
+
+window.RPGTableCommunication = { setActivity: setTableActivity, clearActivity: clearTableActivity };
+
 async function renderTableChat() {
 	const root = $('#table-chat-messages');
 	if (!root || $('#player-roster-drawer').classList.contains('hidden')) return;
 	const data = await api('/table-chat', { cache: 'no-store' });
 	const messages = Array.isArray(data.messages) ? data.messages : [];
-	const signature = JSON.stringify(messages);
+	const typing = Array.isArray(data.typing) ? data.typing : [];
+	const signature = JSON.stringify({ messages, typing });
 	if (root.dataset.realtimeSignature === signature) return;
 	const wasNearBottom = root.scrollHeight - root.scrollTop - root.clientHeight < 45;
 	root.dataset.realtimeSignature = signature;
@@ -3446,6 +3536,50 @@ async function renderTableChat() {
 	}) : [createElement('div', 'table-chat-empty', 'Nenhuma mensagem nas últimas 48 horas.')]));
 	if (wasNearBottom || !root.dataset.initialized) root.scrollTop = root.scrollHeight;
 	root.dataset.initialized = 'true';
+	const typingRoot = $('#table-chat-typing');
+	if (typing.length === 1) {
+		typingRoot.textContent = typing[0] + ' está digitando...';
+	} else if (typing.length === 2) {
+		typingRoot.textContent = typing[0] + ' e ' + typing[1] + ' estão digitando...';
+	} else if (typing.length > 2) {
+		typingRoot.textContent = typing[0] + ', ' + typing[1] + ' e mais ' + (typing.length - 2) + ' estão digitando...';
+	} else {
+		typingRoot.textContent = '';
+	}
+	typingRoot.classList.toggle('hidden', !typing.length);
+}
+
+async function sendTableChatTyping(typing) {
+	if (!state.session || !state.accountSession?.activeTableId) return;
+	try { await api('/table-chat/typing', { method: 'POST', body: { typing } }); } catch {}
+}
+
+function stopTableChatTyping() {
+	if (tableChatTypingTimer) window.clearInterval(tableChatTypingTimer);
+	tableChatTypingTimer = null;
+	if (!tableChatTypingActive) return;
+	tableChatTypingActive = false;
+	void sendTableChatTyping(false);
+}
+
+function startTableChatTyping() {
+	const input = $('#table-chat-input');
+	if (!state.tableChatOpen || !input.value.trim()) {
+		stopTableChatTyping();
+		return;
+	}
+	if (!tableChatTypingActive) {
+		tableChatTypingActive = true;
+		void sendTableChatTyping(true);
+	}
+	if (tableChatTypingTimer) return;
+	tableChatTypingTimer = window.setInterval(() => {
+		if (document.hidden || !state.tableChatOpen || !input.value.trim()) {
+			stopTableChatTyping();
+			return;
+		}
+		void sendTableChatTyping(true);
+	}, 3000);
 }
 
 function setTableChatOpen(open) {
@@ -3460,12 +3594,44 @@ function setTableChatOpen(open) {
 	roster.setAttribute('aria-hidden', String(state.tableChatOpen));
 	chat.setAttribute('aria-hidden', String(!state.tableChatOpen));
 	toggle.setAttribute('aria-expanded', String(state.tableChatOpen));
-	toggle.setAttribute('aria-label', state.tableChatOpen ? 'Mostrar Players' : 'Abrir chat da mesa');
+	toggle.setAttribute('aria-label', state.tableChatOpen ?
+		(state.tableActivity ? 'Recolher comunicação' : 'Mostrar Players') : 'Abrir comunicação da mesa');
 	toggle.textContent = state.tableChatOpen ? '\u2039' : '\u203a';
-	if (state.tableChatOpen) void renderTableChat();
+	if (state.tableChatOpen) {
+		if (state.tableCommunicationView === 'log') void renderTableSystemLog();
+		else void renderTableChat();
+	} else stopTableChatTyping();
+}
+
+function setTableCommunicationView(view) {
+	if (!['chat', 'log'].includes(view)) return;
+	state.tableCommunicationView = view;
+	const chat = $('#table-chat-content');
+	const log = $('#table-system-log');
+	chat.classList.toggle('hidden', view !== 'chat');
+	log.classList.toggle('hidden', view !== 'log');
+	for (const button of document.querySelectorAll('[data-table-communication-view]')) {
+		const active = button.dataset.tableCommunicationView === view;
+		button.classList.toggle('active', active);
+		button.setAttribute('aria-pressed', String(active));
+	}
+	if (view === 'log') {
+		stopTableChatTyping();
+		void renderTableSystemLog();
+	} else {
+		void renderTableChat();
+	}
 }
 
 $('#player-chat-toggle').addEventListener('click', () => setTableChatOpen(!state.tableChatOpen));
+document.addEventListener('pointerdown', event => {
+	if (!state.tableActivity || !state.tableChatOpen) return;
+	if ($('#player-roster-drawer').contains(event.target)) return;
+	setTableChatOpen(false);
+});
+for (const button of document.querySelectorAll('[data-table-communication-view]')) {
+	button.addEventListener('click', () => setTableCommunicationView(button.dataset.tableCommunicationView));
+}
 $('#table-chat-form').addEventListener('submit', async event => {
 	event.preventDefault();
 	const input = $('#table-chat-input');
@@ -3476,6 +3642,7 @@ $('#table-chat-form').addEventListener('submit', async event => {
 	try {
 		await api('/table-chat', { method: 'POST', body: { message } });
 		input.value = '';
+		stopTableChatTyping();
 		await renderTableChat();
 	} catch (error) {
 		showToast(error.message, true);
@@ -3489,6 +3656,8 @@ $('#table-chat-input').addEventListener('keydown', event => {
 	const form = $('#table-chat-form');
 	form.requestSubmit(form.querySelector('button[type="submit"]'));
 });
+$('#table-chat-input').addEventListener('input', startTableChatTyping);
+$('#table-chat-input').addEventListener('blur', stopTableChatTyping);
 
 function openTeamBuilder(pokemonId, returnView = state.dashboardView) {
 	if (!pokemonId) {
@@ -4748,7 +4917,6 @@ async function renderMasterBody(characters) {
 		campaignName
 	);
 	const metrics = createElement('div', 'master-campaign-metrics');
-	let activePlayersCard = null;
 	for (const [label, value, detail] of [
 		['Jogadores ativos', String(campaign.onlinePlayers || 0) + '/' + String(characters.length), 'online / cadastrados'],
 		['Batalhas', String(activeBattles), 'em andamento'],
@@ -4759,38 +4927,9 @@ async function renderMasterBody(characters) {
 		const metricValue = createElement('strong', '', value);
 		if (label === 'Jogadores ativos') {
 			metricValue.dataset.masterOnlinePlayers = '';
-			activePlayersCard = card;
 		}
 		card.append(createElement('small', '', label), metricValue, createElement('span', '', detail));
 		metrics.append(card);
-	}
-	const onlineDrawer = createElement('div', 'master-online-players-drawer hidden');
-	const onlineList = createElement('div', 'master-online-players-list');
-	onlineList.dataset.masterOnlineList = '';
-	const onlineNames = campaign.onlinePlayerNames || [];
-	onlineList.replaceChildren(...(onlineNames.length ? onlineNames.map(name => createElement('span', '', name)) : [createElement('small', '', 'Nenhum player online.')]));
-	onlineDrawer.append(createElement('strong', '', 'Players online'), onlineList);
-	if (activePlayersCard) {
-		activePlayersCard.append(onlineDrawer);
-		activePlayersCard.classList.add('is-interactive');
-		activePlayersCard.tabIndex = 0;
-		activePlayersCard.setAttribute('role', 'button');
-		activePlayersCard.setAttribute('aria-expanded', 'false');
-		const toggleOnlineDrawer = () => {
-			const opening = onlineDrawer.classList.contains('hidden');
-			onlineDrawer.classList.toggle('hidden', !opening);
-			activePlayersCard.setAttribute('aria-expanded', String(opening));
-		};
-		activePlayersCard.addEventListener('click', toggleOnlineDrawer);
-		activePlayersCard.addEventListener('keydown', event => {
-			if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); toggleOnlineDrawer(); }
-		});
-		onlineDrawer.addEventListener('click', event => event.stopPropagation());
-		root.addEventListener('click', event => {
-			if (activePlayersCard.contains(event.target)) return;
-			onlineDrawer.classList.add('hidden');
-			activePlayersCard.setAttribute('aria-expanded', 'false');
-		});
 	}
 	const toolbar = createElement('div', 'master-campaign-toolbar');
 	const celestial = createElement('div', 'master-campaign-celestial');
@@ -6827,6 +6966,7 @@ async function renderDashboard() {
 		return;
 	}
 	show('dashboard');
+	clearTableActivity();
 	if (state.dashboardView !== 'contests') window.RPGContestUI?.stopAudio?.();
 	document.getElementById('dashboard-screen').classList.remove('battle-mode', 'contest-mode');
 	const body = $('#dashboard-body');
@@ -6927,7 +7067,10 @@ async function renderDashboard() {
 				await renderPlayerBody(character);
 			body.replaceChildren(playerView);
 		}
-		if (showPlayerDrawer && state.tableChatOpen) await renderTableChat();
+		if (showPlayerDrawer && state.tableChatOpen) {
+			if (state.tableCommunicationView === 'log') await renderTableSystemLog();
+			else await renderTableChat();
+		}
 	} catch (error) {
 		if (/session/i.test(error.message)) {
 			saveSession(null);
@@ -7204,6 +7347,11 @@ function clickDashboardReturnControl() {
 function handleEscapeNavigation(event) {
 	if (event.key !== 'Escape' || event.defaultPrevented || event.repeat) return;
 	if (document.querySelector('.overview-pokedex-layer')) return;
+	if (state.tableActivity && state.tableChatOpen) {
+		event.preventDefault();
+		setTableChatOpen(false);
+		return;
+	}
 	if (!$('#account-notification-panel').classList.contains('hidden')) {
 		event.preventDefault(); closeAccountNotifications(); return;
 	}

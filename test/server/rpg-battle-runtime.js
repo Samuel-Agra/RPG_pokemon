@@ -111,6 +111,8 @@ describe('RPG private battle runtime', () => {
 		assert(state.sides[1].pokemon[0].hp < state.sides[1].pokemon[0].maxHP);
 		assert(state.sides[0].pokemon[0].moves[1].pp < state.sides[0].pokemon[0].moves[1].maxPP);
 		assert(state.log.some(line => line.includes('usou')));
+		assert.equal(state.log.filter(line => line.startsWith('Squirtle:')).length, 1);
+		assert.equal(state.log.filter(line => line.startsWith('Pidgey:')).length, 1);
 		const moveAnimations = state.animations.filter(event => event.type === 'move');
 		assert.equal(moveAnimations.length, 2);
 		assert.deepEqual(moveAnimations.map(event => event.actor.side), ['p2', 'p1']);

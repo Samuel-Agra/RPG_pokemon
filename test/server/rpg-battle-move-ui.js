@@ -98,7 +98,7 @@ describe('RPG battle move controls', () => {
 			assert(style.includes('.rpg-type-badge.type-' + type), 'missing type badge for ' + type);
 		}
 		assert(html.includes('battle-room.css?v=20260828-6'));
-		assert(html.includes('battle-room.js?v=20260901-10'));
+		assert(html.includes('battle-room.js?v=20260914-11'));
 	});
 	it('uses target sprite ids, typed tooltip borders, provider weather assets, and queued switching', () => {
 		const analysis = fs.readFileSync(path.join(root, 'server/rpg-showdown/battle-move-analysis.ts'), 'utf8');
@@ -125,7 +125,7 @@ describe('RPG battle move controls', () => {
 		assert(adapter.includes('async function recall(field, pokemonElement'));
 		assert(html.includes('showdown-animation-adapter.js?v=20260801-4'));
 		assert(html.includes('battle-room.css?v=20260828-6'));
-		assert(html.includes('battle-room.js?v=20260901-10'));
+		assert(html.includes('battle-room.js?v=20260914-11'));
 	});
 	it('plays voluntary switches before move animations and forced replacements after fainting', () => {
 		const scheduling = script.slice(

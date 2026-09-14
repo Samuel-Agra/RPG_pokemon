@@ -181,6 +181,7 @@ export interface RPGCharacterSelection {
 
 export interface RPGPlayerRosterEntry extends RPGCharacterSelection {
 	accountId?: string;
+	online: boolean;
 	occupiedTeamSlots: number;
 	team: {
 		species: string,
@@ -1059,11 +1060,17 @@ export class RPGLoginService {
 			throw new Error('A lista de Players não está disponível nesta visualização');
 		}
 		const currentCharacterId = session.viewAsCharacterId || session.characterId;
+		const onlineThreshold = this.now() - 15_000;
+		const onlineCharacterIds = new Set([...this.sessions.values()].filter(active =>
+			active.role === 'player' && active.characterId && active.expiresAt > this.now() &&
+			active.lastSeenAt >= onlineThreshold
+		).map(active => active.characterId!));
 		return this.repository.list()
 			.filter(record => record.state.id !== currentCharacterId)
 			.map(record => ({
 				...this.selection(record.state),
 				...(record.accountId ? { accountId: record.accountId } : {}),
+				online: onlineCharacterIds.has(record.state.id),
 				occupiedTeamSlots: Math.min(6, record.state.box.party.length + this.activeEggs(record).length),
 				team: record.state.team.slice(0, 6).map(pokemon => {
 					const visual = pokemon as typeof pokemon & {
@@ -1256,6 +1263,10 @@ export class RPGLoginService {
 		this.campaignSettings.events.push(...completedEvents);
 		this.campaignSettings.events = this.campaignSettings.events.slice(-200);
 		result.events = structuredClone(completedEvents);
+		for (const event of completedEvents) {
+			this.appendTableSystemLog(event.type, event.title,
+				`${event.characterName}: ${event.description}`, [event.characterId], now);
+		}
 		this.persistCampaignSettings();
 		result.charactersAffected = changedIds.size;
 		return result;
@@ -2371,6 +2382,8 @@ export class RPGLoginService {
 		this.trainerProfile(working).stats.eggsHatched++;
 		actor.state = working;
 		this.persistNurseryRecord(actor);
+		this.appendTableSystemLog('incubation', 'Ovo chocado',
+			`${actor.state.characterName}: ${result.pokemon.species} nasceu.`, [actor.state.id]);
 		return { hatch: result, nursery: this.nurseryView(actor) };
 	}
 
@@ -3585,6 +3598,16 @@ export class RPGLoginService {
 			this.settleBattleWager(session, result);
 			this.persistBattleProfile(session, result);
 			const completed = this.battleSessions.complete(battleSessionId, result);
+			const playerIds = completed.participants
+				.filter(participant => participant.kind === 'player' && participant.characterId)
+				.map(participant => participant.characterId!);
+			const participants = completed.participants.map(participant => participant.displayName).join(', ');
+			const outcome = result.outcome === 'tie' ? 'A batalha terminou empatada.' :
+				result.outcome === 'flee' ? 'A batalha terminou após uma fuga.' :
+				result.outcome === 'capture' ? 'A batalha terminou com uma captura.' :
+				`Vencedor: ${result.winner || 'não informado'}.`;
+			this.appendTableSystemLog('battle', 'Batalha encerrada',
+				`${completed.name} — ${participants}. ${outcome}`, playerIds, completed.endedAt || this.now());
 			const linked = this.tournaments.linked('battle', battleSessionId);
 			if (linked && result.winnerSide) {
 				const winnerId = result.winnerSide === 'p1' ? linked.match.participant1Id : linked.match.participant2Id;
@@ -3825,7 +3848,18 @@ export class RPGLoginService {
 	}
 
 	completeContestSession(contestSessionId: string): RPGContestSession {
-		return this.contestSessions.complete(contestSessionId);
+		const current = this.contestSessions.get(contestSessionId);
+		if (current.status === 'ended') return current;
+		return this.persistAtomically(() => {
+			const completed = this.contestSessions.complete(contestSessionId);
+			const playerIds = completed.participants
+				.filter(participant => participant.kind === 'player' && participant.characterId)
+				.map(participant => participant.characterId!);
+			this.appendTableSystemLog('contest', 'Concurso encerrado',
+				`${completed.name} — participantes: ${completed.participants.map(entry => entry.displayName).join(', ')}.`,
+				playerIds, completed.endedAt || this.now());
+			return completed;
+		});
 	}
 
 	consumeContestMovePP(characterId: string, teamIndex: number, moveId: string): boolean {
@@ -4120,6 +4154,14 @@ export class RPGLoginService {
 		const temporary = this.campaignSettingsFile + '.tmp';
 		writeFileSync(temporary, JSON.stringify(this.campaignSettings, null, '\t') + '\n', 'utf8');
 		renameSync(temporary, this.campaignSettingsFile);
+	}
+
+	private appendTableSystemLog(category: string, title: string, description: string,
+		audienceCharacterIds: readonly string[], occurredAt = this.now()): void {
+		if (!this.mysqlPersistence || !this.legacyTableId) return;
+		this.mysqlPersistence.appendTableSystemLog(
+			this.legacyTableId, category, title, description, audienceCharacterIds, occurredAt
+		);
 	}
 
 	async flushPersistence(): Promise<void> {

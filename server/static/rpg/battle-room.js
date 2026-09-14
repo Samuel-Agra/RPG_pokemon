@@ -1366,6 +1366,7 @@ async function rpgBattleRoom(session, character, characters = [], isMaster = fal
 	back.addEventListener('click', () => {
 		stopped = true;
 		state.dismissedBattleSessionIds?.add(session.id);
+		window.RPGTableCommunication?.clearActivity?.();
 		window.RPGBattleAudio?.stop();
 		state.dashboardView = 'overview';
 		void renderDashboard();
@@ -2322,6 +2323,12 @@ async function rpgBattleRoom(session, character, characters = [], isMaster = fal
 	}
 	function render() {
 		if (!snapshot) return;
+		window.RPGTableCommunication?.setActivity?.('battle', session.id,
+			(Array.isArray(snapshot.log) ? snapshot.log : []).map((text, index) => ({
+				sequence: index + 1,
+				label: /^Turno\s/i.test(text) ? 'Turno' : 'Ação',
+				text,
+			})));
 		const nextSnapshotSignature = JSON.stringify(snapshot);
 		if (nextSnapshotSignature === renderedSnapshotSignature) return;
 		renderedSnapshotSignature = nextSnapshotSignature;

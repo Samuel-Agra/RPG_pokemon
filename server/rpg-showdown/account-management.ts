@@ -128,6 +128,7 @@ export interface RPGTableMemberView {
 	member: RPGTableMember; account: RPGPublicPlatformAccount;
 	effectivePermissions: Record<RPGTablePermission, boolean>;
 	characters?: { id: string, name: string }[];
+	online: boolean;
 }
 export interface RPGAccountTableView {
 	table: RPGCampaignTable; membership: RPGTableMember; owner: RPGPublicPlatformAccount;
@@ -1019,13 +1020,18 @@ export class RPGAccountManagement {
 		const session = this.session(token); const viewer = this.activeMember(tableId, session.accountId);
 		this.requirePermission(viewer, 'members.view');
 		const canManage = getRPGDefaultTablePermissions(viewer.role)['members.manage'];
+		const onlineSince = this.now() - 15_000;
 		return this.repository.listMembershipsForTable(tableId).flatMap(member => {
 			if (!canManage && member.status !== 'active') return [];
 			const account = this.repository.getAccount(member.accountId);
 			if (!canManage) member.note = undefined;
 			member.note = this.repository.getAccountNote(session.accountId, member.accountId)?.note;
+			const online = this.sessionRepository.listByAccount(member.accountId).some(active =>
+				!active.revokedAt && active.expiresAt > this.now() && active.lastSeenAt >= onlineSince &&
+				active.activeTableId === tableId
+			);
 			return account ? [{ member, account: this.publicAccount(account),
-				effectivePermissions: getRPGDefaultTablePermissions(member.role) }] : [];
+				effectivePermissions: getRPGDefaultTablePermissions(member.role), online }] : [];
 		});
 	}
 

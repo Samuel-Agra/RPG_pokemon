@@ -183,6 +183,43 @@ window.RPGContestUI = (() => {
 		if (pending.length) contestAnimationCursors.set(contest.sessionId, pending[pending.length - 1].sequence);
 		return pending;
 	}
+	function contestActivityEntries(contest) {
+		const participantById = new Map((contest.participants || []).map(participant => [participant.id, participant]));
+		const seenSequences = new Set();
+		return (contest.events || []).filter(event => {
+			if (!Number.isFinite(event.sequence) || seenSequences.has(event.sequence)) return false;
+			seenSequences.add(event.sequence);
+			return true;
+		}).sort((left, right) => left.sequence - right.sequence).map(event => {
+			const participant = participantById.get(event.participantId);
+			const pokemonTeam = participant?.pokemonTeam?.length ? participant.pokemonTeam : [participant?.pokemon].filter(Boolean);
+			const pokemon = pokemonTeam[Number(event.pokemonIndex || 0)];
+			let label = 'Concurso';
+			let text = '';
+			if (event.type === 'contest-started') text = 'O concurso começou.';
+			else if (event.type === 'round-started') {
+				label = 'Rodada';
+				text = `A ${event.round}ª rodada começou.`;
+			} else if (event.type === 'participant-enter') {
+				label = 'Entrada';
+				text = `${participant?.displayName || 'Participante'} entrou no palco${pokemon ? ` com ${pokemon.name}` : ''}.`;
+			} else if (event.type === 'move-selected') {
+				label = 'Movimento';
+				const actor = pokemon?.name || participant?.displayName || 'O participante';
+				text = event.failedReason === 'no-pp' ?
+					`${actor} tentou usar ${event.moveName || event.moveId || 'um movimento'}, mas estava sem PP e perdeu a ação.` :
+					`${actor}, de ${participant?.displayName || 'um participante'}, apresentou ${event.moveName || event.moveId || 'um movimento'}.`;
+			} else if (event.type === 'awaiting-judging') text = 'A apresentação aguarda a avaliação do Mestre.';
+			else if (event.type === 'judging-complete') {
+				label = 'Avaliação';
+				text = `A apresentação de ${participant?.displayName || 'um participante'} foi avaliada.`;
+			} else if (event.type === 'participant-disqualified') {
+				label = 'Desclassificação';
+				text = `${participant?.displayName || 'Um participante'} foi desclassificado.`;
+			} else if (event.type === 'contest-finished') text = 'O concurso terminou.';
+			return { sequence: event.sequence + 1, label, text };
+		}).filter(entry => entry.text);
+	}
 	function enterContestMode() {
 		document.getElementById('dashboard-screen')?.classList.add('contest-mode');
 	}
@@ -190,6 +227,7 @@ window.RPGContestUI = (() => {
 		if (refreshTimer) window.clearTimeout(refreshTimer);
 		refreshTimer = null;
 		window.RPGBattleAudio?.stop();
+		window.RPGTableCommunication?.clearActivity?.();
 		document.getElementById('dashboard-screen')?.classList.remove('contest-mode');
 	}
 	function contestBackButton(context) {
@@ -316,6 +354,7 @@ window.RPGContestUI = (() => {
 	}
 	function renderRuntime(context, session, contest) {
 		enterContestMode();
+		window.RPGTableCommunication?.setActivity?.('contest', session.id, contestActivityEntries(contest));
 		if (contest.status === 'ended' && contest.results) {
 			if (refreshTimer) window.clearTimeout(refreshTimer);
 			refreshTimer = null;

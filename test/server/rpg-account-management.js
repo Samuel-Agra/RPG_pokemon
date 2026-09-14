@@ -695,6 +695,14 @@ describe('RPG version 2 accounts and tables backend', () => {
 		accounts.joinByInvite(master.token, accounts.createInvite(owner.token, table.id, 'master').code);
 		accounts.joinByInvite(player.token, accounts.createInvite(master.token, table.id, 'player').code);
 		assert.equal(accounts.listMembers(owner.token, table.id).length, 3);
+		assert.equal(accounts.listMembers(owner.token, table.id)
+			.find(entry => entry.account.id === playerAccount.id).online, false);
+		accounts.selectTable(player.token, table.id);
+		assert.equal(accounts.listMembers(owner.token, table.id)
+			.find(entry => entry.account.id === playerAccount.id).online, true);
+		accounts.deselectTable(player.token);
+		assert.equal(accounts.listMembers(owner.token, table.id)
+			.find(entry => entry.account.id === playerAccount.id).online, false);
 		accounts.withAuditContext({ origin: 'unit-test', sessionId: 'session-test' }, () =>
 			assert.equal(accounts.changeMemberRole(owner.token, table.id, playerAccount.id, 'spectator',
 				'Reorganização da mesa').role, 'spectator'));
