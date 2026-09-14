@@ -7,7 +7,7 @@
 	<title>Pok&eacute;mon RPG</title>
 	<link rel="icon" type="image/png" href="./assets/pokemon-rpg-logo.png" />
 	<link rel="apple-touch-icon" href="./assets/pokemon-rpg-logo.png" />
-	<link rel="stylesheet" href="./rpg.css?v=20260913-109" />
+	<link rel="stylesheet" href="./rpg.css?v=20260913-110" />
 	<link rel="stylesheet" href="./battle-ui.css?v=20260830-5" />
 	<link rel="stylesheet" href="./battle-ui-v2.css?v=20260811-23" />
 	<link rel="stylesheet" href="./battle-room.css?v=20260828-6" />
@@ -184,6 +184,9 @@
 								<h1 id="account-profile-name">Conta RPG</h1>
 								<p id="account-profile-username">@usuario</p>
 							</div>
+							<button class="account-notification-trigger" id="account-notification-trigger" type="button" aria-label="Notificações" aria-expanded="false">
+								<span aria-hidden="true">&#x1F514;</span><small class="hidden" id="account-notification-count">0</small>
+							</button>
 						</div>
 						<nav class="account-navigation-options">
 							<button class="active" data-account-view="owned" type="button"><span aria-hidden="true">&#x25A3;</span>Minhas mesas</button>
@@ -213,6 +216,11 @@
 						<section class="account-table-view hidden" data-account-panel="invites"><div class="account-table-view-heading"><div><p class="eyebrow">Convites direcionados para voc&ecirc;</p><h1>Convites</h1></div><button class="button" id="account-invites-join" type="button">Inserir c&oacute;digo</button></div><div class="account-table-grid" id="account-directed-invite-list"></div><p class="account-section-empty hidden" id="account-directed-invite-empty">Voc&ecirc; n&atilde;o possui convites pendentes.</p></section>
 						<section class="account-settings-page hidden" data-account-panel="settings" id="account-settings-page"></section>
 					</div>
+					<aside class="panel account-notification-panel hidden" id="account-notification-panel" aria-label="Notificações da conta">
+						<header><div><small>Central da conta</small><h2>Notificações</h2></div><button id="account-notification-read-all" type="button">Marcar todas como lidas</button></header>
+						<div class="account-notification-list" id="account-notification-list"></div>
+						<p class="account-notification-empty hidden" id="account-notification-empty">Nenhuma notificação por enquanto.</p>
+					</aside>
 				</div>
 			</section>
 
@@ -440,6 +448,6 @@
 	<script src="./nursery-ui.js?v=20260826-1"></script>
 	<script src="./contest-ui.js?v=20260905-39"></script>
 	<script src="./shop-ui.js?v=20260904-4"></script>
-	<script src="./rpg.js?v=20260913-116"></script>
+	<script src="./rpg.js?v=20260913-117"></script>
 </body>
 </html>

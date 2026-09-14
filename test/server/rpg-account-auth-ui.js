@@ -95,6 +95,11 @@ describe('RPG version 2 account authentication frontend', () => {
 		assert(script.includes("new CustomEvent('rpg:realtime-sync'"));
 		assert(script.includes('if (applicationRealtimeBusy || document.hidden || !state.accountSession) return'));
 		assert(script.includes('await loadDirectedInvites(true)'));
+		assert(html.includes('id="account-notification-trigger"'));
+		assert(html.includes('id="account-notification-panel"'));
+		assert(script.includes("accountApi('/notifications')"));
+		assert(script.includes('function renderAccountNotifications('));
+		assert(style.includes('.account-notification-panel'));
 		assert(script.includes('await refreshMasterInvitationsPanel()'));
 		assert(script.includes("openAccountTableDialog('create')"));
 		assert(script.includes("openAccountTableDialog('join')"));

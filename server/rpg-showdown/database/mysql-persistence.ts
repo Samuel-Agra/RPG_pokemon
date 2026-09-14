@@ -4,7 +4,7 @@ import { createHash, randomBytes, scryptSync } from 'node:crypto';
 import { AsyncLocalStorage } from 'node:async_hooks';
 import mysql, { type Pool, type PoolConnection, type ResultSetHeader, type RowDataPacket } from 'mysql2/promise';
 import type {
-	RPGAccountRelationNote, RPGAdminAuditEntry, RPGCampaignTable, RPGLoginAttempt, RPGPlatformAccount, RPGRecoveryCode,
+	RPGAccountNotification, RPGAccountRelationNote, RPGAdminAuditEntry, RPGCampaignTable, RPGLoginAttempt, RPGPlatformAccount, RPGRecoveryCode,
 	RPGStoredPlatformSession, RPGTableInvite, RPGTableMember,
 } from '../account-management';
 
@@ -76,6 +76,7 @@ export interface RPGMySQLSnapshot {
 	loginAttempts: RPGLoginAttempt[];
 	auditEntries: RPGAdminAuditEntry[];
 	accountNotes: RPGAccountRelationNote[];
+	notifications: RPGAccountNotification[];
 	legacyTableId?: string;
 }
 
@@ -344,7 +345,7 @@ export class RPGMySQLPersistence {
 		};
 		const [characters, battles, contests, tournaments, combos, customItems, shops,
 			masterNPC, documents, campaign, accountRows, tableRows, memberRows, inviteRows, sessionRows,
-			recoveryRows, attemptRows, auditRows, accountNoteRows] = await Promise.all([
+			recoveryRows, attemptRows, auditRows, accountNoteRows, notificationRows] = await Promise.all([
 			rows('rpg_characters', "JSON_OBJECT('credential', credential, 'state', state, 'accountId', account_id, 'tableId', table_id)", true),
 			rows('rpg_battle_sessions', 'state', true), rows('rpg_contest_sessions', 'state', true),
 			rows('rpg_tournaments', 'state', true), rows('rpg_contest_combos', 'definition', true),
@@ -362,6 +363,7 @@ export class RPGMySQLPersistence {
 			this.pool.query<RowDataPacket[]>('SELECT * FROM rpg_login_attempts'),
 			this.pool.query<RowDataPacket[]>('SELECT * FROM rpg_admin_audit WHERE table_id = ?', [tableId]),
 			this.pool.query<RowDataPacket[]>('SELECT * FROM rpg_account_relation_notes'),
+			this.pool.query<RowDataPacket[]>('SELECT * FROM rpg_account_notifications'),
 		]);
 		return {
 			characters, battles, contests, tournaments, combos, customItems, shops,
@@ -414,6 +416,10 @@ export class RPGMySQLPersistence {
 				metadata: decoded(row.metadata) as Record<string, unknown>, createdAt: Number(row.created_at) })),
 			accountNotes: accountNoteRows[0].map(row => ({ authorAccountId: String(row.author_account_id),
 				targetAccountId: String(row.target_account_id), note: String(row.note), updatedAt: Number(row.updated_at) })),
+			notifications: notificationRows[0].map(row => ({ id: String(row.id), accountId: String(row.account_id),
+				tableId: row.table_id ? String(row.table_id) : undefined, type: row.type, title: String(row.title),
+				message: String(row.message), action: row.action, createdAt: Number(row.created_at),
+				readAt: row.read_at === null ? undefined : Number(row.read_at) })),
 			legacyTableId: tableId,
 		};
 	}
@@ -656,6 +662,16 @@ export class RPGMySQLPersistence {
 		this.enqueue(`INSERT INTO rpg_account_relation_notes (author_account_id, target_account_id, note, updated_at)
 			VALUES (?, ?, ?, ?) ON DUPLICATE KEY UPDATE note=VALUES(note), updated_at=VALUES(updated_at)`, [
 			note.authorAccountId, note.targetAccountId, note.note, note.updatedAt,
+		]);
+	}
+	upsertAccountNotification(notification: RPGAccountNotification): void {
+		this.enqueue(`INSERT INTO rpg_account_notifications
+			(id, account_id, table_id, type, title, message, action, created_at, read_at)
+			VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+			ON DUPLICATE KEY UPDATE table_id=VALUES(table_id), type=VALUES(type), title=VALUES(title),
+			message=VALUES(message), action=VALUES(action), read_at=VALUES(read_at)`, [
+			notification.id, notification.accountId, notification.tableId, notification.type, notification.title,
+			notification.message, notification.action, notification.createdAt, notification.readAt,
 		]);
 	}
 	upsertTableInvite(invite: RPGTableInvite): void {

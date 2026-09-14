@@ -5614,6 +5614,7 @@ Promise<RPGLoginService> {
 		accounts: snapshot.platformAccounts, tables: snapshot.campaignTables,
 		members: snapshot.tableMembers, invites: snapshot.tableInvites, recoveryCodes: snapshot.recoveryCodes,
 		loginAttempts: snapshot.loginAttempts, auditEntries: snapshot.auditEntries, accountNotes: snapshot.accountNotes,
+		notifications: snapshot.notifications,
 	}, {
 		account: account => persistence.upsertPlatformAccount(account),
 		table: (table, id) => table ? persistence.upsertCampaignTable(table) : persistence.deleteCampaignTable(id),
@@ -5623,6 +5624,7 @@ Promise<RPGLoginService> {
 		loginAttempt: (attempt, key) => attempt ? persistence.upsertLoginAttempt(attempt) : persistence.deleteLoginAttempt(key),
 		auditEntry: entry => persistence.insertAuditEntry(entry),
 		accountNote: note => persistence.upsertAccountRelationNote(note),
+		notification: notification => persistence.upsertAccountNotification(notification),
 	});
 	const accountSessionRepository = new RPGMemoryPlatformSessionRepository(snapshot.accountSessions, (session, tokenHash) => {
 		if (session) persistence.upsertPlatformSession(session);

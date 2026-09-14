@@ -114,6 +114,7 @@ export class RPGHttpServer {
 						members: snapshot.tableMembers, invites: snapshot.tableInvites,
 						recoveryCodes: snapshot.recoveryCodes, loginAttempts: snapshot.loginAttempts,
 						auditEntries: snapshot.auditEntries, accountNotes: snapshot.accountNotes,
+						notifications: snapshot.notifications,
 					}, snapshot.accountSessions);
 				}
 				try {
@@ -155,6 +156,7 @@ export class RPGHttpServer {
 								members: snapshot.tableMembers, invites: snapshot.tableInvites,
 								recoveryCodes: snapshot.recoveryCodes, loginAttempts: snapshot.loginAttempts,
 								auditEntries: snapshot.auditEntries, accountNotes: snapshot.accountNotes,
+								notifications: snapshot.notifications,
 							}, snapshot.accountSessions);
 						}
 						return this.service!.accounts.getActiveTableContext(match[1]);
@@ -491,6 +493,25 @@ export class RPGHttpServer {
 			await this.login.flushPersistence();
 			this.json(res, 200, { ok: true });
 			return;
+		}
+		if (url.pathname === '/api/rpg/v2/notifications') {
+			const token = this.token(req);
+			if (method === 'GET') {
+				const notifications = this.login.accounts.listNotifications(token, Number(url.searchParams.get('limit') || 50));
+				this.json(res, 200, { notifications, unread: notifications.filter(entry => !entry.readAt).length });
+				return;
+			}
+			if (method === 'PATCH') {
+				const updated = this.login.accounts.markAllNotificationsRead(token);
+				await this.login.flushPersistence(); this.json(res, 200, { updated }); return;
+			}
+		}
+		const version2NotificationMatch = /^\/api\/rpg\/v2\/notifications\/([^/]+)$/.exec(url.pathname);
+		if (method === 'PATCH' && version2NotificationMatch) {
+			const notification = this.login.accounts.markNotificationRead(
+				this.token(req), decodeURIComponent(version2NotificationMatch[1])
+			);
+			await this.login.flushPersistence(); this.json(res, 200, { notification }); return;
 		}
 		if (url.pathname === '/api/rpg/v2/tables') {
 			const token = this.token(req);
@@ -1876,6 +1897,7 @@ export class RPGHttpServer {
 					members: snapshot.tableMembers, invites: snapshot.tableInvites,
 					recoveryCodes: snapshot.recoveryCodes, loginAttempts: snapshot.loginAttempts,
 					auditEntries: snapshot.auditEntries, accountNotes: snapshot.accountNotes,
+					notifications: snapshot.notifications,
 				}, snapshot.accountSessions);
 			}
 			this.service!.accounts.withAuditContext(context, () => this.service!.accounts.recordAdministrativeFailure(
@@ -2033,7 +2055,8 @@ export class RPGHttpServer {
 			message.includes('já possui um convite ativo')) {
 			status = 409; publicDomainError = true;
 		} else if (message.includes('Unknown RPG character') || message.includes('Convite inválido') ||
-			message.includes('Convite não encontrado') || message.includes('Conta convidada não encontrada')) {
+			message.includes('Convite não encontrado') || message.includes('Conta convidada não encontrada') ||
+			message.includes('Notificação não encontrada')) {
 			status = 404; publicDomainError = true;
 		}
 		if (!publicDomainError && !this.isPublicValidationError(message)) {

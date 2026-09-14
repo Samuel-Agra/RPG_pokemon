@@ -815,12 +815,18 @@ describe('RPG version 2 accounts and tables backend', () => {
 		assert.equal(accounts.discoverTables(guest.token)[0].ownerOnline, false);
 		const publicRequest = accounts.joinPublicTable(guest.token, publicTable.id);
 		assert.equal(publicRequest.status, 'pending');
+		assert.equal(accounts.listNotifications(owner.token)[0].type, 'join_request');
 		assert.deepEqual(accounts.discoverTables(guest.token), []);
 		assert.equal(accounts.resolveJoinRequest(owner.token, publicTable.id, publicRequest.accountId, true).status, 'active');
+		assert.equal(accounts.listNotifications(guest.token)[0].type, 'join_approved');
+		const read = accounts.markNotificationRead(guest.token, accounts.listNotifications(guest.token)[0].id);
+		assert.equal(typeof read.readAt, 'number');
+		assert.throws(() => accounts.markNotificationRead(owner.token, read.id), /não encontrada/);
 		accounts.leaveTable(guest.token, publicTable.id);
 		accounts.updateTable(owner.token, publicTable.id, { requireJoinApproval: false });
 		const accepted = accounts.createInvite(owner.token, publicTable.id, 'player', undefined, 1, 'convidado-direto');
 		assert.equal(accounts.listDirectedInvites(guest.token)[0].invite.id, accepted.invite.id);
+		assert(accounts.listNotifications(guest.token).some(notification => notification.type === 'table_invite'));
 		assert.equal(accounts.acceptDirectedInvite(guest.token, accepted.invite.id).status, 'active');
 		assert.deepEqual(accounts.discoverTables(guest.token), [], 'mesas das quais a conta participa não devem aparecer');
 		assert.deepEqual(accounts.listDirectedInvites(guest.token), []);
@@ -828,6 +834,8 @@ describe('RPG version 2 accounts and tables backend', () => {
 		const declined = accounts.createInvite(owner.token, publicTable.id, 'spectator', undefined, 1, 'convidado-direto');
 		accounts.declineDirectedInvite(guest.token, declined.invite.id);
 		assert.deepEqual(accounts.listDirectedInvites(guest.token), []);
+		assert(accounts.markAllNotificationsRead(guest.token) >= 1);
+		assert(accounts.listNotifications(guest.token).every(notification => notification.readAt));
 	});
 
 	it('previews invitations and approves one idempotent join request', () => {
@@ -985,6 +993,7 @@ describe('RPG version 2 accounts and tables backend', () => {
 		for (const method of [
 			'upsertPlatformAccount', 'upsertCampaignTable', 'upsertTableMember',
 			'upsertTableInvite', 'upsertPlatformSession', 'deletePlatformSession', 'upsertAccountRelationNote',
+			'upsertAccountNotification',
 		]) assert(source.includes(`${method}(`), method);
 		assert(source.includes('SELECT * FROM rpg_account_sessions'));
 		assert(!source.includes('token VARCHAR'), 'plain session tokens must never be persisted');
@@ -1005,5 +1014,14 @@ describe('RPG version 2 accounts and tables backend', () => {
 		), 'utf8');
 		assert.match(migration, /PRIMARY KEY \(author_account_id, target_account_id\)/);
 		assert.match(migration, /FOREIGN KEY \(target_account_id\)/);
+	});
+
+	it('persists account notifications with read state and optional table context', () => {
+		const migration = fs.readFileSync(path.resolve(
+			__dirname, '../../server/rpg-showdown/database/migrations/015-account-notifications.sql'
+		), 'utf8');
+		assert.match(migration, /CREATE TABLE IF NOT EXISTS rpg_account_notifications/);
+		assert.match(migration, /read_at BIGINT NULL/);
+		assert.match(migration, /ON DELETE SET NULL/);
 	});
 });

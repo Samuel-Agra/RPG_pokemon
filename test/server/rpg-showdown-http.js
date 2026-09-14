@@ -312,7 +312,19 @@ describe('RPG HTTP frontend API', () => {
 		assert.equal(result.data.invite.maxUses, 1);
 		assert.equal(result.data.invite.codeHash, undefined);
 		assert.equal(result.data.code, undefined);
-		await request(`/v2/invites/directed/${result.data.invite.id}`, { method: 'POST', headers: memberHeaders });
+		const directedInviteId = result.data.invite.id;
+		let notifications = await request('/v2/notifications', { headers: memberHeaders });
+		assert.equal(notifications.data.unread, 1);
+		assert.equal(notifications.data.notifications[0].type, 'table_invite');
+		result = await request(`/v2/notifications/${notifications.data.notifications[0].id}`, {
+			method: 'PATCH', headers: ownerHeaders,
+		});
+		assert.equal(result.response.status, 404);
+		result = await request('/v2/notifications', { method: 'PATCH', headers: memberHeaders });
+		assert.equal(result.data.updated, 1);
+		notifications = await request('/v2/notifications', { headers: memberHeaders });
+		assert.equal(notifications.data.unread, 0);
+		await request(`/v2/invites/directed/${directedInviteId}`, { method: 'POST', headers: memberHeaders });
 		result = await request(`/v2/tables/${tableId}/invites`, {
 			method: 'POST', headers: memberHeaders, body: { role: 'player' },
 		});

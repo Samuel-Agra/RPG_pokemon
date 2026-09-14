@@ -51,6 +51,7 @@ const state = {
 	expandedMasterPlayerIds: new Set(),
 	dashboardHistory: [],
 	tableChatOpen: false,
+	accountNotifications: [],
 };
 let battleSessionSyncBusy = false;
 let battleSessionSyncTimer = null;
@@ -1455,6 +1456,62 @@ async function loadDirectedInvites(background = false) {
 	} catch (error) { list.replaceChildren(createElement('div', 'panel empty-state', error.message)); }
 }
 
+function closeAccountNotifications() {
+	$('#account-notification-panel').classList.add('hidden');
+	$('#account-notification-trigger').setAttribute('aria-expanded', 'false');
+}
+
+function renderAccountNotifications(notifications, background = false) {
+	const list = $('#account-notification-list');
+	const signature = JSON.stringify(notifications);
+	if (background && list.dataset.realtimeSignature === signature) return;
+	list.dataset.realtimeSignature = signature; list.replaceChildren();
+	state.accountNotifications = notifications;
+	for (const notification of notifications) {
+		const item = button('', `account-notification-item${notification.readAt ? ' read' : ''}`);
+		item.append(createElement('i', 'account-notification-dot'));
+		const copy = createElement('span', 'account-notification-copy');
+		copy.append(createElement('strong', '', notification.title), createElement('span', '', notification.message));
+		const time = createElement('time', '', relativeAccountActivity(notification.createdAt));
+		item.append(copy, time);
+		item.addEventListener('click', async () => {
+			try {
+				if (!notification.readAt) await accountApi(`/notifications/${encodeURIComponent(notification.id)}`, { method: 'PATCH' });
+				closeAccountNotifications();
+				if (notification.action === 'invites') setAccountTablesView('invites');
+				else {
+					await refreshAccountTables();
+					const entry = state.accountTables.find(value => value.table.id === notification.tableId);
+					setAccountTablesView(entry && ['owner', 'master'].includes(entry.membership.role) ? 'owned' : 'joined');
+				}
+				await loadAccountNotifications(true);
+			} catch (error) { showToast(error.message, true); }
+		});
+		list.append(item);
+	}
+	const unread = notifications.filter(notification => !notification.readAt).length;
+	const count = $('#account-notification-count'); count.textContent = unread > 99 ? '99+' : String(unread);
+	count.classList.toggle('hidden', unread === 0);
+	$('#account-notification-empty').classList.toggle('hidden', notifications.length > 0);
+	$('#account-notification-read-all').disabled = unread === 0;
+}
+
+async function loadAccountNotifications(background = false) {
+	try {
+		const data = await accountApi('/notifications');
+		renderAccountNotifications(data.notifications || [], background);
+	} catch (error) {
+		if (!background) $('#account-notification-list').replaceChildren(createElement('p', 'account-notification-empty', error.message));
+	}
+}
+
+async function toggleAccountNotifications() {
+	const panel = $('#account-notification-panel'); const open = panel.classList.contains('hidden');
+	if (!open) { closeAccountNotifications(); return; }
+	panel.classList.remove('hidden'); $('#account-notification-trigger').setAttribute('aria-expanded', 'true');
+	await loadAccountNotifications();
+}
+
 function setAccountTablesView(view) {
 	const previousView = accountTablesView;
 	accountTablesView = ['owned', 'joined', 'discover', 'invites', 'settings'].includes(view) ? view : 'owned';
@@ -1478,7 +1535,7 @@ async function renderAccountTables() {
 	$('#account-profile-username').textContent = '@' + (state.account?.handle || state.account?.username || 'usuario');
 	$('#account-profile-avatar').textContent = initials(state.account?.displayName);
 	try {
-		await refreshAccountTables();
+		await Promise.all([refreshAccountTables(), loadAccountNotifications(true)]);
 		const inviteCode = new URL(window.location.href).searchParams.get('invite');
 		if (inviteCode) {
 			const clean = new URL(window.location.href); clean.searchParams.delete('invite');
@@ -1651,7 +1708,7 @@ async function synchronizeApplicationRealtime() {
 	try {
 		const visibleScreen = screens.find(screen => !screen.classList.contains('hidden'))?.id;
 		if (visibleScreen === 'tables-screen') {
-			await refreshAccountTables();
+			await Promise.all([refreshAccountTables(), loadAccountNotifications(true)]);
 			if (accountTablesView === 'invites') await loadDirectedInvites(true);
 		} else if (visibleScreen === 'dashboard-screen' && state.session) {
 			window.dispatchEvent(new CustomEvent('rpg:realtime-sync', {
@@ -7060,6 +7117,13 @@ $('#account-create-table').addEventListener('click', () => openAccountTableDialo
 $('#account-join-table').addEventListener('click', () => openAccountTableDialog('join'));
 $('#account-invites-join').addEventListener('click', () => openAccountTableDialog('join'));
 $('#account-discover-refresh').addEventListener('click', () => void loadDiscoveredTables());
+$('#account-notification-trigger').addEventListener('click', () => void toggleAccountNotifications());
+$('#account-notification-read-all').addEventListener('click', async () => {
+	try {
+		await accountApi('/notifications', { method: 'PATCH' });
+		await loadAccountNotifications();
+	} catch (error) { showToast(error.message, true); }
+});
 for (const control of document.querySelectorAll('[data-account-view]')) {
 	control.addEventListener('click', () => setAccountTablesView(control.dataset.accountView));
 }
@@ -7079,6 +7143,7 @@ $('#account-archived-toggle').addEventListener('click', () => {
 	$('#account-archived-toggle').querySelector('span').textContent = open ? '\u25be' : '\u25b8';
 });
 document.addEventListener('pointerdown', event => {
+	if (!event.target.closest('#account-notification-trigger, #account-notification-panel')) closeAccountNotifications();
 	if (!event.target.closest('.account-table-menu-button, .account-table-popover')) closeAccountTableMenus();
 	if (!event.target.closest('#current-table-shell')) closeCurrentTableMenu();
 	if (!event.target.closest('.account-table-session-days')) {
@@ -7139,6 +7204,9 @@ function clickDashboardReturnControl() {
 function handleEscapeNavigation(event) {
 	if (event.key !== 'Escape' || event.defaultPrevented || event.repeat) return;
 	if (document.querySelector('.overview-pokedex-layer')) return;
+	if (!$('#account-notification-panel').classList.contains('hidden')) {
+		event.preventDefault(); closeAccountNotifications(); return;
+	}
 	const invitationsWindow = document.querySelector('.master-invitations-window-layer');
 	if (invitationsWindow && !document.querySelector('.master-invite-dialog-layer')) {
 		event.preventDefault(); invitationsWindow.remove(); return;

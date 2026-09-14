@@ -166,6 +166,12 @@ export interface RPGAdminAuditEntry {
 export interface RPGAccountRelationNote {
 	authorAccountId: string; targetAccountId: string; note: string; updatedAt: number;
 }
+export interface RPGAccountNotification {
+	id: string; accountId: string; tableId?: string;
+	type: 'table_invite' | 'join_request' | 'join_approved' | 'join_denied' | 'member_removed' | 'member_blocked' |
+		'role_changed' | 'ownership_received';
+	title: string; message: string; action: 'invites' | 'tables'; createdAt: number; readAt?: number;
+}
 export interface RPGAuditRequestContext {
 	origin: string; sessionId?: string; method?: string; path?: string;
 }
@@ -174,6 +180,7 @@ export interface RPGAccountRepositorySnapshot {
 	members?: RPGTableMember[]; invites?: RPGTableInvite[];
 	recoveryCodes?: RPGRecoveryCode[]; loginAttempts?: RPGLoginAttempt[]; auditEntries?: RPGAdminAuditEntry[];
 	accountNotes?: RPGAccountRelationNote[];
+	notifications?: RPGAccountNotification[];
 }
 
 export interface RPGAccountRepository {
@@ -204,6 +211,9 @@ export interface RPGAccountRepository {
 	addAuditEntry(entry: RPGAdminAuditEntry): void;
 	getAccountNote(authorAccountId: string, targetAccountId: string): RPGAccountRelationNote | undefined;
 	setAccountNote(note: RPGAccountRelationNote): void;
+	listNotifications(accountId: string): RPGAccountNotification[];
+	getNotification(id: string): RPGAccountNotification | undefined;
+	setNotification(notification: RPGAccountNotification): void;
 }
 
 /** Repositório determinístico usado nos testes e como contrato para o adaptador MySQL. */
@@ -216,6 +226,7 @@ export class RPGMemoryAccountRepository implements RPGAccountRepository {
 	private loginAttempts = new Map<string, RPGLoginAttempt>();
 	private auditEntries = new Map<string, RPGAdminAuditEntry>();
 	private accountNotes = new Map<string, RPGAccountRelationNote>();
+	private notifications = new Map<string, RPGAccountNotification>();
 	private transactionEffects: (() => void)[] | null = null;
 	constructor(
 		snapshot: RPGAccountRepositorySnapshot = {},
@@ -228,6 +239,7 @@ export class RPGMemoryAccountRepository implements RPGAccountRepository {
 			loginAttempt?: (value: RPGLoginAttempt | null, key: string) => void,
 			auditEntry?: (value: RPGAdminAuditEntry) => void,
 			accountNote?: (value: RPGAccountRelationNote) => void,
+			notification?: (value: RPGAccountNotification) => void,
 		} = {}
 	) {
 		this.replace(snapshot);
@@ -235,6 +247,7 @@ export class RPGMemoryAccountRepository implements RPGAccountRepository {
 	replace(snapshot: RPGAccountRepositorySnapshot): void {
 		this.accounts.clear(); this.tables.clear(); this.members.clear(); this.invites.clear();
 		this.recoveryCodes.clear(); this.loginAttempts.clear(); this.auditEntries.clear(); this.accountNotes.clear();
+		this.notifications.clear();
 		for (const value of snapshot.accounts || []) {
 			const account = structuredClone(value);
 			account.handle ||= account.username;
@@ -249,6 +262,7 @@ export class RPGMemoryAccountRepository implements RPGAccountRepository {
 		for (const value of snapshot.accountNotes || []) {
 			this.accountNotes.set(`${value.authorAccountId}:${value.targetAccountId}`, structuredClone(value));
 		}
+		for (const value of snapshot.notifications || []) this.notifications.set(value.id, structuredClone(value));
 	}
 	replaceAuditEntries(tableId: string, entries: RPGAdminAuditEntry[]): void {
 		const normalized = toID(tableId);
@@ -271,6 +285,7 @@ export class RPGMemoryAccountRepository implements RPGAccountRepository {
 			recoveryCodes: structuredClone(this.recoveryCodes), loginAttempts: structuredClone(this.loginAttempts),
 			auditEntries: structuredClone(this.auditEntries),
 			accountNotes: structuredClone(this.accountNotes),
+			notifications: structuredClone(this.notifications),
 		};
 		this.transactionEffects = [];
 		try {
@@ -282,6 +297,7 @@ export class RPGMemoryAccountRepository implements RPGAccountRepository {
 			this.invites = snapshot.invites; this.recoveryCodes = snapshot.recoveryCodes;
 			this.loginAttempts = snapshot.loginAttempts; this.auditEntries = snapshot.auditEntries;
 			this.accountNotes = snapshot.accountNotes;
+			this.notifications = snapshot.notifications;
 			this.transactionEffects = null; throw error;
 		}
 	}
@@ -317,6 +333,15 @@ export class RPGMemoryAccountRepository implements RPGAccountRepository {
 	setAccountNote(note: RPGAccountRelationNote) {
 		this.accountNotes.set(`${note.authorAccountId}:${note.targetAccountId}`, structuredClone(note));
 		this.effect(() => this.changed.accountNote?.(note));
+	}
+	listNotifications(accountId: string) {
+		return [...this.notifications.values()].filter(entry => entry.accountId === toID(accountId))
+			.sort((a, b) => b.createdAt - a.createdAt).map(entry => structuredClone(entry));
+	}
+	getNotification(id: string) { return this.clone(this.notifications.get(toID(id))); }
+	setNotification(notification: RPGAccountNotification) {
+		this.notifications.set(notification.id, structuredClone(notification));
+		this.effect(() => this.changed.notification?.(notification));
 	}
 	getInviteByCodeHash(codeHash: string) { return this.clone([...this.invites.values()].find(invite => invite.codeHash === codeHash)); }
 	getInvite(id: string) { return this.clone(this.invites.get(toID(id))); }
@@ -858,6 +883,7 @@ export class RPGAccountManagement {
 		};
 		this.atomic(() => {
 			this.repository.setMembership(member);
+			if (requiresApproval) this.notifyTableManagers(table, member.accountId);
 			this.audit(member, requiresApproval ? 'member.requested' : 'member.joined', 'member', member.accountId, {
 				previousRole: previous?.role, newRole: member.role, previousStatus: previous?.status, newStatus: member.status,
 				source: 'public-discovery',
@@ -908,6 +934,32 @@ export class RPGAccountManagement {
 				memberCount: this.repository.listMembershipsForTable(table.id).filter(member => member.status === 'active').length });
 		}
 		return result.sort((a, b) => b.invite.createdAt - a.invite.createdAt);
+	}
+
+	listNotifications(token: string, limit = 50): RPGAccountNotification[] {
+		const session = this.session(token);
+		const safeLimit = Math.max(1, Math.min(100, Math.floor(Number(limit) || 50)));
+		return this.repository.listNotifications(session.accountId).slice(0, safeLimit);
+	}
+
+	markNotificationRead(token: string, notificationId: string): RPGAccountNotification {
+		const session = this.session(token); const notification = this.repository.getNotification(notificationId);
+		if (!notification || notification.accountId !== session.accountId) throw new Error('Notificação não encontrada');
+		if (!notification.readAt) {
+			notification.readAt = this.now(); this.repository.setNotification(notification);
+		}
+		return structuredClone(notification);
+	}
+
+	markAllNotificationsRead(token: string): number {
+		const session = this.session(token); const unread = this.repository.listNotifications(session.accountId)
+			.filter(notification => !notification.readAt); const now = this.now();
+		this.atomic(() => {
+			for (const notification of unread) {
+				notification.readAt = now; this.repository.setNotification(notification);
+			}
+		});
+		return unread.length;
 	}
 
 	acceptDirectedInvite(token: string, inviteId: string): RPGTableMember {
@@ -1009,6 +1061,8 @@ export class RPGAccountManagement {
 		target.role = role; target.updatedAt = this.now(); target.revision++;
 		this.atomic(() => {
 			this.repository.setMembership(target);
+			this.notify(target.accountId, target.tableId, 'role_changed', 'Sua função foi alterada',
+				`Agora você participa como ${this.roleLabel(role)}.`, 'tables');
 			this.audit(actor, 'member.role.changed', 'member', target.accountId, {
 				previousRole, newRole: role, previousStatus, newStatus: target.status, reason: this.auditReason(reason),
 			});
@@ -1027,6 +1081,8 @@ export class RPGAccountManagement {
 			target.role = 'owner'; target.updatedAt = now; target.revision++;
 			table.ownerAccountId = target.accountId; table.updatedAt = now; table.revision++;
 			this.repository.setMembership(owner); this.repository.setMembership(target); this.repository.setTable(table);
+			this.notify(target.accountId, table.id, 'ownership_received', 'Você recebeu uma mesa',
+				`Agora você é proprietário de ${table.name}.`, 'tables');
 			this.audit(owner, 'table.ownership.transferred', 'member', target.accountId,
 				{ previousOwnerAccountId: owner.accountId, newOwnerAccountId: target.accountId });
 		});
@@ -1057,6 +1113,9 @@ export class RPGAccountManagement {
 		target.updatedAt = this.now(); target.revision++;
 		this.atomic(() => {
 			this.repository.setMembership(target); this.clearActiveTable(target.accountId, target.tableId);
+			this.notify(target.accountId, target.tableId, block ? 'member_blocked' : 'member_removed',
+				block ? 'Acesso à mesa bloqueado' : 'Você foi removido da mesa',
+				`Seu acesso a ${this.repository.getTable(target.tableId)?.name || 'uma mesa'} foi encerrado.`, 'tables');
 			this.audit(actor, block ? 'member.blocked' : 'member.removed', 'member', target.accountId, {
 				previousRole: target.role, newRole: target.role, previousStatus, newStatus: target.status,
 				reason: this.auditReason(reason),
@@ -1087,6 +1146,8 @@ export class RPGAccountManagement {
 		const { code, invite } = this.buildInvite(session.accountId, member.tableId, role, expiresAt, target, maxUses);
 		this.atomic(() => {
 			this.repository.setInvite(invite);
+			if (target) this.notify(target.id, member.tableId, 'table_invite', 'Novo convite de mesa',
+				`Você foi convidado para ${this.repository.getTable(member.tableId)?.name || 'uma mesa'}.`, 'invites');
 			this.audit(member, 'invite.created', 'invite', invite.id, { role, maxUses: invite.maxUses });
 		});
 		return { code, invite: structuredClone(invite) };
@@ -1106,6 +1167,9 @@ export class RPGAccountManagement {
 		this.atomic(() => {
 			for (const invitation of invitations) {
 				this.repository.setInvite(invitation.invite);
+				this.notify(invitation.invite.targetAccountId!, member.tableId, 'table_invite',
+					'Novo convite de mesa', `Você foi convidado para ${this.repository.getTable(member.tableId)?.name || 'uma mesa'}.`,
+					'invites');
 				this.audit(member, 'invite.created', 'invite', invitation.invite.id,
 					{ role, maxUses: 1, targetAccountId: invitation.invite.targetAccountId });
 			}
@@ -1180,6 +1244,7 @@ export class RPGAccountManagement {
 		};
 		this.atomic(() => {
 			this.repository.setMembership(member);
+			if (requiresApproval) this.notifyTableManagers(table, member.accountId);
 			if (!requiresApproval) {
 				invite.usedCount++; if (invite.usedCount >= invite.maxUses) invite.status = 'revoked';
 				this.repository.setInvite(invite);
@@ -1222,6 +1287,11 @@ export class RPGAccountManagement {
 		request.updatedAt = this.now(); request.revision++;
 		this.atomic(() => {
 			this.repository.setMembership(request);
+			this.notify(request.accountId, request.tableId, allow ? 'join_approved' : 'join_denied',
+				allow ? 'Solicitação aprovada' : 'Solicitação recusada',
+				allow ? `Você já pode entrar em ${this.repository.getTable(request.tableId)?.name || 'uma mesa'}.` :
+				`Sua solicitação para ${this.repository.getTable(request.tableId)?.name || 'uma mesa'} não foi aprovada.`,
+				'tables');
 			if (allow && invite) {
 				invite.usedCount++; if (invite.usedCount >= invite.maxUses) invite.status = 'revoked';
 				this.repository.setInvite(invite);
@@ -1230,6 +1300,26 @@ export class RPGAccountManagement {
 				{ previousStatus, newStatus: request.status });
 		});
 		return structuredClone(request);
+	}
+
+	private notify(accountId: string, tableId: string | undefined, type: RPGAccountNotification['type'],
+		title: string, message: string, action: RPGAccountNotification['action']): void {
+		this.repository.setNotification({
+			id: this.id(), accountId, tableId, type, title, message, action, createdAt: this.now(),
+		});
+	}
+
+	private notifyTableManagers(table: RPGCampaignTable, requesterAccountId: string): void {
+		const requester = this.repository.getAccount(requesterAccountId)?.displayName || 'Uma conta';
+		for (const manager of this.repository.listMembershipsForTable(table.id)) {
+			if (manager.status !== 'active' || !getRPGDefaultTablePermissions(manager.role)['members.manage']) continue;
+			this.notify(manager.accountId, table.id, 'join_request', 'Nova solicitação de entrada',
+				`${requester} quer participar de ${table.name}.`, 'tables');
+		}
+	}
+
+	private roleLabel(role: RPGTableRole): string {
+		return ({ owner: 'Proprietário', master: 'Mestre', player: 'Player', spectator: 'Espectador' })[role];
 	}
 
 	listInvites(token: string, tableId: string): RPGPublicTableInvite[] {

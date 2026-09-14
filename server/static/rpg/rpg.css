@@ -301,6 +301,7 @@ p { line-height: 1.5; }
 .account-tables-page { width: 100%; min-height: calc(100vh - 58px); }
 .account-navigation { width: 245px; position: fixed; z-index: 20; left: 0; top: 58px; bottom: 0; display: flex; flex-direction: column; padding: 25px 14px 16px; border-width: 0 1px 0 0; border-radius: 0; box-shadow: 3px 0 10px #17233718; }
 .account-navigation .account-profile-identity { padding: 0 7px 22px; border-bottom: 1px solid #cbd2dc; }
+.account-navigation .account-profile-identity { position: relative; padding-right: 42px; }
 .account-navigation .account-profile-identity > div:last-child { min-width: 0; }
 .account-navigation .account-profile-identity h1, .account-navigation .account-profile-identity p { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .account-navigation-options { min-height: 100%; display: flex; flex: 1; flex-direction: column; gap: 5px; padding-top: 18px; }
@@ -310,6 +311,28 @@ p { line-height: 1.5; }
 .account-navigation-options button.active { color: #fff; background: linear-gradient(135deg, #527cac, #304f78); border-color: #29476e; box-shadow: inset 0 1px #ffffff45, 0 2px 4px #1a2c4530; }
 .account-navigation-options button.active > span { color: #fff; }
 .account-navigation-options .account-navigation-logout { color: #8b2929; }
+.account-notification-trigger { width: 34px; height: 34px; display: grid; position: absolute; right: 2px; top: 9px; place-items: center; color: #425c7c; background: #f4f7fa; border: 1px solid #aebccc; border-radius: 50%; box-shadow: inset 0 1px #fff, 0 2px 4px #17283d26; cursor: pointer; }
+.account-notification-trigger:hover, .account-notification-trigger[aria-expanded="true"] { color: #fff; background: linear-gradient(#6389b7, #3e648f); border-color: #31567f; }
+.account-notification-trigger > span { font-size: 15px; }
+.account-notification-trigger > small { min-width: 18px; height: 18px; display: grid; position: absolute; right: -6px; top: -7px; padding: 0 4px; place-items: center; color: #fff; background: #bd3535; border: 2px solid #fff; border-radius: 999px; font-size: 8px; font-weight: bold; }
+.account-notification-panel { width: min(410px, calc(100vw - 28px)); max-height: min(620px, calc(100vh - 86px)); position: fixed; z-index: 80; left: 230px; top: 76px; overflow: hidden; box-shadow: 0 13px 35px #101b2f55; }
+.account-notification-panel > header { display: flex; align-items: center; justify-content: space-between; gap: 13px; padding: 14px 16px; color: #fff; background: linear-gradient(135deg, #405f88, #263d60); }
+.account-notification-panel header small { color: #d8e5f4; font-size: 8px; font-weight: bold; letter-spacing: .09em; text-transform: uppercase; }
+.account-notification-panel h2 { margin: 2px 0 0; color: #fff; font-size: 18px; }
+.account-notification-panel header button { padding: 6px 8px; color: #eef5fc; background: #ffffff12; border: 1px solid #ffffff55; border-radius: 4px; font-size: 9px; cursor: pointer; }
+.account-notification-panel header button:disabled { opacity: .45; cursor: default; }
+.account-notification-list { max-height: 515px; overflow-y: auto; }
+.account-notification-item { width: 100%; display: grid; grid-template-columns: 11px minmax(0, 1fr) auto; gap: 9px; padding: 13px 14px; color: #34465e; background: #fff; border: 0; border-bottom: 1px solid #d8dee6; text-align: left; cursor: pointer; }
+.account-notification-item:hover { background: #edf4fb; }
+.account-notification-item.read { background: #f4f5f7; color: #69778a; }
+.account-notification-dot { width: 8px; height: 8px; margin-top: 4px; background: #4176ad; border-radius: 50%; }
+.account-notification-item.read .account-notification-dot { background: #bec5ce; }
+.account-notification-copy strong, .account-notification-copy span { display: block; }
+.account-notification-copy strong { margin-bottom: 3px; color: #293f5b; font-size: 11px; }
+.account-notification-copy span { line-height: 1.35; font-size: 10px; }
+.account-notification-item time { color: #7a8796; font-size: 8px; white-space: nowrap; }
+.account-notification-empty { margin: 0; padding: 35px 18px; color: #738093; text-align: center; }
+@media (max-width: 620px) { .account-notification-panel { left: 14px; top: 68px; } }
 .account-tables-content { min-width: 0; width: auto; max-width: 1180px; margin: 0 auto 0 245px; padding: 31px 24px 45px; }
 .account-table-view-heading { display: flex; align-items: end; justify-content: space-between; gap: 18px; margin-bottom: 21px; }
 .account-table-view-heading .eyebrow { margin: 0 0 3px; }

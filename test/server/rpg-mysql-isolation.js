@@ -37,9 +37,10 @@ describe('RPG MySQL persistence and table isolation', () => {
 		await connection.beginTransaction();
 		try {
 			await connection.execute(`INSERT INTO rpg_accounts
-				(id, username, display_name, credential, status, created_at, updated_at, revision)
-				VALUES (?, ?, 'Teste de isolamento', CAST(? AS JSON), 'active', 0, 0, 0)`,
-			[accountId, `test${suffix}`.slice(0, 40), JSON.stringify({ algorithm: 'scrypt', salt: '', hash: '' })]);
+				(id, username, handle, display_name, credential, status, created_at, updated_at, revision)
+				VALUES (?, ?, ?, 'Teste de isolamento', CAST(? AS JSON), 'active', 0, 0, 0)`,
+			[accountId, `test${suffix}`.slice(0, 40), `test${suffix}`.slice(0, 30),
+				JSON.stringify({ algorithm: 'scrypt', salt: '', hash: '' })]);
 			for (const [id, name] of [[tableA, 'Mesa A'], [tableB, 'Mesa B']]) {
 				await connection.execute(`INSERT INTO rpg_campaign_tables
 					(id, owner_account_id, name, description, color, visibility, status, settings, created_at, updated_at, revision)
