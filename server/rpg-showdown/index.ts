@@ -1082,7 +1082,7 @@ export class RPGLoginService {
 				...this.selection(record.state),
 				...(record.accountId ? { accountId: record.accountId } : {}),
 				online: onlineCharacterIds.has(record.state.id),
-				presence: presenceByCharacter.get(record.state.id) || 'offline',
+				presence: presenceByCharacter.get(record.state.id) ?? ('offline' as const),
 				occupiedTeamSlots: Math.min(6, record.state.box.party.length + this.activeEggs(record).length),
 				team: record.state.team.slice(0, 6).map(pokemon => {
 					const visual = pokemon as typeof pokemon & {

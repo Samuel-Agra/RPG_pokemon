@@ -7,7 +7,7 @@
 	<title>Pok&eacute;mon RPG</title>
 	<link rel="icon" type="image/png" href="./assets/pokemon-rpg-logo.png" />
 	<link rel="apple-touch-icon" href="./assets/pokemon-rpg-logo.png" />
-	<link rel="stylesheet" href="./rpg.css?v=20260914-180" />
+	<link rel="stylesheet" href="./rpg.css?v=20260914-182" />
 	<link rel="stylesheet" href="./battle-ui.css?v=20260830-5" />
 	<link rel="stylesheet" href="./battle-ui-v2.css?v=20260811-23" />
 	<link rel="stylesheet" href="./battle-room.css?v=20260828-6" />
@@ -34,11 +34,16 @@
 				<div class="current-table-menu hidden" id="current-table-menu" role="menu">
 					<button type="button" role="menuitem" id="current-table-switch">Trocar de mesa</button>
 					<button type="button" role="menuitem" id="current-table-settings">Configura&ccedil;&otilde;es da mesa</button>
+					<button type="button" role="menuitem" id="current-table-backup">Backup e exportação</button>
+					<button type="button" role="menuitem" id="current-table-archive">Arquivar mesa</button>
+					<button class="hidden" type="button" role="menuitem" id="current-table-reactivate">Reativar mesa</button>
+					<button class="hidden" type="button" role="menuitem" id="current-table-delete">Excluir permanentemente</button>
 					<button class="current-table-invitations-entry hidden" type="button" role="menuitem" id="master-invitations-button">
 						<span>Convites e solicita&ccedil;&otilde;es</span><span class="menu-notification-count hidden" id="master-invitations-count"></span>
 					</button>
 					<button type="button" role="menuitem" id="current-table-leave">Sair da mesa</button>
 				</div>
+				<span class="current-table-readonly hidden" id="current-table-readonly">Somente leitura</span>
 			</div>
 			<div class="topbar-session-actions">
 				<div class="session-chip hidden" id="session-chip"></div>
@@ -464,6 +469,6 @@
 	<script src="./nursery-ui.js?v=20260826-1"></script>
 	<script src="./contest-ui.js?v=20260914-40"></script>
 	<script src="./shop-ui.js?v=20260904-4"></script>
-	<script src="./rpg.js?v=20260914-180"></script>
+	<script src="./rpg.js?v=20260914-182"></script>
 </body>
 </html>

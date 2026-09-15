@@ -1007,6 +1007,21 @@ export class RPGAccountManagement {
 		return structuredClone(table);
 	}
 
+	reactivateTable(token: string, tableId: string): RPGCampaignTable {
+		const session = this.session(token); const normalizedTableId = toID(tableId);
+		const member = this.repository.getMembership(normalizedTableId, session.accountId);
+		if (!member || member.status !== 'active') throw new Error('A conta não participa desta mesa');
+		if (member.role !== 'owner') throw new Error('Apenas o proprietário pode reativar a mesa');
+		const table = this.repository.getTable(normalizedTableId);
+		if (!table || table.status !== 'archived') throw new Error('A mesa não está arquivada');
+		const previousStatus = table.status; table.status = 'active'; table.updatedAt = this.now(); table.revision++;
+		this.atomic(() => {
+			this.repository.setTable(table);
+			this.audit(member, 'table.reactivated', 'table', table.id, { previousStatus, newStatus: table.status });
+		});
+		return structuredClone(table);
+	}
+
 	deleteArchivedTable(token: string, tableId: string): void {
 		const session = this.session(token); const normalizedTableId = toID(tableId);
 		const member = this.repository.getMembership(normalizedTableId, session.accountId);
@@ -1026,7 +1041,7 @@ export class RPGAccountManagement {
 	}
 
 	listMembers(token: string, tableId: string): RPGTableMemberView[] {
-		const session = this.session(token); const viewer = this.activeMember(tableId, session.accountId);
+		const session = this.session(token); const viewer = this.activeMember(tableId, session.accountId, true);
 		this.requirePermission(viewer, 'members.view');
 		const canManage = getRPGEffectiveTablePermissions(viewer)['members.manage'];
 		const onlineSince = this.now() - 90_000;
@@ -1045,8 +1060,14 @@ export class RPGAccountManagement {
 	}
 
 	getTablePermissions(token: string, tableId: string): Record<RPGTablePermission, boolean> {
-		const session = this.session(token); const member = this.activeMember(tableId, session.accountId);
+		const session = this.session(token); const member = this.activeMember(tableId, session.accountId, true);
 		return getRPGEffectiveTablePermissions(member);
+	}
+
+	requireTableOwner(token: string, tableId: string): RPGCampaignTable {
+		const session = this.session(token); const member = this.activeMember(tableId, session.accountId, true);
+		if (member.role !== 'owner') throw new Error('Apenas o proprietário pode administrar backups da mesa');
+		return structuredClone(this.repository.getTable(member.tableId)!);
 	}
 
 	updateMasterPermissions(token: string, tableId: string, accountId: string,
@@ -1075,8 +1096,8 @@ export class RPGAccountManagement {
 		const account = this.repository.getAccount(stored.accountId);
 		const table = this.repository.getTable(stored.activeTableId);
 		if (!account || account.status !== 'active') throw new Error('Conta indisponível');
-		if (!table || table.status !== 'active') throw new Error('Mesa indisponível');
-		const membership = this.activeMember(table.id, account.id);
+		if (!table) throw new Error('Mesa indisponível');
+		const membership = this.activeMember(table.id, account.id, true);
 		return {
 			session: { token, accountId: stored.accountId, activeTableId: table.id,
 				createdAt: stored.createdAt, expiresAt: stored.expiresAt },
@@ -1384,7 +1405,7 @@ export class RPGAccountManagement {
 	}
 
 	selectTable(token: string, tableId: string): RPGPlatformSession {
-		const session = this.session(token); const member = this.activeMember(tableId, session.accountId);
+		const session = this.session(token); const member = this.activeMember(tableId, session.accountId, true);
 		session.activeTableId = toID(tableId); this.sessionRepository.set(session);
 		return { ...structuredClone(session), token, membershipId: `${member.tableId}:${member.accountId}`, role: member.role };
 	}
@@ -1452,9 +1473,9 @@ export class RPGAccountManagement {
 			createdAt: session.createdAt, lastSeenAt: session.lastSeenAt, expiresAt: session.expiresAt, current };
 	}
 	private sessionId(tokenHash: string) { return tokenHash.slice(0, 24); }
-	private activeMember(tableId: string, accountId: string) {
+	private activeMember(tableId: string, accountId: string, allowArchived = false) {
 		const table = this.repository.getTable(tableId);
-		if (!table || table.status !== 'active') throw new Error('Mesa indisponível');
+		if (!table || (!allowArchived && table.status !== 'active')) throw new Error('Mesa indisponível');
 		const member = this.repository.getMembership(tableId, accountId);
 		if (!member || member.status !== 'active') throw new Error('A conta não participa desta mesa');
 		return member;

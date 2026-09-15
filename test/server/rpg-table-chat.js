@@ -70,7 +70,7 @@ describe('RPG table text chat', () => {
 		assert.match(ui, /entry\.authorRole === 'master' \? 'Mestre'/);
 		assert.match(ui, /createElement\('p', '', entry\.message\)/);
 		assert.match(ui, /form\.requestSubmit\(form\.querySelector\('button\[type="submit"\]'\)\)/);
-		assert.match(ui, /memberEntry\?\.online \?\? player\.online/);
+		assert.match(ui, /membersByAccount\.get\(player\.accountId\)\?\.online \?\? player\.online/);
 		assert.match(ui, /typing\.length === 1 \? ' está digitando' : ' estão digitando'/);
 		assert.match(ui, /table-chat-typing-dots/);
 		assert.match(css, /@keyframes table-chat-typing-dots/);
@@ -98,7 +98,7 @@ describe('RPG table text chat', () => {
 		assert.match(css, /#player-roster-drawer-list \{[^}]*overflow-y: auto;[^}]*scrollbar-width: none/);
 		assert.match(css, /\.player-roster-drawer-player \{[^}]*grid-template-columns: 138px minmax\(0, 1fr\)/);
 		assert.match(css, /\.player-roster-drawer-player > \* \{ grid-column: 1; \}/);
-		assert.match(css, /\.player-roster-drawer-view > strong \{[^}]*background: #fff;[^}]*border:/);
+		assert.match(css, /\.player-roster-drawer-view > strong,[\s\S]*?\.player-roster-master-section > strong \{[^}]*background: #fff;[^}]*border:/);
 		assert.doesNotMatch(html, /class="panel player-roster-drawer/);
 		assert.doesNotMatch(ui, /master-online-players-drawer/);
 	});

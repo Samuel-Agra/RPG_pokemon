@@ -202,9 +202,13 @@ describe('RPG HTTP frontend API', () => {
 		assert.equal(result.response.status, 200);
 		assert.equal(result.data.table.status, 'archived');
 		result = await request(`/v2/tables/${tableId}/select`, { method: 'POST', headers: playerHeaders });
-		assert.equal(result.response.status, 400);
+		assert.equal(result.response.status, 200);
+		assert.equal(result.data.session.activeTableId, tableId);
 		result = await request('/v2/session', { headers: playerHeaders });
-		assert.equal(result.data.session.activeTableId, undefined);
+		assert.equal(result.data.session.activeTableId, tableId);
+		result = await request(`/v2/tables/${tableId}/reactivate`, { method: 'POST', headers: masterHeaders });
+		assert.equal(result.response.status, 200);
+		assert.equal(result.data.table.status, 'active');
 
 		result = await request('/v2/session', { method: 'DELETE', headers: playerHeaders });
 		assert.equal(result.data.ok, true);

@@ -104,7 +104,7 @@ describe('RPG version 2 account authentication frontend', () => {
 		assert(script.includes("openAccountTableDialog('create')"));
 		assert(script.includes("openAccountTableDialog('join')"));
 		assert(script.includes('enterAccountTable(entry)'));
-		assert(script.includes("addConfirmedAction('Excluir mesa'"));
+		assert(script.includes("addConfirmedAction('Excluir permanentemente'"));
 	});
 
 	it('shows the persistent Player drawer to Players and Masters with six team slots', () => {
@@ -157,6 +157,18 @@ describe('RPG version 2 account authentication frontend', () => {
 		assert(script.includes("'Salvar permissões'"));
 		assert(script.includes("/permissions`,\n\t\t\t\t\t\t\t\t{ method: 'PUT'"));
 		assert(style.includes('.campaign-master-permissions-grid'));
+	});
+
+	it('offers owner-only table backup, restoration, and focused exports', () => {
+		assert(html.includes('id="current-table-backup"'));
+		assert(script.includes("$('#current-table-backup').classList.toggle('hidden', role !== 'owner')"));
+		assert(script.includes("'Backup completo'"));
+		assert(script.includes("'Exportar personagens'"));
+		assert(script.includes("'Exportar documentos'"));
+		assert(script.includes("restoreButton.dataset.confirm !== 'true'"));
+		assert(script.includes("event.target === layer"));
+		assert(script.includes("event.key === 'Escape'"));
+		assert(style.includes('.table-backup-dialog'));
 	});
 
 	it('creates tables through short steps and exposes the post-creation actions', () => {
@@ -262,6 +274,22 @@ describe('RPG version 2 account authentication frontend', () => {
 		assert(script.includes("new CustomEvent('rpg:table-changing')"));
 		assert(style.includes('.current-table-menu'));
 		assert(style.includes('.table-switcher-dialog'));
+	});
+
+	it('presents archived tables as read-only and requires confirmation before permanent deletion', () => {
+		assert(html.includes('id="current-table-archive"'));
+		assert(html.includes('id="current-table-reactivate"'));
+		assert(html.includes('id="current-table-delete"'));
+		assert(html.includes('id="current-table-readonly"'));
+		assert(script.includes("'Visualizar mesa arquivada'"));
+		assert(script.includes('openArchiveTableConfirmation'));
+		assert(script.includes('reactivateAccountTable'));
+		assert(script.includes("control.dataset.confirm !== 'true'"));
+		assert(script.includes("control.textContent = 'Confirmar exclusão permanente'"));
+		assert(script.includes('prependArchivedTableNotice(body)'));
+		assert(script.includes("chatInput.disabled = state.tableReadOnly"));
+		assert(style.includes('.archived-table-notice'));
+		assert(style.includes('.current-table-menu button.confirming'));
 	});
 
 	it('keeps the active RPG world open after saving its table settings', () => {

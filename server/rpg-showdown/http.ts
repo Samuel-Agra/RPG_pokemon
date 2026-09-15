@@ -36,6 +36,7 @@ import { RPGContestRuntimeManager, type RPGContestRuntimeAction } from './contes
 import { getRPGItemIconPath } from './item-icons';
 
 const MAX_BODY_SIZE = 2 * 1024 * 1024;
+const MAX_BACKUP_BODY_SIZE = 25 * 1024 * 1024;
 
 export class RPGHttpServer {
 	private service?: RPGLoginService;
@@ -165,6 +166,9 @@ export class RPGHttpServer {
 						'pokemon-rpg:v2:accounts', resolveContext
 					) : await resolveContext();
 					const tableId = context.table.id;
+					if (context.table.status === 'archived' && !['GET', 'HEAD', 'OPTIONS'].includes(req.method || 'GET')) {
+						throw new RPGHttpError(409, 'Mesa arquivada: o conteúdo está disponível somente para visualização');
+					}
 					const execute = async () => {
 						let sessionStore = this.tableSessionStores.get(tableId);
 						if (!sessionStore) {
@@ -615,10 +619,82 @@ export class RPGHttpServer {
 				await this.optionalAuditReason(req));
 			await this.login.flushPersistence(); this.json(res, 200, { table }); return;
 		}
+		const version2TableReactivateMatch = /^\/api\/rpg\/v2\/tables\/([^/]+)\/reactivate$/.exec(url.pathname);
+		if (method === 'POST' && version2TableReactivateMatch) {
+			const table = this.login.accounts.reactivateTable(this.token(req),
+				decodeURIComponent(version2TableReactivateMatch[1]));
+			await this.login.flushPersistence(); this.json(res, 200, { table }); return;
+		}
 		const version2TablePermanentDeleteMatch = /^\/api\/rpg\/v2\/tables\/([^/]+)\/permanent$/.exec(url.pathname);
 		if (method === 'DELETE' && version2TablePermanentDeleteMatch) {
 			this.login.accounts.deleteArchivedTable(this.token(req), decodeURIComponent(version2TablePermanentDeleteMatch[1]));
 			await this.login.flushPersistence(); this.json(res, 200, { ok: true }); return;
+		}
+		const version2TableBackupMatch = /^\/api\/rpg\/v2\/tables\/([^/]+)\/backup$/.exec(url.pathname);
+		if (version2TableBackupMatch) {
+			const token = this.token(req); const tableId = decodeURIComponent(version2TableBackupMatch[1]);
+			const ownedTable = this.login.accounts.requireTableOwner(token, tableId);
+			const persistence = this.login.mysqlPersistence;
+			if (!persistence) throw new Error('O backup requer a persistência MySQL');
+			if (method === 'GET') {
+				const scope = url.searchParams.get('scope') || 'complete';
+				const world = await persistence.withAdvisoryLock('pokemon-rpg:table:' + tableId,
+					() => persistence.exportTableWorld(tableId));
+				const table = ownedTable;
+				if (scope === 'characters') {
+					this.login.accounts.recordAdministrativeSuccess(token, tableId, 'table.characters.exported', 'table', tableId);
+					this.json(res, 200, { format: 'pokemon-rpg-characters', version: 1, exportedAt: Date.now(),
+						table: { id: table.id, name: table.name }, characters: world.characters }); return;
+				}
+				if (scope === 'documents') {
+					this.login.accounts.recordAdministrativeSuccess(token, tableId, 'table.documents.exported', 'table', tableId);
+					this.json(res, 200, { format: 'pokemon-rpg-documents', version: 1, exportedAt: Date.now(),
+						table: { id: table.id, name: table.name }, documents: world.playerDocuments }); return;
+				}
+				const tableBackup = { name: table.name, description: table.description, color: table.color,
+					visibility: table.visibility, settings: table.settings };
+				const checksum = createHash('sha256').update(JSON.stringify({ table: tableBackup, world })).digest('hex');
+				this.login.accounts.recordAdministrativeSuccess(token, tableId, 'table.backup.exported', 'table', tableId);
+				this.json(res, 200, {
+					format: 'pokemon-rpg-table-backup', version: 1, exportedAt: Date.now(), checksum,
+					table: tableBackup, world,
+				}); return;
+			}
+			if (method === 'PUT') {
+				const body = await this.body(req); const backup = body.backup as Record<string, unknown> | undefined;
+				if (!backup || backup.format !== 'pokemon-rpg-table-backup' || backup.version !== 1) {
+					throw new Error('Arquivo de backup inválido ou incompatível');
+				}
+				const expectedChecksum = createHash('sha256').update(JSON.stringify({
+					table: backup.table, world: backup.world,
+				})).digest('hex');
+				if (typeof backup.checksum !== 'string' || backup.checksum !== expectedChecksum) {
+					throw new Error('O backup está corrompido ou foi alterado');
+				}
+				const world = this.tableBackupWorld(backup.world);
+				const table = backup.table && typeof backup.table === 'object' && !Array.isArray(backup.table) ?
+					backup.table as Record<string, unknown> : {};
+				await persistence.withAdvisoryLock('pokemon-rpg:table:' + tableId, () =>
+					persistence.transactionAsync(async () => {
+						await persistence.replaceTableWorld(tableId, world);
+						this.login.accounts.updateTable(token, tableId, {
+							...(typeof table.name === 'string' ? { name: table.name } : {}),
+							...(typeof table.description === 'string' ? { description: table.description } : {}),
+							...(typeof table.color === 'string' ? { color: table.color } : {}),
+							...(['private', 'code', 'public'].includes(String(table.visibility)) ?
+								{ visibility: table.visibility as 'private' | 'code' | 'public' } : {}),
+							...(table.settings && typeof table.settings === 'object' && !Array.isArray(table.settings) &&
+								typeof (table.settings as Record<string, unknown>).requireJoinApproval === 'boolean' ?
+								{ requireJoinApproval: (table.settings as Record<string, unknown>).requireJoinApproval as boolean } : {}),
+							...(table.settings && typeof table.settings === 'object' && !Array.isArray(table.settings) ?
+								{ settings: table.settings as Record<string, unknown> } : {}),
+						});
+						this.login.accounts.recordAdministrativeSuccess(token, tableId, 'table.backup.restored', 'table', tableId);
+					}));
+				this.tableSessionStores.delete(tableId); this.battleRuntimeManagers.delete(tableId);
+				this.contestRuntimeManagers.delete(tableId); this.localTableServices.delete(tableId);
+				this.json(res, 200, { ok: true }); return;
+			}
 		}
 		const version2PermissionsMatch = /^\/api\/rpg\/v2\/tables\/([^/]+)\/permissions$/.exec(url.pathname);
 		if (method === 'GET' && version2PermissionsMatch) {
@@ -1832,9 +1908,10 @@ export class RPGHttpServer {
 			throw new RPGHttpError(415, 'RPG requests require application/json');
 		}
 		let raw = '';
+		const maxBodySize = /\/backup(?:\?|$)/.test(req.url || '') ? MAX_BACKUP_BODY_SIZE : MAX_BODY_SIZE;
 		for await (const chunk of req) {
 			raw += chunk;
-			if (Buffer.byteLength(raw) > MAX_BODY_SIZE) throw new RPGHttpError(413, 'RPG request body is too large');
+			if (Buffer.byteLength(raw) > maxBodySize) throw new RPGHttpError(413, 'RPG request body is too large');
 		}
 		try {
 			const value = JSON.parse(raw || '{}');
@@ -1874,6 +1951,31 @@ export class RPGHttpServer {
 
 	private string(value: unknown): string {
 		return typeof value === 'string' ? value : '';
+	}
+
+	private tableBackupWorld(value: unknown): import('./database/mysql-persistence').RPGTableWorldBackup {
+		if (!value || typeof value !== 'object' || Array.isArray(value)) throw new Error('Conteúdo do backup inválido');
+		const world = value as Record<string, unknown>;
+		const array = (key: string) => {
+			if (!Array.isArray(world[key])) throw new Error(`Conteúdo do backup inválido: ${key}`);
+			return world[key] as unknown[];
+		};
+		const record = (key: string) => {
+			const current = world[key];
+			if (!current || typeof current !== 'object' || Array.isArray(current)) {
+				throw new Error(`Conteúdo do backup inválido: ${key}`);
+			}
+			return current as Record<string, Record<string, unknown>>;
+		};
+		return {
+			characters: array('characters'), battles: array('battles'), contests: array('contests'),
+			tournaments: array('tournaments'), combos: array('combos'), customItems: array('customItems'),
+			shops: array('shops'), playerDocuments: record('playerDocuments'),
+			masterNPCLibrary: world.masterNPCLibrary && typeof world.masterNPCLibrary === 'object' &&
+				!Array.isArray(world.masterNPCLibrary) ? world.masterNPCLibrary as Record<string, unknown> : null,
+			campaign: world.campaign && typeof world.campaign === 'object' && !Array.isArray(world.campaign) ?
+				world.campaign as Record<string, unknown> : null,
+		};
 	}
 
 	private runtimeRequest(url: URL): { type: 'battle' | 'contest', sessionId: string } | undefined {

@@ -54,6 +54,7 @@ const state = {
 	tableChatOpen: false,
 	tableCommunicationView: 'chat',
 	tableActivity: null,
+	tableReadOnly: false,
 	accountNotifications: [],
 };
 let battleSessionSyncBusy = false;
@@ -85,7 +86,7 @@ function show(screen) {
 
 function platformPlayerNeedsCharacter(session = state.session) {
 	return !!state.accountSession?.activeTableId && session?.role === 'player' &&
-		session.mode === 'player' && !session.characterId;
+		session.mode === 'player' && !session.characterId && activeAccountTable()?.table.status !== 'archived';
 }
 
 /** Abre o cadastro compartilhado, mas mantém a conta global como dona do novo personagem. */
@@ -406,8 +407,8 @@ async function openAccountTableDetails(entry, sourceCard) {
 	if (developmentTag) { footer.classList.add('has-development-tag'); footer.append(developmentTag); }
 	footer.append(created, schedule); body.append(footer);
 	const actions = createElement('div', 'account-table-details-actions');
-	if (details.membership?.status === 'active' && details.table.status === 'active') {
-		const enter = button('Entrar na mesa', 'button primary');
+	if (details.membership?.status === 'active') {
+		const enter = button(details.table.status === 'archived' ? 'Visualizar mesa arquivada' : 'Entrar na mesa', 'button primary');
 		enter.addEventListener('click', () => { closeAccountTableDetails(); void enterAccountTable(entry); }); actions.append(enter);
 	} else if (details.membership?.status === 'pending') {
 		const pending = button('Aguardando aprovação', 'button'); pending.disabled = true; actions.append(pending);
@@ -547,12 +548,13 @@ function toggleAccountTableMenu(card, entry, anchor) {
 	};
 	if (entry.membership.role === 'owner' && entry.table.status === 'active') {
 		addAction('Editar mesa', () => openAccountTableDialog('edit', entry));
-		addAction('Arquivar', () => archiveAccountTable(entry), true);
+		addAction('Arquivar', () => openArchiveTableConfirmation(entry), true);
 	} else if (entry.membership.role !== 'owner' && entry.table.status === 'active') {
 		addAction('Sair da mesa', () => openLeaveTableConfirmation(entry), true);
 	}
 	if (entry.membership.role === 'owner' && entry.table.status === 'archived') {
-		addConfirmedAction('Excluir mesa', () => deleteAccountTable(entry));
+		addAction('Reativar mesa', () => reactivateAccountTable(entry));
+		addConfirmedAction('Excluir permanentemente', () => deleteAccountTable(entry));
 	}
 	if (!menu.children.length) addAction('Sem a\u00e7\u00f5es dispon\u00edveis', () => {});
 	card.append(menu);
@@ -611,6 +613,9 @@ function prepareTableTransition() {
 	state.dashboardHistory = []; state.expandedShopAccessIds.clear(); state.expandedMasterPlayerIds.clear();
 	state.expandedCampaignMasterIds.clear();
 	state.dashboardView = 'overview';
+	state.tableReadOnly = false;
+	document.body.classList.remove('table-read-only');
+	$('#current-table-readonly')?.classList.add('hidden');
 	masterNPCLibraryLoadedFromServer = false; masterNPCLastCreatedFolderId = '';
 	saveSession(null);
 }
@@ -622,15 +627,138 @@ function activeAccountTable() {
 function closeCurrentTableMenu() {
 	const menu = $('#current-table-menu'); const toggle = $('#current-table-toggle');
 	menu?.classList.add('hidden'); toggle?.setAttribute('aria-expanded', 'false');
+	const permanentDelete = $('#current-table-delete');
+	if (permanentDelete) {
+		permanentDelete.dataset.confirm = 'false'; permanentDelete.classList.remove('confirming');
+		permanentDelete.textContent = 'Excluir permanentemente';
+	}
+}
+
+function downloadTableJSON(data, filename) {
+	const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json;charset=utf-8' });
+	const url = URL.createObjectURL(blob); const link = document.createElement('a');
+	link.href = url; link.download = filename; document.body.append(link); link.click(); link.remove();
+	window.setTimeout(() => URL.revokeObjectURL(url), 0);
+}
+
+function safeBackupFilename(value) {
+	return String(value || 'mesa').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+		.replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'mesa';
+}
+
+function openTableBackupDialog() {
+	document.querySelector('.table-backup-layer')?.remove();
+	const entry = activeAccountTable();
+	if (!entry || entry.membership.role !== 'owner') return;
+	closeCurrentTableMenu();
+	const layer = createElement('div', 'modal-backdrop table-backup-layer');
+	const dialog = createElement('section', 'panel table-backup-dialog');
+	dialog.setAttribute('role', 'dialog'); dialog.setAttribute('aria-modal', 'true');
+	const heading = createElement('div', 'table-backup-heading');
+	const identity = createElement('div'); identity.append(createElement('small', '', 'Backup e exportação'),
+		createElement('strong', '', entry.table.name));
+	const close = button('×', 'table-backup-close'); close.type = 'button'; close.setAttribute('aria-label', 'Fechar');
+	heading.append(identity, close); dialog.append(heading);
+	const actions = createElement('div', 'table-backup-actions');
+	const backupCard = createElement('section', 'table-backup-card');
+	backupCard.append(createElement('h3', '', 'Backup completo'),
+		createElement('p', '', 'Salva campanha, personagens, NPCs, lojas, documentos, batalhas, concursos e torneios. Senhas e sessões nunca são incluídas.'));
+	const download = button('Baixar backup', 'button primary');
+	download.addEventListener('click', async () => {
+		download.disabled = true;
+		try {
+			const data = await accountApi(`/tables/${encodeURIComponent(entry.table.id)}/backup`);
+			downloadTableJSON(data, `${safeBackupFilename(entry.table.name)}-backup.json`);
+			showToast('Backup da mesa baixado.');
+		} catch (error) { showToast(error.message, true); } finally { download.disabled = false; }
+	});
+	backupCard.append(download); actions.append(backupCard);
+	for (const [title, description, scope, suffix] of [
+		['Exportar personagens', 'Gera um arquivo somente com os personagens desta mesa.', 'characters', 'personagens'],
+		['Exportar documentos', 'Gera um arquivo somente com os documentos dos personagens.', 'documents', 'documentos'],
+	]) {
+		const card = createElement('section', 'table-backup-card');
+		card.append(createElement('h3', '', title), createElement('p', '', description));
+		const action = button(title, 'button');
+		action.addEventListener('click', async () => {
+			action.disabled = true;
+			try {
+				const data = await accountApi(`/tables/${encodeURIComponent(entry.table.id)}/backup?scope=${scope}`);
+				downloadTableJSON(data, `${safeBackupFilename(entry.table.name)}-${suffix}.json`);
+			} catch (error) { showToast(error.message, true); } finally { action.disabled = false; }
+		});
+		card.append(action); actions.append(card);
+	}
+	const restore = createElement('section', 'table-backup-card table-backup-restore');
+	restore.append(createElement('h3', '', 'Restaurar backup'),
+		createElement('p', '', 'Substitui os dados atuais desta mesa pelo conteúdo do arquivo. Contas e membros são preservados.'));
+	const file = createElement('input'); file.type = 'file'; file.accept = '.json,application/json';
+	const restoreButton = button('Selecionar um backup', 'button'); restoreButton.disabled = true;
+	let selectedBackup = null;
+	file.addEventListener('change', async () => {
+		selectedBackup = null; restoreButton.dataset.confirm = '';
+		restoreButton.classList.remove('danger'); restoreButton.textContent = 'Selecionar um backup';
+		try {
+			if (!file.files?.[0]) { restoreButton.disabled = true; return; }
+			selectedBackup = JSON.parse(await file.files[0].text()); restoreButton.disabled = false;
+			restoreButton.textContent = 'Restaurar este backup';
+		} catch {
+			restoreButton.disabled = true; showToast('O arquivo selecionado não contém um JSON válido.', true);
+		}
+	});
+	const escape = event => { if (event.key === 'Escape') closeDialog(); };
+	const closeDialog = () => { document.removeEventListener('keydown', escape, true); layer.remove(); };
+	restoreButton.addEventListener('click', async () => {
+		if (!selectedBackup) return;
+		if (restoreButton.dataset.confirm !== 'true') {
+			restoreButton.dataset.confirm = 'true'; restoreButton.classList.add('danger');
+			restoreButton.textContent = 'Confirmar restauração'; return;
+		}
+		restoreButton.disabled = true;
+		try {
+			await accountApi(`/tables/${encodeURIComponent(entry.table.id)}/backup`, {
+				method: 'PUT', body: { backup: selectedBackup },
+			});
+			closeDialog(); await refreshAccountTables(); await renderDashboard();
+			showToast('Backup restaurado com sucesso.');
+		} catch (error) { restoreButton.disabled = false; showToast(error.message, true); }
+	});
+	restore.append(file, restoreButton); actions.append(restore); dialog.append(actions); layer.append(dialog);
+	close.addEventListener('click', closeDialog);
+	layer.addEventListener('pointerdown', event => { if (event.target === layer) closeDialog(); });
+	document.addEventListener('keydown', escape, true); document.body.append(layer);
 }
 
 function updateCurrentTableControl() {
 	const shell = $('#current-table-shell'); const entry = activeAccountTable();
 	shell.classList.toggle('hidden', !state.session || !entry);
+	state.tableReadOnly = entry?.table.status === 'archived';
+	document.body.classList.toggle('table-read-only', state.tableReadOnly);
+	$('#current-table-readonly').classList.toggle('hidden', !state.tableReadOnly);
 	if (!entry) return;
-	$('#current-table-name').textContent = entry.table.name;
 	const role = entry.membership.role;
-	$('#current-table-settings').classList.toggle('hidden', role !== 'owner');
+	$('#current-table-name').textContent = entry.table.name + (state.tableReadOnly ? ' · Arquivada' : '');
+	$('#current-table-settings').classList.toggle('hidden', role !== 'owner' || state.tableReadOnly);
+	$('#current-table-backup').classList.toggle('hidden', role !== 'owner');
+	$('#current-table-archive').classList.toggle('hidden', role !== 'owner' || state.tableReadOnly);
+	$('#current-table-reactivate').classList.toggle('hidden', role !== 'owner' || !state.tableReadOnly);
+	$('#current-table-delete').classList.toggle('hidden', role !== 'owner' || !state.tableReadOnly);
+	const permanentDelete = $('#current-table-delete');
+	permanentDelete.dataset.confirm = 'false'; permanentDelete.classList.remove('confirming');
+	permanentDelete.textContent = 'Excluir permanentemente';
+	const chatInput = $('#table-chat-input'); const chatSubmit = $('#table-chat-form button[type="submit"]');
+	chatInput.disabled = state.tableReadOnly; chatSubmit.disabled = state.tableReadOnly;
+	chatInput.placeholder = state.tableReadOnly ? 'Chat bloqueado enquanto a mesa está arquivada' : 'Escreva uma mensagem';
+}
+
+function prependArchivedTableNotice(body) {
+	if (!state.tableReadOnly || body.querySelector('.archived-table-notice')) return;
+	const notice = createElement('section', 'panel archived-table-notice');
+	const copy = createElement('div');
+	copy.append(createElement('strong', '', 'Mesa arquivada · somente leitura'),
+		createElement('span', '', 'O conteúdo continua disponível, mas chat, edições e atividades estão suspensos.'));
+	notice.append(createElement('span', 'archived-table-notice-icon', '◈'), copy);
+	body.prepend(notice);
 }
 
 async function leaveCurrentTableWorld() {
@@ -646,7 +774,7 @@ async function leaveCurrentTableWorld() {
 function openTableSwitcher() {
 	closeCurrentTableMenu();
 	const currentId = state.accountSession?.activeTableId;
-	const available = state.accountTables.filter(entry => entry.table.status === 'active' && entry.table.id !== currentId);
+	const available = state.accountTables.filter(entry => entry.table.id !== currentId);
 	const layer = createElement('div', 'modal-backdrop table-switcher-layer');
 	const dialog = createElement('section', 'panel table-switcher-dialog');
 	dialog.setAttribute('role', 'dialog'); dialog.setAttribute('aria-modal', 'true');
@@ -657,7 +785,8 @@ function openTableSwitcher() {
 		const control = button('', 'table-switcher-entry');
 		control.style.setProperty('--table-color', entry.table.color || '#406aa3');
 		control.append(createElement('span', 'table-switcher-color'), createElement('strong', '', entry.table.name),
-			createElement('small', '', accountRoleLabel(entry.membership.role)));
+			createElement('small', '', accountRoleLabel(entry.membership.role) +
+			(entry.table.status === 'archived' ? ' · Somente leitura' : '')));
 		control.addEventListener('click', () => { layer.remove(); void enterAccountTable(entry); });
 		list.append(control);
 	}
@@ -673,8 +802,46 @@ function openTableSwitcher() {
 async function archiveAccountTable(entry) {
 	try {
 		await accountApi(`/tables/${encodeURIComponent(entry.table.id)}`, { method: 'DELETE' });
+		const wasActive = state.accountSession?.activeTableId === entry.table.id;
 		await refreshAccountTables();
+		if (wasActive) {
+			prepareTableTransition();
+			const current = await accountApi('/session'); saveAccountSession(current.session, current.account);
+			await renderAccountTables();
+		}
 		showToast('Mesa arquivada.');
+	} catch (error) { showToast(error.message, true); }
+}
+
+function openArchiveTableConfirmation(entry) {
+	const layer = createElement('div', 'modal-backdrop table-lifecycle-layer');
+	const dialog = createElement('section', 'panel table-lifecycle-dialog');
+	dialog.setAttribute('role', 'dialog'); dialog.setAttribute('aria-modal', 'true');
+	dialog.append(createElement('h2', '', 'Arquivar ' + entry.table.name + '?'),
+		createElement('p', '', 'A mesa continuará acessível para visualização.'),
+		createElement('ul', 'table-archive-effects'));
+	const effects = dialog.lastElementChild;
+	for (const effect of ['Edição e chat serão bloqueados.', 'Batalhas, concursos, torneios e demais atividades ficarão suspensos.',
+		'Contas, personagens e documentos serão preservados.', 'O proprietário poderá reativar ou restaurar um backup depois.']) {
+		effects.append(createElement('li', '', effect));
+	}
+	const actions = createElement('div', 'form-actions');
+	const archive = button('Arquivar mesa', 'button danger'); const cancel = button('Cancelar', 'button');
+	const close = () => { document.removeEventListener('keydown', escape, true); layer.remove(); };
+	const escape = event => { if (event.key === 'Escape') close(); };
+	archive.addEventListener('click', async () => { archive.disabled = true; close(); await archiveAccountTable(entry); });
+	cancel.addEventListener('click', close); actions.append(archive, cancel); dialog.append(actions); layer.append(dialog);
+	layer.addEventListener('pointerdown', event => { if (event.target === layer) close(); });
+	document.addEventListener('keydown', escape, true); document.body.append(layer);
+}
+
+async function reactivateAccountTable(entry) {
+	try {
+		await accountApi(`/tables/${encodeURIComponent(entry.table.id)}/reactivate`, { method: 'POST' });
+		await refreshAccountTables(); updateCurrentTableControl();
+		if (state.accountSession?.activeTableId === entry.table.id) await renderDashboard();
+		else await renderAccountTables();
+		showToast('Mesa reativada. As atividades e o chat foram liberados.');
 	} catch (error) { showToast(error.message, true); }
 }
 
@@ -837,8 +1004,14 @@ function openAccountSettings() {
 async function deleteAccountTable(entry) {
 	try {
 		await accountApi(`/tables/${encodeURIComponent(entry.table.id)}/permanent`, { method: 'DELETE' });
+		const wasActive = state.accountSession?.activeTableId === entry.table.id;
 		if (state.selectedAccountTableId === entry.table.id) state.selectedAccountTableId = null;
 		await refreshAccountTables();
+		if (wasActive) {
+			prepareTableTransition();
+			const current = await accountApi('/session'); saveAccountSession(current.session, current.account);
+			await renderAccountTables();
+		}
 		showToast('Mesa exclu\u00edda permanentemente.');
 	} catch (error) { showToast(error.message, true); }
 }
@@ -7149,6 +7322,13 @@ async function renderDashboard() {
 	dashboardNav(isMasterMode);
 
 	try {
+		if (!isMasterMode && state.tableReadOnly && !state.session.characterId) {
+			$('.dashboard-heading').classList.add('hidden');
+			body.replaceChildren(createElement('section', 'panel empty-state',
+				'Esta conta ainda não possui personagem nesta mesa. O acervo arquivado está disponível somente para consulta.'));
+			prependArchivedTableNotice(body);
+			return;
+		}
 		if (isMasterMode) {
 			if (showPlayerRoster) await renderPlayerRosterDrawer();
 			$('.dashboard-heading').classList.toggle('hidden', ['overview', 'nursery', 'shops'].includes(state.dashboardView));
@@ -7236,6 +7416,7 @@ async function renderDashboard() {
 			if (state.tableCommunicationView === 'log') await renderTableSystemLog();
 			else await renderTableChat();
 		}
+		prependArchivedTableNotice(body);
 	} catch (error) {
 		if (/session/i.test(error.message)) {
 			saveSession(null);
@@ -7309,6 +7490,27 @@ $('#current-table-switch').addEventListener('click', openTableSwitcher);
 $('#current-table-settings').addEventListener('click', () => {
 	const entry = activeAccountTable(); closeCurrentTableMenu();
 	if (entry) openAccountTableDialog('edit', entry);
+});
+$('#current-table-backup').addEventListener('click', openTableBackupDialog);
+$('#current-table-archive').addEventListener('click', () => {
+	const entry = activeAccountTable(); closeCurrentTableMenu();
+	if (entry) openArchiveTableConfirmation(entry);
+});
+$('#current-table-reactivate').addEventListener('click', () => {
+	const entry = activeAccountTable(); closeCurrentTableMenu();
+	if (entry) void reactivateAccountTable(entry);
+});
+$('#current-table-delete').addEventListener('click', event => {
+	event.stopPropagation();
+	const control = event.currentTarget; const entry = activeAccountTable();
+	if (!entry) return;
+	if (control.dataset.confirm !== 'true') {
+		control.dataset.confirm = 'true'; control.classList.add('confirming');
+		control.textContent = 'Confirmar exclusão permanente';
+		return;
+	}
+	control.disabled = true; closeCurrentTableMenu();
+	void deleteAccountTable(entry).finally(() => { control.disabled = false; });
 });
 $('#current-table-leave').addEventListener('click', () => {
 	const entry = activeAccountTable(); closeCurrentTableMenu();

@@ -95,6 +95,14 @@ export interface RPGMySQLSnapshot {
 	legacyTableId?: string;
 }
 
+export interface RPGTableWorldBackup {
+	characters: unknown[]; battles: unknown[]; contests: unknown[]; tournaments: unknown[];
+	combos: unknown[]; customItems: unknown[]; shops: unknown[];
+	masterNPCLibrary: Record<string, unknown> | null;
+	playerDocuments: Record<string, Record<string, unknown>>;
+	campaign: Record<string, unknown> | null;
+}
+
 function environmentFile(file = resolve('.env.mysql')): Record<string, string> {
 	if (!existsSync(file)) return {};
 	return Object.fromEntries(readFileSync(file, 'utf8').split(/\r?\n/).flatMap(line => {
@@ -443,6 +451,50 @@ export class RPGMySQLPersistence {
 				readAt: row.read_at === null ? undefined : Number(row.read_at) })),
 			legacyTableId: tableId,
 		};
+	}
+
+	async exportTableWorld(tableId: string): Promise<RPGTableWorldBackup> {
+		const snapshot = await this.snapshot(tableId);
+		return {
+			characters: snapshot.characters.map(character => {
+				const safe = structuredClone(character) as Record<string, unknown>;
+				// A coluna legada ainda é obrigatória, mas o segredo antigo não deve sair no arquivo.
+				safe.credential = { algorithm: 'scrypt', salt: '', hash: '' };
+				return safe;
+			}),
+			battles: snapshot.battles, contests: snapshot.contests, tournaments: snapshot.tournaments,
+			combos: snapshot.combos, customItems: snapshot.customItems, shops: snapshot.shops,
+			masterNPCLibrary: snapshot.masterNPCLibrary, playerDocuments: snapshot.playerDocuments,
+			campaign: snapshot.campaign,
+		};
+	}
+
+	async replaceTableWorld(tableId: string, world: RPGTableWorldBackup): Promise<void> {
+		const scope = this.requireTableScope(tableId);
+		await this.transactionAsync(() => {
+			for (const table of [
+				'rpg_runtime_states', 'rpg_player_documents', 'rpg_master_npc_library', 'rpg_shops', 'rpg_custom_items',
+				'rpg_contest_combos', 'rpg_tournaments', 'rpg_contest_sessions', 'rpg_battle_sessions', 'rpg_campaign',
+				'rpg_characters',
+			]) this.enqueue(`DELETE FROM ${table} WHERE table_id = ?`, [scope]);
+			for (const value of world.characters) this.upsertCharacter({ ...(value as object), tableId: scope });
+			for (const session of world.battles as any[]) this.upsertJSON('rpg_battle_sessions', 'id', session.id, 'state', session,
+				{ status: session.status, updated_at: session.updatedAt || Date.now() }, scope);
+			for (const session of world.contests as any[]) this.upsertJSON('rpg_contest_sessions', 'id', session.id, 'state', session,
+				{ status: session.status, updated_at: session.updatedAt || Date.now() }, scope);
+			for (const tournament of world.tournaments as any[]) this.upsertJSON('rpg_tournaments', 'id', tournament.id,
+				'state', tournament, { activity: tournament.activity, status: tournament.status, updated_at: tournament.updatedAt }, scope);
+			for (const combo of world.combos as any[]) this.upsertJSON('rpg_contest_combos', 'id', combo.id, 'definition', combo, {}, scope);
+			for (const item of world.customItems as any[]) this.upsertJSON('rpg_custom_items', 'id', item.id, 'definition', item, {}, scope);
+			for (const shop of world.shops as any[]) this.upsertJSON('rpg_shops', 'id', shop.id, 'state', shop,
+				{ shop_type: shop.type, revision: shop.revision }, scope);
+			if (world.masterNPCLibrary) this.upsertSingleton('rpg_master_npc_library', world.masterNPCLibrary, scope);
+			for (const [characterId, documents] of Object.entries(world.playerDocuments)) {
+				this.upsertJSON('rpg_player_documents', 'character_id', characterId, 'state', documents, {}, scope);
+			}
+			if (world.campaign) this.upsertSingleton('rpg_campaign', world.campaign, scope);
+			return Promise.resolve();
+		});
 	}
 
 	/** Loads only the requested table's newest audit records instead of the global history. */

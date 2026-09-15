@@ -60,6 +60,28 @@ describe('RPG version 2 accounts and tables backend', () => {
 		assert.deepEqual(events, ['begin', 'dominio', 'runtime', 'commit', 'release']);
 	});
 
+	it('restores every table world entity in one atomic MySQL transaction', async () => {
+		const statements = [];
+		const connection = {
+			beginTransaction: async () => statements.push('begin'),
+			execute: async sql => statements.push(sql), commit: async () => statements.push('commit'),
+			rollback: async () => statements.push('rollback'), release: () => statements.push('release'),
+		};
+		const persistence = new RPGMySQLPersistence({ getConnection: async () => connection });
+		await persistence.replaceTableWorld('mesa', {
+			characters: [{ accountId: 'conta', state: { id: 'ash', characterName: 'Ash' } }],
+			battles: [], contests: [], tournaments: [], combos: [], customItems: [], shops: [],
+			masterNPCLibrary: { folders: [] }, playerDocuments: { ash: { notes: [] } },
+			campaign: { name: 'Kanto' },
+		});
+		assert.equal(statements[0], 'begin');
+		assert(statements.some(sql => sql.includes('DELETE FROM rpg_characters')));
+		assert(statements.some(sql => sql.includes('INSERT INTO rpg_characters')));
+		assert(statements.some(sql => sql.includes('INSERT INTO rpg_player_documents')));
+		assert.equal(statements.at(-2), 'commit');
+		assert.equal(statements.at(-1), 'release');
+	});
+
 	it('returns an asynchronous transaction failure to its own caller', async () => {
 		const connection = {
 			beginTransaction: async () => {},
@@ -537,7 +559,7 @@ describe('RPG version 2 accounts and tables backend', () => {
 		assert.equal(englishDenied.metadata.result, 'denied');
 	});
 
-	it('resolves only the selected active table and rejects archived table contexts', () => {
+	it('resolves the selected table in read-only mode when it is archived', () => {
 		const accounts = service();
 		accounts.createAccount('contexto', 'Contexto', 'Senha1!Segura');
 		const login = accounts.login('contexto', 'Senha1!Segura');
@@ -549,7 +571,7 @@ describe('RPG version 2 accounts and tables backend', () => {
 		assert.equal(accounts.getActiveTableContext(login.token).table.id, second.id);
 		const archived = accounts.repository.getTable(second.id);
 		archived.status = 'archived'; accounts.repository.setTable(archived);
-		assert.throws(() => accounts.getActiveTableContext(login.token), /Mesa indisponível/);
+		assert.equal(accounts.getActiveTableContext(login.token).table.status, 'archived');
 		accounts.selectTable(login.token, first.id);
 		assert.equal(accounts.getActiveTableContext(login.token).table.id, first.id);
 		assert.equal(accounts.deselectTable(login.token).activeTableId, undefined);
@@ -574,11 +596,16 @@ describe('RPG version 2 accounts and tables backend', () => {
 		assert.equal(accounts.archiveTable(owner.token, table.id).status, 'archived');
 		assert.equal(accounts.getSession(owner.token).session.activeTableId, undefined);
 		assert.equal(accounts.getSession(member.token).session.activeTableId, undefined);
-		assert.throws(() => accounts.selectTable(owner.token, table.id), /Mesa indisponível/);
+		assert.equal(accounts.selectTable(owner.token, table.id).activeTableId, table.id);
+		assert.equal(accounts.getActiveTableContext(owner.token).table.status, 'archived');
 		assert.throws(() => accounts.createInvite(owner.token, table.id), /Mesa indisponível/);
 		assert.throws(() => accounts.joinByInvite(visitor.token, pendingInvite.code), /inválido ou revogado/);
 		assert.equal(accounts.repository.getInvite(pendingInvite.invite.id).status, 'revoked');
 		assert.throws(() => accounts.deleteArchivedTable(member.token, table.id), /Apenas o proprietário/);
+		assert.throws(() => accounts.reactivateTable(member.token, table.id), /Apenas o proprietário/);
+		assert.equal(accounts.reactivateTable(owner.token, table.id).status, 'active');
+		assert.throws(() => accounts.deleteArchivedTable(owner.token, table.id), /Arquive a mesa/);
+		accounts.archiveTable(owner.token, table.id);
 		accounts.deleteArchivedTable(owner.token, table.id);
 		assert.equal(accounts.repository.getTable(table.id), undefined);
 		assert.deepEqual(accounts.listTables(owner.token), []);
@@ -902,6 +929,8 @@ describe('RPG version 2 accounts and tables backend', () => {
 		assert.equal(accounts.getTablePermissions(playerSession.token, table.id)['campaign.configure'], true);
 		assert.throws(() => accounts.updateMasterPermissions(playerSession.token, table.id, playerSession.accountId, {}),
 			/Apenas o proprietário/);
+		assert.equal(accounts.requireTableOwner(ownerSession.token, table.id).id, table.id);
+		assert.throws(() => accounts.requireTableOwner(playerSession.token, table.id), /Apenas o proprietário/);
 	});
 
 	it('links a legacy character credential to one global account and table membership idempotently', () => {
