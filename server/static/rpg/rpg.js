@@ -292,7 +292,7 @@ function showAccountServerError(form, error) {
 }
 
 function accountRoleLabel(role) {
-	return ({ owner: 'Propriet\u00e1rio', master: 'Mestre', player: 'Player', spectator: 'Espectador' })[role] || role;
+	return ({ owner: 'Propriet\u00e1rio', master: 'Mestre', player: 'Player' })[role] || role;
 }
 
 function relativeAccountActivity(timestamp) {
@@ -4759,7 +4759,7 @@ function openMemberDetails(entry, viewerRole, members, onChanged) {
 				}
 				const targetSelect = createElement('select');
 				for (const candidate of members.filter(candidate => candidate.account.id !== entry.account.id &&
-					candidate.member.status === 'active' && candidate.member.role !== 'spectator' && !candidate.characters?.length)) {
+					candidate.member.status === 'active' && !candidate.characters?.length)) {
 					const option = createElement('option', '', accountPublicHandle(candidate.account)); option.value = candidate.account.id; targetSelect.append(option);
 				}
 				const confirm = button('Confirmar transferência', 'button danger'); confirm.disabled = !targetSelect.options.length;
@@ -4987,7 +4987,7 @@ function openMasterInviteDialog(tableId, inviteList) {
 	const form = createElement('form', 'panel master-invite-dialog'); form.setAttribute('role', 'dialog'); form.setAttribute('aria-modal', 'true');
 	form.append(createElement('h2', '', 'Gerar convite'));
 	const role = createElement('select'); role.name = 'role';
-	for (const [value, label] of [['player', 'Jogador'], ['spectator', 'Espectador'], ['master', 'Mestre auxiliar']]) {
+	for (const [value, label] of [['player', 'Jogador'], ['master', 'Mestre auxiliar']]) {
 		const option = createElement('option', '', label); option.value = value; role.append(option);
 	}
 	const expiration = createElement('select'); expiration.name = 'expiration';

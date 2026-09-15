@@ -819,7 +819,7 @@ export class RPGHttpServer {
 				(this.optionalString(body.targetUsername) ? [this.string(body.targetUsername)] : []);
 			if (targetHandles.length) {
 				const invites = this.login.accounts.createDirectedInvites(
-					token, tableId, role as 'master' | 'player' | 'spectator', expiresAt, targetHandles
+					token, tableId, role as 'master' | 'player', expiresAt, targetHandles
 				);
 				await this.login.flushPersistence();
 				const safeInvites = invites.map(({ codeHash: _codeHash, ...invite }) => invite);
@@ -827,7 +827,7 @@ export class RPGHttpServer {
 				return;
 			}
 			const invitation = this.login.accounts.createInvite(
-				token, tableId, role as 'master' | 'player' | 'spectator', expiresAt, maxUses
+				token, tableId, role as 'master' | 'player', expiresAt, maxUses
 			);
 			await this.login.flushPersistence();
 			const { codeHash: _codeHash, ...safeInvite } = invitation.invite;
@@ -865,7 +865,7 @@ export class RPGHttpServer {
 			if (method === 'PATCH' && !version2MemberMatch[3]) {
 				const body = await this.body(req);
 				const member = this.login.accounts.changeMemberRole(
-					token, tableId, accountId, this.string(body.role) as 'master' | 'player' | 'spectator',
+					token, tableId, accountId, this.string(body.role) as 'master' | 'player',
 					this.optionalString(body.reason)
 				);
 				await this.login.flushPersistence(); this.json(res, 200, { member }); return;

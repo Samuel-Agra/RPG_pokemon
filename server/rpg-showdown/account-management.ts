@@ -54,7 +54,7 @@ async function withKDFSlot<T>(action: () => Promise<T>): Promise<T> {
 		pendingKDFTasks.shift()?.();
 	}
 }
-export type RPGTableRole = 'owner' | 'master' | 'player' | 'spectator';
+export type RPGTableRole = 'owner' | 'master' | 'player';
 export const RPG_TABLE_PERMISSIONS = [
 	'battles.create', 'battles.manage', 'battles.participate', 'battles.watch',
 	'contests.create', 'contests.manage', 'contests.participate', 'contests.watch',
@@ -78,7 +78,6 @@ const RPG_ROLE_PERMISSION_LISTS: Record<RPGTableRole, readonly RPGTablePermissio
 		'battles.participate', 'battles.watch', 'contests.participate', 'contests.watch',
 		'tournaments.participate', 'tournaments.watch', 'members.view',
 	],
-	spectator: ['battles.watch', 'contests.watch', 'tournaments.watch', 'members.view'],
 };
 
 export function getRPGDefaultTablePermissions(role: RPGTableRole): Record<RPGTablePermission, boolean> {
@@ -1119,7 +1118,7 @@ export class RPGAccountManagement {
 		reason?: string): RPGTableMember {
 		const actor = this.tableAdministrator(token, tableId); const target = this.activeMember(tableId, accountId);
 		if (target.role === 'owner' || target.accountId === actor.accountId) throw new Error('Esse membro não pode ter sua função alterada');
-		if (!['master', 'player', 'spectator'].includes(role)) throw new Error('Função de membro inválida');
+		if (!['master', 'player'].includes(role)) throw new Error('Função de membro inválida');
 		if (actor.role !== 'owner' && (target.role === 'master' || role === 'master')) {
 			throw new Error('Apenas o proprietário pode administrar Mestres');
 		}
@@ -1247,7 +1246,7 @@ export class RPGAccountManagement {
 	private validateInvite(member: RPGTableMember, role: Exclude<RPGTableRole, 'owner'>,
 		expiresAt: number | undefined, maxUses: number): void {
 		this.requirePermission(member, 'members.invite');
-		if (!['master', 'player', 'spectator'].includes(role)) throw new Error('Função de convite inválida');
+		if (!['master', 'player'].includes(role)) throw new Error('Função de convite inválida');
 		if (member.role !== 'owner' && role === 'master') throw new Error('Apenas o proprietário pode convidar Mestres');
 		if (expiresAt !== undefined && expiresAt <= this.now()) throw new Error('A expiração deve estar no futuro');
 		if (!Number.isSafeInteger(maxUses) || maxUses < 1 || maxUses > 100) {
@@ -1387,7 +1386,7 @@ export class RPGAccountManagement {
 	}
 
 	private roleLabel(role: RPGTableRole): string {
-		return ({ owner: 'Proprietário', master: 'Mestre', player: 'Player', spectator: 'Espectador' })[role];
+		return ({ owner: 'Proprietário', master: 'Mestre', player: 'Player' })[role];
 	}
 
 	listInvites(token: string, tableId: string): RPGPublicTableInvite[] {

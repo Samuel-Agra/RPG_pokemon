@@ -739,8 +739,9 @@ describe('RPG version 2 accounts and tables backend', () => {
 		assert.equal(accounts.listMembers(owner.token, table.id)
 			.find(entry => entry.account.id === playerAccount.id).online, false);
 		accounts.withAuditContext({ origin: 'unit-test', sessionId: 'session-test' }, () =>
-			assert.equal(accounts.changeMemberRole(owner.token, table.id, playerAccount.id, 'spectator',
-				'Reorganização da mesa').role, 'spectator'));
+			assert.equal(accounts.changeMemberRole(owner.token, table.id, playerAccount.id, 'master',
+				'Reorganização da mesa').role, 'master'));
+		accounts.changeMemberRole(owner.token, table.id, playerAccount.id, 'player');
 		assert.throws(() => accounts.changeMemberRole(master.token, table.id, playerAccount.id, 'master'), /proprietário/);
 		assert.equal(accounts.removeMember(master.token, table.id, playerAccount.id, true).status, 'blocked');
 		assert.throws(() => accounts.joinByInvite(player.token,
@@ -749,11 +750,12 @@ describe('RPG version 2 accounts and tables backend', () => {
 		assert.throws(() => accounts.leaveTable(owner.token, table.id), /proprietário não pode sair/);
 		assert(ownerAccount.id && masterAccount.id);
 		const audit = accounts.listAudit(owner.token, table.id);
-		const roleAudit = audit.find(entry => entry.action === 'member.role.changed' && entry.targetId === playerAccount.id);
+		const roleAudit = audit.find(entry => entry.action === 'member.role.changed' && entry.targetId === playerAccount.id &&
+			entry.metadata.newRole === 'master');
 		assert(roleAudit);
 		assert.deepEqual(roleAudit.metadata, {
 			origin: 'unit-test', sessionId: 'session-test', result: 'success', previousRole: 'player',
-			newRole: 'spectator', previousStatus: 'active', newStatus: 'active', reason: 'Reorganização da mesa',
+			newRole: 'master', previousStatus: 'active', newStatus: 'active', reason: 'Reorganização da mesa',
 		});
 		assert(audit.some(entry => entry.action === 'member.blocked' && entry.targetId === playerAccount.id));
 	});
@@ -813,7 +815,7 @@ describe('RPG version 2 accounts and tables backend', () => {
 		const revoked = accounts.createInvite(owner.token, table.id);
 		assert.equal(accounts.revokeInvite(owner.token, table.id, revoked.invite.id).status, 'revoked');
 		assert.throws(() => accounts.joinByInvite(target.token, revoked.code), /revogado/);
-		const expiring = accounts.createInvite(owner.token, table.id, 'spectator', time + 1);
+		const expiring = accounts.createInvite(owner.token, table.id, 'player', time + 1);
 		time += 2;
 		assert.throws(() => accounts.joinByInvite(target.token, expiring.code), /expirou/);
 		assert.equal(accounts.listInvites(owner.token, table.id).find(invite => invite.id === expiring.invite.id).status, 'expired');
@@ -874,7 +876,7 @@ describe('RPG version 2 accounts and tables backend', () => {
 		assert.deepEqual(accounts.discoverTables(guest.token), [], 'mesas das quais a conta participa não devem aparecer');
 		assert.deepEqual(accounts.listDirectedInvites(guest.token), []);
 		accounts.leaveTable(guest.token, publicTable.id);
-		const declined = accounts.createInvite(owner.token, publicTable.id, 'spectator', undefined, 1, 'convidado-direto');
+		const declined = accounts.createInvite(owner.token, publicTable.id, 'player', undefined, 1, 'convidado-direto');
 		accounts.declineDirectedInvite(guest.token, declined.invite.id);
 		assert.deepEqual(accounts.listDirectedInvites(guest.token), []);
 		assert(accounts.markAllNotificationsRead(guest.token) >= 1);
@@ -909,22 +911,19 @@ describe('RPG version 2 accounts and tables backend', () => {
 		const owner = getRPGDefaultTablePermissions('owner');
 		const master = getRPGDefaultTablePermissions('master');
 		const player = getRPGDefaultTablePermissions('player');
-		const spectator = getRPGDefaultTablePermissions('spectator');
 		assert(Object.values(owner).every(Boolean));
 		assert.equal(master['battles.create'], true);
 		assert.equal(master['campaign.configure'], false);
 		assert.equal(master['members.manage'], true);
 		assert.equal(player['battles.participate'], true);
 		assert.equal(player['battles.create'], false);
-		assert.equal(spectator['battles.watch'], true);
-		assert.equal(spectator['battles.participate'], false);
-
 		const accounts = service();
 		accounts.createAccount('dono-perm', 'Dono', 'Senha1!Segura');
 		accounts.createAccount('player-perm', 'Player', 'Senha1!Segura');
 		const ownerSession = accounts.login('dono-perm', 'Senha1!Segura');
 		const playerSession = accounts.login('player-perm', 'Senha1!Segura');
 		const table = accounts.createTable(ownerSession.token, { name: 'Permissões' });
+		assert.throws(() => accounts.createInvite(ownerSession.token, table.id, 'spectator'), /Função/);
 		accounts.updateTable(ownerSession.token, table.id, { requireJoinApproval: false });
 		accounts.joinByInvite(playerSession.token, accounts.createInvite(ownerSession.token, table.id).code);
 		assert.equal(accounts.getTablePermissions(playerSession.token, table.id)['contests.participate'], true);

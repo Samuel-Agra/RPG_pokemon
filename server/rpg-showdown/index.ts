@@ -169,8 +169,8 @@ const RPG_HATCH_BALL_PRIORITY = [
 	'strangeball', 'cherishball', 'masterball',
 ] as const;
 
-export type RPGAccountRole = 'master' | 'player' | 'spectator';
-export type RPGSessionMode = 'master' | 'player' | 'spectator';
+export type RPGAccountRole = 'master' | 'player';
+export type RPGSessionMode = 'master' | 'player';
 export type RPGCharacterGender = 'M' | 'F' | 'N';
 
 export interface RPGCharacterSelection {
@@ -356,7 +356,6 @@ const PLAYER_PERMISSIONS = new Set<RPGPermission>([
 	'character:read', 'team:read', 'team:edit', 'box:read', 'box:edit', 'bag:read', 'bag:edit',
 	'money:read', 'money:edit', 'battle:start',
 ]);
-const SPECTATOR_PERMISSIONS = new Set<RPGPermission>(['battle:observe-all']);
 
 export interface RPGCharacterRepository {
 	create(record: RPGStoredCharacter): void;
@@ -925,7 +924,7 @@ export class RPGLoginService {
 			throw new Error('Mesa da sessão inválida');
 		}
 		const member = this.accounts.repository.getMembership(session.platformTableId, targetAccountId);
-		if (!member || member.status !== 'active' || member.role === 'spectator') {
+		if (!member || member.status !== 'active') {
 			throw new Error('O destino precisa ser um membro ativo capaz de controlar personagens');
 		}
 		const record = this.requireCharacter(characterId);
@@ -1319,9 +1318,8 @@ export class RPGLoginService {
 	authorizePlatformSession(token: string, context: import('./account-management').RPGActiveTableContext): RPGSession {
 		if (context.table.id !== this.legacyTableId) throw new Error('RPG table scope mismatch');
 		const elevated = context.membership.role === 'owner' || context.membership.role === 'master';
-		const spectator = context.membership.role === 'spectator';
-		const expectedRole: RPGAccountRole = elevated ? 'master' : spectator ? 'spectator' : 'player';
-		const character = elevated || spectator ? undefined :
+		const expectedRole: RPGAccountRole = elevated ? 'master' : 'player';
+		const character = elevated ? undefined :
 			this.repository.list().find(record => record.accountId === context.account.id);
 		const existing = this.sessions.get(this.tokenKey(token));
 		if (existing && existing.platformAccountId === context.account.id &&
@@ -1336,7 +1334,7 @@ export class RPGLoginService {
 		}
 		const session: RPGInternalSession = {
 			version: RPG_SESSION_VERSION, role: expectedRole,
-			mode: elevated ? 'master' : spectator ? 'spectator' : 'player',
+			mode: elevated ? 'master' : 'player',
 			characterId: character?.state.id, createdAt: context.session.createdAt,
 			platformAccountId: context.account.id,
 			platformTableId: context.table.id,
@@ -1378,7 +1376,7 @@ export class RPGLoginService {
 			new Set(this.contestSessions.list().filter(entry => !['ended', 'cancelled'].includes(entry.status)).map(entry => entry.id))
 		);
 		const tournaments = this.tournaments.list();
-		if (session.role === 'master' || session.role === 'spectator') return tournaments;
+		if (session.role === 'master') return tournaments;
 		return tournaments.filter(tournament => tournament.participants.some(participant => participant.characterId === session.characterId));
 	}
 	getTournament(token: string, id: string): RPGTournament {
@@ -3522,7 +3520,6 @@ export class RPGLoginService {
 	listBattleSessions(token: string): RPGBattleSession[] {
 		const session = this.getSession(token);
 		if (session.mode === 'master') return this.battleSessions.list();
-		if (session.role === 'spectator') return this.battleSessions.list().filter(entry => entry.status === 'started');
 		const characterId = session.characterId || session.viewAsCharacterId;
 		if (!characterId) throw new Error('RPG player session requires a character');
 		return this.battleSessions.list(characterId);
@@ -3532,10 +3529,6 @@ export class RPGLoginService {
 		const session = this.getSession(token);
 		const battleSession = this.battleSessions.get(battleSessionId);
 		if (session.mode === 'master') return battleSession;
-		if (session.role === 'spectator') {
-			if (battleSession.status !== 'started') throw new Error('A batalha ainda não está disponível para espectadores');
-			return battleSession;
-		}
 		const characterId = session.characterId || session.viewAsCharacterId;
 		if (battleSession.status !== 'started' && (battleSession.status === 'draft' ||
 			!battleSession.participants.some(participant => participant.characterId === characterId))) {
@@ -3814,7 +3807,6 @@ export class RPGLoginService {
 	listContestSessions(token: string): RPGContestSession[] {
 		const session = this.getSession(token);
 		if (session.role === 'master') return this.contestSessions.list();
-		if (session.role === 'spectator') return this.contestSessions.list().filter(entry => entry.status === 'started');
 		const characterId = session.characterId || session.viewAsCharacterId;
 		if (!characterId) throw new Error('RPG player session requires a character');
 		return this.contestSessions.list(characterId);
@@ -3824,10 +3816,6 @@ export class RPGLoginService {
 		const account = this.getSession(token);
 		const contest = this.contestSessions.get(contestSessionId);
 		if (account.role === 'master') return contest;
-		if (account.role === 'spectator') {
-			if (contest.status !== 'started') throw new Error('O concurso ainda não está disponível para espectadores');
-			return contest;
-		}
 		const characterId = account.characterId || account.viewAsCharacterId;
 		if (contest.status !== 'started' &&
 			(contest.status === 'draft' || !contest.participants.some(entry => entry.characterId === characterId))) {
@@ -3970,8 +3958,7 @@ export class RPGLoginService {
 		const session = this.getSession(token);
 		const effectiveCharacter = session.mode === 'player' ?
 			(session.characterId || session.viewAsCharacterId) : undefined;
-		const permissions = session.mode === 'master' ? MASTER_PERMISSIONS :
-			session.mode === 'spectator' ? SPECTATOR_PERMISSIONS : PLAYER_PERMISSIONS;
+		const permissions = session.mode === 'master' ? MASTER_PERMISSIONS : PLAYER_PERMISSIONS;
 		if (!permissions.has(permission)) throw new Error('RPG session does not have permission: ' + permission);
 		if (session.mode === 'player' && ownerId && toID(ownerId) !== effectiveCharacter) {
 			throw new Error('RPG player session cannot access another character');
