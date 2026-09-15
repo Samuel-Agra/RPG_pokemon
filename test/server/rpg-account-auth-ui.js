@@ -301,6 +301,11 @@ describe('RPG version 2 account authentication frontend', () => {
 		assert(script.includes('function platformPlayerNeedsCharacter'));
 		assert(script.includes('if (platformPlayerNeedsCharacter(connected.session)) openCharacterCreation()'));
 		assert(script.includes("$('#player-name').value = state.account?.displayName || ''"));
+		assert(html.includes('id="legacy-player-name-field"'));
+		assert(html.includes('id="legacy-initial-money-field"'));
+		assert(script.includes("$('#legacy-player-name-field').classList.toggle('hidden', required)"));
+		assert(script.includes("$('#legacy-initial-money-field').classList.toggle('hidden', required)"));
+		assert(script.includes("...(platformCreation ? {} : {"));
 		assert(script.includes("const login = platformCreation ? await api('/session')"));
 		assert(script.includes("'character-password-field', 'character-password-confirmation-field'"));
 		assert(script.includes('input.disabled = required'));

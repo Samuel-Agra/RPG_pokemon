@@ -601,12 +601,15 @@ describe('RPG HTTP frontend API', () => {
 			assert.equal(sessionResult.response.status, 200, JSON.stringify(sessionResult.data));
 			assert.equal(sessionResult.data.session.characterId, undefined);
 			let result = await scopedRequest('/characters', { method: 'POST', body: {
-				characterName: 'Personagem B', playerName: 'Player', avatar: 'red',
-				initialMoney: 0, starter: { species: 'Squirtle', nickname: '', gender: 'M', level: 5 },
+				characterName: 'Personagem B', playerName: 'Nome forjado', password: 'senha-antiga', avatar: 'red',
+				initialMoney: 9_999_999, starter: { species: 'Squirtle', nickname: '', gender: 'M', level: 5 },
 			} });
 			assert.equal(result.response.status, 201, JSON.stringify(result.data));
 			sessionResult = await scopedRequest('/session');
 			assert.equal(sessionResult.data.session.characterId, 'personagemb');
+			result = await scopedRequest('/character');
+			assert.equal(result.data.character.playerName, 'Player');
+			assert.equal(result.data.character.money, 3000);
 			accounts.selectTable(player.token, tableA.id);
 			result = await scopedRequest('/characters'); assert.deepEqual(result.data.characters, []);
 			accounts.selectTable(player.token, tableB.id);

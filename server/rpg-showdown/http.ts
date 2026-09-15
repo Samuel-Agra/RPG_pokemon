@@ -225,8 +225,9 @@ export class RPGHttpServer {
 		if (method === 'POST' && url.pathname === '/api/rpg/characters') {
 			const body = await this.body(req);
 			const authorization = req.headers.authorization || '';
-			const character = this.scopedService.getStore() && /^Bearer (.+)$/i.test(authorization) ?
-				this.login.createCharacterForPlatformSession(this.token(req), this.characterRequest(body)) :
+			const platformCreation = !!this.scopedService.getStore() && /^Bearer (.+)$/i.test(authorization);
+			const character = platformCreation ?
+				this.login.createCharacterForPlatformSession(this.token(req), this.characterRequest(body, true)) :
 				this.login.createCharacter(this.characterRequest(body));
 			this.json(res, 201, { character });
 			return;
@@ -1922,17 +1923,17 @@ export class RPGHttpServer {
 		}
 	}
 
-	private characterRequest(body: Record<string, unknown>): RPGCreateCharacterRequest {
+	private characterRequest(body: Record<string, unknown>, platformCreation = false): RPGCreateCharacterRequest {
 		const starter = body.starter && typeof body.starter === 'object' && !Array.isArray(body.starter) ?
 			body.starter as Record<string, unknown> : {};
 		const nickname = typeof starter.nickname === 'string' ? starter.nickname : undefined;
 		const level = typeof starter.level === 'number' ? starter.level : undefined;
 		return {
 			characterName: this.string(body.characterName),
-			playerName: this.string(body.playerName),
+			playerName: platformCreation ? '' : this.string(body.playerName),
 			avatar: this.string(body.avatar),
-			password: this.string(body.password),
-			initialMoney: typeof body.initialMoney === 'number' ? body.initialMoney : NaN,
+			password: platformCreation ? '' : this.string(body.password),
+			initialMoney: platformCreation ? 0 : typeof body.initialMoney === 'number' ? body.initialMoney : NaN,
 			starter: {
 				species: this.string(starter.species),
 				nickname,

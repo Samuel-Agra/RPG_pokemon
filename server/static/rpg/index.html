@@ -7,7 +7,7 @@
 	<title>Pok&eacute;mon RPG</title>
 	<link rel="icon" type="image/png" href="./assets/pokemon-rpg-logo.png" />
 	<link rel="apple-touch-icon" href="./assets/pokemon-rpg-logo.png" />
-	<link rel="stylesheet" href="./rpg.css?v=20260914-182" />
+	<link rel="stylesheet" href="./rpg.css?v=20260914-183" />
 	<link rel="stylesheet" href="./battle-ui.css?v=20260830-5" />
 	<link rel="stylesheet" href="./battle-ui-v2.css?v=20260811-23" />
 	<link rel="stylesheet" href="./battle-room.css?v=20260828-6" />
@@ -296,7 +296,7 @@
 							<label for="character-name">Nome do personagem</label>
 							<input id="character-name" name="characterName" maxlength="30" required />
 						</div>
-						<div class="field">
+						<div class="field" id="legacy-player-name-field">
 							<label for="player-name">Nome do jogador</label>
 							<input id="player-name" name="playerName" maxlength="50" required />
 						</div>
@@ -319,8 +319,8 @@
 								</div>
 							</div>
 						</div>
-						<div class="field">
-							<label for="initial-money">PokÃ©coins iniciais (&#x20BD;)</label>
+						<div class="field" id="legacy-initial-money-field">
+							<label for="initial-money">Pok&eacute;coins iniciais (&#x20BD;)</label>
 							<input id="initial-money" name="initialMoney" type="number" min="0" max="10000000" value="3000" required />
 						</div>
 						<div class="field">
@@ -469,6 +469,6 @@
 	<script src="./nursery-ui.js?v=20260826-1"></script>
 	<script src="./contest-ui.js?v=20260914-40"></script>
 	<script src="./shop-ui.js?v=20260904-4"></script>
-	<script src="./rpg.js?v=20260914-182"></script>
+	<script src="./rpg.js?v=20260914-183"></script>
 </body>
 </html>

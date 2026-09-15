@@ -145,6 +145,7 @@ export * from './account-management';
 
 export const RPG_ACCOUNT_VERSION = 5;
 export const RPG_SESSION_VERSION = 1;
+const RPG_PLATFORM_INITIAL_MONEY = 3000;
 export const RPG_DEFAULT_SESSION_TTL = 24 * 60 * 60 * 1000;
 export const RPG_NURSERY_BREEDING_BASE_FEE = 5_000;
 export const RPG_NURSERY_LOCAL_INCUBATION_FEE = 5_000;
@@ -902,11 +903,15 @@ export class RPGLoginService {
 	createCharacterForPlatformSession(token: string, request: RPGCreateCharacterRequest): RPGCharacterSelection {
 		const session = this.getInternalSession(token);
 		if (!session.platformAccountId || session.role !== 'player') throw new Error('Sessão global de Player necessária');
+		const account = this.accounts.repository.getAccount(session.platformAccountId);
+		if (!account || account.status !== 'active') throw new Error('Conta global indisponível');
 		// A conta global autentica o dono. A credencial aleatória apenas mantém registros
 		// antigos compatíveis e nunca é exibida nem usada no fluxo da versão 2.
 		const character = this.createCharacter({
 			...request,
+			playerName: account.displayName,
 			password: this.bytes(32).toString('base64url'),
+			initialMoney: RPG_PLATFORM_INITIAL_MONEY,
 		}, session.platformAccountId);
 		session.characterId = character.id; this.sessions.set(this.tokenKey(token), session);
 		return character;

@@ -101,6 +101,8 @@ function openCharacterCreation() {
 	setAvatarPickerOpen(false);
 	setStarterPickerOpen(false);
 	const required = platformPlayerNeedsCharacter();
+	$('#legacy-player-name-field').classList.toggle('hidden', required);
+	$('#legacy-initial-money-field').classList.toggle('hidden', required);
 	for (const id of ['character-password-field', 'character-password-confirmation-field']) {
 		$('#' + id).classList.toggle('hidden', required);
 		const input = $('#' + id).querySelector('input');
@@ -7852,9 +7854,10 @@ $('#create-form').addEventListener('submit', async event => {
 	event.preventDefault();
 	const form = event.currentTarget;
 	const data = new FormData(form);
+	const platformCreation = platformPlayerNeedsCharacter();
 	const password = String(data.get('password') || '');
 	const confirmation = String(data.get('confirmPassword') || '');
-	if (!platformPlayerNeedsCharacter() && password !== confirmation) {
+	if (!platformCreation && password !== confirmation) {
 		setError('create-error', 'As duas senhas RPG precisam ser iguais.');
 		return;
 	}
@@ -7864,10 +7867,12 @@ $('#create-form').addEventListener('submit', async event => {
 	submit.textContent = 'Criando...';
 	const request = {
 		characterName: String(data.get('characterName') || ''),
-		playerName: String(data.get('playerName') || ''),
+		...(platformCreation ? {} : {
+			playerName: String(data.get('playerName') || ''),
+			password,
+			initialMoney: Number(data.get('initialMoney')),
+		}),
 		avatar: String(data.get('avatar') || ''),
-		password,
-		initialMoney: Number(data.get('initialMoney')),
 		starter: {
 			species: String(data.get('starterSpecies') || ''),
 			nickname: String(data.get('starterName') || ''),
@@ -7877,7 +7882,6 @@ $('#create-form').addEventListener('submit', async event => {
 	};
 	try {
 		const created = await api('/characters', { method: 'POST', body: request });
-		const platformCreation = !!state.accountSession?.activeTableId;
 		const login = platformCreation ? await api('/session') : await api('/session/player', {
 			method: 'POST', body: { characterId: created.character.id, password },
 		});
