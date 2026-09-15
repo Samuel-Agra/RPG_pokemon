@@ -446,8 +446,9 @@ export class RPGHttpServer {
 		if (method === 'POST' && url.pathname === '/api/rpg/v2/accounts') {
 			const body = await this.body(req);
 			const username = this.string(body.username);
+			const handle = this.optionalString(body.handle) || toID(username);
 			const registration = await this.login.accounts.createAccountWithRecoveryCodesAsync(
-				username, this.string(body.displayName), this.string(body.password), this.optionalString(body.handle)
+				username, handle, this.string(body.password), handle
 			);
 			await this.login.flushPersistence();
 			this.json(res, 201, registration);
@@ -498,8 +499,13 @@ export class RPGHttpServer {
 		}
 		if (method === 'PATCH' && url.pathname === '/api/rpg/v2/account') {
 			const body = await this.body(req);
+			const profile = body.profile && typeof body.profile === 'object' && !Array.isArray(body.profile) ?
+				body.profile as Record<string, unknown> : undefined;
 			const account = this.login.accounts.updateAccount(
-				this.token(req), this.string(body.displayName), this.optionalString(body.handle)
+				this.token(req), this.optionalString(body.handle) || '', this.optionalString(body.handle), profile ? {
+					avatarUrl: this.optionalString(profile.avatarUrl), bio: this.optionalString(profile.bio),
+					accentColor: this.optionalString(profile.accentColor),
+				} : undefined
 			);
 			await this.login.flushPersistence(); this.json(res, 200, { account }); return;
 		}

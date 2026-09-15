@@ -153,6 +153,17 @@ describe('RPG HTTP frontend API', () => {
 		assert.equal(result.response.status, 200);
 		const masterToken = result.data.session.token;
 		const masterHeaders = { Authorization: `Bearer ${masterToken}` };
+		result = await request('/v2/account', {
+			method: 'PATCH', headers: masterHeaders, body: {
+				displayName: 'Mestre V2', profile: {
+					avatarUrl: 'https://example.test/mestre.png', bio: 'Narrador da campanha', accentColor: '#315f9a',
+				},
+			},
+		});
+		assert.equal(result.response.status, 200);
+		assert.deepEqual(result.data.account.profile, {
+			avatarUrl: 'https://example.test/mestre.png', bio: 'Narrador da campanha', accentColor: '#315f9a',
+		});
 
 		result = await request('/v2/tables', {
 			method: 'POST', headers: masterHeaders,
@@ -188,7 +199,7 @@ describe('RPG HTTP frontend API', () => {
 		result = await request(`/v2/tables/${tableId}/select`, { method: 'POST', headers: playerHeaders });
 		assert.equal(result.data.session.activeTableId, tableId);
 		result = await request('/v2/session', { headers: playerHeaders });
-		assert.equal(result.data.account.displayName, 'Player V2');
+		assert.equal(result.data.account.displayName, 'playerv2');
 		assert.equal(result.data.session.activeTableId, tableId);
 		assert.equal(result.data.session.role, 'player');
 		assert.equal(result.data.session.membershipId, `${tableId}:${result.data.account.id}`);
@@ -608,7 +619,7 @@ describe('RPG HTTP frontend API', () => {
 			sessionResult = await scopedRequest('/session');
 			assert.equal(sessionResult.data.session.characterId, 'personagemb');
 			result = await scopedRequest('/character');
-			assert.equal(result.data.character.playerName, 'Player');
+			assert.equal(result.data.character.playerName, 'playermultimesa');
 			assert.equal(result.data.character.money, 3000);
 			accounts.selectTable(player.token, tableA.id);
 			result = await scopedRequest('/characters'); assert.deepEqual(result.data.characters, []);

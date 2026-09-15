@@ -300,7 +300,7 @@ describe('RPG version 2 accounts and tables backend', () => {
 		const accounts = service();
 		const account = accounts.createAccount('Samuel.RPG', 'Samuel', 'Senha1!Segura');
 		assert.equal(account.username, 'samuelrpg');
-		assert.equal(account.displayName, 'Samuel');
+		assert.equal(account.displayName, 'samuelrpg');
 		assert.equal(account.credential, undefined);
 		assert.throws(() => accounts.createAccount('samuel-rpg', 'Outro', 'Outra1!Senha'), /já está em uso/);
 		assert.throws(() => accounts.login('samuelrpg', 'senha-errada'), /inválidos/);
@@ -624,13 +624,21 @@ describe('RPG version 2 accounts and tables backend', () => {
 		const listed = accounts.listTables(session.token);
 		assert.equal(listed[0].table.id, table.id);
 		assert.equal(listed[0].membership.role, 'owner');
-		assert.equal(listed[0].owner.displayName, 'Samuel');
+		assert.equal(listed[0].owner.displayName, 'samuel');
 		assert.equal(listed[0].memberCount, 1);
 		assert.deepEqual(table.settings.sessionDays, ['sat']);
 		assert.deepEqual(table.settings.sessionTimes, { sat: '19:00' });
 		assert.equal(table.settings.inDevelopment, false);
 		assert(listed[0].lastActivityAt >= table.updatedAt);
-		assert.equal(accounts.updateAccount(session.token, 'Samuel Atualizado').displayName, 'Samuel Atualizado');
+		const profile = accounts.updateAccount(session.token, 'Samuel Atualizado', undefined, {
+			avatarUrl: 'https://example.test/avatar.png', bio: 'Mestre de Kanto', accentColor: '#A52A2A',
+		});
+		assert.equal(profile.displayName, 'samuel');
+		assert.deepEqual(profile.profile, {
+			avatarUrl: 'https://example.test/avatar.png', bio: 'Mestre de Kanto', accentColor: '#a52a2a',
+		});
+		assert.throws(() => accounts.updateAccount(session.token, 'Samuel', undefined,
+			{ avatarUrl: 'file:///segredo.png' }), /HTTP ou HTTPS/);
 		const updated = accounts.updateTable(session.token, table.id, {
 			name: 'Kanto Atualizada', description: 'Nova descrição', color: '#335577', visibility: 'private',
 			settings: { fullDescription: 'Uma nova descrição completa' },
@@ -885,13 +893,13 @@ describe('RPG version 2 accounts and tables backend', () => {
 		assert.match(invitation.code, /^[A-Z0-9]{4}-[A-Z0-9]{4}$/);
 		const preview = accounts.previewInvite(guest.token, invitation.code);
 		assert.equal(preview.table.name, 'Jornada de Kanto');
-		assert.equal(preview.owner.displayName, 'Samuel');
+		assert.equal(preview.owner.displayName, 'donopedido');
 		assert.equal(preview.requiresApproval, true);
 		const request = accounts.joinByInvite(guest.token, invitation.code);
 		assert.equal(request.status, 'pending');
 		assert.equal(accounts.joinByInvite(guest.token, invitation.code).revision, request.revision);
 		assert.equal(accounts.listInvites(owner.token, table.id)[0].usedCount, 0);
-		assert.equal(accounts.listJoinRequests(owner.token, table.id)[0].account.displayName, 'Lucas');
+		assert.equal(accounts.listJoinRequests(owner.token, table.id)[0].account.displayName, 'convidadopedido');
 		const accepted = accounts.resolveJoinRequest(owner.token, table.id, guest.accountId, true);
 		assert.equal(accepted.status, 'active');
 		assert.equal(accounts.listInvites(owner.token, table.id)[0].usedCount, 1);

@@ -97,8 +97,14 @@ export function getRPGEffectiveTablePermissions(member: Pick<RPGTableMember, 'ro
 }
 
 interface RPGAccountCredential { algorithm: 'scrypt'; salt: string; hash: string }
+export interface RPGAccountProfile {
+	avatarUrl?: string;
+	bio?: string;
+	accentColor?: string;
+}
 export interface RPGPlatformAccount {
 	id: string; username: string; handle: string; displayName: string; credential: RPGAccountCredential;
+	profile?: RPGAccountProfile;
 	status: 'active' | 'disabled'; createdAt: number; updatedAt: number; revision: number;
 }
 export interface RPGCampaignTable {
@@ -459,7 +465,7 @@ export class RPGAccountManagement {
 		this.repository.replace(snapshot); this.sessionRepository.replace(sessions);
 	}
 
-	createAccount(username: string, displayName: string, password: string, handle?: string): RPGPublicPlatformAccount {
+	createAccount(username: string, _displayName: string, password: string, handle?: string): RPGPublicPlatformAccount {
 		const normalized = toID(username);
 		const normalizedHandle = this.handle(handle || normalized);
 		if (normalized.length < 3 || normalized.length > 40) throw new Error('O usuário deve ter entre 3 e 40 caracteres');
@@ -469,7 +475,7 @@ export class RPGAccountManagement {
 		const now = this.now();
 		const account: RPGPlatformAccount = {
 			id: this.id(), username: normalized, handle: normalizedHandle,
-			displayName: this.text(displayName, 80, 'nome de exibição'),
+			displayName: normalizedHandle,
 			credential: this.hashPassword(password), status: 'active', createdAt: now, updatedAt: now, revision: 0,
 		};
 		this.repository.setAccount(account);
@@ -483,14 +489,15 @@ export class RPGAccountManagement {
 		});
 	}
 
-	async createAccountWithRecoveryCodesAsync(username: string, displayName: string, password: string, handle?: string) {
+	async createAccountWithRecoveryCodesAsync(username: string, _displayName: string, password: string, handle?: string) {
 		const normalized = toID(username);
 		const normalizedHandle = this.handle(handle || normalized);
 		if (normalized.length < 3 || normalized.length > 40) throw new Error('O usuário deve ter entre 3 e 40 caracteres');
 		if (this.repository.getAccountByUsername(normalized)) throw new Error('Este nome de usuário já está em uso');
 		if (this.repository.getAccountByHandle(normalizedHandle)) throw new Error('Este @ já está em uso');
 		this.validatePassword(password);
-		const display = this.text(displayName, 80, 'nome de exibição');
+		// O @ é a identidade pública; o login continua sendo somente a credencial privada.
+		const display = normalizedHandle;
 		const credential = await this.hashPasswordAsync(password);
 		return this.atomic(() => {
 			if (this.repository.getAccountByUsername(normalized)) throw new Error('Este nome de usuário já está em uso');
@@ -766,16 +773,19 @@ export class RPGAccountManagement {
 		};
 	}
 
-	updateAccount(token: string, displayName: string, handle?: string): RPGPublicPlatformAccount {
+	updateAccount(token: string, _displayName: string, handle?: string,
+		profile?: Partial<RPGAccountProfile>): RPGPublicPlatformAccount {
 		const session = this.session(token); const account = this.repository.getAccount(session.accountId);
 		if (!account || account.status !== 'active') throw new Error('Conta indisponível');
-		account.displayName = this.text(displayName, 80, 'nome de exibição');
+		account.displayName = account.handle;
 		if (handle !== undefined) {
 			const normalizedHandle = this.handle(handle);
 			const owner = this.repository.getAccountByHandle(normalizedHandle);
 			if (owner && owner.id !== account.id) throw new Error('Este @ já está em uso');
 			account.handle = normalizedHandle;
+			account.displayName = normalizedHandle;
 		}
+		if (profile !== undefined) account.profile = this.accountProfile(profile);
 		account.updatedAt = this.now(); account.revision++;
 		this.repository.setAccount(account);
 		return this.publicAccount(account);
@@ -1367,7 +1377,8 @@ export class RPGAccountManagement {
 	}
 
 	private notifyTableManagers(table: RPGCampaignTable, requesterAccountId: string): void {
-		const requester = this.repository.getAccount(requesterAccountId)?.displayName || 'Uma conta';
+		const requesterAccount = this.repository.getAccount(requesterAccountId);
+		const requester = requesterAccount ? `@${requesterAccount.handle}` : 'Uma conta';
 		for (const manager of this.repository.listMembershipsForTable(table.id)) {
 			if (manager.status !== 'active' || !getRPGEffectiveTablePermissions(manager)['members.manage']) continue;
 			this.notify(manager.accountId, table.id, 'join_request', 'Nova solicitação de entrada',
@@ -1576,6 +1587,18 @@ export class RPGAccountManagement {
 			throw new Error('O @ deve ter de 3 a 30 caracteres e usar apenas letras, números ou _');
 		}
 		return normalized;
+	}
+	private accountProfile(profile: Partial<RPGAccountProfile>): RPGAccountProfile {
+		const avatarUrl = this.optionalText(profile.avatarUrl, 1_000);
+		if (avatarUrl) {
+			let parsed: URL;
+			try { parsed = new URL(avatarUrl); } catch { throw new Error('Link do avatar inválido'); }
+			if (!['http:', 'https:'].includes(parsed.protocol)) throw new Error('O avatar deve usar um link HTTP ou HTTPS');
+		}
+		const bio = this.optionalText(profile.bio, 500);
+		const accentColor = this.optionalText(profile.accentColor, 7) || '#406aa3';
+		if (!/^#[0-9a-f]{6}$/i.test(accentColor)) throw new Error('Cor de destaque inválida');
+		return { ...(avatarUrl ? { avatarUrl } : {}), ...(bio ? { bio } : {}), accentColor: accentColor.toLowerCase() };
 	}
 	private publicAccount(account: RPGPlatformAccount) { const { credential: _credential, ...view } = account; return structuredClone(view); }
 	private tokenHash(value: string) { return createHash('sha256').update(value).digest('hex'); }

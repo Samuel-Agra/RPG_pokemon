@@ -310,6 +310,17 @@ p { line-height: 1.5; }
 .account-security-field span { color: #536176; font-size: 12px; font-weight: bold; }
 .account-security-field input { min-height: 39px; padding: 7px 9px; border: 1px solid #a7b0bc; border-radius: 4px; }
 .account-settings-section > .button { justify-self: start; }
+.account-profile-preview { display: grid; grid-template-columns: 76px minmax(0, 1fr); align-items: center; gap: 15px; padding: 16px; background: #edf3fa; border: 1px solid #b7c3d1; border-radius: 7px; }
+.account-profile-avatar-preview { width: 72px; height: 72px; font-size: 22px; }
+.account-profile-preview > div:last-child { min-width: 0; }
+.account-profile-preview strong, .account-profile-preview small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.account-profile-preview strong { color: var(--navy); font-size: 17px; }
+.account-profile-preview small { margin-top: 2px; color: #718095; }
+.account-profile-preview p { margin: 8px 0 0; color: #53667e; overflow-wrap: anywhere; }
+.account-profile-editor { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 13px; }
+.account-profile-editor > :nth-child(3), .account-profile-editor > :nth-child(4) { grid-column: 1 / -1; }
+.account-profile-editor textarea { width: 100%; min-height: 88px; padding: 9px; resize: none; border: 1px solid #a7b0bc; border-radius: 4px; font: inherit; }
+.account-profile-editor > .button { justify-self: start; align-self: end; }
 .account-settings-help { margin: 0; color: var(--muted); line-height: 1.45; }
 .account-settings-inline { width: 100%; min-height: 470px; }
 .account-settings-shell { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 22px; margin-top: 18px; }
@@ -400,7 +411,8 @@ p { line-height: 1.5; }
 .account-table-card > .button { align-self: flex-end; }
 .account-profile-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; padding: 17px 20px; margin-bottom: 16px; }
 .account-profile-identity, .account-profile-actions { display: flex; align-items: center; gap: 10px; }
-.account-profile-avatar { width: 54px; height: 54px; display: grid; place-items: center; color: white; background: linear-gradient(145deg, #668fc3, #294c79); border: 3px solid white; border-radius: 50%; box-shadow: 0 0 0 1px #8494a8, 0 2px 4px #0003; font-size: 18px; font-weight: bold; }
+.account-profile-avatar { width: 54px; height: 54px; display: grid; place-items: center; overflow: hidden; color: white; background: linear-gradient(145deg, color-mix(in srgb, var(--account-accent, #406aa3), white 24%), var(--account-accent, #406aa3)); border: 3px solid white; border-radius: 50%; box-shadow: 0 0 0 1px #8494a8, 0 2px 4px #0003; font-size: 18px; font-weight: bold; }
+.account-profile-avatar img, .member-avatar img { width: 100%; height: 100%; display: block; object-fit: cover; }
 .account-profile-identity h1 { margin: 0 0 3px; font-size: 20px; }
 .account-profile-identity p { margin: 0; color: var(--muted); font-size: 12px; }
 .account-table-toolbar { display: flex; gap: 9px; margin-bottom: 25px; }
@@ -656,7 +668,7 @@ p { line-height: 1.5; }
 button.master-member-row { cursor: pointer; }
 button.master-member-row:hover { background: #edf3fa; }
 .master-member-header { color: #68798d; background: #e8edf3; font-size: 10px; font-weight: bold; text-transform: uppercase; }
-.member-avatar { width: 40px; height: 40px; display: grid; place-items: center; flex: none; color: white; background: linear-gradient(145deg, #5378a6, #293f60); border: 2px solid white; border-radius: 50%; box-shadow: 0 0 0 1px #8c9bad; font-weight: bold; }
+.member-avatar { width: 40px; height: 40px; display: grid; place-items: center; overflow: hidden; flex: none; color: white; background: linear-gradient(145deg, color-mix(in srgb, var(--account-accent, #406aa3), white 20%), var(--account-accent, #406aa3)); border: 2px solid white; border-radius: 50%; box-shadow: 0 0 0 1px #8c9bad; font-weight: bold; }
 .master-member-account { overflow: hidden; font-weight: bold; text-overflow: ellipsis; white-space: nowrap; }
 .member-status { width: max-content; padding: 3px 7px; border-radius: 10px; color: #376443; background: #e1f0e5; font-size: 9px; font-weight: bold; }
 .member-status-pending { color: #76591f; background: #f5ebcf; }
@@ -943,6 +955,14 @@ input, select {
 .profile-summary .avatar-badge.has-sprite img {
 	max-width: 74px;
 	max-height: 82px;
+}
+.profile-summary .avatar-badge.has-account-avatar img {
+	width: 100%;
+	height: 100%;
+	max-width: none;
+	max-height: none;
+	object-fit: cover;
+	image-rendering: auto;
 }
 .profile-summary strong, .profile-summary small { display: block; }
 .profile-summary strong { color: #2b3d55; }
@@ -1333,6 +1353,13 @@ input, select {
 	box-shadow: 0 2px 5px #21364d42;
 	font-size: 16px;
 	font-weight: 900;
+}
+.player-roster-master-avatar.has-account-avatar { overflow: hidden; }
+.player-roster-master-avatar.has-account-avatar img {
+	width: 100%;
+	height: 100%;
+	display: block;
+	object-fit: cover;
 }
 .player-roster-master-avatar.is-online { border-color: #38a85c; box-shadow: 0 0 0 1px #237a40, 0 2px 5px #21364d42; }
 .player-roster-master-avatar.is-offline { border-color: #d65252; box-shadow: 0 0 0 1px #9b3434, 0 2px 5px #21364d42; }

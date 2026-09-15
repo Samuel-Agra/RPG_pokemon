@@ -403,6 +403,7 @@ export class RPGMySQLPersistence {
 			platformAccounts: accountRows[0].map(row => ({
 				id: String(row.id), username: String(row.username), handle: String(row.handle || row.username),
 				displayName: String(row.display_name),
+				profile: row.profile ? decoded(row.profile) as RPGPlatformAccount['profile'] : {},
 				credential: decoded(row.credential) as RPGPlatformAccount['credential'], status: row.status,
 				createdAt: Number(row.created_at), updatedAt: Number(row.updated_at), revision: Number(row.revision),
 			})),
@@ -758,11 +759,12 @@ export class RPGMySQLPersistence {
 	}
 	upsertPlatformAccount(account: RPGPlatformAccount): void {
 		this.enqueue(`INSERT INTO rpg_accounts
-			(id, username, handle, display_name, credential, status, created_at, updated_at, revision)
-			VALUES (?, ?, ?, ?, CAST(? AS JSON), ?, ?, ?, ?)
+			(id, username, handle, display_name, profile, credential, status, created_at, updated_at, revision)
+			VALUES (?, ?, ?, ?, CAST(? AS JSON), CAST(? AS JSON), ?, ?, ?, ?)
 			ON DUPLICATE KEY UPDATE username=VALUES(username), handle=VALUES(handle), display_name=VALUES(display_name),
-			credential=VALUES(credential), status=VALUES(status), updated_at=VALUES(updated_at), revision=VALUES(revision)`, [
-			account.id, account.username, account.handle, account.displayName, JSON.stringify(account.credential), account.status,
+			profile=VALUES(profile), credential=VALUES(credential), status=VALUES(status), updated_at=VALUES(updated_at), revision=VALUES(revision)`, [
+			account.id, account.username, account.handle, account.displayName, JSON.stringify(account.profile || {}),
+			JSON.stringify(account.credential), account.status,
 			account.createdAt, account.updatedAt, account.revision,
 		]);
 	}

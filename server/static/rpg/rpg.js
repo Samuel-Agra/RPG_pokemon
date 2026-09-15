@@ -94,7 +94,7 @@ function openCharacterCreation() {
 	setError('create-error', '');
 	$('#create-form').reset();
 	$('#initial-money').value = '3000';
-	$('#player-name').value = state.account?.displayName || '';
+	$('#player-name').value = state.account?.handle || '';
 	selectStarter('Squirtle');
 	$('#avatar').value = DEFAULT_AVATAR_ID;
 	renderAvatarPicker();
@@ -264,9 +264,6 @@ function validateAccountForm(form, register) {
 	else if (register && String(values.username).trim().length < 3) {
 		invalidate('username', 'Use entre 3 e 40 caracteres.');
 	}
-	if (register && !String(values.displayName || '').trim()) {
-		invalidate('displayName', 'Informe o nome que ser\u00e1 exibido nas mesas.');
-	}
 	if (register) {
 		const handle = String(values.handle || '').trim().replace(/^@/, '');
 		if (!handle) invalidate('handle', 'Informe seu @ público.');
@@ -289,7 +286,6 @@ function showAccountServerError(form, error) {
 	const message = String(error?.message || 'N\u00e3o foi poss\u00edvel concluir a opera\u00e7\u00e3o.');
 	if (/nome de usu\u00e1rio|usu\u00e1rio deve/i.test(message)) accountFieldError(form, 'username', message);
 	else if (/usu\u00e1rio ou senha/i.test(message)) accountFieldError(form, 'password', message);
-	else if (/nome de exibi\u00e7\u00e3o/i.test(message)) accountFieldError(form, 'displayName', message);
 	else if (/@/.test(message)) accountFieldError(form, 'handle', message);
 	else if (/senha deve/i.test(message)) accountFieldError(form, 'password', message);
 	else accountGeneralError(form, message);
@@ -387,14 +383,14 @@ async function openAccountTableDetails(entry, sourceCard) {
 	const membersToggle = button('•', 'account-table-members-toggle'); membersToggle.type = 'button';
 	membersToggle.setAttribute('aria-label', 'Mostrar participantes'); membersToggle.setAttribute('aria-expanded', 'false');
 	const owner = details.members.find(member => member.role === 'owner');
-	const ownerName = createElement('strong', owner?.online ? 'online' : '', details.owner.displayName);
+	const ownerName = createElement('strong', owner?.online ? 'online' : '', accountPublicHandle(details.owner));
 	const ownerRole = createElement('small', 'account-table-owner-role', accountRoleLabel('owner'));
 	const ownerStatus = createElement('span', 'account-table-member-status' + (owner?.online ? ' online' : ''), owner?.online ? 'Online' : 'Offline');
 	membersArea.append(membersToggle, ownerName, ownerRole, ownerStatus);
 	const membersPanel = createElement('div', 'account-table-members-panel hidden');
 	for (const member of details.members.filter(member => member.role !== 'owner')) {
 		const row = createElement('div', 'account-table-member-line');
-		row.append(createElement('span', member.online ? 'online' : '', member.account.displayName),
+		row.append(createElement('span', member.online ? 'online' : '', accountPublicHandle(member.account)),
 			createElement('small', '', accountRoleLabel(member.role)),
 			createElement('span', 'account-table-member-status' + (member.online ? ' online' : ''), member.online ? 'Online' : 'Offline'));
 		membersPanel.append(row);
@@ -478,7 +474,7 @@ function updateAccountTableCard(card, entry) {
 	copy.append(createElement('h3', '', entry.table.name), createElement('p', '', entry.table.description || 'Sem descrição.'));
 	summary.append(copy); content.append(summary);
 	const meta = createElement('div', 'account-table-meta');
-	const owner = createElement('span', entry.ownerOnline ? 'account-table-owner online' : 'account-table-owner', entry.owner.displayName);
+	const owner = createElement('span', entry.ownerOnline ? 'account-table-owner online' : 'account-table-owner', accountPublicHandle(entry.owner));
 	meta.append(owner, createElement('span', 'account-table-access', accountTableAccessLabel(entry.table)));
 	const favorite = button(entry.membership.permissions?.['ui.favoriteTable'] ? '★' : '☆', 'account-table-favorite');
 	favorite.type = 'button'; favorite.setAttribute('aria-label', 'Favoritar mesa');
@@ -916,23 +912,50 @@ function openAccountSettings() {
 		tabs.append(tab); content.append(section); sections.set(id, section); return { tab, section };
 	};
 	const profile = addTab('profile', 'Perfil');
-	const displayName = accountSettingsField('Nome de exibição'); displayName.input.value = state.account?.displayName || '';
+	const profileEditor = createElement('div', 'account-profile-editor');
+	const profilePreview = createElement('div', 'account-profile-preview');
+	const previewAvatar = createElement('div', 'account-profile-avatar account-profile-avatar-preview');
+	const previewCopy = createElement('div');
+	const previewName = createElement('strong', '', '@' + (state.account?.handle || state.account?.username || 'usuario'));
+	const previewBio = createElement('p', '', state.account?.profile?.bio || 'Sua apresentação aparecerá aqui.');
+	previewCopy.append(previewName, previewBio); profilePreview.append(previewAvatar, previewCopy);
 	const handle = accountSettingsField('@ público'); handle.input.value = state.account?.handle || state.account?.username || '';
+	const avatarUrl = accountSettingsField('Link da imagem do avatar', 'url');
+	avatarUrl.input.value = state.account?.profile?.avatarUrl || ''; avatarUrl.input.placeholder = 'https://exemplo.com/avatar.png';
+	const bioField = createElement('label', 'account-security-field'); bioField.append(createElement('span', '', 'Apresentação'));
+	const bio = createElement('textarea'); bio.maxLength = 500; bio.rows = 4;
+	bio.placeholder = 'Conte um pouco sobre você para as pessoas das suas mesas.';
+	bio.value = state.account?.profile?.bio || ''; bioField.append(bio);
+	const accent = accountSettingsField('Cor de destaque', 'color');
+	accent.input.value = state.account?.profile?.accentColor || '#406aa3';
+	const refreshProfilePreview = () => {
+		previewName.textContent = '@' + (handle.input.value.trim() || 'usuario');
+		previewBio.textContent = bio.value.trim() || 'Sua apresentação aparecerá aqui.';
+		setAccountAvatar(previewAvatar, { displayName: previewName.textContent, profile: {
+			avatarUrl: avatarUrl.input.value.trim(), accentColor: accent.input.value,
+		} });
+	};
+	for (const input of [handle.input, avatarUrl.input, bio, accent.input]) {
+		input.addEventListener('input', refreshProfilePreview);
+	}
+	refreshProfilePreview();
 	const saveProfile = button('Salvar perfil', 'button primary');
 	saveProfile.addEventListener('click', async () => {
 		saveProfile.disabled = true;
 		try {
 			const data = await accountApi('/account', { method: 'PATCH', body: {
-				displayName: displayName.input.value, handle: handle.input.value,
+				handle: handle.input.value,
+				profile: { avatarUrl: avatarUrl.input.value, bio: bio.value, accentColor: accent.input.value },
 			} });
 			state.account = data.account; saveAccountSession(state.accountSession, data.account);
-			$('#account-profile-name').textContent = data.account.displayName;
+			$('#account-profile-name').textContent = '@' + data.account.handle;
 			$('#account-profile-username').textContent = '@' + data.account.handle;
-			$('#account-profile-avatar').textContent = initials(data.account.displayName);
+			setAccountAvatar($('#account-profile-avatar'), data.account);
 			showToast('Perfil atualizado.');
 		} catch (error) { showToast(error.message, true); } finally { saveProfile.disabled = false; }
 	});
-	profile.section.append(displayName.field, handle.field, saveProfile);
+	profileEditor.append(handle.field, avatarUrl.field, bioField, accent.field, saveProfile);
+	profile.section.append(profilePreview, profileEditor);
 
 	const security = addTab('security', 'Segurança');
 	const currentPassword = accountSettingsField('Senha atual', 'password');
@@ -1344,7 +1367,7 @@ function renderAccountTableEditorPreview(editor, stage) {
 		if (table.settings.cardImage) { const image = createElement('img', 'account-table-illustration'); image.src = table.settings.cardImage; image.alt = ''; summary.append(image); }
 		const copy = createElement('div', 'account-table-copy'); copy.append(createElement('h3', '', table.name), createElement('p', '', table.description));
 		summary.append(copy); content.append(summary);
-		const meta = createElement('div', 'account-table-meta'); meta.append(createElement('span', 'account-table-owner online', state.account?.displayName || 'Mestre'),
+		const meta = createElement('div', 'account-table-meta'); meta.append(createElement('span', 'account-table-owner online', accountPublicHandle(state.account)),
 			createElement('span', 'account-table-access', accountTableAccessLabel(table)), createElement('span', 'account-table-favorite', '☆'));
 		const character = createElement('div', 'account-table-character'); const characterCopy = createElement('div', 'account-table-character-copy');
 		characterCopy.append(createElement('small', '', 'Personagem'), createElement('strong', '', 'Gerenciamento da campanha'));
@@ -1365,7 +1388,7 @@ function renderAccountTableEditorPreview(editor, stage) {
 		information.append(createElement('h2', '', 'Informações da mesa'), informationContent); body.append(information);
 		const footer = createElement('div', 'account-table-details-footer');
 		const owner = createElement('div', 'account-table-details-members-area'); owner.append(createElement('span', 'account-table-members-toggle', '•'),
-			createElement('strong', 'online', state.account?.displayName || 'Mestre'), createElement('small', 'account-table-owner-role', 'Proprietário'),
+			createElement('strong', 'online', accountPublicHandle(state.account)), createElement('small', 'account-table-owner-role', 'Proprietário'),
 			createElement('span', 'account-table-member-status online', 'Online')); footer.append(owner);
 		const tag = accountTableDevelopmentTag(table); if (tag) { footer.classList.add('has-development-tag'); footer.append(tag); }
 		const created = createElement('div', 'account-table-details-fact'); created.append(createElement('small', '', 'Mesa criada em'), createElement('strong', '', accountTableDate(Date.now())));
@@ -1449,7 +1472,7 @@ function openAccountTableDialog(mode, entry = null) {
 		fields.append(accountDialogField('C\u00f3digo do convite', 'code'));
 	} else if (mode === 'settings') {
 		title.textContent = 'Configura\u00e7\u00f5es da conta'; submit.textContent = 'Salvar';
-		fields.append(accountDialogField('Nome de exibi\u00e7\u00e3o', 'displayName', state.account?.displayName || ''));
+		fields.append(accountDialogField('@ público', 'handle', state.account?.handle || ''));
 	} else if (mode === 'create') {
 		title.textContent = 'Criar mesa'; submit.textContent = 'Criar mesa'; accountTableCreationStep = 2;
 		buildAccountTableEditor(fields, {}, 'Criar mesa');
@@ -1485,7 +1508,7 @@ async function submitAccountTableDialog(event) {
 				accountTableDialogEntry = { code, preview: result.preview };
 				const preview = result.preview; const fields = $('#account-table-dialog-fields'); fields.replaceChildren();
 				const card = createElement('div', 'account-invite-preview'); card.style.setProperty('--table-color', preview.table.color);
-				card.append(createElement('h3', '', preview.table.name), createElement('p', '', 'Mestre: ' + preview.owner.displayName),
+				card.append(createElement('h3', '', preview.table.name), createElement('p', '', 'Mestre: ' + accountPublicHandle(preview.owner)),
 					createElement('strong', '', preview.memberCount + (preview.memberCount === 1 ? ' participante' : ' participantes')));
 				if (preview.requiresApproval) card.append(createElement('small', '', 'Esta mesa exige aprova\u00e7\u00e3o do Mestre.'));
 				fields.append(card);
@@ -1503,7 +1526,7 @@ async function submitAccountTableDialog(event) {
 			}
 			showToast('Voc\u00ea entrou na mesa.');
 		} else if (accountTableDialogMode === 'settings') {
-			const result = await accountApi('/account', { method: 'PATCH', body: { displayName: values.displayName } });
+			const result = await accountApi('/account', { method: 'PATCH', body: { handle: values.handle } });
 			state.account = result.account;
 			showToast('Configura\u00e7\u00f5es salvas.');
 		} else {
@@ -1571,7 +1594,7 @@ function renderDiscoveredTable(entry) {
 	copy.append(createElement('h3', '', entry.table.name), createElement('p', '', entry.table.description || 'Mesa pública'));
 	summary.append(copy); content.append(summary);
 	const meta = createElement('div', 'account-table-meta');
-	meta.append(createElement('span', entry.ownerOnline ? 'account-table-owner online' : 'account-table-owner', entry.owner.displayName),
+	meta.append(createElement('span', entry.ownerOnline ? 'account-table-owner online' : 'account-table-owner', accountPublicHandle(entry.owner)),
 		createElement('span', 'account-table-access', accountTableAccessLabel(entry.table)));
 	content.append(meta);
 	const reserved = createElement('div', 'account-table-card-reserved');
@@ -1614,7 +1637,7 @@ async function loadDirectedInvites(background = false) {
 			cover.append(createElement('span', 'brand-ball', ''), createElement('span', 'account-table-status', 'Convite'));
 			const content = createElement('div', 'account-table-content');
 			content.append(createElement('h3', '', entry.table.name),
-				createElement('p', 'account-table-owner', 'Por ' + entry.owner.displayName));
+				createElement('p', 'account-table-owner', 'Por ' + accountPublicHandle(entry.owner)));
 			const facts = createElement('div', 'account-table-facts');
 			facts.append(createElement('span', '', accountRoleLabel(entry.invite.role)),
 				createElement('span', '', `${entry.memberCount} membro${entry.memberCount === 1 ? '' : 's'}`));
@@ -1717,9 +1740,9 @@ async function renderAccountTables() {
 	show('tables');
 	setAccountTablesView(accountTablesView);
 	if (accountTablesView === 'discover') void loadDiscoveredTables();
-	$('#account-profile-name').textContent = state.account?.displayName || 'Conta RPG';
+	$('#account-profile-name').textContent = '@' + (state.account?.handle || state.account?.username || 'usuario');
 	$('#account-profile-username').textContent = '@' + (state.account?.handle || state.account?.username || 'usuario');
-	$('#account-profile-avatar').textContent = initials(state.account?.displayName);
+	setAccountAvatar($('#account-profile-avatar'), state.account);
 	try {
 		await Promise.all([refreshAccountTables(), loadAccountNotifications(true)]);
 		const inviteCode = new URL(window.location.href).searchParams.get('invite');
@@ -1881,6 +1904,28 @@ function startBattleSessionSynchronization() {
 
 function initials(value) {
 	return String(value || 'R').trim().slice(0, 2).toUpperCase();
+}
+
+function setAccountAvatar(element, account, fallbackText) {
+	if (!element) return;
+	element.replaceChildren();
+	element.classList.toggle('has-account-avatar', !!account?.profile?.avatarUrl);
+	element.style.setProperty('--account-accent', account?.profile?.accentColor || '#406aa3');
+	if (!account?.profile?.avatarUrl) {
+		element.textContent = fallbackText || initials(account?.handle || account?.displayName);
+		return;
+	}
+	const image = createElement('img'); image.src = account.profile.avatarUrl;
+	image.alt = ''; image.referrerPolicy = 'no-referrer';
+	image.addEventListener('error', () => {
+		element.classList.remove('has-account-avatar');
+		element.replaceChildren(fallbackText || initials(account?.handle || account?.displayName));
+	});
+	element.append(image);
+}
+
+function accountAvatar(account, className = 'member-avatar') {
+	const avatar = createElement('span', className); setAccountAvatar(avatar, account); return avatar;
 }
 
 const rpgPokemonSpriteRegistry = new Map();
@@ -2134,7 +2179,7 @@ function renderMasterCampaignEvents(container, events) {
 function resetMasterAvatar() {
 	const badge = $('#profile-avatar');
 	badge.classList.remove('has-sprite');
-	badge.textContent = 'M';
+	setAccountAvatar(badge, state.account, 'M');
 }
 
 function setProfileAvatar(character) {
@@ -3589,8 +3634,8 @@ async function renderPlayerRosterDrawer() {
 	if (owner) masters.splice(Math.floor(masters.length / 2), 0, owner);
 	for (const master of masters) {
 		const card = createElement('button', 'player-roster-master-card'); card.type = 'button';
-		const badge = createElement('span', 'player-roster-master-avatar ' + (master.online ? 'is-online' : 'is-offline'),
-			master.member.role === 'owner' ? 'PM' : 'M');
+		const badge = createElement('span', 'player-roster-master-avatar ' + (master.online ? 'is-online' : 'is-offline'));
+		setAccountAvatar(badge, master.account, master.member.role === 'owner' ? 'PM' : 'M');
 		badge.setAttribute('aria-label', master.online ? 'Online' : 'Offline');
 		card.append(badge, createElement('span', 'player-roster-master-handle', accountPublicHandle(master.account)));
 		card.setAttribute('aria-label', `Ver informações de ${accountPublicHandle(master.account)}`);
@@ -4634,10 +4679,9 @@ function openMemberDetails(entry, viewerRole, members, onChanged) {
 	const layer = createElement('div', 'modal-backdrop member-details-layer');
 	const dialog = createElement('div', 'panel member-details-dialog'); dialog.setAttribute('role', 'dialog'); dialog.setAttribute('aria-modal', 'true');
 	const heading = createElement('div', 'member-details-heading');
-	const identity = createElement('div'); identity.append(createElement('span', 'member-avatar', initials(entry.account.displayName)),
+	const identity = createElement('div'); identity.append(accountAvatar(entry.account),
 		createElement('div', '', ''));
-	identity.lastElementChild.append(createElement('h2', '', entry.account.displayName),
-		createElement('small', '', accountPublicHandle(entry.account)));
+	identity.lastElementChild.append(createElement('h2', '', accountPublicHandle(entry.account)));
 	const close = button('Fechar', 'button'); close.type = 'button'; heading.append(identity, close); dialog.append(heading);
 	const details = createElement('div', 'member-details-grid');
 	const detail = (label, content) => {
@@ -4645,6 +4689,7 @@ function openMemberDetails(entry, viewerRole, members, onChanged) {
 		box.append(typeof content === 'string' ? createElement('strong', '', content) : content); details.append(box);
 	};
 	detail('Função na mesa', accountRoleLabel(entry.member.role));
+	if (entry.account.profile?.bio) detail('Apresentação', entry.account.profile.bio);
 	detail('Data de entrada', new Date(entry.member.joinedAt).toLocaleDateString('pt-BR'));
 	const noteBox = createElement('section', 'member-note-box');
 	const noteHeading = createElement('div', 'member-note-heading'); noteHeading.append(createElement('small', '', 'Anotações sobre esta pessoa'));
@@ -4715,7 +4760,7 @@ function openMemberDetails(entry, viewerRole, members, onChanged) {
 				const targetSelect = createElement('select');
 				for (const candidate of members.filter(candidate => candidate.account.id !== entry.account.id &&
 					candidate.member.status === 'active' && candidate.member.role !== 'spectator' && !candidate.characters?.length)) {
-					const option = createElement('option', '', candidate.account.displayName); option.value = candidate.account.id; targetSelect.append(option);
+					const option = createElement('option', '', accountPublicHandle(candidate.account)); option.value = candidate.account.id; targetSelect.append(option);
 				}
 				const confirm = button('Confirmar transferência', 'button danger'); confirm.disabled = !targetSelect.options.length;
 				if (!targetSelect.options.length) panel.append(createElement('small', 'form-error', 'Nenhuma conta disponível sem personagem nesta mesa.'));
@@ -4782,7 +4827,7 @@ async function renderMasterMembers() {
 	const renderRow = entry => {
 		const row = createElement('button', 'master-member-row'); row.type = 'button'; row.dataset.accountId = entry.account.id;
 		const characterLabel = entry.characters?.length ? entry.characters.map(character => character.name).join(', ') : '—';
-		row.append(createElement('span', 'member-avatar', initials(entry.account.displayName)),
+		row.append(accountAvatar(entry.account),
 			createElement('span', 'master-member-account', accountPublicHandle(entry.account)),
 			createElement('span', '', characterLabel), createElement('span', '', accountRoleLabel(entry.member.role)),
 			createElement('span', 'member-status member-status-' + entry.member.status, memberStatusLabel(entry.member.status)),
@@ -4820,8 +4865,7 @@ async function renderMasterInvitationsPanel() {
 	if (!requestData.requests.length) requests.append(createElement('p', 'account-invite-empty', 'Nenhuma solicitação pendente.'));
 	for (const entry of requestData.requests) {
 		const row = createElement('div', 'master-join-request');
-		const identity = createElement('div'); identity.append(createElement('strong', '', entry.account.displayName),
-			createElement('small', '', accountPublicHandle(entry.account)));
+		const identity = createElement('div'); identity.append(createElement('strong', '', accountPublicHandle(entry.account)));
 		const actions = createElement('div');
 		for (const [label, allow, className] of [['Permitir', true, 'primary'], ['Recusar', false, 'danger']]) {
 			const action = button(label, `button ${className}`);
@@ -5607,7 +5651,7 @@ async function renderMasterBody(characters) {
 			const row = createElement('div', 'master-campaign-master-row');
 			const expanded = isOwner && state.expandedCampaignMasterIds.has(entry.account.id);
 			row.append(
-				createElement('span', 'member-avatar', initials(entry.account.displayName)),
+				accountAvatar(entry.account),
 				createElement('strong', '', accountPublicHandle(entry.account)),
 				createElement('span', '', accountRoleLabel(entry.member.role)),
 				createElement('span', `campaign-master-presence ${entry.online ? 'is-online' : 'is-offline'}`,
@@ -7578,7 +7622,6 @@ $('#account-register-form').addEventListener('submit', async event => {
 	try {
 		const registration = await accountApi('/accounts', { method: 'POST', body: {
 			username: String(values.username).trim(), handle: String(values.handle).trim(),
-			displayName: String(values.displayName).trim(),
 			password: String(values.password),
 		} });
 		const login = await accountApi('/session', { method: 'POST', body: {

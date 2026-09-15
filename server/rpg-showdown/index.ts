@@ -909,7 +909,7 @@ export class RPGLoginService {
 		// antigos compatíveis e nunca é exibida nem usada no fluxo da versão 2.
 		const character = this.createCharacter({
 			...request,
-			playerName: account.displayName,
+			playerName: account.handle,
 			password: this.bytes(32).toString('base64url'),
 			initialMoney: RPG_PLATFORM_INITIAL_MONEY,
 		}, session.platformAccountId);

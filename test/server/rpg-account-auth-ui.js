@@ -20,6 +20,7 @@ describe('RPG version 2 account authentication frontend', () => {
 		assert(html.includes('autocomplete="new-password"'));
 		assert(html.includes('minlength="3" maxlength="40" placeholder="Login"'));
 		assert(html.includes('name="handle"'));
+		assert(!html.includes('name="displayName"'));
 		assert(html.includes('Diferente do login; será usado para receber convites.'));
 		assert(html.includes('placeholder="Use pelo menos 8 caracteres."'));
 		assert(html.includes('rel="icon" type="image/png" href="./assets/pokemon-rpg-logo.png"'));
@@ -121,10 +122,13 @@ describe('RPG version 2 account authentication frontend', () => {
 		assert(style.includes('.player-roster-drawer-pokemon'));
 		assert(html.includes('id="player-roster-master-list"'));
 		assert(script.includes("master.member.role === 'owner' ? 'PM' : 'M'"));
+		assert(script.includes("setAccountAvatar(badge, master.account, master.member.role === 'owner' ? 'PM' : 'M')"));
+		assert(script.includes("setAccountAvatar(badge, state.account, 'M')"));
 		assert(script.includes("['owner', 'master'].includes(entry.member.role)"));
 		assert(script.includes("master.online ? 'is-online' : 'is-offline'"));
 		assert(script.includes('openMemberDetails(master, viewerRole, members'));
 		assert(style.includes('.player-roster-master-list:has(> :nth-child(3))'));
+		assert(style.includes('.player-roster-master-avatar.has-account-avatar img'));
 		assert(script.includes('masters.splice(Math.floor(masters.length / 2), 0, owner)'));
 		assert(script.includes('const presenceOrder = { online: 0, idle: 1, offline: 2 }'));
 		assert(script.includes("localeCompare(String(second.characterName || ''), 'pt-BR'"));
@@ -300,7 +304,7 @@ describe('RPG version 2 account authentication frontend', () => {
 	it('requires a Player without a table character to create one before opening the dashboard', () => {
 		assert(script.includes('function platformPlayerNeedsCharacter'));
 		assert(script.includes('if (platformPlayerNeedsCharacter(connected.session)) openCharacterCreation()'));
-		assert(script.includes("$('#player-name').value = state.account?.displayName || ''"));
+		assert(script.includes("$('#player-name').value = state.account?.handle || ''"));
 		assert(html.includes('id="legacy-player-name-field"'));
 		assert(html.includes('id="legacy-initial-money-field"'));
 		assert(script.includes("$('#legacy-player-name-field').classList.toggle('hidden', required)"));
@@ -325,6 +329,11 @@ describe('RPG version 2 account authentication frontend', () => {
 	});
 
 	it('recovers accounts and administers profile, password, codes, and connected sessions', () => {
+		assert(script.includes("accountSettingsField('Link da imagem do avatar', 'url')"));
+		assert(script.includes("accountSettingsField('Cor de destaque', 'color')"));
+		assert(script.includes("profile: { avatarUrl: avatarUrl.input.value, bio: bio.value, accentColor: accent.input.value }"));
+		assert(script.includes('function setAccountAvatar(element, account, fallbackText)'));
+		assert(style.includes('.account-profile-preview'));
 		assert(html.includes('id="account-recovery-form"'));
 		assert(html.includes('id="account-open-recovery"'));
 		assert(script.includes("setAccountAuthMode('recovery')"));
