@@ -5775,6 +5775,7 @@ function readMasterNPCLibrary() {
 	return {
 		folders: [...MASTER_NPC_DEFAULT_FOLDERS, ...customFolders.filter(folder => !folder.locked)],
 		npcs: Array.isArray(stored.npcs) ? stored.npcs : [],
+		pokemon: Array.isArray(stored.pokemon) ? stored.pokemon : [],
 		notes: Array.isArray(stored.notes) ? stored.notes : [],
 	};
 }
@@ -6064,6 +6065,7 @@ function saveMasterNPCLibrary(library) {
 	const stored = {
 		folders: library.folders.filter(folder => !folder.locked),
 		npcs: library.npcs,
+		pokemon: library.pokemon || [],
 		notes: library.notes || [],
 	};
 	localStorage.setItem(MASTER_NPC_LIBRARY_KEY, JSON.stringify(stored));
@@ -6080,7 +6082,7 @@ async function loadMasterNPCLibraryFromServer() {
 	const response = await api('/master-npc-library');
 	if (response.library) {
 		localStorage.setItem(MASTER_NPC_LIBRARY_KEY, JSON.stringify(response.library));
-	} else if (local.npcs.length || local.notes.length || local.folders.some(folder => !folder.locked)) {
+	} else if (local.npcs.length || local.pokemon.length || local.notes.length || local.folders.some(folder => !folder.locked)) {
 		saveMasterNPCLibrary(local);
 	}
 	masterNPCLibraryLoadedFromServer = true;
@@ -6133,18 +6135,22 @@ function openMasterNPCFolderMenu(event, folder, library, refresh) {
 		const descendantIds = masterNPCFolderDescendants(library, folder.id);
 		const nestedCount = descendantIds.size - 1;
 		const npcCount = library.npcs.filter(npc => descendantIds.has(npc.folderId)).length;
+		const pokemonCount = (library.pokemon || []).filter(record => descendantIds.has(record.folderId)).length;
 		const noteCount = (library.notes || []).filter(note => descendantIds.has(note.folderId)).length;
-		if ((nestedCount || npcCount || noteCount) && !confirm(
+		if ((nestedCount || npcCount || pokemonCount || noteCount) && !confirm(
 			'A pasta "' + folder.name + '" possui ' +
 			(nestedCount ? nestedCount + ' subpasta(s)' : '') +
 			(nestedCount && (npcCount || noteCount) ? ', ' : '') +
 			(npcCount ? npcCount + ' NPC(s)' : '') +
-			(npcCount && noteCount ? ' e ' : '') +
+			(npcCount && (pokemonCount || noteCount) ? ', ' : '') +
+			(pokemonCount ? pokemonCount + ' Pokémon' : '') +
+			(pokemonCount && noteCount ? ' e ' : '') +
 			(noteCount ? noteCount + ' bloco(s) de notas' : '') +
 			'. Excluir a pasta e todo o seu conte\u00fado?'
 		)) return;
 		library.folders = library.folders.filter(entry => !descendantIds.has(entry.id));
 		library.npcs = library.npcs.filter(npc => !descendantIds.has(npc.folderId));
+		library.pokemon = (library.pokemon || []).filter(record => !descendantIds.has(record.folderId));
 		library.notes = (library.notes || []).filter(note => !descendantIds.has(note.folderId));
 		saveMasterNPCLibrary(library);
 		closeMasterNPCFolderMenu();
@@ -6244,9 +6250,11 @@ function masterNPCTrainerPicker(selectedId = '') {
 	return field;
 }
 
-function masterNPCTeamPicker(existing) {
+function masterNPCTeamPicker(existing, options = {}) {
 	const field = createElement('div', 'master-npc-form-field master-npc-team-field');
-	field.append(createElement('span', '', 'Equipe do NPC'));
+	const maximum = options.maximum || 6;
+	if (maximum === 1) field.classList.add('master-relevant-pokemon-picker-field');
+	field.append(createElement('span', '', options.label || 'Equipe do NPC'));
 	const legacy = String(existing?.teams || '').split(/[,;\n]+/).map(species => species.trim()).filter(Boolean);
 	const selected = (Array.isArray(existing?.team) ? existing.team : legacy).map(entry =>
 		typeof entry === 'string' ? { species: entry, name: entry, level: 50, nature: 'Serious', moves: [], ability: '', item: '',
@@ -6258,6 +6266,7 @@ function masterNPCTeamPicker(existing) {
 	const members = createElement('div', 'master-npc-team-members');
 	const update = () => {
 		input.value = JSON.stringify(selected);
+		add?.classList.toggle('hidden', selected.length >= maximum);
 		members.replaceChildren();
 		for (const [index, pokemon] of selected.entries()) {
 			const species = pokemon.species || pokemon.name;
@@ -6288,6 +6297,9 @@ function masterNPCTeamPicker(existing) {
 		picker.classList.add('hidden');
 		manager.classList.remove('hidden');
 		manager.replaceChildren(createElement('div', 'loading-block', 'Carregando ficha...'));
+		if (!catalog.length) {
+			try { catalog = (await api('/battle-pokemon')).pokemon || []; } catch {}
+		}
 		const pokemon = typeof source === 'string' ? catalog.find(entry => entry.name === source) : catalog.find(entry => entry.name === source.name || entry.name === source.species) || source;
 		const draft = editingIndex >= 0 ? structuredClone(selected[editingIndex]) : {
 			species: pokemon.name, name: pokemon.name, level: 50, nature: 'Serious', gender: pokemon.genders?.[0] || '',
@@ -6492,7 +6504,7 @@ function masterNPCTeamPicker(existing) {
 		showdownBody.append(portrait, center, attributes); manager.append(showdownBody, movesPanel);
 		const managerActions = createElement('div', 'master-npc-editor-actions');
 		const cancel = button('Cancelar'); cancel.type = 'button'; cancel.addEventListener('click', () => manager.classList.add('hidden'));
-		const confirmPokemon = button(editingIndex >= 0 ? 'Salvar Pok\u00e9mon' : 'Adicionar \u00e0 equipe', 'primary'); confirmPokemon.type = 'button';
+		const confirmPokemon = button(editingIndex >= 0 ? 'Salvar Pok\u00e9mon' : options.confirmLabel || 'Adicionar \u00e0 equipe', 'primary'); confirmPokemon.type = 'button';
 		const applyAutomatic = () => {
 			nature.value = natures[Math.floor(Math.random() * natures.length)];
 			nature.dispatchEvent(new Event('change'));
@@ -6525,14 +6537,14 @@ function masterNPCTeamPicker(existing) {
 			option.type = 'button';
 			option.append(pokemonSprite(pokemon), createElement('span', '', pokemon.name));
 			option.addEventListener('click', () => {
-				if (selected.length >= 6) return showToast('A equipe j\u00e1 possui seis Pok\u00e9mon.', true);
+				if (selected.length >= maximum) return showToast(maximum === 1 ? 'Este registro aceita apenas um Pokémon.' : 'A equipe já possui seis Pokémon.', true);
 				void openPokemonManager(pokemon);
 			});
 			results.append(option);
 		}
 	};
 	add.addEventListener('click', async () => {
-		if (selected.length >= 6) return showToast('A equipe j\u00e1 possui seis Pok\u00e9mon.', true);
+		if (selected.length >= maximum) return showToast(maximum === 1 ? 'Este registro aceita apenas um Pokémon.' : 'A equipe já possui seis Pokémon.', true);
 		picker.classList.toggle('hidden');
 		if (!picker.classList.contains('hidden') && !catalog.length) {
 			results.replaceChildren(createElement('div', 'loading-block', 'Carregando Pok\u00e9mon...'));
@@ -6675,6 +6687,99 @@ function renderMasterNPCRow(npc, library, refresh) {
 	expanded.append(actions);
 	details.append(expanded);
 	return details;
+}
+
+function renderMasterRelevantPokemonForm(library, existing, refresh) {
+	const form = createElement('form', 'panel master-npc-editor master-relevant-pokemon-editor');
+	form.append(createElement('h3', '', existing ? 'Editar Pokémon relevante' : 'Criar Pokémon relevante'));
+	const grid = createElement('div', 'master-npc-form-grid');
+	grid.append(
+		masterNPCTeamPicker({ team: existing?.pokemon ? [existing.pokemon] : [] }, {
+			maximum: 1, label: 'Pokémon', confirmLabel: 'Selecionar Pokémon',
+		}),
+		masterNPCField('Papel na história', 'role', existing?.role),
+		masterNPCField('Local', 'location', existing?.location),
+		masterNPCField('Uso', 'usage', existing?.usage),
+		masterNPCField('Descrição', 'description', existing?.description, true),
+		masterNPCField('Anotações', 'notes', existing?.notes, true)
+	);
+	form.append(grid);
+	const actions = createElement('div', 'master-npc-editor-actions');
+	if (existing) {
+		const remove = button('Excluir Pokémon'); remove.type = 'button';
+		let deletionArmed = false;
+		remove.addEventListener('click', () => {
+			if (!deletionArmed) {
+				deletionArmed = true; remove.classList.add('danger'); remove.textContent = 'Confirmar exclusão'; return;
+			}
+			library.pokemon = (library.pokemon || []).filter(record => record.id !== existing.id);
+			saveMasterNPCLibrary(library); refresh(); showToast('Pokémon relevante excluído.');
+		});
+		actions.append(remove);
+	}
+	const cancel = button('Cancelar'); cancel.type = 'button'; cancel.addEventListener('click', refresh);
+	const save = button(existing ? 'Salvar alterações' : 'Salvar Pokémon', 'primary'); save.type = 'submit';
+	actions.append(cancel, save); form.append(actions);
+	form.addEventListener('submit', event => {
+		event.preventDefault();
+		const values = Object.fromEntries(new FormData(form));
+		let selected = [];
+		try { selected = JSON.parse(String(values.team || '[]')); } catch {}
+		if (!selected.length) return showToast('Escolha e configure o Pokémon relevante.', true);
+		delete values.team;
+		const record = { ...existing, ...values, id: existing?.id || masterNPCId('pokemon'), folderId: 'pokemon',
+			pokemon: selected[0], order: existing?.order ?? Date.now() };
+		library.pokemon ||= [];
+		const index = library.pokemon.findIndex(entry => entry.id === record.id);
+		if (index >= 0) library.pokemon[index] = record; else library.pokemon.push(record);
+		saveMasterNPCLibrary(library); refresh();
+		showToast(existing ? 'Pokémon relevante atualizado.' : 'Pokémon relevante salvo.');
+	});
+	return form;
+}
+
+function renderMasterRelevantPokemonRow(record, library, refresh) {
+	const pokemon = record.pokemon || {};
+	const details = createElement('details', 'panel master-npc-row master-relevant-pokemon-row');
+	const summary = createElement('summary', 'master-npc-summary master-relevant-pokemon-summary');
+	const sprite = createElement('span', 'master-npc-row-sprite'); sprite.append(pokemonSprite(pokemon));
+	summary.append(sprite, createElement('strong', '', pokemon.name || pokemon.species || 'Pokémon'));
+	summary.append(createElement('span', '', `Nv. ${pokemon.level || 1}`), createElement('span', '', record.role || '—'),
+		createElement('span', '', record.location || '—'), createElement('span', '', record.usage || '—'));
+	details.append(summary);
+	const expanded = createElement('div', 'master-npc-expanded master-relevant-pokemon-expanded');
+	const identity = createElement('section', 'master-relevant-pokemon-identity');
+	identity.append(pokemonSprite(pokemon));
+	const identityCopy = createElement('div');
+	identityCopy.append(createElement('h4', '', pokemon.name || pokemon.species || 'Pokémon'),
+		createElement('p', '', `${pokemon.shiny ? 'Shiny · ' : ''}Nv. ${pokemon.level || 1} · ${pokemon.gender || 'Sem gênero'}`));
+	identity.append(identityCopy); expanded.append(identity);
+	const configuration = createElement('section'); configuration.append(createElement('h4', '', 'Configuração'));
+	configuration.append(createElement('p', '', [
+		`Natureza: ${pokemon.nature || '—'}`, `Habilidade: ${pokemon.ability || '—'}`, `Item: ${pokemon.item || 'Sem item'}`,
+		`Amizade: ${pokemon.friendship ?? 100}`, `Performance: ${pokemon.performance ?? 0}`,
+	].join('\n'))); expanded.append(configuration);
+	const moves = createElement('section'); moves.append(createElement('h4', '', 'Golpes'));
+	const moveList = createElement('div', 'master-relevant-pokemon-moves');
+	for (const move of (pokemon.moves || []).slice(0, 4)) moveList.append(createElement('span', '', move));
+	if (!moveList.children.length) moveList.append(createElement('p', '', 'Nenhum golpe registrado.'));
+	moves.append(moveList); expanded.append(moves);
+	const attributes = createElement('section'); attributes.append(createElement('h4', '', 'EVs e IVs'));
+	const statList = createElement('div', 'master-relevant-pokemon-stats');
+	for (const stat of ['hp', 'atk', 'def', 'spa', 'spd', 'spe']) {
+		const row = createElement('span'); row.append(createElement('strong', '', stat.toUpperCase()),
+			createElement('small', '', `EV ${pokemon.evs?.[stat] || 0}`), createElement('small', '', `IV ${pokemon.ivs?.[stat] || 0}`));
+		statList.append(row);
+	}
+	attributes.append(statList); expanded.append(attributes);
+	for (const [title, value] of [['Papel e localização', [record.role, record.location, record.usage].filter(Boolean).join(' · ')],
+		['Descrição', record.description], ['Anotações', record.notes]]) {
+		const section = createElement('section'); section.append(createElement('h4', '', title),
+			createElement('p', '', value || 'Nenhuma informação registrada.')); expanded.append(section);
+	}
+	const actions = createElement('div', 'master-npc-row-actions'); const edit = button('Editar');
+	edit.addEventListener('click', () => details.replaceWith(renderMasterRelevantPokemonForm(library, record, refresh)));
+	actions.append(edit); expanded.append(actions); details.append(expanded); return details;
 }
 
 function sanitizeMasterNoteHTML(value) {
@@ -6985,7 +7090,8 @@ function enableMasterLibraryRecordSorting(list, library, saveLibrary = saveMaste
 		event.preventDefault();
 		const rows = [...list.querySelectorAll('.master-library-sortable')];
 		rows.forEach((row, index) => {
-			const collection = row.dataset.recordType === 'note' ? library.notes : library.npcs;
+			const collection = row.dataset.recordType === 'note' ? library.notes :
+				row.dataset.recordType === 'pokemon' ? library.pokemon : library.npcs;
 			const record = collection.find(entry => entry.id === row.dataset.recordId);
 			if (record) record.order = index;
 		});
@@ -7114,6 +7220,27 @@ function renderMasterNPCFolders(folderId = null) {
 	});
 	grid.append(createFolder);
 	root.append(grid);
+	if (folderId === 'pokemon') {
+		const listHeader = createElement('div', 'master-npc-list-header');
+		const createPokemon = button('Criar Pokémon', 'primary');
+		createPokemon.addEventListener('click', () => root.replaceWith(renderMasterRelevantPokemonForm(library, null, refresh)));
+		listHeader.append(createElement('h3', '', 'Pokémon relevantes'), createPokemon); root.append(listHeader);
+		const pokemonRecords = [...(library.pokemon || [])].sort((first, second) =>
+			(Number(first.order) || 0) - (Number(second.order) || 0));
+		if (!pokemonRecords.length) root.append(createElement('div', 'panel master-npc-empty', 'Nenhum Pokémon relevante salvo.'));
+		else {
+			const columns = createElement('div', 'master-npc-column-labels');
+			for (const label of ['Sprite', 'Pokémon', 'Nível', 'Papel', 'Local', 'Uso']) columns.append(createElement('span', '', label));
+			root.append(columns);
+			const recordList = createElement('div', 'master-library-record-list');
+			for (const record of pokemonRecords) {
+				const row = renderMasterRelevantPokemonRow(record, library, refresh);
+				row.classList.add('master-library-sortable'); row.dataset.recordType = 'pokemon'; row.dataset.recordId = record.id;
+				recordList.append(row);
+			}
+			enableMasterLibraryRecordSorting(recordList, library); root.append(recordList);
+		}
+	}
 	if (folderId && folderId !== 'pokemon') {
 		const listHeader = createElement('div', 'master-npc-list-header');
 		const listActions = createElement('div', 'master-npc-list-actions');

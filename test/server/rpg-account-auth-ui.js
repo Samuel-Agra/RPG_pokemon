@@ -153,6 +153,22 @@ describe('RPG version 2 account authentication frontend', () => {
 		assert(style.includes('min-width: 650px'));
 	});
 
+	it('stores relevant Pokemon inside the fixed Pokemon library folder', () => {
+		assert(script.includes("pokemon: Array.isArray(stored.pokemon) ? stored.pokemon : []"));
+		assert(script.includes("button('Criar Pokémon', 'primary')"));
+		assert(script.includes('function renderMasterRelevantPokemonForm('));
+		assert(script.includes("maximum: 1, label: 'Pokémon', confirmLabel: 'Selecionar Pokémon'"));
+		assert(script.includes("field.classList.add('master-relevant-pokemon-picker-field')"));
+		assert(script.includes("add?.classList.toggle('hidden', selected.length >= maximum)"));
+		assert(script.includes('function renderMasterRelevantPokemonRow('));
+		assert(script.includes("row.dataset.recordType = 'pokemon'"));
+		assert(style.includes('.master-relevant-pokemon-stats'));
+		assert.match(style, /\.master-relevant-pokemon-picker-field \.master-npc-pokemon-picker \{[^}]*top: calc\(100% \+ 6px\);[^}]*bottom: auto;/s);
+		assert.match(style, /\.master-relevant-pokemon-picker-field \.master-npc-pokemon-results \{[^}]*repeat\(6,/s);
+		assert.match(style, /\.master-relevant-pokemon-picker-field \.master-npc-pokemon-manager \{[^}]*top: calc\(100% \+ 6px\);[^}]*bottom: auto;/s);
+		assert.match(style, /\.master-relevant-pokemon-picker-field \.master-npc-pokemon-manager \{[^}]*width: calc\(200% \+ 12px\);/s);
+	});
+
 	it('lists campaign Masters below Players and reserves permission editing for the owner', () => {
 		assert(script.includes("section('Mestres da campanha')"));
 		assert(script.includes("['owner', 'master'].includes(entry.member.role)"));
