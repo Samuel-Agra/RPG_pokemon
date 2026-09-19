@@ -7,6 +7,23 @@ O servidor possui dois perfis de acesso:
 - **Mestre:** configura a campanha, cria NPCs, organiza batalhas, concursos e torneios e administra os jogadores.
 - **Jogador:** controla seu personagem, seus Pokémon, inventário, equipes e participa das atividades abertas pelo Mestre.
 
+## Estado da versão 2
+
+A versão 2 do sistema de contas e mesas está concluída. Ela separa a conta global dos personagens e permite que a mesma conta crie ou participe de diferentes campanhas, sempre com isolamento dos dados por mesa.
+
+O escopo entregue inclui:
+
+- Cadastro, login, logout, sessões conectadas e recuperação por códigos de uso único.
+- Perfil público identificado pelo `@`, avatar por link, apresentação e cor personalizada.
+- Criação, edição, descoberta, arquivamento, restauração, backup e exclusão de mesas.
+- Convites por código ou direcionados a contas, solicitações de entrada e bloqueio de membros.
+- Papéis de Proprietário, Mestre auxiliar e Player, com permissões validadas no backend.
+- Um personagem por conta em cada mesa, criado no primeiro acesso como Player.
+- Chat, presença, notificações da conta e registros isolados por mesa.
+- Persistência MySQL transacional e proteção contra mistura de dados entre campanhas.
+
+Não existe papel de Espectador: somente membros da mesa podem acessá-la e acompanhar suas atividades. Hospedagem pública, recuperação por e-mail, a terceira área de comunicação e suporte a outros sistemas de RPG permanecem fora do escopo desta versão. A entrada automática em uma mesa única não será implementada.
+
 ## Requisitos
 
 - [Node.js](https://nodejs.org/) 16 ou superior (uma versão LTS atual é recomendada).
@@ -159,13 +176,13 @@ No Windows, use `ipconfig` para encontrar o endereço IPv4. Talvez seja necessá
 ## Como iniciar uma campanha
 
 1. Inicie o MySQL e o servidor RPG.
-2. Entre como Mestre usando o código definido em `rpgmastercode`.
-3. Configure o nome, a data e as permissões da campanha.
-4. Crie ou libere os personagens dos jogadores.
-5. Os jogadores entram com o personagem e a senha correspondentes.
+2. Crie uma conta global ou entre em uma conta existente.
+3. Crie uma mesa ou aceite um convite para uma campanha.
+4. O proprietário configura a mesa, seus Mestres auxiliares e as permissões da campanha.
+5. Ao entrar como Player sem personagem, conclua a criação obrigatória do personagem da mesa.
 6. O Mestre pode preparar NPCs, encontros, batalhas, concursos e torneios pela própria interface.
 
-Durante o jogo, os participantes podem administrar equipe, Box, Bag, Pokédex, banco, itens e demais atividades liberadas pelo Mestre. Batalhas e concursos iniciados aparecem para os participantes e, quando permitido, para espectadores.
+Durante o jogo, os participantes podem administrar equipe, Box, Bag, Pokédex, banco, itens e demais atividades liberadas pelo Mestre. Batalhas e concursos iniciados podem ser assistidos pelos próprios membros da mesa.
 
 ## Recursos principais
 
@@ -176,7 +193,7 @@ Durante o jogo, os participantes podem administrar equipe, Box, Bag, Pokédex, b
 - Pokédex por região, formas alternativas e progresso individual.
 - Bag, itens equipáveis, lojas, Pokécoin e banco.
 - Centro Pokémon, berçário, ovos, treinamento e paleontologia.
-- Batalhas individuais e multijogador, condições iniciais e espectadores.
+- Batalhas individuais e multijogador, condições iniciais e acompanhamento pelos membros da mesa.
 - Concursos solo, em dupla ou trio, com categorias, animações e pontuação.
 - Torneios de batalha e concurso com chaveamento e disputa pelo terceiro lugar.
 - Relógio da campanha, eventos dependentes do tempo e anotações do Mestre.

@@ -1,22 +1,24 @@
-# Login do RPG Showdown
+# Backend do Pokémon RPG
 
-Este modulo controla identidades, personagens e sessoes do RPG. Ele não reutiliza conta, senha, cookie, login nem nivel de permissao do Pokemon Showdown.
+Este módulo controla contas globais, mesas, personagens, sessões e os serviços do mundo RPG. Ele não reutiliza contas, senhas, cookies nem permissões do Pokémon Showdown.
+
+## Estado da versão 2
+
+A versão 2 está concluída com contas independentes dos personagens e isolamento integral por `table_id`. Toda requisição autenticada resolve a conta, a associação ativa, o papel, as permissões e a mesa do recurso no servidor; o escopo enviado pelo navegador nunca é aceito como autoridade.
+
+Os papéis disponíveis são `owner`, `master` e `player`. O papel de Espectador foi removido. Membros da mesa ainda podem acompanhar batalhas, concursos e torneios conforme suas permissões, mas contas externas não entram apenas para observar.
+
+Dados persistentes usam MySQL. Operações compostas são agrupadas em transações e os mundos ativos utilizam bloqueio e recarga para evitar sobrescrita entre processos.
 
 ## Configuração
 
-O codigo local do Mestre fica no arquivo privado `config/config.js`:
+O código local legado do Mestre permanece no arquivo privado `config/config.js` para compatibilidade administrativa:
 
 ```js
 exports.rpgmastercode = '14081998';
-exports.rpgcharacterfile = 'config/rpg-characters.json';
-exports.rpgbattlefile = 'config/rpg-battle-sessions.json';
-exports.rpgshopfile = 'config/rpg-shops.json';
 ```
 
-Troque o valor antes de expor o servidor. `config/config-example.js` documenta a mesma chave.
-Personagens e sessões de batalha usam arquivos JSON separados e gravação atômica. Se o processo
-for interrompido durante uma batalha, a preparação volta ao estado `ready` no próximo início e
-qualquer aposta ainda reservada é reembolsada antes de permitir uma nova tentativa.
+Troque o valor antes de expor o servidor. `config/config-example.js` documenta a mesma chave. Contas, mesas, personagens, atividades e demais estados persistentes são armazenados no MySQL.
 
 ## Inicio rapido no IntelliJ
 
@@ -38,9 +40,11 @@ Showdown permanecem habilitadas.
 
 ## Identidades
 
-- Mestre: entra com o codigo configurado e nao precisa de conta.
-- Player: escolhe um personagem da campanha e informa a senha RPG desse personagem.
-- Showdown: permanece um sistema de contas completamente separado.
+- Conta global: autentica uma pessoa e dá acesso às mesas das quais ela participa.
+- Proprietário: controla integralmente sua mesa e seus membros.
+- Mestre auxiliar: administra a campanha de acordo com as permissões da associação.
+- Player: controla seu único personagem naquela mesa.
+- Showdown: permanece um sistema técnico separado e não fornece contas ao RPG.
 
 A lista publica de selecao retorna somente:
 
@@ -75,7 +79,7 @@ Ela nao revela dinheiro, equipe, Bag, Box ou credenciais.
 }
 ```
 
-A tela futura deve pedir senha e confirmação de senha. A confirmação existe apenas no frontend; o backend recebe uma unica senha depois que os dois campos coincidirem.
+No fluxo da versão 2, a criação do personagem não pede outra senha: a conta autenticada se torna sua proprietária dentro da mesa ativa. A credencial interna gerada pelo servidor existe apenas para compatibilidade com serviços antigos e não é exibida ao usuário.
 
 O inicial usa dados da geracao 9:
 
@@ -250,7 +254,7 @@ Depois que uma conta global seleciona uma mesa, o mesmo token da versao 2 tambem
 do mundo RPG em `/api/rpg/*`. Cada requisicao resolve novamente a mesa ativa e usa repositorios,
 sessoes de batalha, concursos e dados de campanha isolados por `table_id`. Proprietarios e Mestres
 entram com acesso de Mestre; Players usam somente o personagem vinculado a sua conta naquela mesa;
-espectadores podem consultar apenas atividades que ja estejam em andamento. Trocar a mesa ativa muda
+Players podem acompanhar atividades em andamento conforme as permissões da mesa. Trocar a mesa ativa muda
 o mundo atendido pela requisicao seguinte sem reutilizar personagens ou estado da mesa anterior.
 
 Operacoes compostas das contas e mesas usam uma unica unidade de trabalho. Criacao de conta com
@@ -308,9 +312,8 @@ a associacao ativa e executa sobre o servico e a persistencia isolados da mesa, 
 informado pelo navegador como fonte de autoridade.
 
 As permissoes da versao 2 sao calculadas pelo cargo. O proprietario tem acesso integral; Mestres
-administram as atividades da campanha e membros comuns; Players participam e assistem; espectadores
-apenas acompanham atividades e a lista de membros. Excecoes individuais permanecem reservadas para
-uma etapa futura e ainda nao alteram esses padroes.
+administram as atividades da campanha e membros comuns; Players participam e assistem.
+Excecoes individuais permanecem reservadas para uma etapa futura e ainda nao alteram esses padroes.
 
 Sair, remover ou bloquear desativa somente a associacao com a mesa e invalida seu contexto ativo;
 os personagens continuam armazenados. Uma conta removida pode receber um novo convite, enquanto
