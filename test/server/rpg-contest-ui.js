@@ -17,7 +17,7 @@ describe('RPG contest UI', () => {
 		assert.match(baseCSS, /\.topbar[\s\S]*?z-index: 80/);
 	});
 
-	it('keeps participants inside their room while masters and spectators choose active rooms', () => {
+	it('keeps participants inside their room while masters and other Players choose active rooms', () => {
 		const contest = fs.readFileSync(path.join(root, 'contest-ui.js'), 'utf8');
 		const battle = fs.readFileSync(path.join(root, 'battle-ui-v2.js'), 'utf8');
 		const playerBattle = fs.readFileSync(path.join(root, 'battle-ui.js'), 'utf8');

@@ -19,7 +19,7 @@ function participant(id, characterId) {
 }
 
 describe('RPG contest preparation sessions', () => {
-	it('allows concurrent contests and exposes active contests to spectators', () => {
+	it('allows concurrent contests and exposes active contests to other Players', () => {
 		let sequence = 0;
 		const service = new RPGContestSessionService({ createId: () => `contest-${++sequence}` });
 		const npc = id => ({ id, kind: 'npc', displayName: id, pokemon: { set: pokemon('Eevee') } });
@@ -29,7 +29,7 @@ describe('RPG contest preparation sessions', () => {
 			service.invite(contest.id);
 			assert.equal(service.start(contest.id).status, 'started');
 		}
-		assert.equal(service.list('spectator').filter(contest => contest.status === 'started').length, 2);
+		assert.equal(service.list('observer-player').filter(contest => contest.status === 'started').length, 2);
 	});
 
 	it('prepares a solo contest, collects one Pokemon per Player and defines presentation order', () => {

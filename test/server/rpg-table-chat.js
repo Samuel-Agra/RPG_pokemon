@@ -89,7 +89,7 @@ describe('RPG table text chat', () => {
 		assert.match(ui, /Date\.now\(\) - playerPresenceLastInteractionAt >= 60_000/);
 		assert.match(ui, /body: \{ area: state\.dashboardView, idle \}/);
 		assert.match(ui, /avatar\.classList\.add\('is-' \+ presence\)/);
-		assert.match(service, /presence: presenceByCharacter\.get\(record\.state\.id\) \|\| 'offline'/);
+		assert.match(service, /presence: presenceByCharacter\.get\(record\.state\.id\) \?\? \('offline' as const\)/);
 		assert.match(css, /\.player-roster-drawer\.chat-open \.table-chat-view/);
 		assert.match(css, /\.table-chat-messages \{[^}]*overflow-x: hidden/);
 		assert.match(css, /\.sidebar \{[^}]*position: sticky;[^}]*max-height: calc\(100vh - 90px\)/);
