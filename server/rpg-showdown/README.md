@@ -205,13 +205,13 @@ Credenciais, estado do personagem e sessoes possuem versoes proprias. O adaptado
 
 ## Frontend
 
-A interface local fica em `/rpg/` e usa HTML, CSS e JavaScript. Recursos visuais externos da compatibilidade V1 passam por um provedor configuravel e nao sao copiados para a pasta de assets. A interface segue o visual do Showdown e inclui:
+A interface local fica em `/rpg/` e usa HTML, CSS e JavaScript. Recursos visuais externos passam por um provedor configuravel e nao sao copiados para a pasta de assets. A interface segue o visual do Showdown e inclui:
 
 - escolha entre Mestre e Player;
 - codigo do Mestre com campo retratil;
 - selecao de personagem com senha retratil;
 - criacao de personagem com seletores visuais retrateis para avatar e Pokemon inicial;
-- referencias externas temporarias para sprites de treinadores e Pokemon servidos pelo Showdown;
+- referencias externas para sprites de treinadores e Pokemon servidos pelo Showdown;
 - catalogo pesquisavel com a versao individual mais recente por treinador ou classe;
 - restauracao da sessao local;
 - painel do Mestre;

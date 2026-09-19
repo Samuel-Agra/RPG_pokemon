@@ -2,13 +2,13 @@
 
 ## Objetivo
 
-Manter o codigo do RPG auditavel e permitir que recursos externos sejam substituidos sem reescrever a interface.
+Manter o codigo do RPG auditavel e centralizar o uso de recursos externos.
 
 ## Classificacoes aceitas
 
 1. **Original do projeto**: criado especificamente para o RPG e sem copia de arte oficial.
 2. **Terceiro com licenca**: acompanhado de autoria, origem, licenca e limites de modificacao.
-3. **Referencia externa temporaria**: URL configuravel, sem arquivo copiado para o repositorio.
+3. **Referencia externa**: URL configuravel, sem arquivo copiado para o repositorio.
 4. **Local nao distribuido**: recurso usado apenas pelo responsavel pela campanha e excluido da distribuicao publica.
 
 ## Regras
@@ -23,14 +23,13 @@ Manter o codigo do RPG auditavel e permitir que recursos externos sejam substitu
 - Musicas de batalha seguem a mesma regra: sao carregadas pelo provedor externo e nao sao copiadas para o repositorio.
 - Recursos de artistas da comunidade exigem verificacao individual; a presenca no Showdown nao significa permissao para editar ou redistribuir.
 
-## Compatibilidade temporaria da V1
+## Recursos externos
 
-A V1 ainda pode carregar recursos diretamente do host publico do Pokemon Showdown. Essa compatibilidade:
+O RPG pode carregar recursos diretamente do host publico do Pokemon Showdown. Essa integracao:
 
 - pode ser desligada em `server/static/rpg/asset-config.js`;
 - nao armazena os arquivos no repositorio;
-- nao representa autorizacao, afiliacao ou transferencia de licenca;
-- deve ser substituida gradualmente por recursos originais ou expressamente licenciados.
+- nao representa autorizacao, afiliacao ou transferencia de licenca.
 
 ## Revisao de novos pedidos
 

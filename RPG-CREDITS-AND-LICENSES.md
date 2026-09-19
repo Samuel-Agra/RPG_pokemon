@@ -21,9 +21,9 @@ Pokemon e os nomes/personagens relacionados pertencem a Nintendo, Creatures Inc.
 
 ## Recursos visuais
 
-O repositorio do RPG nao deve incluir sprites, audio, cenarios ou efeitos extraidos de jogos oficiais. A compatibilidade visual da V1 ainda referencia recursos no host publico do Pokemon Showdown por meio de um provedor configuravel. Esses arquivos nao sao incorporados ao build nem recebem a licenca AGPL do projeto.
+O repositorio do RPG nao deve incluir sprites, audio, cenarios ou efeitos extraidos de jogos oficiais. Alguns recursos sao referenciados no host publico do Pokemon Showdown por meio de um provedor configuravel. Esses arquivos nao sao incorporados ao build nem recebem a licenca AGPL do projeto.
 
-As referencias externas sao temporarias, podem ser desativadas em server/static/rpg/asset-config.js e nao representam autorizacao, afiliacao ou transferencia de licenca. O inventario atual fica em server/static/rpg/assets/external-assets.json e as regras de inclusao em RPG-ASSET-POLICY.md.
+As referencias externas podem ser desativadas em server/static/rpg/asset-config.js e nao representam autorizacao, afiliacao ou transferencia de licenca. O inventario atual fica em server/static/rpg/assets/external-assets.json e as regras de inclusao em RPG-ASSET-POLICY.md.
 
 O sprite sheet server/static/rpg/assets/hud/battle-effects.png e um recurso original criado para o HUD do RPG com auxilio de geracao de imagens. O conjunto em server/static/rpg/assets/item-icons/ contem 19 sprites originais de medicamentos e itens de recuperacao, tambem criado para o RPG com auxilio de geracao de imagens, sem incorporar arquivos oficiais. O simbolo de Mega Evolucao e carregado, quando permitido pela configuracao, de https://play.pokemonshowdown.com/sprites/misc/mega.png. O arquivo nao e incorporado ao repositorio; quando a referencia externa esta desativada ou falha, a interface usa um fallback original desenhado em CSS.
 
