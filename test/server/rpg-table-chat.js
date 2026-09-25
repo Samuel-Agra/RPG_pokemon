@@ -64,7 +64,7 @@ describe('RPG table text chat', () => {
 		assert.match(html, /data-table-communication-view="chat">Chat da mesa/);
 		assert.match(html, /Área reservada para implementação futura/);
 		assert.match(ui, /setTableChatOpen\(!state\.tableChatOpen\)/);
-		assert.match(ui, /state\.session\.role === 'player'.*\|\| isMasterMode/);
+		assert.match(ui, /const showPlayerRoster = state\.session\.role === 'master' \|\|\s*\(state\.session\.role === 'player' && state\.session\.mode === 'player'\)/);
 		assert.match(ui, /entry\.authorCharacterName \|\| entry\.authorDisplayName/);
 		assert.match(ui, /entry\.authorRole === 'owner' \? 'Mestre proprietário'/);
 		assert.match(ui, /entry\.authorRole === 'master' \? 'Mestre'/);

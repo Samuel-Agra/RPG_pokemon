@@ -99,7 +99,7 @@ import {
 } from './team-builder-management';
 import { getRPGMoveMetadata, type RPGMoveMetadata } from './battle-move-analysis';
 import {
-	RPGFossilLab, type RPGFossilLabState, type RPGFossilMethod, type RPGFossilQuality,
+	RPGFossilLab, RPG_FOSSILS, type RPGFossilLabState, type RPGFossilMethod, type RPGFossilQuality,
 } from './fossil-lab';
 import {
 	RPGNurseryGenetics, RPG_NURSERY_BREEDING_ITEMS, RPG_NURSERY_PARENT_RESCUE_TIME_MS,
@@ -146,6 +146,17 @@ export * from './account-management';
 export const RPG_ACCOUNT_VERSION = 5;
 export const RPG_SESSION_VERSION = 1;
 const RPG_PLATFORM_INITIAL_MONEY = 3000;
+// A ordem corresponde à folha de insígnias e à ficha exibida na visão geral.
+const GYM_BADGE_NAMES: Record<string, string[]> = {
+	kanto: ['Rocha', 'Cascata', 'Trovão', 'Arco-íris', 'Alma', 'Pântano', 'Vulcão', 'Terra'],
+	johto: ['Zéfiro', 'Colmeia', 'Planície', 'Névoa', 'Tempestade', 'Mineral', 'Geleira', 'Nascente'],
+	hoenn: ['Pedra', 'Punho', 'Dínamo', 'Calor', 'Equilíbrio', 'Pena', 'Mente', 'Chuva'],
+	sinnoh: ['Carvão', 'Floresta', 'Paralelepípedo', 'Pântano', 'Relíquia', 'Mina', 'Sincelo', 'Farol'],
+	unova: ['Trio', 'Básica', 'Inseto', 'Raio', 'Terremoto', 'Jato', 'Congelamento', 'Lenda'],
+	kalos: ['Inseto', 'Penhasco', 'Briga', 'Planta', 'Voltagem', 'Fada', 'Psíquica', 'Iceberg'],
+	galar: ['Planta', 'Água', 'Fogo', 'Luta', 'Fada', 'Pedra', 'Noturna', 'Dragão'],
+	paldea: ['Inseto', 'Planta', 'Elétrica', 'Água', 'Normal', 'Fantasma', 'Psíquica', 'Gelo'],
+};
 export const RPG_DEFAULT_SESSION_TTL = 24 * 60 * 60 * 1000;
 export const RPG_NURSERY_BREEDING_BASE_FEE = 5_000;
 export const RPG_NURSERY_LOCAL_INCUBATION_FEE = 5_000;
@@ -1067,7 +1078,8 @@ export class RPGLoginService {
 		if (!['player', 'master'].includes(session.role) || !['player', 'master'].includes(session.mode)) {
 			throw new Error('A lista de Players não está disponível nesta visualização');
 		}
-		const currentCharacterId = session.viewAsCharacterId || session.characterId;
+		// A visualização como Player não retira esse personagem da lista do Mestre.
+		const currentCharacterId = session.role === 'master' ? undefined : session.viewAsCharacterId || session.characterId;
 		const onlineThreshold = this.now() - 90_000;
 		const presenceByCharacter = new Map<string, 'online' | 'idle'>();
 		for (const active of this.sessions.values()) {
@@ -2333,10 +2345,25 @@ export class RPGLoginService {
 	removeNurseryEgg(token: string, eggId: string) {
 		const actor = this.requireNurseryActor(token);
 		const egg = this.requireOwnedEgg(actor, eggId);
-		if (egg.status !== 'ready_to_hatch') {
-			throw new Error('O Egg só pode sair da incubadora local quando estiver pronto para chocar');
+		const nursery = this.ensureNursery(actor);
+		const incubator = nursery.incubators.find(value => value.id === egg.incubatorId);
+		if (!incubator) throw new Error('Este Egg não está em uma incubadora local');
+		const inventory = RPGInventorySystem.migrate(actor.state.inventory);
+		const capacity = RPGIncubation.canCarry({
+			teamPokemon: actor.state.box.party.length,
+			carriedEggs: this.activeEggs(actor).length,
+			bagUsedSlots: RPGBagSystem.getUsedSlots(inventory.bag),
+			bagMaxSlots: inventory.bag.maxSlots,
+		});
+		if (!capacity.allowed) throw new Error('A retirada exige 1 espaço na equipe e 5 espaços na Bag');
+		RPGIncubation.remove(egg, incubator);
+		const lost = this.random() < 0.25;
+		if (lost) {
+			const project = nursery.projects.find(value => value.egg?.id === eggId);
+			if (project) delete project.egg;
 		}
-		throw new Error('O Egg pronto deve ser chocado para sair da incubadora local');
+		this.persistNurseryRecord(actor);
+		return { nursery: this.nurseryView(actor), lost };
 	}
 
 	startPortableNurseryIncubator(token: string, eggId: string) {
@@ -2356,8 +2383,13 @@ export class RPGLoginService {
 		const actor = this.requireNurseryActor(token);
 		const egg = this.requireOwnedEgg(actor, eggId);
 		RPGIncubation.stopPortable(egg);
+		const lost = this.random() < 0.25;
+		if (lost) {
+			const project = this.ensureNursery(actor).projects.find(value => value.egg?.id === eggId);
+			if (project) delete project.egg;
+		}
 		this.persistNurseryRecord(actor);
-		return this.nurseryView(actor);
+		return { nursery: this.nurseryView(actor), lost };
 	}
 
 	hatchNurseryEgg(token: string, eggId: string) {
@@ -2414,9 +2446,25 @@ export class RPGLoginService {
 		const record = this.requireBagRecord(token, characterId, 'bag:read', query.context === 'battle');
 		const itemUseLockReason = query.context === 'battle' ? undefined :
 			this.getWorldBagItemUseLock(token, record.state.id);
-		return this.managedBagView(record, {
+		const view = this.managedBagView(record, {
 			...query, itemUseLocked: !!itemUseLockReason, itemUseLockReason,
 		});
+		if (this.getSession(token).role === 'master' && view.context === 'world' &&
+			view.items.some(item => RPG_FOSSILS.some(fossil => fossil.itemId === item.id))) {
+			const before = JSON.stringify(record.state.fossilLab || null);
+			const lab = RPGFossilLab.ensure(record.state, this.random);
+			if (JSON.stringify(record.state.fossilLab || null) !== before) {
+				record.state.updatedAt = this.now();
+				this.repository.set(record);
+			}
+			for (const item of view.items) {
+				const sample = lab.samples[item.id];
+				if (sample && !item.mission && item.quantity === sample.trackedQuantity) {
+					item.fossilQualities = { ...sample.quantities };
+				}
+			}
+		}
+		return view;
 	}
 
 	getBagItem(
@@ -2527,10 +2575,27 @@ export class RPGLoginService {
 
 	masterSetBagItemQuantity(
 		token: string, characterId: string, itemId: string, quantity: number, expectedRevision: number,
-		operation: 'add' | 'remove' | 'set' = 'set'
+		operation: 'add' | 'remove' | 'set' = 'set', quality?: RPGFossilQuality
 	): RPGManagedBagView {
 		this.requireMasterRole(token);
 		const record = this.requireCharacter(characterId);
+		if (quality !== undefined) {
+			if (!['fragmented', 'preserved', 'exceptional'].includes(quality) || operation !== 'add' ||
+				!RPG_FOSSILS.some(fossil => fossil.itemId === toID(itemId)) ||
+				!Number.isSafeInteger(quantity) || quantity < 1) {
+				throw new Error('Qualidade de fóssil inválida para esta operação');
+			}
+			const working = structuredClone(record.state);
+			RPGFossilLab.addKnownQualities(working, itemId, {
+				fragmented: quality === 'fragmented' ? quantity : 0,
+				preserved: quality === 'preserved' ? quantity : 0,
+				exceptional: quality === 'exceptional' ? quantity : 0,
+			}, this.random);
+			RPGBagManagement.updateQuantity(working, itemId, quantity, expectedRevision, operation);
+			record.state = working;
+			this.persistBoxRecord(record);
+			return this.managedBagView(record);
+		}
 		if (toID(itemId) === 'portableincubator' && operation !== 'add') {
 			const current = RPGBagSystem.getQuantity(RPGInventorySystem.migrate(record.state.inventory).bag, itemId);
 			const resulting = operation === 'remove' ? current - quantity : quantity;
@@ -3509,7 +3574,26 @@ export class RPGLoginService {
 		token: string, battleSessionId: string, input: RPGUpdateBattleSessionRequest
 	): RPGBattleSession {
 		this.requireMasterMode(token);
-		return this.battleSessions.update(battleSessionId, input);
+		const participants = input.participants?.map(participant => {
+			if (!participant.gymBadge) return participant;
+			if (participant.kind !== 'npc') throw new Error('Somente um líder de ginásio pode oferecer insígnia');
+			const npcs = this.masterNPCLibrary?.npcs;
+			const source = Array.isArray(npcs) ? npcs.find(npc =>
+				npc && typeof npc === 'object' && (npc as Record<string, unknown>).id === participant.gymBadge?.sourceNpcId
+			) as Record<string, unknown> | undefined : undefined;
+			const regionId = source?.gymRegion;
+			const gymIndex = source?.gymIndex;
+			if (typeof regionId !== 'string' || !GYM_BADGE_NAMES[regionId] ||
+				!Number.isInteger(gymIndex) || Number(gymIndex) < 0 || Number(gymIndex) > 7 ||
+				source?.folderId !== `region-${regionId}`) {
+				throw new Error('Líder de ginásio inválido para concessão de insígnia');
+			}
+			return { ...participant, gymBadge: {
+				sourceNpcId: participant.gymBadge.sourceNpcId, regionId, gymIndex: Number(gymIndex),
+				enabled: participant.gymBadge.enabled === true,
+			} };
+		});
+		return this.battleSessions.update(battleSessionId, { ...input, participants });
 	}
 
 	inviteBattleSession(token: string, battleSessionId: string): RPGBattleSession {
@@ -4862,6 +4946,7 @@ export class RPGLoginService {
 	}
 
 	private persistBattleProfile(session: RPGBattleSession, result: RPGBattleResult): void {
+		result.badgeAwards = [];
 		const seenSpecies = result.pokemon.map(pokemon => pokemon.species);
 		const countsCompetitiveResult = session.opponentType === 'npc' || session.opponentType === 'player';
 		for (const participant of session.participants) {
@@ -4870,6 +4955,22 @@ export class RPGLoginService {
 			const profile = this.trainerProfile(record.state);
 			const side = participant.team === 'A' ? 'p1' : 'p2';
 			const sideOutcome = result.sides?.find(entry => entry.side === side)?.outcome;
+			if (sideOutcome === 'winner' && result.outcome === 'win') {
+				for (const leader of session.participants.filter(entry => entry.kind === 'npc' &&
+					entry.team !== participant.team && entry.gymBadge?.enabled)) {
+					const badge = leader.gymBadge!;
+					const badgeName = GYM_BADGE_NAMES[badge.regionId]?.[badge.gymIndex];
+					if (!badgeName) continue;
+					const badgeId = badgeName.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+						.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+					const earned = profile.badges[badge.regionId] ||= [];
+					if (earned.includes(badgeId)) continue;
+					earned.push(badgeId);
+					result.badgeAwards.push({ characterId: participant.characterId, regionId: badge.regionId,
+						gymIndex: badge.gymIndex, badgeId, badgeName, leaderName: leader.displayName,
+						leaderAvatar: leader.avatar || '' });
+				}
+			}
 			if (countsCompetitiveResult && (sideOutcome === 'winner' || sideOutcome === 'captured')) {
 				profile.stats.wins++;
 				profile.stats.currentWinStreak++;

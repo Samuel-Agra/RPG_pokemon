@@ -63,6 +63,8 @@ export interface RPGBattleParticipant {
 	displayName: string;
 	/** Role used by encounter rules and presentation for NPCs. */
 	npcRole?: RPGNPCBattleRole;
+	/** Insígnia opcional de um líder salvo, validada pela mesa antes do convite. */
+	gymBadge?: { sourceNpcId: string, regionId: string, gymIndex: number, enabled: boolean };
 	selectionLimit: number;
 	/** Positions admitted before this battle, used for a tournament roster. */
 	allowedTeamIndexes?: number[];
@@ -692,6 +694,12 @@ export class RPGBattleSessionService {
 				npcRole: kind === 'npc' ? this.enumValue(
 					raw.npcRole || 'generic', ['generic', 'gym-leader', 'elite-four'] as const, 'NPC battle role'
 				) : undefined,
+				gymBadge: kind === 'npc' && raw.gymBadge ? {
+					sourceNpcId: this.requireId(raw.gymBadge.sourceNpcId),
+					regionId: this.requireId(raw.gymBadge.regionId),
+					gymIndex: this.integer(raw.gymBadge.gymIndex, 0, 7, 'gym badge index'),
+					enabled: raw.gymBadge.enabled === true,
+				} : undefined,
 				selectionLimit, allowedTeamIndexes, pokemon,
 			};
 		});

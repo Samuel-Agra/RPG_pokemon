@@ -87,10 +87,15 @@ describe('RPG contest UI', () => {
 		assert.ok(css.includes('.contest-item-build-summary'));
 		assert.ok(ui.includes("profile.scope === 'contest' ? contestMovePanel : battleStatsHost"));
 		assert.ok(ui.includes('moveSection.append(moveHeading, moveChips, contestMovePicker)'));
-		assert.ok(ui.includes("if (profile.scope !== 'contest') battleStatsHost.append(statsEditor)"));
+		assert.ok(ui.includes('battleStatsHost.append(statsPanel)'));
+		assert.ok(ui.includes("if (profile.scope === 'contest') details.append(battleStatsHost)"));
+		assert.ok(ui.includes('battleStatsHost.append(statsEditor)'));
 		assert.ok(ui.includes("const ev = el('div', 'team-builder-ev-control')"));
 		assert.ok(ui.includes("const evSlider = el('input', 'team-builder-ev-slider')"));
 		assert.ok(ui.includes('function availableEVMaximum(id)'));
+		assert.ok(ui.includes('function completeEVs()'));
+		assert.ok(ui.includes('completeEVs();'));
+		assert.ok(ui.includes('evs[stat] % 4 !== 0'));
 		assert.ok(ui.includes("const natureGrid = el('div', 'contest-nature-grid')"));
 		assert.ok(ui.includes("statsMeta.append(naturePicker, totalEV)"));
 		assert.ok(ui.includes("document.addEventListener('pointerdown', statsOutsideHandler)"));
@@ -151,7 +156,7 @@ describe('RPG contest UI', () => {
 		assert.ok(ui.includes("profile.scope === 'battle' ? `Criar NPC temporário · Pokémon ${nextPokemonNumber} de até 6`"));
 		assert.ok(ui.includes("actionButton('Adicionar Pokemon'"));
 		assert.ok(ui.includes('function saveCurrentPokemon()'));
-		assert.ok(ui.includes('function completeBattleEVs()'));
+		assert.ok(ui.includes('function completeEVs()'));
 		assert.ok(ui.includes('Math.floor(Math.random() * available.length)'));
 		assert.ok(ui.includes('const ivs = Object.fromEntries(contestStats.map(([id]) => [id, 0]))'));
 		assert.ok(!ui.includes("throw new Error('Os EVs devem totalizar 508.')"));
@@ -197,6 +202,17 @@ describe('RPG contest UI', () => {
 		assert.ok(battle.includes('avatar: npc.avatar'));
 		assert.ok(battle.includes('pokemon: pokemonTeam.map(selection => structuredClone(selection))'));
 		assert.ok(!battle.includes('Cadastre um NPC antes de preparar esse tipo de batalha.'));
+	});
+
+	it('lists saved NPCs in document order with gym leaders first', () => {
+		const contest = fs.readFileSync(path.join(root, 'contest-ui.js'), 'utf8');
+		const battle = fs.readFileSync(path.join(root, 'battle-ui-v2.js'), 'utf8');
+		assert.ok(contest.includes('function availableNPCsInDocumentOrder(folderId)'));
+		assert.ok(contest.includes('if (firstGym !== secondGym) return firstGym ? -1 : 1'));
+		assert.ok(contest.includes('first.npc.gymIndex'));
+		assert.ok(contest.includes('first.npc.order'));
+		assert.ok(contest.includes('for (const npc of availableNPCsInDocumentOrder(currentFolderId))'));
+		assert.ok(battle.includes('window.RPGContestUI.savedNPCSelector'));
 	});
 
 	it('serves descriptions for the held-item picker catalog', () => {

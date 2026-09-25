@@ -283,7 +283,13 @@
 			const category = bagData.categories.find(entry => entry.id === activeCategory);
 			heading.append(el('h2', '', search ? 'Resultados da pesquisa' : category?.name || 'Itens'));
 			content.append(heading);
-			const items = visibleItems();
+			const items = visibleItems().flatMap(item => {
+				if (!options.isMaster || !item.fossilQualities) return [item];
+				return [['fragmented', 'Frag.'], ['preserved', 'Pres.'], ['exceptional', 'Excep.']]
+					.filter(([quality]) => item.fossilQualities[quality] > 0)
+					.map(([quality, label]) => ({ ...item, name: item.name + ' (' + label + ')',
+						quantity: item.fossilQualities[quality], fossilDisplayOnly: true, actions: [] }));
+			});
 			if (!items.length) {
 				content.append(el('p', 'empty-state bag-ui-empty', 'Nenhum item encontrado.'));
 				return;
@@ -438,6 +444,8 @@
 			identity.append(el('strong', '', item.name), el('small', '', item.registryCategory));
 			summary.append(itemIcon(item, 'large'), identity, el('b', '', '×' + item.quantity));
 			dialog.card.append(summary, el('p', 'bag-ui-description', item.description));
+			if (item.fossilDisplayOnly) dialog.card.append(el('p', 'bag-ui-description',
+				'Esta qualidade é exibida separadamente para o Mestre. Use as ferramentas da Bag para alterar a quantidade total.'));
 			if (item.mission && item.missionNote) {
 				const annotation = el('div', 'bag-ui-mission-note');
 				annotation.append(el('strong', '', 'Anotação'), el('p', '', item.missionNote));
@@ -904,11 +912,13 @@
 					owned.set(item.id, { ...item, quantity: (previous?.quantity || 0) + item.quantity });
 				}
 				let selectedId = '';
+				let selectedQuality = '';
 				let selectedCategory = '';
 				const sourceItems = () => operation.value === 'remove' ?
 					catalog.filter(item => owned.has(item.id)) : catalog;
 				const renderCategories = () => {
 					selectedId = '';
+					selectedQuality = '';
 					selectedCategory = '';
 					quantityField.classList.add('hidden');
 					submit.classList.add('hidden');
@@ -925,6 +935,7 @@
 				};
 				const renderItems = () => {
 					selectedId = '';
+					selectedQuality = '';
 					quantityField.classList.remove('hidden');
 					submit.classList.remove('hidden');
 					const search = el('input');
@@ -936,17 +947,25 @@
 						const filtered = sourceItems().filter(entry =>
 							catalogCategoryId(entry) === selectedCategory &&
 							(!query || entry.name.toLowerCase().includes(query) || entry.id.includes(query))
-						).slice(0, 300);
-						if (!filtered.some(entry => entry.id === selectedId)) selectedId = '';
+						).slice(0, 300).flatMap(entry =>
+							selectedCategory === 'fossils' && operation.value === 'add' ?
+								[['', 'Aleatório'], ['fragmented', 'Frag.'], ['preserved', 'Pres.'], ['exceptional', 'Excep.']]
+									.map(([quality, label]) => ({ ...entry, quality, displayName: entry.name + ' (' + label + ')' })) :
+								[{ ...entry, quality: '', displayName: entry.name }]
+						);
+						if (!filtered.some(entry => entry.id === selectedId && entry.quality === selectedQuality)) {
+							selectedId = ''; selectedQuality = '';
+						}
 						catalogList.replaceChildren();
 						for (const entry of filtered) {
 							const choice = makeButton(
-								'', 'bag-ui-master-catalog-item' + (entry.id === selectedId ? ' selected' : '')
+								'', 'bag-ui-master-catalog-item' + (entry.id === selectedId && entry.quality === selectedQuality ? ' selected' : '')
 							);
-							choice.append(itemIcon(entry), el('span', '', entry.name));
+							choice.append(itemIcon(entry), el('span', '', entry.displayName));
 							if (owned.has(entry.id)) choice.append(el('b', '', '×' + owned.get(entry.id).quantity));
 							choice.addEventListener('click', () => {
 								selectedId = entry.id;
+								selectedQuality = entry.quality;
 								fill();
 							});
 							catalogList.append(choice);
@@ -978,17 +997,17 @@
 					}
 					try {
 						submit.disabled = true;
-						const result = await options.api('/bag/master/quantity', {
+						await options.api('/bag/master/quantity', {
 							method: 'POST', body: {
 								characterId: options.characterId, itemId: selectedId,
 								operation: operation.value, quantity: Number(quantity.value),
 								expectedRevision: bagData.revision,
+								...(selectedQuality ? { quality: selectedQuality } : {}),
 							},
 						});
-						bagData = result.bag;
 						close();
 						options.toast('Bag atualizada pelo Mestre.');
-						renderShell();
+						await load();
 					} catch (error) {
 						submit.disabled = false;
 						options.toast(error.message, true);

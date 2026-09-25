@@ -1960,6 +1960,8 @@ async function rpgBattleRoom(session, character, characters = [], isMaster = fal
 		});
 	}
 	function showPostBattleProgression(destination) {
+		const badgeAwards = (snapshot?.result?.badgeAwards || [])
+			.filter(award => !isMaster && award.characterId === character?.id);
 		const evolutions = evolutionCandidatesForViewer();
 		const moves = moveLearningCandidatesForViewer();
 		const orderedKeys = [];
@@ -1983,7 +1985,39 @@ async function rpgBattleRoom(session, character, characters = [], isMaster = fal
 			if (pokemonEvolutions.length) showEvolutionPrompt(pokemonEvolutions, destination, learnMoves);
 			else learnMoves();
 		};
-		nextPokemon();
+		const nextBadge = () => {
+			const award = badgeAwards.shift();
+			if (!award) return nextPokemon();
+			const dialog = createElement('div', 'rpg-evolution-dialog rpg-badge-award-dialog');
+			const card = createElement('div', 'rpg-evolution-card rpg-badge-award-card');
+			const heading = createElement('h2', '', 'Insígnia conquistada!');
+			const stage = createElement('div', 'rpg-badge-award-stage');
+			const leader = createElement('img', 'rpg-badge-award-leader');
+			leader.src = RPGAssets.url('sprites/trainers/' + String(award.leaderAvatar || 'pokemonbreeder').replace(/\.png$/i, '') + '.png');
+			leader.alt = award.leaderName || 'Líder de ginásio';
+			const badge = createElement('span', 'rpg-badge-award-badge');
+			const regionIndex = ['kanto', 'johto', 'hoenn', 'sinnoh', 'unova', 'kalos', 'galar', 'paldea'].indexOf(award.regionId);
+			badge.style.setProperty('--badge-x', (award.gymIndex / 7 * 100) + '%');
+			badge.style.setProperty('--badge-y', (regionIndex / 7 * 100) + '%');
+			badge.setAttribute('role', 'img');
+			badge.setAttribute('aria-label', 'Insígnia ' + award.badgeName);
+			const sparkles = createElement('span', 'rpg-badge-award-sparkles');
+			for (let index = 0; index < 12; index++) sparkles.append(createElement('i'));
+			stage.append(leader, badge, sparkles);
+			const message = createElement('p', 'rpg-badge-award-message', 'Parabéns, você conquistou a Insígnia ' + award.badgeName + '!');
+			const continueButton = button('Continuar', 'button');
+			continueButton.hidden = true;
+			continueButton.addEventListener('click', () => { dialog.remove(); nextBadge(); });
+			card.append(heading, stage, message, continueButton); dialog.append(card); live.append(dialog);
+			window.setTimeout(() => {
+				if (!dialog.isConnected) return;
+				card.classList.add('revealed');
+				continueButton.hidden = false;
+				window.RPGBattleAudio?.playEffect('levelUp');
+				window.RPGBattleAudio?.playEffect('shinySparkle');
+			}, 2800);
+		};
+		nextBadge();
 	}
 	function finishPostBattle(destination) {
 		stopped = true;

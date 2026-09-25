@@ -56,6 +56,8 @@ export interface RPGManagedBagItemView {
 	id: string;
 	name: string;
 	quantity: number;
+	/** Somente para a leitura do Mestre; a Bag do jogador continua agrupada. */
+	fossilQualities?: Partial<Record<'fragmented' | 'preserved' | 'exceptional', number>>;
 	category: RPGManagedBagCategory;
 	registryCategory: RPGItemCategory;
 	description: string;

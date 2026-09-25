@@ -112,9 +112,10 @@ describe('RPG version 2 account authentication frontend', () => {
 		assert(!script.includes("['players', 'Players']"));
 		assert(script.indexOf("['team-builder', 'Team Builder']") < script.indexOf("['team', 'Equipe']"));
 		assert(script.includes("async function renderPlayerRosterDrawer()"));
+		assert(script.includes("const showPlayerRoster = state.session.role === 'master' ||"));
 		assert(script.includes("api('/players', { cache: 'no-store' })"));
 		assert(script.includes('for (let index = 0; index < 6; index++)'));
-		assert(script.includes('openMemberDetails(memberEntry, viewerRole'));
+		assert(script.includes('openRosterDetailsOnContext(card, memberEntry, player.characterName)'));
 		assert(script.includes("state.session.role === 'master' ? tableEntry?.membership.role || 'master' : 'player'"));
 		assert(script.includes("!['battles', 'contests'].includes(state.dashboardView)"));
 		assert(style.includes('.player-roster-drawer-team'));
@@ -126,7 +127,9 @@ describe('RPG version 2 account authentication frontend', () => {
 		assert(script.includes("setAccountAvatar(badge, state.account, 'M')"));
 		assert(script.includes("['owner', 'master'].includes(entry.member.role)"));
 		assert(script.includes("master.online ? 'is-online' : 'is-offline'"));
-		assert(script.includes('openMemberDetails(master, viewerRole, members'));
+		assert(script.includes('openRosterDetailsOnContext(card, master, accountPublicHandle(master.account))'));
+		assert(script.includes("card.addEventListener('contextmenu', event => { event.preventDefault(); open(); })"));
+		assert(!script.includes("card.addEventListener('click', () => openMemberDetails("));
 		assert(style.includes('.player-roster-master-list:has(> :nth-child(3))'));
 		assert(style.includes('.player-roster-master-avatar.has-account-avatar img'));
 		assert(script.includes('masters.splice(Math.floor(masters.length / 2), 0, owner)'));
@@ -167,6 +170,14 @@ describe('RPG version 2 account authentication frontend', () => {
 		assert.match(style, /\.master-relevant-pokemon-picker-field \.master-npc-pokemon-results \{[^}]*repeat\(6,/s);
 		assert.match(style, /\.master-relevant-pokemon-picker-field \.master-npc-pokemon-manager \{[^}]*top: calc\(100% \+ 6px\);[^}]*bottom: auto;/s);
 		assert.match(style, /\.master-relevant-pokemon-picker-field \.master-npc-pokemon-manager \{[^}]*width: calc\(200% \+ 12px\);/s);
+		assert(script.includes("createElement('input', 'team-builder-ev-slider')"));
+		assert(script.includes("createElement('input', 'team-builder-ev-value')"));
+		assert(script.includes("const availableEVMaximum = id =>"));
+		assert(script.includes("slider.max = '252'"));
+		assert(!script.includes('evInputs[id].slider.max = String(availableEVMaximum(id))'));
+		assert(script.includes("'EVs: ' + stats.reduce((sum, id) => sum + evValues[id], 0) + ' / 508'"));
+		assert(script.includes("if (stats.reduce((sum, id) => sum + evValues[id], 0) !== 508)"));
+		assert(script.includes("const modifier = natureEffects[nature.value]"));
 	});
 
 	it('lists campaign Masters below Players and reserves permission editing for the owner', () => {

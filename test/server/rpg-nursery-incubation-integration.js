@@ -18,6 +18,57 @@ function create(service, name) {
 	});
 }
 describe('RPG connected Nursery and Incubation flow', () => {
+	it('loses an incubated Egg on a 1-in-4 withdrawal roll but never rolls for direct collection', () => {
+		const roll = 0.1;
+		let byte = 0;
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({
+			masterCode: '14081998', repository, random: () => roll,
+			randomBytes: size => Buffer.alloc(size, ++byte),
+		});
+		create(service, 'Samuel');
+		const master = service.loginMaster('14081998');
+		const player = service.loginPlayer('samuel', '1234');
+		const initial = service.getNursery(player.token);
+		const record = repository.get('samuel');
+		const egg = {
+			id: 'withdrawal-egg', ownerId: 'samuel', status: 'created', createdAt: 1,
+			genetics: {
+				species: 'Ralts', sex: 'F', nature: 'Hardy', ability: 'Synchronize',
+				ivs: stats(16), ivOrigins: Object.fromEntries(Object.keys(stats(0)).map(key => [key, 'random'])),
+				moves: ['growl'], eggMoves: [], shiny: false, family: 'humanlike',
+				lineage: 'Ralts', parentIds: ['one', 'two'], parentOwnerIds: ['samuel', 'samuel'],
+			},
+		};
+		const project = {
+			id: 'withdrawal-project', slot1: { ownerId: 'samuel', participantType: 'player' },
+			slot2ParticipantType: 'npc', eggOwnerId: 'samuel', status: 'egg_ready',
+			confirmed: {}, createdAt: 1, egg,
+		};
+		record.state.nursery.projects.push(project);
+		repository.set(record);
+		const carried = service.collectNurseryEgg(player.token, project.id);
+		assert.equal(carried.eggs[0].status, 'carried', 'Egg nunca incubado sai sem rolagem de perda');
+		assert.equal(roll, 0.1);
+		service.insertNurseryEgg(player.token, egg.id, initial.incubators[0].id);
+		const withdrawn = service.removeNurseryEgg(player.token, egg.id);
+		assert.equal(withdrawn.lost, true);
+		assert.equal(withdrawn.nursery.eggs.length, 0);
+		assert.equal(withdrawn.nursery.incubators[0].egg, undefined);
+		assert.equal(repository.get('samuel').state.nursery.projects[0].egg, undefined);
+		const secondRecord = repository.get('samuel');
+		secondRecord.state.nursery.projects[0].egg = { ...structuredClone(egg), id: 'portable-withdrawal-egg',
+			status: 'created' };
+		secondRecord.state.nursery.projects[0].status = 'egg_ready';
+		repository.set(secondRecord);
+		service.collectNurseryEgg(player.token, project.id);
+		const bag = service.getBag(player.token);
+		service.masterSetBagItemQuantity(master.token, 'samuel', 'portableincubator', 1, bag.revision, 'add');
+		service.startPortableNurseryIncubator(player.token, 'portable-withdrawal-egg');
+		const portableWithdrawal = service.stopPortableNurseryIncubator(player.token, 'portable-withdrawal-egg');
+		assert.equal(portableWithdrawal.lost, true);
+		assert.equal(portableWithdrawal.nursery.eggs.length, 0);
+	});
 	it('sells only Nursery items using Pokécoins, Bag revision and capacity rules', () => {
 		const service = new RPGLoginService({
 			masterCode: '14081998', repository: new RPGMemoryCharacterRepository(),
@@ -527,8 +578,12 @@ describe('RPG connected Nursery and Incubation flow', () => {
 		view = service.insertNurseryEgg(samuel.token, eggId, incubatorId);
 		assert.equal(view.incubators[0].egg.status, 'incubating');
 		assert.equal(service.getCharacter(samuel.token).money, moneyBeforeLocalIncubation - 5000);
-		assert.throws(() => service.removeNurseryEgg(samuel.token, eggId), /só pode sair.*quando estiver pronto/);
-		assert.equal(service.getNursery(samuel.token).incubators[0].egg.status, 'incubating');
+		const withdrawn = service.removeNurseryEgg(samuel.token, eggId);
+		assert.equal(withdrawn.lost, false, 'rolagem acima de 25% preserva o Egg');
+		assert.equal(withdrawn.nursery.eggs.find(egg => egg.eggId === eggId).status, 'carried');
+		assert.equal(withdrawn.nursery.incubators[0].egg, undefined);
+		view = service.insertNurseryEgg(samuel.token, eggId, incubatorId);
+		assert.equal(view.incubators[0].egg.status, 'incubating');
 		assert.equal(view.capacity.teamUsed, 1, 'a incubadora local libera a vaga reservada na equipe');
 		assert.equal(view.capacity.bagUsedSlots, bagSlotsBeforeEgg, 'a incubadora local libera os cinco espaços da Bag');
 		assert.deepEqual(service.getCharacter(samuel.token).teamEggs, []);

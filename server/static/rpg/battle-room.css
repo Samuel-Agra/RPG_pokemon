@@ -99,6 +99,19 @@
 .rpg-master-change { display: grid; grid-template-columns: minmax(120px, 1.3fr) repeat(4, minmax(100px, 1fr)); gap: 7px; padding: 7px; background: #e8edf3; border-radius: 3px; font-size: 11px; }
 .rpg-result-log { max-height: 220px; overflow-y: auto; margin: 0; padding-left: 24px; color: #4b5e73; font-size: 11px; }
 .rpg-evolution-dialog { position: absolute; z-index: 45; inset: 0; display: grid; place-items: center; padding: 28px; background: #152333f2; }
+.rpg-badge-award-stage { position: relative; height: 240px; overflow: hidden; display: grid; place-items: center; border-radius: 8px; background: radial-gradient(circle, #486c9f, #172c54 75%); }
+.rpg-badge-award-leader { position: absolute; width: 130px; height: 170px; object-fit: contain; image-rendering: pixelated; animation: rpg-badge-leader-retreat 2.4s ease-in forwards; }
+.rpg-badge-award-badge { position: relative; z-index: 2; width: 100px; height: 100px; background: url('./assets/badges-all-regions.png?v=20260831-1') var(--badge-x) var(--badge-y) / 800% 800% no-repeat; image-rendering: pixelated; opacity: 0; animation: rpg-badge-arrive 2.8s ease-out forwards; }
+.rpg-badge-award-sparkles { position: absolute; z-index: 3; inset: 0; pointer-events: none; }
+.rpg-badge-award-sparkles i { position: absolute; left: 50%; top: 50%; width: 8px; height: 8px; background: #fff8b4; border-radius: 50%; opacity: 0; box-shadow: 0 0 10px 4px #ffe46b; transform: rotate(calc(var(--index) * 30deg)) translateX(0); }
+.rpg-badge-award-card.revealed .rpg-badge-award-sparkles i { animation: rpg-badge-sparkle 1s ease-out forwards; }
+.rpg-badge-award-sparkles i:nth-child(1) { --index: 0; } .rpg-badge-award-sparkles i:nth-child(2) { --index: 1; } .rpg-badge-award-sparkles i:nth-child(3) { --index: 2; } .rpg-badge-award-sparkles i:nth-child(4) { --index: 3; } .rpg-badge-award-sparkles i:nth-child(5) { --index: 4; } .rpg-badge-award-sparkles i:nth-child(6) { --index: 5; } .rpg-badge-award-sparkles i:nth-child(7) { --index: 6; } .rpg-badge-award-sparkles i:nth-child(8) { --index: 7; } .rpg-badge-award-sparkles i:nth-child(9) { --index: 8; } .rpg-badge-award-sparkles i:nth-child(10) { --index: 9; } .rpg-badge-award-sparkles i:nth-child(11) { --index: 10; } .rpg-badge-award-sparkles i:nth-child(12) { --index: 11; }
+.rpg-badge-award-message { font-weight: 700; color: #76500d; opacity: 0; transition: opacity .35s ease; }
+.rpg-badge-award-card.revealed .rpg-badge-award-message { opacity: 1; }
+.rpg-badge-award-card .button[hidden] { display: none; }
+@keyframes rpg-badge-leader-retreat { 0%, 10% { opacity: 1; transform: scale(1); } 100% { opacity: 0; transform: scale(.08); } }
+@keyframes rpg-badge-arrive { 0%, 14% { opacity: 0; transform: scale(.15) rotate(0); } 25% { opacity: 1; } 88% { transform: scale(1.25) rotate(1600deg); } 100% { opacity: 1; transform: scale(1) rotate(1800deg); filter: drop-shadow(0 0 14px #ffe883); } }
+@keyframes rpg-badge-sparkle { 0% { opacity: 1; transform: rotate(calc(var(--index) * 30deg)) translateX(15px) scale(.4); } 75% { opacity: 1; } 100% { opacity: 0; transform: rotate(calc(var(--index) * 30deg)) translateX(92px) scale(1); } }
 .rpg-evolution-card { width: min(520px, 92%); padding: 24px; color: #26384d; background: linear-gradient(#fff, #e5ebf2); border: 1px solid #91a0b1; border-radius: 8px; box-shadow: 0 16px 46px #000a; text-align: center; }
 .rpg-evolution-card h2 { margin: 0 0 12px; color: #243a58; }
 .rpg-evolution-stage { position: relative; isolation: isolate; display: grid; place-items: center; height: 230px; overflow: hidden; background-color: #172a41; background-position: 50% 50%; background-repeat: no-repeat; background-size: 165% auto; border: 1px solid #597591; border-radius: 6px; box-shadow: inset 0 0 34px #08111c66; }

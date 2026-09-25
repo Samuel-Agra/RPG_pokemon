@@ -172,7 +172,7 @@ describe('RPG login', () => {
 		assert.equal(state.box.party.length, 1);
 		assert.equal(state.box.tier, 'small');
 		assert.equal(state.box.boxes.length, 1);
-		assert.equal(state.inventory.bag.maxSlots, 10);
+		assert.equal(state.inventory.bag.maxSlots, 15);
 	});
 
 	it('keeps deposited money unavailable until the Player redeems it from the bank', () => {
@@ -279,6 +279,7 @@ describe('RPG login', () => {
 		assert.equal(session.mode, 'player');
 		assert.equal(session.viewAsCharacterId, 'samuel');
 		assert.equal(service.getCharacter(session.token).id, 'samuel');
+		assert.deepEqual(service.listOtherPlayers(session.token).map(player => player.id).sort(), ['marina', 'samuel']);
 		assert.throws(() => service.getCharacter(session.token, 'marina'), /cannot access another character/);
 		assert.throws(() => service.requirePermission(session.token, 'battle:observe-all'), /does not have permission/);
 
@@ -465,6 +466,36 @@ describe('RPG login', () => {
 		service.completeBattleSession('rewardtest', result);
 		const player = service.loginPlayer('samuel', 'senha-rpg');
 		assert.equal(service.getCharacter(player.token).money, 4250);
+	});
+
+	it('awards an enabled gym badge to a victorious player without duplicating it', () => {
+		const service = createService();
+		createCharacter(service);
+		const player = service.loginPlayer('samuel', 'senha-rpg');
+		const master = service.loginMaster('14081998');
+		service.setMasterNPCLibrary(master.token, { npcs: [{
+			id: 'gym-kanto-0', folderId: 'region-kanto', gymRegion: 'kanto', gymIndex: 0,
+		}] });
+		const battle = service.createBattleSession(master.token, { name: 'Ginásio' });
+		const updated = service.updateBattleSession(master.token, battle.id, {
+			opponentType: 'npc', participants: [{
+				id: 'player', team: 'A', kind: 'player', characterId: 'samuel', displayName: 'Samuel',
+				selectionLimit: 1, pokemon: [{ teamIndex: 0 }],
+			}, {
+				id: 'leader', team: 'B', kind: 'npc', displayName: 'Brock', avatar: 'brock',
+				selectionLimit: 1, pokemon: [{ set: { species: 'Onix', moves: ['tackle'], level: 5 } }],
+				gymBadge: { sourceNpcId: 'gym-kanto-0', regionId: 'paldea', gymIndex: 7, enabled: true },
+			}],
+		});
+		assert.equal(updated.participants[1].gymBadge.regionId, 'kanto');
+		service.battleSessions.repository.set({ ...updated, status: 'started', startedAt: Date.now() });
+		const result = { outcome: 'win', winnerSide: 'p1', pokemon: [], rewards: [],
+			sides: [{ side: 'p1', outcome: 'winner' }, { side: 'p2', outcome: 'loser' }] };
+		const completed = service.completeBattleSession(battle.id, result);
+		assert.equal(completed.result.badgeAwards[0].badgeName, 'Rocha');
+		assert.deepEqual(service.getCharacter(player.token).profile.badges.kanto, ['rocha']);
+		service.completeBattleSession(battle.id, result);
+		assert.deepEqual(service.getCharacter(player.token).profile.badges.kanto, ['rocha']);
 	});
 
 	it('persists Raid preparation and safely recovers an interrupted runtime after restart', () => {

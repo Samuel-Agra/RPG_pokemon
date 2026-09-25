@@ -1289,7 +1289,8 @@ window.RPGContestUI = (() => {
 			const statsPanel = el('div', `team-builder-summary-stats contest-npc-stats${profile.scope !== 'contest' ? ' without-bars' : ''}`);
 			const battleStatsHost = el('div', 'contest-battle-stats-host');
 			let statsTrigger = null;
-			if (profile.scope !== 'contest') battleStatsHost.append(statsPanel);
+			battleStatsHost.append(statsPanel);
+			if (profile.scope === 'contest') details.append(battleStatsHost);
 			function calculatedStat(id) {
 				if (!selectedPokemon) return 0;
 				const base = selectedPokemon.baseStats[id]; const iv = Number(ivs[id]); const ev = Number(evs[id]); const lvl = Number(level.value);
@@ -1428,8 +1429,8 @@ window.RPGContestUI = (() => {
 				evs[id] = Math.max(0, Math.min(maximum, Math.round((Number(raw) || 0) / 4) * 4));
 				syncDetailedStats();
 			}
-			function completeBattleEVs() {
-				if (profile.scope === 'contest' || !selectedPokemon) return;
+			function completeEVs() {
+				if (!selectedPokemon) return;
 				let remaining = 508 - contestStats.reduce((sum, [id]) => sum + Number(evs[id] || 0), 0);
 				while (remaining >= 4) {
 					const available = contestStats.map(([id]) => id).filter(id => Number(evs[id] || 0) <= 248);
@@ -1484,7 +1485,7 @@ window.RPGContestUI = (() => {
 			statsMeta.append(naturePicker, totalEV); statsEditor.append(statsMeta);
 			nature.addEventListener('change', syncDetailedStats);
 			level.addEventListener('change', () => { syncDetailedStats(); syncHP(true); void loadPokemonMoves(); });
-			if (profile.scope !== 'contest') battleStatsHost.append(statsEditor);
+			battleStatsHost.append(statsEditor);
 			renderStats(); syncDetailedStats();
 
 			async function loadPokemonMoves() {
@@ -1614,7 +1615,14 @@ window.RPGContestUI = (() => {
 				if (!selectedPokemon) throw new Error('Selecione um Pokémon.');
 				if (!selectedMoves.length) throw new Error('Selecione pelo menos um golpe.');
 				if (![level, friendship, performance, hp].every(input => input.checkValidity())) throw new Error('Revise os valores numéricos do NPC.');
-				completeBattleEVs();
+				const wasFullHP = Number(hp.value) === currentMaxHP();
+				completeEVs();
+				if (contestStats.reduce((sum, [stat]) => sum + evs[stat], 0) !== 508 ||
+					contestStats.some(([stat]) => !Number.isInteger(evs[stat]) || evs[stat] < 0 || evs[stat] > 252 || evs[stat] % 4 !== 0 ||
+						!Number.isInteger(ivs[stat]) || ivs[stat] < 0 || ivs[stat] > 31)) {
+					throw new Error('Os EVs devem totalizar 508 em passos de 4, com até 252 por atributo; os IVs vão de 0 a 31.');
+				}
+				syncHP(wasFullHP);
 				const index = participants.length + 1; const id = `npc-${index}-${npcName.value}`.toLowerCase().replace(/[^a-z0-9]+/g, '');
 				const rpgState = { hp: Number(hp.value), pp: selectedMoves.map(move => move.currentPP ?? move.pp), status: status.value, friendship: Number(friendship.value),
 					contestPerformance: Number(performance.value), contestPerformanceTrainerId: id };
@@ -1673,7 +1681,7 @@ window.RPGContestUI = (() => {
 				contestPerformance: Number(pokemon.performance) || 0, contestPerformanceTrainerId: participantId },
 		} };
 	}
-	function savedNPCSelector(context, getLimit, requireExactTeam = false, selectedHost = null, canAddParticipant = null) {
+	function savedNPCSelector(context, getLimit, requireExactTeam = false, selectedHost = null, canAddParticipant = null, awardBadges = false) {
 		const root = el('section', 'registered-npc-selector');
 		const heading = el('div', 'registered-npc-heading');
 		heading.append(el('strong', '', 'NPCs salvos'), el('small', '', 'Escolha um NPC e os Pokémon que participarão.'));
@@ -1699,6 +1707,21 @@ window.RPGContestUI = (() => {
 			if ((library.npcs || []).some(npc => npc.folderId === folderId && Array.isArray(npc.team) && npc.team.length && !selected.some(entry => entry.npc.id === npc.id))) return true;
 			return folders().filter(folder => folder.parentId === folderId).some(folder => descendantHasNPC(folder.id, visiting));
 		}
+		function availableNPCsInDocumentOrder(folderId) {
+			const regionId = folderId?.startsWith('region-') ? folderId.slice(7) : '';
+			return (library.npcs || []).map((npc, index) => ({ npc, index }))
+				.filter(({ npc }) => (npc.folderId || null) === folderId && npc.team?.length && !selected.some(entry => entry.npc.id === npc.id))
+				.sort((first, second) => {
+					const firstGym = regionId && first.npc.gymRegion === regionId;
+					const secondGym = regionId && second.npc.gymRegion === regionId;
+					if (firstGym !== secondGym) return firstGym ? -1 : 1;
+					if (firstGym) return (Number(first.npc.gymIndex) || 0) - (Number(second.npc.gymIndex) || 0);
+					const firstOrder = Number.isFinite(Number(first.npc.order)) ? Number(first.npc.order) : first.index;
+					const secondOrder = Number.isFinite(Number(second.npc.order)) ? Number(second.npc.order) : second.index;
+					return firstOrder - secondOrder || first.index - second.index;
+				})
+				.map(({ npc }) => npc);
+		}
 		function renderSelected() {
 			selectedList.replaceChildren();
 			for (const entry of selected) {
@@ -1716,7 +1739,25 @@ window.RPGContestUI = (() => {
 					}
 				} else info.append(el('small', '', entry.indexes.map(index => entry.npc.team[index].name || entry.npc.team[index].species).join(' · ')));
 				const remove = actionButton('Remover', () => { selected.splice(selected.indexOf(entry), 1); renderSelected(); renderBrowser(); });
-				card.append(trainer, team, info, remove); selectedList.append(card);
+				card.append(trainer, team, info);
+				const badge = awardBadges ? window.RPGMasterNPCLibrary?.gymBadge?.(entry.npc) : null;
+				if (badge) {
+					const badgeToggle = actionButton('', () => {
+						entry.badgeEnabled = !entry.badgeEnabled;
+						badgeToggle.classList.toggle('enabled', entry.badgeEnabled);
+						badgeToggle.setAttribute('aria-pressed', String(entry.badgeEnabled));
+						badgeToggle.setAttribute('aria-label', (entry.badgeEnabled ? 'Desativar' : 'Ativar') + ' a insígnia ' + badge.badgeName);
+						card.classList.toggle('badge-enabled', entry.badgeEnabled);
+					});
+					badgeToggle.className = 'registered-npc-badge-toggle' + (entry.badgeEnabled ? ' enabled' : '');
+					badgeToggle.style.setProperty('--badge-x', (badge.gymIndex / 7 * 100) + '%');
+					badgeToggle.style.setProperty('--badge-y', (badge.regionIndex / 7 * 100) + '%');
+					badgeToggle.setAttribute('aria-pressed', String(entry.badgeEnabled));
+					badgeToggle.setAttribute('aria-label', (entry.badgeEnabled ? 'Desativar' : 'Ativar') + ' a insígnia ' + badge.badgeName);
+					card.classList.add('with-gym-badge'); card.classList.toggle('badge-enabled', entry.badgeEnabled);
+					card.append(badgeToggle);
+				}
+				card.append(remove); selectedList.append(card);
 			}
 		}
 		function activateOrConfirmNPC(npc) {
@@ -1736,7 +1777,7 @@ window.RPGContestUI = (() => {
 				root.classList.add('registered-npc-selection-error');
 				return;
 			}
-			selected.push({ npc, indexes: [...chosen].slice(0, limit) });
+			selected.push({ npc, indexes: [...chosen].slice(0, limit), badgeEnabled: false });
 			activeNPCId = ''; pendingPokemon.delete(npc.id); renderSelected(); renderBrowser();
 		}
 		function renderBrowser() {
@@ -1755,7 +1796,7 @@ window.RPGContestUI = (() => {
 				const folderButton = actionButton(folder.name, () => { currentFolderId = folder.id; renderBrowser(); });
 				folderButton.className = 'registered-npc-folder-name'; contents.append(folderButton);
 			}
-			for (const npc of (library.npcs || []).filter(npc => (npc.folderId || null) === currentFolderId && npc.team?.length && !selected.some(entry => entry.npc.id === npc.id))) {
+			for (const npc of availableNPCsInDocumentOrder(currentFolderId)) {
 				const row = el('article', 'registered-npc-row');
 				const isActive = activeNPCId === npc.id;
 				row.classList.toggle('active', isActive);
@@ -1794,7 +1835,10 @@ window.RPGContestUI = (() => {
 					throw new Error(`${entry.npc.name} precisa usar ${limit} Pokémon neste formato.`);
 				}
 				const pokemonTeam = entry.indexes.slice(0, limit).map(teamIndex => savedNPCPokemonSelection(entry.npc.team[teamIndex], id));
-				return { id, kind: 'npc', displayName: entry.npc.name, avatar: entry.npc.sprite, pokemon: pokemonTeam[0], pokemonTeam };
+				const badge = awardBadges ? window.RPGMasterNPCLibrary?.gymBadge?.(entry.npc) : null;
+				return { id, kind: 'npc', displayName: entry.npc.name, avatar: entry.npc.sprite, pokemon: pokemonTeam[0], pokemonTeam,
+					...(badge ? { gymBadge: { sourceNpcId: entry.npc.id, regionId: badge.regionId,
+						gymIndex: badge.gymIndex, enabled: !!entry.badgeEnabled } } : {}) };
 			});
 		} };
 	}

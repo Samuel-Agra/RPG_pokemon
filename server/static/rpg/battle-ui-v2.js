@@ -309,7 +309,7 @@ function rpgBattleEditor(characters, existing, onClose) {
 	const temporaryNPCs = window.RPGContestUI.battleTemporaryNPCEditor(
 		{ api }, initialTemporaryNPCs, () => Number(teamLimit.value), () => canAddMultiParticipant()
 	);
-	const savedNPCs = window.RPGContestUI.savedNPCSelector({ api }, () => Number(teamLimit.value), false, temporaryNPCs.registeredCards, () => canAddMultiParticipant());
+	const savedNPCs = window.RPGContestUI.savedNPCSelector({ api }, () => Number(teamLimit.value), false, temporaryNPCs.registeredCards, () => canAddMultiParticipant(), true);
 	const savedNPCColumn = createElement('div', 'participant-column battle-saved-npc-column hidden');
 	savedNPCColumn.append(savedNPCs.root);
 	columns.append(savedNPCColumn);
@@ -668,7 +668,8 @@ function rpgBattleEditor(characters, existing, onClose) {
 					const participantTeam = isMultiTrainer ? multiAssignments.get('npc:' + npc.id) : 'B';
 					participants.push({
 						id: `npc-${participantTeam.toLowerCase()}-${index + 1}-${npc.id}`, team: participantTeam, kind: 'npc',
-						displayName: npc.displayName, avatar: npc.avatar, npcRole: 'generic', selectionLimit: pokemonTeam.length,
+						displayName: npc.displayName, avatar: npc.avatar, npcRole: npc.gymBadge ? 'gym-leader' : 'generic', gymBadge: npc.gymBadge,
+						selectionLimit: pokemonTeam.length,
 						pokemon: pokemonTeam.map(selection => structuredClone(selection)),
 					});
 				}

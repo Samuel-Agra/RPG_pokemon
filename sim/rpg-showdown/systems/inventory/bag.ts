@@ -1,7 +1,11 @@
 /** Estado puro da Bag; capacidade e quantidades são validadas por revisão antes de devolver uma nova versão. */
 import { RPGItemRegistry, RPGItems } from "./item-registry";
 
-export const RPG_BAG_VERSION = 5;
+export const RPG_BAG_VERSION = 6;
+
+const LEGACY_BAG_SLOT_UPGRADES = new Map([
+	[10, 15], [20, 25], [30, 35], [40, 45], [50, 55], [60, 65],
+]);
 
 const REMOVED_TRAINING_ITEM_IDS = new Set([
 	'trainingpass', 'sparringticket', 'agilitycoursepass', 'strategymanual',
@@ -18,12 +22,12 @@ export interface RPGBagTierDefinition {
 }
 
 export const RPG_BAG_TIERS: Readonly<Record<RPGBagTier, RPGBagTierDefinition>> = Object.freeze({
-	starter: { id: 'starter', name: 'Starter Bag', maxSlots: 10, unlockPrice: 0 },
-	trainer: { id: 'trainer', name: 'Trainer Bag', maxSlots: 20, unlockPrice: 10000 },
-	adventurer: { id: 'adventurer', name: 'Adventurer Bag', maxSlots: 30, unlockPrice: 30000 },
-	expert: { id: 'expert', name: 'Expert Bag', maxSlots: 40, unlockPrice: 70000 },
-	master: { id: 'master', name: 'Master Bag', maxSlots: 50, unlockPrice: 140000 },
-	legendary: { id: 'legendary', name: 'Legendary Bag', maxSlots: 60, unlockPrice: 260000 },
+	starter: { id: 'starter', name: 'Starter Bag', maxSlots: 15, unlockPrice: 0 },
+	trainer: { id: 'trainer', name: 'Trainer Bag', maxSlots: 25, unlockPrice: 10000 },
+	adventurer: { id: 'adventurer', name: 'Adventurer Bag', maxSlots: 35, unlockPrice: 30000 },
+	expert: { id: 'expert', name: 'Expert Bag', maxSlots: 45, unlockPrice: 70000 },
+	master: { id: 'master', name: 'Master Bag', maxSlots: 55, unlockPrice: 140000 },
+	legendary: { id: 'legendary', name: 'Legendary Bag', maxSlots: 65, unlockPrice: 260000 },
 });
 
 export interface RPGBagEntry {
@@ -183,16 +187,19 @@ export class RPGBagSystem {
 		if (!value || typeof value !== 'object') throw new Error('RPG Bag must be an object');
 		const input = value as Partial<RPGBagState>;
 		if (input.version !== undefined && input.version !== 1 && input.version !== 2 &&
-			input.version !== 3 && input.version !== 4 && input.version !== RPG_BAG_VERSION) {
+			input.version !== 3 && input.version !== 4 && input.version !== 5 &&
+			input.version !== RPG_BAG_VERSION) {
 			throw new Error('Unsupported RPG Bag version: ' + String(input.version));
 		}
 		if (!Array.isArray(input.items)) throw new Error('RPG Bag requires an items array');
 		const items = input.items.filter(entry =>
 			!REMOVED_TRAINING_ITEM_IDS.has(RPGItemRegistry.normalizeId(entry.itemId))
 		);
+		const maxSlots = input.version === RPG_BAG_VERSION ? input.maxSlots :
+			LEGACY_BAG_SLOT_UPGRADES.get(input.maxSlots || 0) ?? input.maxSlots;
 		return this.create(input.ownerId || '', items, {
 			revision: input.revision ?? 0,
-			maxSlots: input.maxSlots,
+			maxSlots,
 			favorites: input.favorites,
 			missionItems: input.missionItems,
 			missionQuantities: input.missionQuantities,

@@ -41,12 +41,13 @@ function update(service, token, itemId, quantity, operation = 'add') {
 }
 
 describe('RPG Bag management backend', () => {
-	it('migrates old Bags and persists favorites, mission organization and notes in version 5', () => {
+	it('migrates old Bags to the expanded tiers and persists their organization', () => {
 		const migrated = RPGBagSystem.migrate({
 			version: 1, ownerId: 'samuel', revision: 3, maxSlots: 10,
 			items: [{ itemId: 'potion', quantity: 2 }],
 		});
-		assert.equal(migrated.version, 5);
+		assert.equal(migrated.version, 6);
+		assert.equal(migrated.maxSlots, 15);
 		assert.deepEqual(migrated.favorites, []);
 		assert.deepEqual(migrated.missionItems, []);
 		assert.deepEqual(migrated.missionQuantities, {});
@@ -264,10 +265,10 @@ describe('RPG Bag management backend', () => {
 			'potion', 'pokeball', 'greatball', 'ultraball', 'superpotion',
 			'hyperpotion', 'antidote', 'revive', 'leftovers', 'firestone',
 		]) add('marina', id);
-		for (const id of [
-			'pokeball', 'greatball', 'ultraball', 'superpotion', 'hyperpotion',
-			'antidote', 'revive', 'leftovers', 'firestone', 'thunderstone',
-		]) add('carlos', id);
+		const carlosCapacity = service.getBag(master.token, 'carlos').capacity.maxSlots;
+		for (const item of RPGItems.list().filter(item => item.id !== 'potion').slice(0, carlosCapacity)) {
+			add('carlos', item.id);
+		}
 
 		let transfer = service.getBagTransferTargets(samuel.token, undefined, 'potion');
 		const marina = transfer.targets.find(target => target.characterId === 'marina');

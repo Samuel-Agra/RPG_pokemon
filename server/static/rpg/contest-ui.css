@@ -561,6 +561,11 @@
 .registered-npc-selected-list { display: grid; gap: 7px; }
 .contest-registered-selected-cards:empty { display: none; }
 .registered-npc-selected-card { align-items: center; }
+.contest-temporary-npcs[data-temporary-npc-build="battle"] .registered-npc-selected-card.with-gym-badge { grid-template-columns: auto auto minmax(0, 1fr) 46px auto; }
+.registered-npc-selected-card.badge-enabled { border-color: #e2ad2e; box-shadow: 0 0 0 2px #ffdc6799, 0 0 16px #e9b73c55; }
+.registered-npc-badge-toggle { width: 42px; height: 42px; padding: 0; border: 0; background: url('./assets/badges-all-regions.png?v=20260831-1') var(--badge-x) var(--badge-y) / 800% 800% no-repeat; filter: grayscale(1); opacity: .5; image-rendering: pixelated; cursor: pointer; }
+.registered-npc-badge-toggle.enabled { filter: drop-shadow(0 0 7px #f9cb4e); opacity: 1; }
+.registered-npc-badge-toggle:focus-visible { outline: 2px solid #cf951b; outline-offset: 2px; }
 .registered-npc-selected-team { display: flex; gap: 2px; }
 .registered-npc-selected-team .pokemon-sprite { width: 42px; height: 42px; }
 .battle-multi-assignment-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }

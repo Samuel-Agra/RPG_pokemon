@@ -343,6 +343,8 @@ export interface RPGFormChangeResult {
 }
 
 export interface RPGBattleResult {
+	badgeAwards?: { characterId: string, regionId: string, gymIndex: number, badgeId: string,
+		badgeName: string, leaderName: string, leaderAvatar: string, }[];
 	/** Versão do contrato de resultado estruturado. */
 	version: number;
 	battleType: RPGBattleType;

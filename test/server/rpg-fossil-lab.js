@@ -25,6 +25,29 @@ function setup() {
 }
 
 describe('RPG fossil restoration laboratory', () => {
+	it('lets the Master award a fossil with an explicit grade or the original random grade', () => {
+		const { service, master, player, setRoll } = setup();
+		let bag = service.getBag(master.token, 'samuel');
+		for (const quality of ['fragmented', 'preserved', 'exceptional']) {
+			bag = service.masterSetBagItemQuantity(master.token, 'samuel', 'oldamber', 1, bag.revision, 'add', quality);
+		}
+		setRoll(0.7);
+		bag = service.masterSetBagItemQuantity(master.token, 'samuel', 'oldamber', 1, bag.revision, 'add');
+		const fossils = service.getFossilLab(player.token).fossils.filter(fossil => fossil.itemId === 'oldamber');
+		assert.deepEqual(Object.fromEntries(fossils.map(fossil => [fossil.quality, fossil.quantity])), {
+			fragmented: 1, preserved: 2, exceptional: 1,
+		});
+		assert.deepEqual(service.getBag(master.token, 'samuel').items.find(item => item.id === 'oldamber').fossilQualities,
+			{ fragmented: 1, preserved: 2, exceptional: 1 });
+		assert.equal(service.getBag(player.token).items.find(item => item.id === 'oldamber').fossilQualities, undefined);
+		assert.throws(() => service.masterSetBagItemQuantity(
+			master.token, 'samuel', 'oldamber', 1, bag.revision, 'add', 'invalid'
+		), /Qualidade de fóssil inválida/);
+		assert.throws(() => service.masterSetBagItemQuantity(
+			master.token, 'samuel', 'potion', 1, bag.revision, 'add', 'exceptional'
+		), /Qualidade de fóssil inválida/);
+		assert.equal(service.getBag(master.token, 'samuel').revision, bag.revision);
+	});
 	it('analyzes a fossil and persists a standard restoration project', () => {
 		const { service, player } = setup();
 		let lab = service.getFossilLab(player.token);

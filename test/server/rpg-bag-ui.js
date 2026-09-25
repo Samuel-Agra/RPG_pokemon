@@ -12,6 +12,12 @@ const html = fs.readFileSync(path.join(root, 'server/static/rpg/index.html'), 'u
 const css = fs.readFileSync(path.join(root, 'server/static/rpg/rpg.css'), 'utf8');
 
 describe('RPG Bag frontend', () => {
+	it('offers random and explicit fossil grades when the Master adds an item', () => {
+		assert.match(bagUi, /\['', 'Aleatório'\].*\['fragmented', 'Frag\.'\].*\['preserved', 'Pres\.'\].*\['exceptional', 'Excep\.'\]/);
+		assert.match(bagUi, /\.\.\.\(selectedQuality \? \{ quality: selectedQuality \} : \{\}\)/);
+		assert.match(bagUi, /if \(!options\.isMaster \|\| !item\.fossilQualities\) return \[item\]/);
+		assert.match(bagUi, /fossilDisplayOnly: true, actions: \[\]/);
+	});
 	it('loads the dedicated Bag module before the main RPG interface', () => {
 		assert.match(html, /bag-ui\.js/);
 		assert.ok(html.indexOf('bag-ui.js') < html.indexOf('rpg.js'));
@@ -96,8 +102,8 @@ describe('RPG Bag frontend', () => {
 	it('keeps Master Bag administration on the current page and blocks duplicate submissions', () => {
 		assert.match(rpgUi, /document\.querySelector\('\.bag-ui-window-layer'\)/);
 		assert.match(rpgUi, /state\.session\.role === 'player' && session\.status === 'inviting'/);
-		assert.match(bagUi, /const result = await options\.api\('\/bag\/master\/quantity'/);
-		assert.match(bagUi, /bagData = result\.bag/);
+		assert.match(bagUi, /await options\.api\('\/bag\/master\/quantity'/);
+		assert.match(bagUi, /options\.toast\('Bag atualizada pelo Mestre\.'\);\s*await load\(\)/);
 		assert.match(bagUi, /submit\.disabled = true/);
 		assert.match(bagUi, /submit\.disabled = false/);
 		assert.match(bagUi, /renderShell\(\)/);

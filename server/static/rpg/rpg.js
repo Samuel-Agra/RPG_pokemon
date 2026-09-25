@@ -3632,15 +3632,24 @@ async function renderPlayerRosterDrawer() {
 		.sort((first, second) => first.member.joinedAt - second.member.joinedAt ||
 			accountPublicHandle(first.account).localeCompare(accountPublicHandle(second.account), 'pt-BR'));
 	if (owner) masters.splice(Math.floor(masters.length / 2), 0, owner);
+	function openRosterDetailsOnContext(card, entry, label) {
+		card.setAttribute('aria-label', `Botão direito para ver informações de ${label}`);
+		const open = () => openMemberDetails(entry, viewerRole, members,
+			() => void renderPlayerRosterDrawer());
+		card.addEventListener('contextmenu', event => { event.preventDefault(); open(); });
+		card.addEventListener('keydown', event => {
+			if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+				event.preventDefault(); open();
+			}
+		});
+	}
 	for (const master of masters) {
 		const card = createElement('button', 'player-roster-master-card'); card.type = 'button';
 		const badge = createElement('span', 'player-roster-master-avatar ' + (master.online ? 'is-online' : 'is-offline'));
 		setAccountAvatar(badge, master.account, master.member.role === 'owner' ? 'PM' : 'M');
 		badge.setAttribute('aria-label', master.online ? 'Online' : 'Offline');
 		card.append(badge, createElement('span', 'player-roster-master-handle', accountPublicHandle(master.account)));
-		card.setAttribute('aria-label', `Ver informações de ${accountPublicHandle(master.account)}`);
-		card.addEventListener('click', () => openMemberDetails(master, viewerRole, members,
-			() => void renderPlayerRosterDrawer()));
+		openRosterDetailsOnContext(card, master, accountPublicHandle(master.account));
 		masterContent.append(card);
 	}
 	masterList.replaceChildren(masterContent);
@@ -3680,9 +3689,7 @@ async function renderPlayerRosterDrawer() {
 		card.append(avatar, createElement('span', 'player-roster-drawer-handle', handle),
 			createElement('strong', '', player.characterName), team);
 		if (memberEntry) {
-			card.setAttribute('aria-label', 'Ver informações de ' + player.characterName);
-			card.addEventListener('click', () => openMemberDetails(memberEntry, viewerRole, members,
-				() => void renderPlayerRosterDrawer()));
+			openRosterDetailsOnContext(card, memberEntry, player.characterName);
 		} else {
 			card.disabled = true;
 		}
@@ -5756,6 +5763,7 @@ let masterNPCLastCreatedFolderId = '';
 let masterNPCLibraryLoadedFromServer = false;
 let masterNPCLibrarySaveChain = Promise.resolve();
 const masterNPCExpandedFolderIds = new Set();
+const masterGymCollapsedRegions = new Set();
 const MASTER_NPC_FOLDER_COLORS = [
 	{ value: '#d69b35', light: '#ebc466' }, { value: '#c74740', light: '#f07b70' },
 	{ value: '#4c6f98', light: '#89a9cc' }, { value: '#4f8a67', light: '#85bd91' },
@@ -5767,6 +5775,27 @@ const MASTER_NPC_DEFAULT_FOLDERS = [
 	...['Kanto', 'Johto', 'Hoenn', 'Sinnoh', 'Unova', 'Kalos', 'Alola', 'Galar', 'Hisui', 'Paldea']
 		.map(name => ({ id: 'region-' + name.toLowerCase(), name, parentId: null, kind: 'region', locked: true })),
 ];
+// A ordem acompanha a folha de insígnias usada na ficha do jogador.
+const MASTER_GYMS = {
+	kanto: [['Pewter', 'Pewter City', 'Rock'], ['Cerulean', 'Cerulean City', 'Water'], ['Vermilion', 'Vermilion City', 'Electric'], ['Celadon', 'Celadon City', 'Grass'], ['Fuchsia', 'Fuchsia City', 'Poison'], ['Saffron', 'Saffron City', 'Psychic'], ['Cinnabar', 'Cinnabar Island', 'Fire'], ['Viridian', 'Viridian City', 'Ground']],
+	johto: [['Violet', 'Violet City', 'Flying'], ['Azalea', 'Azalea Town', 'Bug'], ['Goldenrod', 'Goldenrod City', 'Normal'], ['Ecruteak', 'Ecruteak City', 'Ghost'], ['Cianwood', 'Cianwood City', 'Fighting'], ['Olivine', 'Olivine City', 'Steel'], ['Mahogany', 'Mahogany Town', 'Ice'], ['Blackthorn', 'Blackthorn City', 'Dragon']],
+	hoenn: [['Rustboro', 'Rustboro City', 'Rock'], ['Dewford', 'Dewford Town', 'Fighting'], ['Mauville', 'Mauville City', 'Electric'], ['Lavaridge', 'Lavaridge Town', 'Fire'], ['Petalburg', 'Petalburg City', 'Normal'], ['Fortree', 'Fortree City', 'Flying'], ['Mossdeep', 'Mossdeep City', 'Psychic'], ['Sootopolis', 'Sootopolis City', 'Water']],
+	sinnoh: [['Oreburgh', 'Oreburgh City', 'Rock'], ['Eterna', 'Eterna City', 'Grass'], ['Veilstone', 'Veilstone City', 'Fighting'], ['Pastoria', 'Pastoria City', 'Water'], ['Hearthome', 'Hearthome City', 'Ghost'], ['Canalave', 'Canalave City', 'Steel'], ['Snowpoint', 'Snowpoint City', 'Ice'], ['Sunyshore', 'Sunyshore City', 'Electric']],
+	unova: [['Striaton', 'Striaton City', 'Water / Grass / Fire'], ['Nacrene', 'Nacrene City', 'Normal'], ['Castelia', 'Castelia City', 'Bug'], ['Nimbasa', 'Nimbasa City', 'Electric'], ['Driftveil', 'Driftveil City', 'Ground'], ['Mistralton', 'Mistralton City', 'Flying'], ['Icirrus', 'Icirrus City', 'Ice'], ['Opelucid', 'Opelucid City', 'Dragon']],
+	kalos: [['Santalune', 'Santalune City', 'Bug'], ['Cyllage', 'Cyllage City', 'Rock'], ['Shalour', 'Shalour City', 'Fighting'], ['Coumarine', 'Coumarine City', 'Grass'], ['Lumiose', 'Lumiose City', 'Electric'], ['Laverre', 'Laverre City', 'Fairy'], ['Anistar', 'Anistar City', 'Psychic'], ['Snowbelle', 'Snowbelle City', 'Ice']],
+	galar: [['Turffield', 'Turffield', 'Grass'], ['Hulbury', 'Hulbury', 'Water'], ['Motostoke', 'Motostoke', 'Fire'], ['Stow-on-Side', 'Stow-on-Side', 'Fighting'], ['Ballonlea', 'Ballonlea', 'Fairy'], ['Circhester', 'Circhester', 'Rock'], ['Spikemuth', 'Spikemuth', 'Dark'], ['Hammerlocke', 'Hammerlocke', 'Dragon']],
+	paldea: [['Cortondo', 'Cortondo', 'Bug'], ['Artazon', 'Artazon', 'Grass'], ['Levincia', 'Levincia', 'Electric'], ['Cascarrafa', 'Cascarrafa', 'Water'], ['Medali', 'Medali', 'Normal'], ['Montenevera', 'Montenevera', 'Ghost'], ['Alfornada', 'Alfornada', 'Psychic'], ['Glaseado', 'Glaseado', 'Ice']],
+};
+const MASTER_GYM_TYPES = ['Normal', 'Fire', 'Water', 'Electric', 'Grass', 'Ice', 'Fighting', 'Poison', 'Ground', 'Flying', 'Psychic', 'Bug', 'Rock', 'Ghost', 'Dragon', 'Dark', 'Steel', 'Fairy'];
+
+function masterGymTemplate(regionId, index) {
+	const gym = MASTER_GYMS[regionId]?.[index];
+	const badge = RPG_BADGE_REGIONS.find(region => region[0] === regionId)?.[2][index];
+	if (!gym || !badge) return null;
+	return { id: 'gym-' + regionId + '-' + index, folderId: 'region-' + regionId, gymRegion: regionId, gymIndex: index,
+		name: 'Líder de ' + gym[0], role: 'Líder de Ginásio', location: gym[1], specialty: gym[2],
+		usage: 'Desafio para a insígnia ' + badge, team: [], order: index };
+}
 
 function readMasterNPCLibrary() {
 	let stored = {};
@@ -6092,6 +6121,13 @@ window.RPGMasterNPCLibrary = {
 	async load() {
 		await loadMasterNPCLibraryFromServer();
 		return structuredClone(readMasterNPCLibrary());
+	},
+	gymBadge(npc) {
+		const regionIndex = RPG_BADGE_REGIONS.findIndex(region => region[0] === npc?.gymRegion);
+		const badgeName = RPG_BADGE_REGIONS[regionIndex]?.[2][npc?.gymIndex];
+		if (regionIndex < 0 || !badgeName) return null;
+		return { regionId: npc.gymRegion, regionIndex, gymIndex: npc.gymIndex, badgeName,
+			badgeId: String(badgeName).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-') };
 	},
 };
 
@@ -6450,21 +6486,60 @@ function masterNPCTeamPicker(existing, options = {}) {
 		attributeHead.append(createElement('h4', '', 'Atributos'), createElement('span', '', 'EV'), createElement('span', '', 'IV'), createElement('span', '', 'Total')); attributes.append(attributeHead);
 		const attributeSummary = createElement('div', 'master-npc-attribute-summary');
 		const attributeEditor = createElement('div', 'master-npc-attribute-editor hidden');
-		const evInputs = {}, ivInputs = {};
+		const evInputs = {}, ivInputs = {}, statTotals = {};
+		const evValues = {}, ivValues = {};
+		let remainingEVs = 508;
 		for (const id of stats) {
-			const ev = createElement('input'); ev.type = 'number'; ev.min = '0'; ev.max = '252'; ev.value = String(draft.evs?.[id] || 0); evInputs[id] = ev;
-			const iv = createElement('input'); iv.type = 'number'; iv.min = '0'; iv.max = '31'; iv.value = String(draft.ivs?.[id] || 0); ivInputs[id] = iv;
-			const row = createElement('div', 'master-npc-pokemon-stat'); row.append(createElement('strong', '', id.toUpperCase()), masterNPCControl('EV', ev), masterNPCControl('IV', iv)); attributeEditor.append(row);
+			evValues[id] = Math.min(252, remainingEVs, Math.max(0, Math.round(Number(draft.evs?.[id] || 0) / 4) * 4));
+			remainingEVs -= evValues[id];
+			ivValues[id] = Math.max(0, Math.min(31, Math.round(Number(draft.ivs?.[id] || 0))));
 		}
+		const statsHeader = createElement('div', 'master-npc-stats-header');
+		for (const label of ['', 'Base', 'EVs', 'IVs', 'Total']) statsHeader.append(createElement('strong', '', label));
+		attributeEditor.append(statsHeader);
+		const availableEVMaximum = id => Math.max(0, Math.min(252, 508 - stats.reduce((sum, stat) => sum + (stat === id ? 0 : evValues[stat]), 0)));
+		for (const id of stats) {
+			const ev = createElement('div', 'team-builder-ev-control');
+			const number = createElement('input', 'team-builder-ev-value'); number.type = 'number'; number.min = '0'; number.max = '252'; number.step = '4'; number.value = String(evValues[id]);
+			const slider = createElement('input', 'team-builder-ev-slider'); slider.type = 'range'; slider.min = '0'; slider.max = '252'; slider.step = '4'; slider.value = String(evValues[id]); slider.setAttribute('aria-label', id.toUpperCase() + ': EVs');
+			ev.append(number, slider); evInputs[id] = { number, slider };
+			const iv = createElement('input'); iv.type = 'number'; iv.min = '0'; iv.max = '31'; iv.step = '1'; iv.value = String(ivValues[id]); ivInputs[id] = iv;
+			const total = createElement('strong', 'team-builder-stat-total'); statTotals[id] = total;
+			const row = createElement('div', 'master-npc-pokemon-stat'); row.append(createElement('strong', '', id.toUpperCase()), createElement('span', '', String(pokemon.baseStats?.[id] ?? '—')), ev, iv, total); attributeEditor.append(row);
+		}
+		const totalEV = createElement('small', 'master-npc-total-ev'); attributeEditor.append(totalEV);
+		const natureEffects = { Adamant: ['atk', 'spa'], Bold: ['def', 'atk'], Brave: ['atk', 'spe'], Calm: ['spd', 'atk'], Careful: ['spd', 'spa'],
+			Gentle: ['spd', 'def'], Hasty: ['spe', 'def'], Impish: ['def', 'spa'], Jolly: ['spe', 'spa'], Lax: ['def', 'spd'], Lonely: ['atk', 'def'],
+			Mild: ['spa', 'def'], Modest: ['spa', 'atk'], Naive: ['spe', 'spd'], Naughty: ['atk', 'spd'], Quiet: ['spa', 'spe'], Rash: ['spa', 'spd'],
+			Relaxed: ['def', 'spe'], Sassy: ['spd', 'spe'], Timid: ['spe', 'atk'] };
 		const updateAttributeSummary = () => {
 			attributeSummary.querySelectorAll('.master-npc-attribute-summary-row:not(.heading)').forEach(row => row.remove());
 			for (const id of stats) {
-				const base = pokemon.baseStats?.[id] || 1; const ev = Number(evInputs[id].value || 0); const iv = Number(ivInputs[id].value || 0); const lv = Number(level.value || 1);
-				const total = id === 'hp' ? (draft.species === 'Shedinja' ? 1 : Math.floor((2 * base + iv + Math.floor(ev / 4)) * lv / 100) + lv + 10) : Math.floor((Math.floor((2 * base + iv + Math.floor(ev / 4)) * lv / 100) + 5));
+				const base = pokemon.baseStats?.[id] || 1; const ev = evValues[id]; const iv = ivValues[id]; const lv = Math.max(1, Math.min(100, Number(level.value) || 1));
+				const neutral = Math.floor((2 * base + iv + Math.floor(ev / 4)) * lv / 100) + 5;
+				const modifier = natureEffects[nature.value];
+				const total = id === 'hp' ? (rpgSpriteKey(draft.species) === 'shedinja' ? 1 : Math.floor((2 * base + iv + Math.floor(ev / 4)) * lv / 100) + lv + 10) :
+					Math.floor(neutral * (modifier?.[0] === id ? 1.1 : modifier?.[1] === id ? 0.9 : 1));
 				const row = createElement('div', 'master-npc-attribute-summary-row'); row.append(createElement('strong', '', id === 'hp' ? 'HP' : id.toUpperCase()), createElement('span', '', String(ev)), createElement('span', '', String(iv)), createElement('b', '', String(total))); attributeSummary.append(row);
+				statTotals[id].textContent = String(total);
+				evInputs[id].number.max = String(availableEVMaximum(id));
+				evInputs[id].number.value = String(ev);
+				evInputs[id].slider.value = String(ev);
+				evInputs[id].slider.style.setProperty('--ev-fill', ev / 252 * 100 + '%');
+				ivInputs[id].value = String(iv);
+				if (id === 'hp') hp.querySelector('span').textContent = total + ' / ' + total;
 			}
+			totalEV.textContent = 'EVs: ' + stats.reduce((sum, id) => sum + evValues[id], 0) + ' / 508';
 		};
-		for (const input of [...Object.values(evInputs), ...Object.values(ivInputs), level]) input.addEventListener('input', updateAttributeSummary);
+		for (const id of stats) {
+			for (const input of [evInputs[id].number, evInputs[id].slider]) input.addEventListener('input', () => {
+				evValues[id] = Math.max(0, Math.min(availableEVMaximum(id), Math.round((Number(input.value) || 0) / 4) * 4));
+				updateAttributeSummary();
+			});
+			ivInputs[id].addEventListener('input', () => { ivValues[id] = Math.max(0, Math.min(31, Math.round(Number(ivInputs[id].value) || 0))); updateAttributeSummary(); });
+		}
+		level.addEventListener('input', updateAttributeSummary);
+		nature.addEventListener('change', updateAttributeSummary);
 		const attributeFooter = createElement('div', 'master-npc-attribute-footer');
 		const naturePicker = createElement('div', 'contest-nature-picker master-npc-nature-picker');
 		const natureLabel = button('', 'contest-nature-button'); natureLabel.type = 'button';
@@ -6513,17 +6588,19 @@ function masterNPCTeamPicker(existing, options = {}) {
 				abilityResults.querySelectorAll('.contest-ability-option').forEach((node, index) => node.classList.toggle('selected', index === ability.selectedIndex));
 			}
 			if (itemCatalog.length) { item.value = itemCatalog[Math.floor(Math.random() * itemCatalog.length)].id; renderItemButton(); }
-			for (const input of Object.values(ivInputs)) input.value = String(Math.floor(Math.random() * 32));
+			for (const id of stats) ivValues[id] = Math.floor(Math.random() * 32);
 			let remaining = 508; const order = [...stats].sort(() => Math.random() - 0.5);
-			for (const id of order) { const value = Math.min(252, remaining); evInputs[id].value = String(value); remaining -= value; }
+			for (const id of order) { const value = Math.min(252, remaining); evValues[id] = value; remaining -= value; }
 			const pool = [...legalMoves].sort(() => Math.random() - 0.5).slice(0, 4);
 			for (let index = 0; index < moveSelects.length; index++) { moveSelects[index].value = pool[index]?.moveId || ''; renderMoveSlot(index); }
 			updateAttributeSummary();
 		};
 		automatic.addEventListener('click', applyAutomatic);
 		confirmPokemon.addEventListener('click', () => {
+			if (stats.reduce((sum, id) => sum + evValues[id], 0) !== 508) return showToast('Distribua exatamente 508 EVs antes de salvar o Pokémon.', true);
+			if (!level.checkValidity() || !friendship.checkValidity() || !performance.checkValidity()) return showToast('Revise o nível, a amizade e a performance.', true);
 			const configured = { ...draft, level: Number(level.value), friendship: Number(friendship.value), performance: Number(performance.value), nature: nature.value, ability: ability.value, gender: gender.value, shiny: shiny.checked, item: item.value.trim(),
-				moves: moveSelects.map(select => select.value).filter(Boolean), evs: Object.fromEntries(stats.map(id => [id, Number(evInputs[id].value)])), ivs: Object.fromEntries(stats.map(id => [id, Number(ivInputs[id].value)])) };
+				moves: moveSelects.map(select => select.value).filter(Boolean), evs: { ...evValues }, ivs: { ...ivValues } };
 			if (editingIndex >= 0) selected[editingIndex] = configured; else selected.push(configured);
 			manager.classList.add('hidden'); update();
 		});
@@ -6584,23 +6661,35 @@ function masterNPCTeamPicker(existing, options = {}) {
 
 function renderMasterNPCForm(library, folderId, existing, refresh) {
 	const form = createElement('form', 'panel master-npc-editor');
-	form.append(createElement('h3', '', existing ? 'Editar NPC' : 'Criar NPC'));
+	const isGym = !!existing?.gymRegion;
+	form.append(createElement('h3', '', isGym ? 'Editar líder de ginásio' : existing ? 'Editar NPC' : 'Criar NPC'));
 	const grid = createElement('div', 'master-npc-form-grid');
+	const specialty = isGym ? createElement('label', 'master-npc-form-field') : masterNPCField('Especialidade', 'specialty', existing?.specialty);
+	if (isGym) {
+		const select = document.createElement('select');
+		select.name = 'specialty';
+		for (const type of [...new Set([existing.specialty, ...MASTER_GYM_TYPES])]) {
+			const option = document.createElement('option'); option.value = type; option.textContent = type; select.append(option);
+		}
+		select.value = existing.specialty;
+		specialty.append(createElement('span', '', 'Especialidade'), select);
+	}
 	grid.append(
 		masterNPCTrainerPicker(existing?.sprite),
 		masterNPCField('Nome', 'name', existing?.name),
 		masterNPCField('Papel', 'role', existing?.role),
 		masterNPCField('Local', 'location', existing?.location),
-		masterNPCField('Especialidade', 'specialty', existing?.specialty),
+		specialty,
 		masterNPCField('Uso', 'usage', existing?.usage),
 		masterNPCField('Informa\u00e7\u00f5es b\u00e1sicas e localiza\u00e7\u00e3o', 'basicInfo', existing?.basicInfo, true),
 		masterNPCField('Descri\u00e7\u00e3o', 'description', existing?.description, true),
 		masterNPCTeamPicker(existing),
 		masterNPCField('Anota\u00e7\u00f5es', 'notes', existing?.notes, true)
 	);
+	if (isGym) for (const name of ['role', 'usage']) grid.querySelector('[name="' + name + '"]').readOnly = true;
 	form.append(grid);
 	const actions = createElement('div', 'master-npc-editor-actions');
-	if (existing) {
+	if (existing && !isGym) {
 		const remove = button('Excluir NPC');
 		remove.type = 'button';
 		let deletionArmed = false;
@@ -6633,18 +6722,19 @@ function renderMasterNPCForm(library, folderId, existing, refresh) {
 		delete values.teams;
 		if (!values.name) return showToast('Informe o nome do NPC.', true);
 		const npc = { ...existing, ...values, id: existing?.id || masterNPCId('npc'), folderId, order: existing?.order ?? Date.now() };
+		if (isGym) npc.role = 'Líder de Ginásio';
 		const index = library.npcs.findIndex(entry => entry.id === npc.id);
 		if (index >= 0) library.npcs[index] = npc;
 		else library.npcs.push(npc);
 		saveMasterNPCLibrary(library);
-		showToast(existing ? 'NPC atualizado.' : 'NPC salvo.');
+		showToast(isGym ? 'Líder de ginásio atualizado.' : existing ? 'NPC atualizado.' : 'NPC salvo.');
 		refresh();
 	});
 	return form;
 }
 
 function renderMasterNPCRow(npc, library, refresh) {
-	const details = createElement('details', 'panel master-npc-row');
+	const details = createElement('details', 'panel master-npc-row' + (npc.gymRegion ? ' master-gym-row' : ''));
 	const summary = createElement('summary', 'master-npc-summary');
 	const sprite = createElement('span', 'master-npc-row-sprite');
 	if (npc.sprite) {
@@ -6659,6 +6749,18 @@ function renderMasterNPCRow(npc, library, refresh) {
 		.map(entry => typeof entry === 'string' ? { species: entry.trim(), name: entry.trim() } : entry)
 		.filter(entry => String(entry?.species || entry?.name || '').trim()).slice(0, 6);
 	summary.append(createElement('span', '', npc.usage || '\u2014'));
+	if (npc.gymRegion) {
+		const regionIndex = RPG_BADGE_REGIONS.findIndex(region => region[0] === npc.gymRegion);
+		const badgeName = RPG_BADGE_REGIONS[regionIndex]?.[2][npc.gymIndex];
+		if (regionIndex >= 0 && badgeName) {
+			const badge = createElement('span', 'master-gym-badge');
+			badge.style.setProperty('--badge-x', (npc.gymIndex / 7 * 100) + '%');
+			badge.style.setProperty('--badge-y', RPG_BADGE_SHEET_ROW_POSITIONS[regionIndex]);
+			badge.title = 'Insígnia ' + badgeName;
+			badge.setAttribute('aria-label', badge.title);
+			summary.append(badge);
+		}
+	}
 	details.append(summary);
 	const expanded = createElement('div', 'master-npc-expanded');
 	const sections = [
@@ -7242,6 +7344,40 @@ function renderMasterNPCFolders(folderId = null) {
 		}
 	}
 	if (folderId && folderId !== 'pokemon') {
+		const gymRegion = folderId.startsWith('region-') ? folderId.slice(7) : '';
+		if (gymRegion && library.folders.some(folder => folder.id === folderId && folder.kind === 'region')) {
+			const gymSection = createElement('section', 'master-gym-section');
+			const gymHeading = createElement('div', 'master-gym-heading');
+			const gymToggle = button('', 'master-npc-folder-collapse-toggle');
+			const gymContent = createElement('div', 'master-gym-content');
+			const collapsed = masterGymCollapsedRegions.has(gymRegion);
+			gymToggle.append(createElement('span', 'master-npc-folder-collapse-arrow'));
+			gymToggle.classList.toggle('collapsed', collapsed);
+			gymToggle.setAttribute('aria-expanded', String(!collapsed));
+			gymToggle.setAttribute('aria-label', collapsed ? 'Expandir líderes de ginásio' : 'Recolher líderes de ginásio');
+			gymContent.hidden = collapsed;
+			gymToggle.addEventListener('click', () => {
+				const willCollapse = !gymContent.hidden;
+				gymContent.hidden = willCollapse;
+				gymToggle.classList.toggle('collapsed', willCollapse);
+				gymToggle.setAttribute('aria-expanded', String(!willCollapse));
+				gymToggle.setAttribute('aria-label', willCollapse ? 'Expandir líderes de ginásio' : 'Recolher líderes de ginásio');
+				if (willCollapse) masterGymCollapsedRegions.add(gymRegion);
+				else masterGymCollapsedRegions.delete(gymRegion);
+			});
+			gymHeading.append(gymToggle, createElement('h3', '', 'Líderes de Ginásio'));
+			gymSection.append(gymHeading);
+			if (!MASTER_GYMS[gymRegion]) gymContent.append(createElement('div', 'panel master-npc-empty', 'Esta região não possui ginásios oficiais.'));
+			else {
+				for (let index = 0; index < MASTER_GYMS[gymRegion].length; index++) {
+					const template = masterGymTemplate(gymRegion, index);
+					const saved = library.npcs.find(npc => npc.id === template.id);
+					gymContent.append(renderMasterNPCRow({ ...template, ...saved, role: template.role, gymRegion, gymIndex: index, folderId }, library, refresh));
+				}
+			}
+			gymSection.append(gymContent);
+			root.append(gymSection);
+		}
 		const listHeader = createElement('div', 'master-npc-list-header');
 		const listActions = createElement('div', 'master-npc-list-actions');
 		const createNote = button('Criar bloco de notas', 'primary');
@@ -7251,7 +7387,7 @@ function renderMasterNPCFolders(folderId = null) {
 		listActions.append(createNote, createNPC);
 		listHeader.append(createElement('h3', '', 'NPCs e anota\u00e7\u00f5es'), listActions);
 		root.append(listHeader);
-		const npcs = library.npcs.filter(npc => npc.folderId === folderId);
+		const npcs = library.npcs.filter(npc => npc.folderId === folderId && !npc.gymRegion);
 		const notes = (library.notes || []).filter(note => note.folderId === folderId);
 		if (!npcs.length && !notes.length) root.append(createElement('div', 'panel master-npc-empty', 'Nenhum arquivo salvo nesta pasta.'));
 		if (npcs.length && !notes.length) {
@@ -7485,7 +7621,8 @@ async function renderDashboard() {
 	const isMasterMode = state.session.role === 'master' && state.session.mode === 'master';
 	const showPlayerDrawer = !!state.accountSession?.activeTableId &&
 		!['battles', 'contests'].includes(state.dashboardView);
-	const showPlayerRoster = (state.session.role === 'player' && state.session.mode === 'player') || isMasterMode;
+	const showPlayerRoster = state.session.role === 'master' ||
+		(state.session.role === 'player' && state.session.mode === 'player');
 	const dashboard = document.querySelector('#dashboard-screen .dashboard');
 	dashboard.classList.toggle('has-player-roster-drawer', showPlayerDrawer);
 	$('#player-roster-drawer').classList.toggle('hidden', !showPlayerDrawer);

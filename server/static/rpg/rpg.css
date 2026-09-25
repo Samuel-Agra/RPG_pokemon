@@ -4187,7 +4187,8 @@ input, select {
 	margin-bottom: 8px;
 	color: #76869a;
 }
-.master-npc-breadcrumbs .master-npc-folder-collapse-toggle {
+.master-npc-breadcrumbs .master-npc-folder-collapse-toggle,
+.master-gym-heading .master-npc-folder-collapse-toggle {
 	display: grid;
 	width: 25px;
 	height: 25px;
@@ -4210,7 +4211,9 @@ input, select {
 }
 .master-npc-folder-collapse-toggle.collapsed .master-npc-folder-collapse-arrow { transform: translateY(-2px) rotate(225deg); }
 .master-npc-breadcrumbs .master-npc-folder-collapse-toggle:hover,
-.master-npc-breadcrumbs .master-npc-folder-collapse-toggle:focus-visible { color: #fff; background: linear-gradient(#6788ae, #46698f); border-color: #365675; }
+.master-npc-breadcrumbs .master-npc-folder-collapse-toggle:focus-visible,
+.master-gym-heading .master-npc-folder-collapse-toggle:hover,
+.master-gym-heading .master-npc-folder-collapse-toggle:focus-visible { color: #fff; background: linear-gradient(#6788ae, #46698f); border-color: #365675; }
 .master-npc-breadcrumbs button {
 	padding: 3px 5px;
 	color: #36577e;
@@ -4282,6 +4285,26 @@ input, select {
 	font-weight: bold;
 }
 .master-npc-row-sprite img { max-width: 100%; max-height: 100%; object-fit: contain; image-rendering: pixelated; }
+.master-gym-section { margin: 16px 0 22px; }
+.master-gym-heading {
+	display: flex;
+	align-items: center;
+	gap: 9px;
+	margin-bottom: 10px;
+}
+.master-gym-heading h3 { margin: 0; color: #304967; }
+.master-gym-content[hidden] { display: none; }
+.master-gym-row .master-npc-summary { padding-right: 64px; }
+.master-gym-badge {
+	position: absolute;
+	right: 14px;
+	top: 50%;
+	width: 40px;
+	height: 40px;
+	transform: translateY(-50%);
+	background: url('./assets/badges-all-regions.png?v=20260831-1') var(--badge-x) var(--badge-y) / 800% 800% no-repeat;
+	image-rendering: pixelated;
+}
 .master-npc-summary > span:not(.master-npc-row-sprite) { color: #55677e; font-size: 11px; }
 .master-npc-expanded-team { display: flex; flex-wrap: wrap; align-items: flex-end; gap: 14px; min-height: 72px; }
 .master-npc-expanded-member { display: grid; justify-items: center; gap: 3px; min-width: 72px; color: #304967; }
@@ -4784,15 +4807,21 @@ input, select {
 .master-npc-pokemon-attribute-head span { color: #65758a; font-size: 9px; text-align: center; }
 .master-npc-pokemon-stat {
 	display: grid;
-	grid-template-columns: 38px 1fr 1fr;
-	align-items: end;
-	gap: 6px;
-	padding: 7px;
+	grid-template-columns: 40px 54px minmax(230px, 1fr) 56px 54px;
+	align-items: center;
+	gap: 10px;
+	padding: 7px 10px;
 	background: #fff;
 	border: 1px solid #c4ceda;
 	border-radius: 4px;
 }
 .master-npc-pokemon-stat > strong { align-self: center; color: #314b6a; font-size: 10px; }
+.master-npc-pokemon-stat > span,
+.master-npc-pokemon-stat > input,
+.master-npc-pokemon-stat > .team-builder-stat-total { min-width: 0; text-align: center; }
+.master-npc-pokemon-stat > input { width: 100%; box-sizing: border-box; }
+.master-npc-stats-header { display: grid; grid-template-columns: 40px 54px minmax(230px, 1fr) 56px 54px; gap: 10px; padding: 0 10px; color: #60738a; font-size: 10px; text-align: center; }
+.master-npc-total-ev { justify-self: end; color: #405f87; font-weight: bold; }
 .master-npc-attribute-summary { display: grid; }
 .master-npc-attribute-summary-row { display: grid; grid-template-columns: minmax(62px, 1fr) 34px 34px 44px; align-items: center; min-height: 23px; border-bottom: 1px solid #e0e5eb; font-size: 9px; }
 .master-npc-attribute-summary-row.heading { color: #65758a; text-align: center; }
@@ -4806,15 +4835,18 @@ input, select {
 	top: 0;
 	right: calc(100% + 9px);
 	display: grid;
-	grid-template-columns: repeat(2, minmax(150px, 1fr));
+	grid-template-columns: minmax(0, 1fr);
 	gap: 7px;
-	width: min(620px, 70vw);
+	width: min(760px, 78vw);
+	max-height: min(620px, 75vh);
 	padding: 12px;
+	overflow: auto;
 	background: #fff;
 	border: 1px solid #9cabbc;
 	border-radius: 5px;
 	box-shadow: 0 14px 32px #1b2c4355;
 }
+.master-npc-attribute-editor .team-builder-ev-control { grid-template-columns: 62px minmax(120px, 1fr); }
 .master-npc-attribute-editor > .master-npc-compact-control { grid-column: 1 / -1; max-width: 220px; }
 .master-npc-nature-picker { width: 185px; max-width: 100%; }
 .master-npc-nature-picker .contest-nature-panel { right: 0; left: auto; }

@@ -98,6 +98,8 @@
 				if (result.nursery) view = result.nursery;
 				ensureSelectedPokemon();
 				paint();
+				if (typeof result.lost === 'boolean') options.toast(result.lost ?
+					'O Egg foi perdido ao sair da incubadora.' : 'Egg retirado da incubadora com segurança.', result.lost);
 				if (result.hatch) options.toast(result.hatch.pokemon.species + ' nasceu!');
 				return result;
 			} catch (error) {
@@ -941,6 +943,18 @@
 								'É necessária uma vaga realmente livre na equipe para resgatar este Pokémon' : '';
 							hatch.addEventListener('click', () => hatchEgg(egg));
 							control.append(hatch);
+						} else if (egg.status === 'incubating') {
+							const remove = el('button', 'button', 'Retirar Egg');
+							remove.title = 'Ao retirar, há 25% de chance de perder o Egg';
+							remove.addEventListener('click', () => {
+								if (remove.dataset.confirm !== 'true') {
+									remove.dataset.confirm = 'true';
+									remove.textContent = 'Confirmar · 25% de perda';
+									return;
+								}
+								action('remove', { eggId: egg.eggId });
+							});
+							control.append(remove);
 						}
 					}
 					controls.append(control);
@@ -971,7 +985,15 @@
 						commands.append(hatch);
 					} else if (egg.portableIncubator) {
 						const stop = el('button', 'button', 'Guardar incubadora');
-						stop.addEventListener('click', () => action('portable-stop', { eggId: egg.eggId }));
+						stop.title = 'Ao retirar, há 25% de chance de perder o Egg';
+						stop.addEventListener('click', () => {
+							if (stop.dataset.confirm !== 'true') {
+								stop.dataset.confirm = 'true';
+								stop.textContent = 'Confirmar · 25% de perda';
+								return;
+							}
+							action('portable-stop', { eggId: egg.eggId });
+						});
 						commands.append(stop);
 					} else {
 						const localFee = Number(view.fees?.localIncubation || 5000);

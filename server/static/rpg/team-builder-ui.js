@@ -377,12 +377,18 @@
 					} else {
 						const remove = button('Retirar Egg', 'button');
 						remove.addEventListener('click', async () => {
+							if (remove.dataset.confirm !== 'true') {
+								remove.dataset.confirm = 'true';
+								remove.textContent = 'Confirmar · 25% de perda';
+								return;
+							}
 							remove.disabled = true;
 							try {
-								await deps.api('/nursery/portable-stop', { method: 'POST', body: {
+								const result = await deps.api('/nursery/portable-stop', { method: 'POST', body: {
 									characterId: deps.characterId, eggId: deps.selectedEgg.eggId,
 								} });
-								deps.toast('Egg retirado da Incubadora Portátil.');
+								deps.toast(result.lost ? 'O Egg foi perdido ao sair da incubadora.' :
+									'Egg retirado da Incubadora Portátil.', result.lost);
 								await deps.refresh();
 							} catch (error) { remove.disabled = false; deps.toast(error.message, true); }
 						});

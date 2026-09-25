@@ -1146,7 +1146,8 @@ export class RPGHttpServer {
 			this.json(res, 200, { bag: this.login.masterSetBagItemQuantity(
 				this.token(req), this.string(body.characterId), this.string(body.itemId),
 				Number(body.quantity), Number(body.expectedRevision),
-				(body.operation || 'set') as 'add' | 'remove' | 'set'
+				(body.operation || 'set') as 'add' | 'remove' | 'set',
+				typeof body.quality === 'string' ? body.quality as import('./fossil-lab').RPGFossilQuality : undefined
 			) });
 			return;
 		}
@@ -1518,12 +1519,12 @@ export class RPGHttpServer {
 					) };
 					break;
 				case 'portable-stop':
-					result = { nursery: this.login.stopPortableNurseryIncubator(
+					result = this.login.stopPortableNurseryIncubator(
 						this.token(req), this.string(body.eggId)
-					) };
+					);
 					break;
 				case 'remove':
-					result = { nursery: this.login.removeNurseryEgg(this.token(req), this.string(body.eggId)) };
+					result = this.login.removeNurseryEgg(this.token(req), this.string(body.eggId));
 					break;
 				case 'restore-released':
 					result = this.login.restoreReleasedNurseryPokemon(
@@ -1847,7 +1848,8 @@ export class RPGHttpServer {
 					characterId: session.mode === 'player' ? (session.characterId || session.viewAsCharacterId) : undefined,
 				});
 				if (battle.status === 'ended' && battle.result) {
-					this.login.completeBattleSession(battleSessionId, battle.result);
+					const completed = this.login.completeBattleSession(battleSessionId, battle.result);
+					battle.result.badgeAwards = completed.result?.badgeAwards || [];
 				}
 				this.json(res, 200, { battle });
 				return;
@@ -1892,7 +1894,10 @@ export class RPGHttpServer {
 				}, body as unknown as RPGBattleRuntimeAction, (characterId, inventory) => {
 					this.login.persistBattleInventory(characterId, inventory);
 				});
-				if (battle.status === 'ended' && battle.result) this.login.completeBattleSession(battleSessionId, battle.result);
+				if (battle.status === 'ended' && battle.result) {
+					const completed = this.login.completeBattleSession(battleSessionId, battle.result);
+					battle.result.badgeAwards = completed.result?.badgeAwards || [];
+				}
 				this.json(res, 200, { battle });
 				return;
 			}
