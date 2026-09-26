@@ -363,6 +363,26 @@ export class RPGHttpServer {
 			this.json(res, 200, { characters: this.login.listAllCharacters(this.token(req)) });
 			return;
 		}
+		if (url.pathname === '/api/rpg/trainer/creation') {
+			if (method === 'GET') {
+				this.json(res, 200, this.login.getTrainerCreation(this.token(req)));
+				return;
+			}
+			if (method === 'POST') {
+				const body = await this.body(req);
+				this.json(res, 200, { sheet: this.login.completeTrainerCreation(this.token(req), body as unknown as import('./trainer-creation').RPGTrainerCompletion) });
+				return;
+			}
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/roll') {
+			this.json(res, 200, { values: this.login.rollTrainerAttributes(this.token(req)) });
+			return;
+		}
+		if (method === 'PUT' && url.pathname === '/api/rpg/campaign/trainer-attribute-method') {
+			const body = await this.body(req);
+			this.json(res, 200, { method: this.login.setTrainerAttributeMethod(this.token(req), body.method) });
+			return;
+		}
 		if (method === 'POST' && url.pathname === '/api/rpg/table-chat/typing') {
 			const session = this.login.getSession(this.token(req));
 			const persistence = this.login.mysqlPersistence;

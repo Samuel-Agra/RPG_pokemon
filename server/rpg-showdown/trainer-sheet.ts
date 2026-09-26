@@ -22,6 +22,11 @@ export interface RPGTrainerSheet {
 	talents: { general: string[], class: string[], apex: string | null };
 	/** Contadores próprios do treinador, identificados pela regra que os concede. */
 	resources: Record<string, { current: number, maximum: number }>;
+	/** A primeira série elegível fica vinculada ao personagem antes da distribuição. */
+	creation?: { method: 'standard' | 'rolled', rolls: number[] | null };
+	/** Equipamento humano inicial; será integrado ao inventário de exploração. */
+	equipment?: { itemId: string, quantity: number, equipped: boolean, charges?: number }[];
+	proficiencies?: string[];
 }
 
 export function createRPGPendingTrainerSheet(): RPGTrainerSheet {

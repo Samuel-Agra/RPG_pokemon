@@ -348,3 +348,10 @@ todos os Players e ate os seis Pokemon de cada equipe sao selecionados automatic
 
 A sessao pronta nao e marcada como iniciada enquanto nao existir uma sala real. A ligacao entre
 sessao RPG, conexoes dos Players e RoomBattle e o proximo adaptador necessario.
+# Ficha do treinador (versão 3)
+
+O backend mantém a ficha humana separada dos cálculos de combate Pokémon. O Mestre define `standard` ou `rolled` para toda a mesa com `PUT /api/rpg/campaign/trainer-attribute-method` (`{ "method": "rolled" }`). A mudança é bloqueada após a primeira rolagem ou ficha concluída.
+
+O Player consulta `GET /api/rpg/trainer/creation`, obtendo método, catálogo das classes e ficha atual. No método rolado, `POST /api/rpg/trainer/roll` gera seis valores com 4d6 descartando o menor, repetindo séries abaixo de 70 pontos ou sem ao menos um 14. A primeira série elegível é persistida e retornada em chamadas posteriores; ela não pode ser rolada novamente.
+
+`POST /api/rpg/trainer/creation` recebe `classId`, os seis `attributes` (chaves `strength`, `dexterity`, `constitution`, `intelligence`, `wisdom`, `charisma`), `optionalSkills` e `gearChoices`. O Cientista informa também `fixedKnowledge`. O servidor valida a distribuição exata, a quantidade e a elegibilidade das perícias, escolhas de equipamento, PV, resistência e domínios. O equipamento inicial fica registrado na ficha como posse do treinador, incluindo cargas de kits; a integração com a Bag de exploração pertence à etapa de inventário da V3. A conclusão só pode ocorrer uma vez.

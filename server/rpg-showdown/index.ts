@@ -64,6 +64,10 @@ import {
 import { RPGMySQLPersistence, rpgMySQLConfig } from './database/mysql-persistence';
 import { createRPGPendingTrainerSheet, type RPGTrainerSheet } from './trainer-sheet';
 import {
+	completeRPGTrainerSheet, rollRPGTrainerAttributes, RPG_STANDARD_ATTRIBUTES, RPG_TRAINER_CLASSES,
+	type RPGTrainerAttributeMethod, type RPGTrainerCompletion,
+} from './trainer-creation';
+import {
 	getRPGDefaultTablePermissions, RPGAccountManagement, RPGMemoryAccountRepository,
 	RPGMemoryPlatformSessionRepository, type RPGTablePermission, type RPGTableRole,
 } from './account-management';
@@ -144,6 +148,7 @@ export * from './fossil-lab';
 export * from './shop-management';
 export * from './account-management';
 export * from './trainer-sheet';
+export * from './trainer-creation';
 
 export const RPG_ACCOUNT_VERSION = 5;
 export const RPG_SESSION_VERSION = 1;
@@ -747,6 +752,7 @@ export class RPGLoginService {
 	private campaignSettings: {
 		name: string, currentDateTime: string, quickNotes: string, events: RPGCampaignEvent[],
 		playerNotes: Record<string, string>, sceneNpcIds: string[], sceneNpcRevealed: Record<string, number[]>,
+		trainerAttributeMethod: RPGTrainerAttributeMethod,
 	};
 	readonly mysqlPersistence?: RPGMySQLPersistence;
 	readonly accounts: RPGAccountManagement;
@@ -784,12 +790,13 @@ export class RPGLoginService {
 		this.campaignSettingsFile = options.campaignSettingsFile && resolve(options.campaignSettingsFile);
 		this.campaignSettings = {
 			name: 'Minha campanha', currentDateTime: new Date(this.now()).toISOString(), quickNotes: '', events: [],
-			playerNotes: {}, sceneNpcIds: [], sceneNpcRevealed: {},
+			playerNotes: {}, sceneNpcIds: [], sceneNpcRevealed: {}, trainerAttributeMethod: 'standard',
 		};
 		const initialCampaignSettings = options.campaignSettings || (this.campaignSettingsFile && existsSync(this.campaignSettingsFile) ?
 			JSON.parse(readFileSync(this.campaignSettingsFile, 'utf8')) as Record<string, unknown> : null);
 		if (initialCampaignSettings) {
 			const stored = initialCampaignSettings as Partial<typeof this.campaignSettings>;
+			if (stored.trainerAttributeMethod === 'rolled') this.campaignSettings.trainerAttributeMethod = 'rolled';
 			if (typeof stored.name === 'string' && stored.name.trim()) this.campaignSettings.name = stored.name.trim().slice(0, 80);
 			if (typeof stored.currentDateTime === 'string' && Number.isFinite(Date.parse(stored.currentDateTime))) {
 				this.campaignSettings.currentDateTime = new Date(stored.currentDateTime).toISOString();
@@ -1696,6 +1703,61 @@ export class RPGLoginService {
 		const record = this.requireCharacter(target);
 		this.resolveCompletedEVTrainings(record);
 		return this.characterView(record);
+	}
+
+	getTrainerCreation(token: string) {
+		const session = this.getSession(token);
+		if (session.role !== 'player' || !session.characterId) throw new Error('Entre com um personagem para criar a ficha');
+		const record = this.requireCharacter(session.characterId);
+		return {
+			method: this.campaignSettings.trainerAttributeMethod,
+			standardValues: [...RPG_STANDARD_ATTRIBUTES],
+			classes: structuredClone(RPG_TRAINER_CLASSES),
+			sheet: structuredClone(record.state.trainerSheet || createRPGPendingTrainerSheet()),
+		};
+	}
+
+	setTrainerAttributeMethod(token: string, method: unknown): RPGTrainerAttributeMethod {
+		this.requireMasterRole(token);
+		this.requirePlatformTablePermission(token, 'campaign.configure');
+		if (method !== 'standard' && method !== 'rolled') throw new Error('Método de atributos inválido');
+		if (method !== this.campaignSettings.trainerAttributeMethod && this.repository.list().some(record =>
+			record.state.trainerSheet?.status === 'complete' || record.state.trainerSheet?.creation?.rolls?.length)) {
+			throw new Error('O método não pode mudar depois da primeira rolagem ou ficha concluída');
+		}
+		this.campaignSettings = { ...this.campaignSettings, trainerAttributeMethod: method };
+		this.persistCampaignSettings();
+		return method;
+	}
+
+	rollTrainerAttributes(token: string): number[] {
+		const session = this.getSession(token);
+		if (session.role !== 'player' || !session.characterId) throw new Error('Entre com um personagem para rolar os atributos');
+		if (this.campaignSettings.trainerAttributeMethod !== 'rolled') throw new Error('Esta mesa usa valores base');
+		const record = this.requireCharacter(session.characterId);
+		const sheet = record.state.trainerSheet || createRPGPendingTrainerSheet();
+		if (sheet.status !== 'pending') throw new Error('A ficha do treinador já foi concluída');
+		if (sheet.creation?.rolls?.length) return [...sheet.creation.rolls];
+		const rolls = rollRPGTrainerAttributes(() => this.int(6) + 1);
+		record.state.trainerSheet = { ...sheet, creation: { method: 'rolled', rolls } };
+		record.state.updatedAt = this.now();
+		this.repository.set(record);
+		return [...rolls];
+	}
+
+	completeTrainerCreation(token: string, input: RPGTrainerCompletion): RPGTrainerSheet {
+		const session = this.getSession(token);
+		if (session.role !== 'player' || !session.characterId) throw new Error('Entre com um personagem para concluir a ficha');
+		const record = this.requireCharacter(session.characterId);
+		const pending = record.state.trainerSheet || createRPGPendingTrainerSheet();
+		const sheet = completeRPGTrainerSheet(pending, input, this.campaignSettings.trainerAttributeMethod);
+		const money = record.state.money + (RPG_TRAINER_CLASSES[sheet.classId!].money || 0);
+		if (!Number.isSafeInteger(money) || money > 10_000_000) throw new Error('Limite de Pokécoin excedido');
+		record.state.trainerSheet = sheet;
+		record.state.money = money;
+		record.state.updatedAt = this.now();
+		this.repository.set(record);
+		return structuredClone(sheet);
 	}
 
 	getBank(token: string, characterId?: string): RPGBankView {
