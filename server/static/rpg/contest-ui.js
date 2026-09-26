@@ -1677,8 +1677,11 @@ window.RPGContestUI = (() => {
 			name: pokemon.name || pokemon.species, species: pokemon.species || pokemon.name, level,
 			moves: [...(pokemon.moves || [])].slice(0, 4), ability: pokemon.ability || '', item: pokemon.item || '',
 			nature: pokemon.nature || 'Serious', gender: pokemon.gender || '', shiny: !!pokemon.shiny,
-			evs: { ...evs }, ivs: { ...ivs }, rpg: { hp, status: '', friendship: Number(pokemon.friendship) || 0,
-				contestPerformance: Number(pokemon.performance) || 0, contestPerformanceTrainerId: participantId },
+			evs: { ...evs }, ivs: { ...ivs }, rpg: { ...pokemon.rpg, hp: pokemon.rpg?.hp ?? hp,
+				status: pokemon.rpg?.status || '',
+				friendship: Number(pokemon.rpg?.friendship ?? pokemon.friendship) || 0,
+				contestPerformance: Number(pokemon.rpg?.contestPerformance ?? pokemon.performance) || 0,
+				contestPerformanceTrainerId: participantId },
 		} };
 	}
 	function savedNPCSelector(context, getLimit, requireExactTeam = false, selectedHost = null, canAddParticipant = null, awardBadges = false) {
@@ -1834,9 +1837,12 @@ window.RPGContestUI = (() => {
 				if (requireExactTeam && entry.indexes.length !== limit) {
 					throw new Error(`${entry.npc.name} precisa usar ${limit} Pokémon neste formato.`);
 				}
-				const pokemonTeam = entry.indexes.slice(0, limit).map(teamIndex => savedNPCPokemonSelection(entry.npc.team[teamIndex], id));
+				const pokemonTeam = entry.indexes.slice(0, limit).map(teamIndex => ({
+					...savedNPCPokemonSelection(entry.npc.team[teamIndex], id), sourcePokemonIndex: teamIndex,
+				}));
 				const badge = awardBadges ? window.RPGMasterNPCLibrary?.gymBadge?.(entry.npc) : null;
-				return { id, kind: 'npc', displayName: entry.npc.name, avatar: entry.npc.sprite, pokemon: pokemonTeam[0], pokemonTeam,
+				return { id, kind: 'npc', sourceNpcId: entry.npc.id, displayName: entry.npc.name,
+					avatar: entry.npc.sprite, pokemon: pokemonTeam[0], pokemonTeam,
 					...(badge ? { gymBadge: { sourceNpcId: entry.npc.id, regionId: badge.regionId,
 						gymIndex: badge.gymIndex, enabled: !!entry.badgeEnabled } } : {}) };
 			});

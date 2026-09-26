@@ -22,6 +22,7 @@ export type RPGContestInvitationResponse = 'pending' | 'accepted' | 'declined';
 export interface RPGContestPokemonSelection {
 	/** Position in the persistent character team; required for Players. */
 	teamIndex?: number;
+	sourcePokemonIndex?: number;
 	/** Configuration for a temporary or registered NPC. */
 	set?: PokemonSet;
 }
@@ -32,6 +33,7 @@ export interface RPGContestParticipant {
 	displayName: string;
 	characterId?: string;
 	avatar?: string;
+	sourceNpcId?: string;
 	pokemon?: RPGContestPokemonSelection;
 	pokemonTeam?: RPGContestPokemonSelection[];
 	/** Team positions registered for a tournament; presentation choices must stay inside this roster. */
@@ -378,9 +380,10 @@ export class RPGContestSessionService {
 				if (!set?.species || !Array.isArray(set.moves) || !set.moves.length || set.moves.length > 4) {
 					throw new Error('Invalid RPG contest NPC Pokemon');
 				}
-				return { set };
+				return { set, sourcePokemonIndex: selection.sourcePokemonIndex };
 			});
-			return { id, kind, displayName, avatar: entry.avatar, pokemon: pokemonTeam[0], pokemonTeam };
+			return { id, kind, displayName, avatar: entry.avatar,
+				sourceNpcId: entry.sourceNpcId, pokemon: pokemonTeam[0], pokemonTeam };
 		});
 		if (new Set(participants.map(entry => entry.id)).size !== participants.length) {
 			throw new Error('RPG contest participant ids must be unique');

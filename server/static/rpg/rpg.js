@@ -3553,7 +3553,46 @@ async function renderPlayerBody(character) {
 	}
 	badges.body.append(badgeRegions);
 
-	root.append(identity, wallet.panel, team.panel, pokedex.panel, statistics.panel, badges.panel);
+	const scene = section('NPCs em cena');
+	scene.panel.hidden = true;
+	const sceneGrid = createElement('div', 'master-scene-npcs-grid');
+	scene.body.append(sceneGrid);
+	let sceneSignature = '';
+	const refreshScene = async () => {
+		try {
+			const result = await api('/campaign/scene-npcs', { cache: 'no-store' });
+			const signature = JSON.stringify(result.npcs || []);
+			if (signature === sceneSignature) return;
+			sceneSignature = signature;
+			scene.panel.hidden = !result.npcs?.length;
+			sceneGrid.replaceChildren();
+			for (const npc of result.npcs || []) {
+				const card = createElement('article', 'master-scene-npc');
+				const sprite = createElement('div', 'master-scene-trainer');
+				if (npc.sprite) {
+					const image = document.createElement('img');
+					image.src = RPGAssets.url('sprites/trainers/' + String(npc.sprite).replace(/\.png$/i, '') + '.png');
+					image.alt = '';
+					sprite.append(image);
+				} else sprite.textContent = initials(npc.name || 'NPC');
+				const pokemon = createElement('div', 'master-scene-team');
+				for (let index = 0; index < 6; index++) {
+					const member = npc.pokemon?.[index];
+					if (member?.revealed) pokemon.append(pokemonSprite(member));
+					else pokemon.append(createElement('span', 'master-scene-hidden-ball'));
+				}
+				card.append(sprite, pokemon, createElement('strong', '', npc.name || 'NPC'));
+				sceneGrid.append(card);
+			}
+		} catch (error) { showToast(error.message, true); }
+	};
+	root.append(identity, wallet.panel, team.panel, pokedex.panel, statistics.panel, badges.panel, scene.panel);
+	void refreshScene();
+	const synchronizePlayerScene = event => {
+		if (!root.isConnected) { window.removeEventListener('rpg:realtime-sync', synchronizePlayerScene); return; }
+		if (event.detail?.view === 'overview' && !document.hidden) void refreshScene();
+	};
+	window.addEventListener('rpg:realtime-sync', synchronizePlayerScene);
 	return root;
 }
 
@@ -5329,14 +5368,6 @@ async function renderMasterBody(characters) {
 	top.append(identity, metrics, toolbar);
 	if (state.dashboardView === 'overview') root.append(top);
 	if (state.dashboardView === 'overview') {
-		const presence = section('Áreas da campanha');
-		presence.panel.classList.add('master-area-presence-panel');
-		const areaGrid = createElement('div', 'master-area-presence-grid');
-		areaGrid.dataset.masterAreaPresence = '';
-		renderMasterAreaPresence(areaGrid, campaign.onlinePlayerAreas || []);
-		presence.body.append(areaGrid);
-		root.append(presence.panel);
-
 		const notes = section('Anotações rápidas');
 		notes.panel.classList.add('master-quick-notes');
 		const editor = createElement('textarea', 'master-quick-notes-editor');
@@ -5373,7 +5404,233 @@ async function renderMasterBody(characters) {
 			void saveNotes();
 		});
 		notes.body.append(editor, status);
-		root.append(notes.panel);
+
+		try { await loadMasterNPCLibraryFromServer(); } catch (error) {
+			showToast('Não foi possível carregar os NPCs: ' + error.message, true);
+		}
+		const scene = section('NPCs em cena');
+		scene.panel.classList.add('master-scene-npcs-panel');
+		const sceneGrid = createElement('div', 'master-scene-npcs-grid');
+		sceneGrid.dataset.masterSceneNpcs = '';
+		let sceneIds = [...(campaign.sceneNpcIds || [])];
+		let sceneRevealed = campaign.sceneNpcRevealed || {};
+		let sceneNpcs = readMasterNPCLibrary().npcs || [];
+		const renderScene = () => {
+			sceneGrid.replaceChildren();
+			const selected = sceneIds.map(id => sceneNpcs.find(npc => npc.id === id)).filter(Boolean);
+			scene.panel.classList.toggle('is-empty', !selected.length);
+			for (const npc of selected) {
+				const card = createElement('article', 'master-scene-npc');
+				const remove = button('×', 'master-scene-remove');
+				remove.setAttribute('aria-label', 'Retirar ' + npc.name + ' da cena');
+				remove.addEventListener('click', () => void saveScene(sceneIds.filter(id => id !== npc.id)));
+				const sprite = createElement('div', 'master-scene-trainer');
+				if (npc.sprite) {
+					const image = createElement('img');
+					image.src = RPGAssets.url('sprites/trainers/' + String(npc.sprite).replace(/\.png$/i, '') + '.png');
+					image.alt = '';
+					sprite.append(image);
+				} else sprite.textContent = initials(npc.name || 'NPC');
+				const pokemon = createElement('div', 'master-scene-team');
+				const team = Array.isArray(npc.team) ? npc.team : String(npc.teams || '').split(/[,;\n]+/)
+					.map(species => ({ species: species.trim() })).filter(member => member.species);
+				for (const [index, member] of team.slice(0, 6).entries()) {
+					const revealed = (sceneRevealed[npc.id] || []).includes(index);
+					const slot = button('', 'master-scene-pokemon' + (revealed ? ' revealed' : ''));
+					const pokemonName = member.name || member.species || 'Pokémon';
+					slot.setAttribute('aria-label', `${revealed ? 'Ocultar' : 'Revelar'} ${pokemonName} para os jogadores`);
+					slot.append(pokemonSprite(member));
+					slot.addEventListener('click', async () => {
+						slot.disabled = true;
+						try {
+							const result = await api('/campaign/scene-npcs/reveal', {
+								method: 'PUT', body: { npcId: npc.id, index, revealed: !revealed },
+							});
+							sceneRevealed = result.sceneNpcRevealed;
+							campaign.sceneNpcRevealed = sceneRevealed;
+							renderScene();
+						} catch (error) { slot.disabled = false; showToast(error.message, true); }
+					});
+					pokemon.append(slot);
+				}
+				card.append(remove, sprite, pokemon, createElement('strong', '', npc.name || 'NPC'));
+				sceneGrid.append(card);
+			}
+		};
+		const saveScene = async ids => {
+			try {
+				const result = await api('/campaign/scene-npcs', { method: 'PUT', body: { ids } });
+				sceneIds = result.sceneNpcIds;
+				sceneRevealed = Object.fromEntries(Object.entries(sceneRevealed)
+					.filter(([id]) => sceneIds.includes(id)));
+				campaign.sceneNpcIds = sceneIds;
+				campaign.sceneNpcRevealed = sceneRevealed;
+				renderScene();
+				if (picker?.isConnected) renderPicker();
+				return true;
+			} catch (error) { showToast(error.message, true); return false; }
+		};
+		let sceneLibrary = readMasterNPCLibrary();
+		sceneGrid.updateSceneNPCs = (ids, library, revealed) => {
+			const signature = JSON.stringify([ids, library, revealed]);
+			if (signature === sceneGrid.sceneSignature) return;
+			sceneGrid.sceneSignature = signature;
+			sceneIds = [...ids];
+			sceneRevealed = revealed || {};
+			sceneLibrary = { ...sceneLibrary, ...library,
+				folders: [...MASTER_NPC_DEFAULT_FOLDERS,
+					...(Array.isArray(library.folders) ? library.folders.filter(folder => !folder.locked) : [])],
+			};
+			sceneNpcs = sceneLibrary.npcs || [];
+			renderScene();
+			if (picker?.isConnected) renderPicker();
+		};
+		let picker = null;
+		let pickerFolderId = null;
+		const closePicker = () => {
+			picker?.remove(); picker = null;
+			document.removeEventListener('keydown', onPickerKeydown, true);
+		};
+		const onPickerKeydown = event => {
+			if (event.key === 'Escape') { event.preventDefault(); event.stopImmediatePropagation(); closePicker(); }
+		};
+		const renderPicker = () => {
+			if (!picker) return;
+			const browser = picker.querySelector('.master-scene-browser');
+			const query = rpgSpriteKey(picker.querySelector('input').value.trim());
+			const folders = sceneLibrary.folders || [];
+			browser.replaceChildren();
+			const openFolder = id => { pickerFolderId = id; renderPicker(); };
+			if (!query) {
+				const breadcrumbs = createElement('nav', 'master-npc-breadcrumbs');
+				const home = button('NPCs e selvagens');
+				home.addEventListener('click', () => openFolder(null));
+				breadcrumbs.append(home);
+				const trail = [];
+				let folder = folders.find(entry => entry.id === pickerFolderId);
+				while (folder) { trail.unshift(folder); folder = folders.find(entry => entry.id === folder.parentId); }
+				for (const entry of trail) {
+					breadcrumbs.append(createElement('span', '', '›'));
+					const crumb = button(entry.name);
+					crumb.addEventListener('click', () => openFolder(entry.id));
+					breadcrumbs.append(crumb);
+				}
+				browser.append(breadcrumbs);
+				const grid = createElement('div', 'master-npc-folder-grid');
+				for (const entry of folders.filter(value => value.parentId === pickerFolderId)) {
+					const tile = button('', 'panel master-npc-folder folder-' + entry.kind);
+					if (entry.color) {
+						tile.style.setProperty('--npc-folder-color', entry.color);
+						tile.style.setProperty('--npc-folder-light', entry.lightColor || entry.color);
+					}
+					const copy = createElement('div', 'master-npc-folder-copy');
+					copy.append(createElement('strong', '', entry.name), createElement('small', '', 'Abrir pasta'));
+					tile.append(createElement('span', 'master-npc-folder-icon'), copy);
+					tile.addEventListener('click', () => openFolder(entry.id));
+					grid.append(tile);
+				}
+				browser.append(grid);
+			}
+			const npcs = sceneNpcs.filter(npc => query ? rpgSpriteKey(npc.name).includes(query) :
+				npc.folderId === pickerFolderId).slice().sort((first, second) =>
+				(Number(first.order) || 0) - (Number(second.order) || 0));
+			const notes = query ? [] : (sceneLibrary.notes || []).filter(note => note.folderId === pickerFolderId);
+			if (pickerFolderId || query) {
+				const heading = createElement('div', 'master-npc-list-header');
+				heading.append(createElement('h3', '', query ? 'Resultados da busca' : 'NPCs e anotações'));
+				browser.append(heading);
+			}
+			const list = createElement('div', 'master-library-record-list');
+			for (const npc of npcs) {
+				const option = button('', 'panel master-npc-row master-scene-choice');
+				const summary = createElement('span', 'master-npc-summary');
+				const sprite = createElement('span', 'master-npc-row-sprite');
+				if (npc.sprite) {
+					const image = createElement('img');
+					image.src = RPGAssets.url('sprites/trainers/' + String(npc.sprite).replace(/\.png$/i, '') + '.png');
+					image.alt = '';
+					sprite.append(image);
+				} else sprite.textContent = initials(npc.name || 'NPC');
+				summary.append(sprite, createElement('strong', '', npc.name || 'NPC'));
+				for (const value of [npc.role, npc.location, npc.specialty, npc.usage]) {
+					summary.append(createElement('span', '', value || '—'));
+				}
+				option.append(summary);
+				const selected = sceneIds.includes(npc.id);
+				option.disabled = selected;
+				if (selected) option.classList.add('selected');
+				option.addEventListener('click', async () => {
+					option.disabled = true;
+					if (await saveScene([...sceneIds, npc.id])) closePicker();
+					else option.disabled = false;
+				});
+				list.append(option);
+			}
+			for (const note of notes) {
+				const details = createElement('details', 'panel master-scene-note');
+				const summary = createElement('summary', '', note.title || 'Sem título');
+				const content = createElement('div', 'master-scene-note-content');
+				if (note.format === 'rich') content.innerHTML = sanitizeMasterNoteHTML(note.content);
+				else content.textContent = note.content || '';
+				details.append(summary, content);
+				list.append(details);
+			}
+			if (!npcs.length && !notes.length && (pickerFolderId || query)) {
+				list.append(createElement('div', 'panel master-npc-empty', 'Nenhum arquivo salvo nesta pasta.'));
+			}
+			browser.append(list);
+		};
+		const addNPC = button('Adicionar NPC', 'button primary master-scene-add');
+		addNPC.addEventListener('click', () => {
+			if (picker) { closePicker(); return; }
+			pickerFolderId = null;
+			picker = createElement('div', 'master-scene-picker');
+			picker.setAttribute('role', 'presentation');
+			const dialog = createElement('div', 'panel master-scene-picker-dialog');
+			dialog.setAttribute('role', 'dialog'); dialog.setAttribute('aria-modal', 'true');
+			dialog.setAttribute('aria-label', 'Adicionar NPC à cena');
+			const header = createElement('div', 'master-scene-picker-header');
+			header.append(createElement('h2', '', 'Adicionar NPC à cena'));
+			const close = button('×', 'master-scene-picker-close');
+			close.setAttribute('aria-label', 'Fechar seleção de NPC');
+			close.addEventListener('click', closePicker);
+			header.append(close);
+			const search = createElement('input'); search.type = 'search'; search.placeholder = 'Buscar NPC nas anotações';
+			search.setAttribute('aria-label', 'Buscar NPC nas anotações');
+			search.addEventListener('input', renderPicker);
+			const browser = createElement('div', 'master-scene-browser master-npc-library');
+			dialog.append(header, search, browser);
+			picker.append(dialog);
+			picker.addEventListener('pointerdown', event => { if (event.target === picker) closePicker(); });
+			document.body.append(picker); renderPicker(); search.focus();
+			document.addEventListener('keydown', onPickerKeydown, true);
+		});
+		scene.heading.append(addNPC);
+		scene.body.append(sceneGrid);
+		renderScene();
+		const synchronizeScene = async event => {
+			if (!root.isConnected) {
+				window.removeEventListener('rpg:realtime-sync', synchronizeScene);
+				closePicker();
+				return;
+			}
+			if (event.detail?.view !== 'overview' || document.hidden) return;
+			try {
+				const [settings, library] = await Promise.all([
+					api('/campaign/settings', { cache: 'no-store' }), api('/master-npc-library'),
+				]);
+				sceneGrid.updateSceneNPCs(settings.settings?.sceneNpcIds || [], library.library || {},
+					settings.settings?.sceneNpcRevealed || {});
+			} catch {}
+		};
+		window.addEventListener('rpg:realtime-sync', synchronizeScene);
+
+		const presence = section('Áreas da campanha');
+		presence.panel.classList.add('master-area-presence-panel');
+		const areaGrid = createElement('div', 'master-area-presence-grid');
+		areaGrid.dataset.masterAreaPresence = '';
+		renderMasterAreaPresence(areaGrid, campaign.onlinePlayerAreas || []);
+		presence.body.append(areaGrid);
 
 		const events = section('Eventos');
 		events.panel.classList.add('master-campaign-events-panel');
@@ -5381,7 +5638,7 @@ async function renderMasterBody(characters) {
 		eventsGrid.dataset.masterCampaignEvents = '';
 		renderMasterCampaignEvents(eventsGrid, campaign.events || []);
 		events.body.append(eventsGrid);
-		root.append(events.panel);
+		root.append(presence.panel, scene.panel, notes.panel, events.panel);
 		return root;
 	}
 	const players = section('Personagens da campanha');
@@ -6105,8 +6362,9 @@ function saveMasterNPCLibrary(library) {
 	}
 }
 
-async function loadMasterNPCLibraryFromServer() {
-	if (masterNPCLibraryLoadedFromServer || state.session?.role !== 'master') return;
+async function loadMasterNPCLibraryFromServer(force = false) {
+	if ((!force && masterNPCLibraryLoadedFromServer) || state.session?.role !== 'master') return;
+	await masterNPCLibrarySaveChain;
 	const local = readMasterNPCLibrary();
 	const response = await api('/master-npc-library');
 	if (response.library) {
@@ -6119,7 +6377,7 @@ async function loadMasterNPCLibraryFromServer() {
 
 window.RPGMasterNPCLibrary = {
 	async load() {
-		await loadMasterNPCLibraryFromServer();
+		await loadMasterNPCLibraryFromServer(true);
 		return structuredClone(readMasterNPCLibrary());
 	},
 	gymBadge(npc) {
@@ -6132,7 +6390,7 @@ window.RPGMasterNPCLibrary = {
 };
 
 async function renderMasterNPCLibraryDashboard() {
-	try { await loadMasterNPCLibraryFromServer(); } catch (error) { showToast('Falha ao carregar a biblioteca do servidor: ' + error.message, true); }
+	try { await loadMasterNPCLibraryFromServer(true); } catch (error) { showToast('Falha ao carregar a biblioteca do servidor: ' + error.message, true); }
 	return renderMasterNPCFolders();
 }
 
@@ -6356,8 +6614,8 @@ function masterNPCTeamPicker(existing, options = {}) {
 		manager.append(heading);
 		const toolbar = createElement('div', 'master-npc-pokemon-toolbar');
 		const level = createElement('input'); level.type = 'number'; level.min = '1'; level.max = '100'; level.value = String(draft.level || 50);
-		const friendship = createElement('input'); friendship.type = 'number'; friendship.min = '0'; friendship.max = '255'; friendship.value = String(draft.friendship ?? draft.rpg?.friendship ?? 100);
-		const performance = createElement('input'); performance.type = 'number'; performance.min = '0'; performance.max = '100'; performance.value = String(draft.performance ?? draft.rpg?.contestPerformance ?? 0);
+		const friendship = createElement('input'); friendship.type = 'number'; friendship.min = '0'; friendship.max = '255'; friendship.value = String(draft.rpg?.friendship ?? draft.friendship ?? 100);
+		const performance = createElement('input'); performance.type = 'number'; performance.min = '0'; performance.max = '100'; performance.value = String(draft.rpg?.contestPerformance ?? draft.performance ?? 0);
 		const nature = createElement('select'); for (const value of natures) nature.append(new Option(value, value)); nature.value = draft.nature || 'Serious';
 		const abilityDetails = Array.isArray(pokemon.abilityDetails) ? pokemon.abilityDetails : (pokemon.abilities || []).map(name => ({ name, description: 'Descri\u00e7\u00e3o indispon\u00edvel.' }));
 		const ability = createElement('select'); for (const entry of abilityDetails) ability.append(new Option(entry.name, entry.name)); ability.value = draft.ability || ability.options[0]?.value || '';
@@ -6599,8 +6857,16 @@ function masterNPCTeamPicker(existing, options = {}) {
 		confirmPokemon.addEventListener('click', () => {
 			if (stats.reduce((sum, id) => sum + evValues[id], 0) !== 508) return showToast('Distribua exatamente 508 EVs antes de salvar o Pokémon.', true);
 			if (!level.checkValidity() || !friendship.checkValidity() || !performance.checkValidity()) return showToast('Revise o nível, a amizade e a performance.', true);
+			const moves = moveSelects.map(select => select.value).filter(Boolean);
+			const previousPP = new Map((draft.moves || []).map((move, index) =>
+				[rpgSpriteKey(move), draft.rpg?.pp?.[index]]));
+			const pp = moves.map(move => {
+				const maximum = legalMoves.find(entry => rpgSpriteKey(entry.moveId) === rpgSpriteKey(move))?.pp || 1;
+				return Math.max(0, Math.min(maximum, Number(previousPP.get(rpgSpriteKey(move)) ?? maximum)));
+			});
 			const configured = { ...draft, level: Number(level.value), friendship: Number(friendship.value), performance: Number(performance.value), nature: nature.value, ability: ability.value, gender: gender.value, shiny: shiny.checked, item: item.value.trim(),
-				moves: moveSelects.map(select => select.value).filter(Boolean), evs: { ...evValues }, ivs: { ...ivValues } };
+				moves, evs: { ...evValues }, ivs: { ...ivValues },
+				rpg: { ...draft.rpg, pp, friendship: Number(friendship.value), contestPerformance: Number(performance.value) } };
 			if (editingIndex >= 0) selected[editingIndex] = configured; else selected.push(configured);
 			manager.classList.add('hidden'); update();
 		});
@@ -6763,6 +7029,24 @@ function renderMasterNPCRow(npc, library, refresh) {
 	}
 	details.append(summary);
 	const expanded = createElement('div', 'master-npc-expanded');
+	const healPokemon = async (pokemonIndex, control) => {
+		control.disabled = true;
+		try {
+			await masterNPCLibrarySaveChain;
+			const result = await api('/master-npc-library/heal', {
+				method: 'POST', body: { npcId: npc.id, ...(pokemonIndex === undefined ? {} : { pokemonIndex }) },
+			});
+			const index = library.npcs.findIndex(entry => entry.id === npc.id);
+			if (index >= 0) library.npcs[index] = result.npc;
+			localStorage.setItem(MASTER_NPC_LIBRARY_KEY, JSON.stringify(library));
+			const message = pokemonIndex === undefined ? 'Equipe de ' + npc.name + ' totalmente recuperada.' :
+				(teamEntries[pokemonIndex].name || teamEntries[pokemonIndex].species) + ' totalmente recuperado.';
+			showToast(message);
+			const updated = renderMasterNPCRow(result.npc, library, refresh);
+			updated.open = true;
+			details.replaceWith(updated);
+		} catch (error) { control.disabled = false; showToast(error.message, true); }
+	};
 	const sections = [
 		['Informa\u00e7\u00f5es b\u00e1sicas e localiza\u00e7\u00e3o', npc.basicInfo],
 		['Descri\u00e7\u00e3o', npc.description], ['Equipes do NPC', null], ['Anota\u00e7\u00f5es', npc.notes],
@@ -6772,9 +7056,11 @@ function renderMasterNPCRow(npc, library, refresh) {
 		section.append(createElement('h4', '', title));
 		if (title === 'Equipes do NPC') {
 			const team = createElement('div', 'master-npc-expanded-team');
-			for (const entry of teamEntries) {
-				const member = createElement('div', 'master-npc-expanded-member');
+			for (const [index, entry] of teamEntries.entries()) {
+				const member = button('', 'master-npc-expanded-member');
+				member.setAttribute('aria-label', 'Curar ' + (entry.name || entry.species));
 				member.append(pokemonSprite(entry), createElement('strong', '', entry.name || entry.species));
+				member.addEventListener('click', () => void healPokemon(index, member));
 				team.append(member);
 			}
 			if (!teamEntries.length) team.append(createElement('p', '', 'Nenhum Pok\u00e9mon registrado.'));
@@ -6783,6 +7069,11 @@ function renderMasterNPCRow(npc, library, refresh) {
 		expanded.append(section);
 	}
 	const actions = createElement('div', 'master-npc-row-actions');
+	if (teamEntries.length) {
+		const heal = button('Curar equipe');
+		heal.addEventListener('click', () => void healPokemon(undefined, heal));
+		actions.append(heal);
+	}
 	const edit = button('Editar');
 	edit.addEventListener('click', () => details.replaceWith(renderMasterNPCForm(library, npc.folderId, npc, refresh)));
 	actions.append(edit);

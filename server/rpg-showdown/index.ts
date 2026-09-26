@@ -743,7 +743,7 @@ export class RPGLoginService {
 	private readonly campaignSettingsFile?: string;
 	private campaignSettings: {
 		name: string, currentDateTime: string, quickNotes: string, events: RPGCampaignEvent[],
-		playerNotes: Record<string, string>,
+		playerNotes: Record<string, string>, sceneNpcIds: string[], sceneNpcRevealed: Record<string, number[]>,
 	};
 	readonly mysqlPersistence?: RPGMySQLPersistence;
 	readonly accounts: RPGAccountManagement;
@@ -781,7 +781,7 @@ export class RPGLoginService {
 		this.campaignSettingsFile = options.campaignSettingsFile && resolve(options.campaignSettingsFile);
 		this.campaignSettings = {
 			name: 'Minha campanha', currentDateTime: new Date(this.now()).toISOString(), quickNotes: '', events: [],
-			playerNotes: {},
+			playerNotes: {}, sceneNpcIds: [], sceneNpcRevealed: {},
 		};
 		const initialCampaignSettings = options.campaignSettings || (this.campaignSettingsFile && existsSync(this.campaignSettingsFile) ?
 			JSON.parse(readFileSync(this.campaignSettingsFile, 'utf8')) as Record<string, unknown> : null);
@@ -792,6 +792,14 @@ export class RPGLoginService {
 				this.campaignSettings.currentDateTime = new Date(stored.currentDateTime).toISOString();
 			}
 			if (typeof stored.quickNotes === 'string') this.campaignSettings.quickNotes = stored.quickNotes.slice(0, 50_000);
+			if (Array.isArray(stored.sceneNpcIds)) this.campaignSettings.sceneNpcIds = [...new Set(stored.sceneNpcIds
+				.filter((id): id is string => typeof id === 'string' && !!id))].slice(0, 100);
+			if (stored.sceneNpcRevealed && typeof stored.sceneNpcRevealed === 'object' && !Array.isArray(stored.sceneNpcRevealed)) {
+				this.campaignSettings.sceneNpcRevealed = Object.fromEntries(Object.entries(stored.sceneNpcRevealed)
+					.filter(([id, slots]) => this.campaignSettings.sceneNpcIds.includes(id) && Array.isArray(slots))
+					.map(([id, slots]) => [id, [...new Set((slots as unknown[]).filter((slot): slot is number =>
+						Number.isInteger(slot) && (slot as number) >= 0 && (slot as number) < 6))]]));
+			}
 			if (Array.isArray(stored.events)) this.campaignSettings.events = stored.events.slice(-200);
 			if (stored.playerNotes && typeof stored.playerNotes === 'object' && !Array.isArray(stored.playerNotes)) {
 				this.campaignSettings.playerNotes = Object.fromEntries(Object.entries(stored.playerNotes)
@@ -1370,6 +1378,12 @@ export class RPGLoginService {
 		if (session.role !== 'master') throw new Error('RPG master session required');
 		if (!library || typeof library !== 'object' || Array.isArray(library)) throw new Error('Invalid RPG master NPC library');
 		this.masterNPCLibrary = structuredClone(library as Record<string, unknown>);
+		this.persistMasterNPCLibrary();
+		return structuredClone(this.masterNPCLibrary);
+	}
+
+	private persistMasterNPCLibrary(): void {
+		if (!this.masterNPCLibrary) return;
 		if (this.mysqlPersistence) {
 			this.mysqlPersistence.upsertSingleton('rpg_master_npc_library', this.masterNPCLibrary, this.legacyTableId);
 		} else if (this.masterNPCLibraryFile) {
@@ -1378,7 +1392,38 @@ export class RPGLoginService {
 			writeFileSync(temporary, JSON.stringify(this.masterNPCLibrary, null, '\t') + '\n', 'utf8');
 			renameSync(temporary, this.masterNPCLibraryFile);
 		}
-		return structuredClone(this.masterNPCLibrary);
+	}
+
+	healMasterNPC(token: string, npcId: string, pokemonIndex?: number): Record<string, unknown> {
+		this.requireMasterRole(token);
+		const npc = (Array.isArray(this.masterNPCLibrary?.npcs) ? this.masterNPCLibrary.npcs : [])
+			.find(entry => entry && typeof entry === 'object' && (entry as Record<string, unknown>).id === npcId) as
+			Record<string, unknown> | undefined;
+		if (!npc) throw new Error('NPC não encontrado');
+		const team = Array.isArray(npc.team) ? npc.team : String(npc.teams || '').split(/[,;\n]+/)
+			.map(species => species.trim()).filter(Boolean).map(species => ({ species, name: species, level: 50, moves: [] }));
+		if (pokemonIndex !== undefined && (!Number.isInteger(pokemonIndex) || pokemonIndex < 0 ||
+			pokemonIndex >= team.length)) throw new Error('Pokémon do NPC não encontrado');
+		if (!Array.isArray(npc.team)) npc.team = team;
+		for (const [index, member] of team.entries()) {
+			if (pokemonIndex !== undefined && index !== pokemonIndex) continue;
+			if (!member || typeof member !== 'object') continue;
+			const pokemon = member as Record<string, unknown>;
+			const species = Dex.mod('gen9').species.get(String(pokemon.species || pokemon.name || ''));
+			const level = Math.max(1, Math.min(100, Number(pokemon.level) || 1));
+			const ivs = pokemon.ivs as Record<string, number> | undefined;
+			const evs = pokemon.evs as Record<string, number> | undefined;
+			const maximum = toID(species.name) === 'shedinja' ? 1 :
+				Math.floor((2 * (species.baseStats?.hp || 50) + (ivs?.hp || 0) +
+					Math.floor((evs?.hp || 0) / 4)) * level / 100) + level + 10;
+			pokemon.rpg = { ...(pokemon.rpg && typeof pokemon.rpg === 'object' ? pokemon.rpg : {}),
+				hp: maximum, status: '', sleepTurns: 0,
+				pp: (Array.isArray(pokemon.moves) ? pokemon.moves : []).map(move =>
+					Dex.mod('gen9').moves.get(String(move)).pp || 1),
+			};
+		}
+		this.persistMasterNPCLibrary();
+		return structuredClone(npc);
 	}
 
 	listTournaments(token: string): RPGTournament[] {
@@ -1479,7 +1524,8 @@ export class RPGLoginService {
 	}
 
 	getCampaignSettings(token: string): {
-		name: string, currentDateTime: string, quickNotes: string,
+		name: string, currentDateTime: string, quickNotes: string, sceneNpcIds: string[],
+		sceneNpcRevealed: Record<string, number[]>,
 		onlinePlayers: number, onlinePlayerNames: string[],
 		onlinePlayerAreas: { characterId: string, nick: string, characterName: string, avatar: string, area: string }[],
 	} {
@@ -1550,6 +1596,62 @@ export class RPGLoginService {
 		this.campaignSettings.quickNotes = notes.slice(0, 50_000);
 		this.persistCampaignSettings();
 		return { quickNotes: this.campaignSettings.quickNotes };
+	}
+
+	setCampaignSceneNPCs(token: string, ids: unknown): { sceneNpcIds: string[] } {
+		this.requireMasterRole(token);
+		if (!Array.isArray(ids) || ids.length > 100 || ids.some(id => typeof id !== 'string')) {
+			throw new Error('Lista de NPCs em cena inválida');
+		}
+		const available = new Set((Array.isArray(this.masterNPCLibrary?.npcs) ? this.masterNPCLibrary.npcs : [])
+			.map(npc => npc && typeof npc === 'object' ? (npc as Record<string, unknown>).id : undefined)
+			.filter((id): id is string => typeof id === 'string'));
+		const unique = [...new Set(ids)];
+		if (unique.some(id => !available.has(id))) throw new Error('NPC não encontrado nas anotações do Mestre');
+		this.campaignSettings.sceneNpcIds = unique;
+		this.campaignSettings.sceneNpcRevealed = Object.fromEntries(Object.entries(this.campaignSettings.sceneNpcRevealed)
+			.filter(([id]) => unique.includes(id)));
+		this.persistCampaignSettings();
+		return { sceneNpcIds: [...unique] };
+	}
+
+	getCampaignSceneNPCs(token: string) {
+		this.getSession(token);
+		const library = Array.isArray(this.masterNPCLibrary?.npcs) ? this.masterNPCLibrary.npcs : [];
+		const npcs = this.campaignSettings.sceneNpcIds.flatMap(id => {
+			const npc = library.find(entry => entry && typeof entry === 'object' && (entry as Record<string, unknown>).id === id);
+			if (!npc || typeof npc !== 'object') return [];
+			const value = npc as Record<string, unknown>;
+			const team = Array.isArray(value.team) ? value.team : String(value.teams || '').split(/[,;\n]+/)
+				.map(species => ({ species: species.trim() })).filter(member => member.species);
+			return [{ id, name: String(value.name || 'NPC'), sprite: String(value.sprite || ''),
+				pokemon: team.slice(0, 6).map((member, index) => {
+					if (!this.campaignSettings.sceneNpcRevealed[id]?.includes(index)) return { revealed: false };
+					const pokemon = member && typeof member === 'object' ? member as Record<string, unknown> : {};
+					return { revealed: true, species: String(pokemon.species || ''),
+						name: String(pokemon.name || pokemon.species || ''), shiny: pokemon.shiny === true };
+				}),
+			}];
+		});
+		return { npcs };
+	}
+
+	setCampaignScenePokemonReveal(token: string, npcId: unknown, index: unknown, revealed: unknown) {
+		this.requireMasterRole(token);
+		if (typeof npcId !== 'string' || !this.campaignSettings.sceneNpcIds.includes(npcId) ||
+			!Number.isInteger(index) || (index as number) < 0 || (index as number) >= 6 || typeof revealed !== 'boolean') {
+			throw new Error('Pokémon em cena inválido');
+		}
+		const npc = (Array.isArray(this.masterNPCLibrary?.npcs) ? this.masterNPCLibrary.npcs : [])
+			.find(entry => entry && typeof entry === 'object' && (entry as Record<string, unknown>).id === npcId) as
+			Record<string, unknown> | undefined;
+		const team = Array.isArray(npc?.team) ? npc.team : String(npc?.teams || '').split(/[,;\n]+/).filter(Boolean);
+		if (!team[index as number]) throw new Error('Pokémon não encontrado neste NPC');
+		const slots = new Set(this.campaignSettings.sceneNpcRevealed[npcId] || []);
+		if (revealed) slots.add(index as number); else slots.delete(index as number);
+		this.campaignSettings.sceneNpcRevealed[npcId] = [...slots].sort((a, b) => a - b);
+		this.persistCampaignSettings();
+		return { sceneNpcRevealed: structuredClone(this.campaignSettings.sceneNpcRevealed) };
 	}
 
 	dismissCampaignEvent(token: string, eventId: unknown): { events: RPGCampaignEvent[] } {
@@ -3575,6 +3677,20 @@ export class RPGLoginService {
 	): RPGBattleSession {
 		this.requireMasterMode(token);
 		const participants = input.participants?.map(participant => {
+			if (participant.sourceNpcId) {
+				if (participant.kind !== 'npc') throw new Error('Origem de NPC inválida');
+				const npc = (Array.isArray(this.masterNPCLibrary?.npcs) ? this.masterNPCLibrary.npcs : [])
+					.find(entry => entry && typeof entry === 'object' &&
+						(entry as Record<string, unknown>).id === participant.sourceNpcId) as Record<string, unknown> | undefined;
+				if (!npc) throw new Error('NPC salvo não encontrado');
+				for (const choice of participant.pokemon || []) {
+					const member = (Array.isArray(npc.team) ? npc.team : [])[choice.sourcePokemonIndex!];
+					if (!Number.isInteger(choice.sourcePokemonIndex) || !member ||
+						toID(String((member as Record<string, unknown>).species || '')) !== toID(choice.set?.species || '')) {
+						throw new Error('Pokémon salvo do NPC não encontrado');
+					}
+				}
+			}
 			if (!participant.gymBadge) return participant;
 			if (participant.kind !== 'npc') throw new Error('Somente um líder de ginásio pode oferecer insígnia');
 			const npcs = this.masterNPCLibrary?.npcs;
@@ -3972,6 +4088,27 @@ export class RPGLoginService {
 		if (stored) stored.pokemon.rpg.pp = [...set.rpg.pp];
 		record.state.updatedAt = this.now();
 		this.repository.set(record);
+		return true;
+	}
+
+	consumeNPCContestMovePP(npcId: string, pokemonIndex: number, moveId: string): boolean {
+		const npc = (Array.isArray(this.masterNPCLibrary?.npcs) ? this.masterNPCLibrary.npcs : [])
+			.find(entry => entry && typeof entry === 'object' && (entry as Record<string, unknown>).id === npcId) as
+			Record<string, unknown> | undefined;
+		const member = (Array.isArray(npc?.team) ? npc.team : [])[pokemonIndex] as Record<string, unknown> | undefined;
+		if (!member) return false;
+		const moves = Array.isArray(member.moves) ? member.moves : [];
+		const moveIndex = moves.findIndex(move => toID(String(move)) === toID(moveId));
+		if (moveIndex < 0) return false;
+		const maximum = Dex.mod('gen9').moves.get(moveId).pp || 1;
+		const rpg = member.rpg && typeof member.rpg === 'object' ? member.rpg as Record<string, unknown> : {};
+		const pp = Array.isArray(rpg.pp) ? [...rpg.pp] as number[] : moves.map(move =>
+			Dex.mod('gen9').moves.get(String(move)).pp || 1);
+		const current = Math.max(0, Math.min(maximum, Number(pp[moveIndex] ?? maximum)));
+		if (current <= 0) return false;
+		pp[moveIndex] = current - 1;
+		member.rpg = { ...rpg, pp };
+		this.persistMasterNPCLibrary();
 		return true;
 	}
 
@@ -4998,6 +5135,7 @@ export class RPGLoginService {
 	}
 
 	private persistBattlePokemon(session: RPGBattleSession, result: RPGBattleResult): void {
+		let npcLibraryChanged = false;
 		for (const [team, side] of [['A', 'p1'], ['B', 'p2']] as const) {
 			const finalPokemon = result.pokemon.filter(pokemon => pokemon.side === side);
 			const legacyPokemon = [...finalPokemon].sort((a, b) => a.position - b.position);
@@ -5007,6 +5145,22 @@ export class RPGLoginService {
 					const stablePosition = position++;
 					const finalState = finalPokemon.find(pokemon => pokemon.teamPosition === stablePosition) ||
 						legacyPokemon[stablePosition];
+					if (participant.kind === 'npc' && participant.sourceNpcId &&
+						Number.isInteger(choice.sourcePokemonIndex) && finalState) {
+						const npc = (Array.isArray(this.masterNPCLibrary?.npcs) ? this.masterNPCLibrary.npcs : [])
+							.find(entry => entry && typeof entry === 'object' &&
+								(entry as Record<string, unknown>).id === participant.sourceNpcId) as Record<string, unknown> | undefined;
+						const member = (Array.isArray(npc?.team) ? npc.team : [])[choice.sourcePokemonIndex!] as
+							Record<string, unknown> | undefined;
+						if (member && toID(String(member.species || member.name || '')) === toID(finalState.species)) {
+							member.level = finalState.level;
+							member.item = finalState.item;
+							member.evs = { ...finalState.evs };
+							member.ivs = { ...finalState.ivs };
+							member.rpg = structuredClone(finalState.state);
+							npcLibraryChanged = true;
+						}
+					}
 					if (participant.kind !== 'player' || choice.teamIndex === undefined || !finalState) continue;
 					const record = this.requireCharacter(participant.characterId!);
 					const set = record.state.team[choice.teamIndex];
@@ -5026,6 +5180,7 @@ export class RPGLoginService {
 				}
 			}
 		}
+		if (npcLibraryChanged) this.persistMasterNPCLibrary();
 	}
 
 	private persistCapture(session: RPGBattleSession, result: RPGBattleResult): void {
@@ -5847,7 +6002,7 @@ export async function createRPGTableLoginServiceAsync(
 	const campaignSettings = snapshot.campaign || {
 		name: table?.name || 'Minha campanha',
 		currentDateTime: new Date(table?.createdAt || Date.now()).toISOString(),
-		quickNotes: '', events: [], playerNotes: {},
+		quickNotes: '', events: [], playerNotes: {}, sceneNpcIds: [], sceneNpcRevealed: {},
 	};
 	const service = new RPGLoginService({
 		masterCode: secureRandomBytes(32).toString('hex'), repository, battleSessionRepository, contestSessionRepository,

@@ -668,7 +668,8 @@ function rpgBattleEditor(characters, existing, onClose) {
 					const participantTeam = isMultiTrainer ? multiAssignments.get('npc:' + npc.id) : 'B';
 					participants.push({
 						id: `npc-${participantTeam.toLowerCase()}-${index + 1}-${npc.id}`, team: participantTeam, kind: 'npc',
-						displayName: npc.displayName, avatar: npc.avatar, npcRole: npc.gymBadge ? 'gym-leader' : 'generic', gymBadge: npc.gymBadge,
+						displayName: npc.displayName, avatar: npc.avatar, npcRole: npc.gymBadge ? 'gym-leader' : 'generic',
+						gymBadge: npc.gymBadge, sourceNpcId: npc.sourceNpcId,
 						selectionLimit: pokemonTeam.length,
 						pokemon: pokemonTeam.map(selection => structuredClone(selection)),
 					});

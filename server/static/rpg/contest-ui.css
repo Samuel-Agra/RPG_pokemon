@@ -555,7 +555,8 @@
 .registered-npc-inline-pokemon:disabled { cursor: default; }
 .registered-npc-row.active .registered-npc-inline-pokemon { opacity: 1; cursor: pointer; }
 .registered-npc-inline-pokemon.selected { border-color: #d6a51d; background: #fff0a9; box-shadow: inset 0 0 0 1px #fff8d2; }
-.registered-npc-inline-pokemon .pokemon-sprite { width: 38px; height: 42px; }
+.registered-npc-inline-pokemon .pokemon-sprite { box-sizing: border-box; display: grid; place-items: center; width: 38px; height: 42px; }
+.registered-npc-inline-pokemon .pokemon-sprite img { display: block; width: 34px; height: 38px; max-width: 34px; max-height: 38px; object-fit: contain; object-position: center; image-rendering: pixelated; }
 .registered-npc-selection-error .registered-npc-row.active { animation: registered-npc-error 260ms ease 2; }
 @keyframes registered-npc-error { 50% { border-color: #b12d2d; transform: translateX(2px); } }
 .registered-npc-selected-list { display: grid; gap: 7px; }

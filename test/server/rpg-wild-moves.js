@@ -68,6 +68,20 @@ describe('RPG controlled Pokemon level-up moves', () => {
 		assert.equal(configuredSet('Charmander', 5, () => 0.8, 'wild', 'Adamant').nature, 'Adamant');
 		assert.equal(configuredSet('Charmander', 5, () => 0.8, 'npc').nature, 'Hardy');
 	});
+	it('preserves the configured attributes of a saved NPC without changing temporary NPC generation', () => {
+		const sessions = service();
+		const battle = sessions.create();
+		const saved = sessions.update(battle.id, { participants: [{ id: 'saved', team: 'B', kind: 'npc',
+			sourceNpcId: 'npc-a', displayName: 'Ana', selectionLimit: 1, pokemon: [{ sourcePokemonIndex: 0,
+				set: { species: 'Eevee', level: 20, moves: ['tackle'], ivs: { hp: 31, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 },
+					evs: { hp: 252, atk: 252, def: 4, spa: 0, spd: 0, spe: 0 }, rpg: { hp: 1, pp: [0], status: 'brn' } },
+			}],
+		}] }).participants[0].pokemon[0].set;
+		assert.equal(saved.ivs.hp, 31);
+		assert.equal(saved.evs.hp, 252);
+		assert.deepEqual(saved.moves, ['tackle']);
+		assert.deepEqual(saved.rpg.pp, [0]);
+	});
 	it('uses zero IVs and 508 random EVs before battle-mode overrides', () => {
 		for (const kind of ['wild', 'boss', 'horde', 'npc']) {
 			const set = configuredSet('Charmander', 5, () => 0.25, kind);

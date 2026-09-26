@@ -6,6 +6,11 @@ const path = require('path');
 
 describe('RPG contest UI', () => {
 	const root = path.resolve(__dirname, '../../server/static/rpg');
+	it('centers saved NPC Pokémon sprites in the battle and contest folder selector', () => {
+		const css = fs.readFileSync(path.join(root, 'contest-ui.css'), 'utf8');
+		assert(css.includes('.registered-npc-inline-pokemon .pokemon-sprite img { display: block;'));
+		assert(css.includes('object-fit: contain; object-position: center;'));
+	});
 	it('loads a dedicated contest page and keeps its implementation separate from battle code', () => {
 		const html = fs.readFileSync(path.join(root, 'index.html'), 'utf8');
 		const app = fs.readFileSync(path.join(root, 'rpg.js'), 'utf8');

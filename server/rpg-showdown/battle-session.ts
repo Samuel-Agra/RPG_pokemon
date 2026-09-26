@@ -48,6 +48,8 @@ export type RPGFieldDuration = 'temporary' | 'permanent';
 export interface RPGBattleParticipantPokemon {
 	/** Position in the persistent character team; required for player Pokemon. */
 	teamIndex?: number;
+	/** Position in the saved NPC team, if this is a persistent NPC Pokémon. */
+	sourcePokemonIndex?: number;
 	/** Snapshot/configuration for NPC, wild, boss and horde Pokemon. */
 	set?: PokemonSet;
 	/** Controls the shiny roll for Pokemon created by the Master. */
@@ -63,6 +65,7 @@ export interface RPGBattleParticipant {
 	displayName: string;
 	/** Role used by encounter rules and presentation for NPCs. */
 	npcRole?: RPGNPCBattleRole;
+	sourceNpcId?: string;
 	/** Insígnia opcional de um líder salvo, validada pela mesa antes do convite. */
 	gymBadge?: { sourceNpcId: string, regionId: string, gymIndex: number, enabled: boolean };
 	selectionLimit: number;
@@ -683,12 +686,14 @@ export class RPGBattleSessionService {
 						['random', 'guaranteed', 'disabled'] as const,
 						'controlled Pokemon shiny mode'
 					);
-					choice.set = this.prepareControlledPokemon(choice.set, kind, choice.shinyMode);
+					choice.set = this.prepareControlledPokemon(choice.set, kind, choice.shinyMode,
+						kind === 'npc' && !!raw.sourceNpcId && Number.isInteger(choice.sourcePokemonIndex));
 					delete choice.teamIndex;
 				}
 			}
 			return {
 				id, team, kind, characterId: kind === 'player' ? characterId : undefined,
+				sourceNpcId: kind === 'npc' && raw.sourceNpcId ? this.requireId(raw.sourceNpcId) : undefined,
 				avatar: raw.avatar ? this.requiredText(raw.avatar, 'participant avatar', 80) : undefined,
 				displayName: this.requiredText(raw.displayName, 'participant name', 80),
 				npcRole: kind === 'npc' ? this.enumValue(
@@ -707,7 +712,7 @@ export class RPGBattleSessionService {
 
 	private prepareControlledPokemon(
 		input: PokemonSet, kind: RPGBattleParticipantKind,
-		shinyMode: NonNullable<RPGBattleParticipantPokemon['shinyMode']>
+		shinyMode: NonNullable<RPGBattleParticipantPokemon['shinyMode']>, preserveConfigured = false
 	): PokemonSet {
 		const set = structuredClone(input);
 		const dex = Dex.mod('gen9');
@@ -745,10 +750,16 @@ export class RPGBattleSessionService {
 		if (!set.item && ['wild', 'boss', 'horde'].includes(kind)) {
 			set.item = this.randomWildHeldItem();
 		}
-		set.ivs = { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 };
-		set.evs = this.randomEVs();
-		set.moves = this.generationNineLevelMoves(species.id, level);
-		set.shiny = shinyMode === 'guaranteed' || (shinyMode === 'random' && this.randomIndex(4096) === 0);
+		if (preserveConfigured) {
+			set.ivs ||= { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 };
+			set.evs ||= { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 };
+			if (!set.moves?.length) set.moves = this.generationNineLevelMoves(species.id, level);
+		} else {
+			set.ivs = { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 };
+			set.evs = this.randomEVs();
+			set.moves = this.generationNineLevelMoves(species.id, level);
+			set.shiny = shinyMode === 'guaranteed' || (shinyMode === 'random' && this.randomIndex(4096) === 0);
+		}
 		return set;
 	}
 

@@ -91,6 +91,8 @@ export class RPGHttpServer {
 			getCombos: () => this.login.contestCombos.list(),
 			onMovePPSpent: (characterId, teamIndex, moveId) =>
 				this.login.consumeContestMovePP(characterId, teamIndex, moveId),
+			onNPCMovePPSpent: (npcId, pokemonIndex, moveId) =>
+				this.login.consumeNPCContestMovePP(npcId, pokemonIndex, moveId),
 			onFinished: (session, results) => this.login.applyContestResults(session, results),
 		});
 		this.contestRuntimeManagers.set(key, manager);
@@ -921,6 +923,21 @@ export class RPGHttpServer {
 			this.json(res, 200, this.login.setCampaignQuickNotes(this.token(req), body.notes));
 			return;
 		}
+		if (method === 'PUT' && url.pathname === '/api/rpg/campaign/scene-npcs') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.setCampaignSceneNPCs(this.token(req), body.ids));
+			return;
+		}
+		if (method === 'GET' && url.pathname === '/api/rpg/campaign/scene-npcs') {
+			this.json(res, 200, this.login.getCampaignSceneNPCs(this.token(req)));
+			return;
+		}
+		if (method === 'PUT' && url.pathname === '/api/rpg/campaign/scene-npcs/reveal') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.setCampaignScenePokemonReveal(
+				this.token(req), body.npcId, body.index, body.revealed));
+			return;
+		}
 		if (method === 'DELETE' && url.pathname === '/api/rpg/campaign/events') {
 			const body = await this.body(req);
 			this.json(res, 200, this.login.dismissCampaignEvent(this.token(req), body.eventId));
@@ -947,6 +964,11 @@ export class RPGHttpServer {
 				this.json(res, 200, { library: this.login.setMasterNPCLibrary(token, body.library) });
 				return;
 			}
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/master-npc-library/heal') {
+			const body = await this.body(req);
+			this.json(res, 200, { npc: this.login.healMasterNPC(this.token(req), body.npcId, body.pokemonIndex) });
+			return;
 		}
 		if (url.pathname === '/api/rpg/documents') {
 			const token = this.token(req);

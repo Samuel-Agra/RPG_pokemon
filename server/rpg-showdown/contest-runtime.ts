@@ -210,6 +210,7 @@ export interface RPGContestRuntimeManagerOptions {
 	getCombos?: () => readonly RPGContestComboDefinition[];
 	onFinished?: (session: RPGContestSession, results: readonly RPGContestPlacement[]) => void;
 	onMovePPSpent?: (characterId: string, teamIndex: number, moveId: string) => boolean;
+	onNPCMovePPSpent?: (npcId: string, pokemonIndex: number, moveId: string) => boolean;
 }
 
 export class RPGContestRuntimeManager {
@@ -221,6 +222,7 @@ export class RPGContestRuntimeManager {
 	private readonly getCharacterTeam: (characterId: string) => PokemonSet[] | undefined;
 	private readonly getCombos: () => readonly RPGContestComboDefinition[];
 	private readonly onMovePPSpent?: RPGContestRuntimeManagerOptions['onMovePPSpent'];
+	private readonly onNPCMovePPSpent?: RPGContestRuntimeManagerOptions['onNPCMovePPSpent'];
 
 	constructor(options: RPGContestRuntimeManagerOptions = {}) {
 		this.now = options.now || Date.now;
@@ -228,6 +230,7 @@ export class RPGContestRuntimeManager {
 		this.getCombos = options.getCombos || (() => RPG_DEFAULT_CONTEST_COMBOS);
 		this.onFinished = options.onFinished;
 		this.onMovePPSpent = options.onMovePPSpent;
+		this.onNPCMovePPSpent = options.onNPCMovePPSpent;
 	}
 
 	exportState(sessionId: string): unknown {
@@ -340,6 +343,13 @@ export class RPGContestRuntimeManager {
 		if (hasPP && participant.kind === 'player' && participant.characterId) {
 			const teamIndex = participant.teamIndexes[pokemonIndex];
 			hasPP = teamIndex !== undefined && (this.onMovePPSpent?.(participant.characterId, teamIndex, moveId) ?? true);
+		}
+		if (hasPP && participant.kind === 'npc') {
+			const source = state.session.participants.find(entry => entry.id === participant.id);
+			const sourceIndex = source?.pokemonTeam?.[pokemonIndex]?.sourcePokemonIndex;
+			if (source?.sourceNpcId && sourceIndex !== undefined) {
+				hasPP = this.onNPCMovePPSpent?.(source.sourceNpcId, sourceIndex, moveId) ?? true;
+			}
 		}
 		if (hasPP) selected.pp--;
 		else selected.pp = 0;
