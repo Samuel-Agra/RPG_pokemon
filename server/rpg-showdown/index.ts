@@ -62,6 +62,7 @@ import {
 	type RPGContestComboRepository,
 } from './contest-scoring';
 import { RPGMySQLPersistence, rpgMySQLConfig } from './database/mysql-persistence';
+import { createRPGPendingTrainerSheet, type RPGTrainerSheet } from './trainer-sheet';
 import {
 	getRPGDefaultTablePermissions, RPGAccountManagement, RPGMemoryAccountRepository,
 	RPGMemoryPlatformSessionRepository, type RPGTablePermission, type RPGTableRole,
@@ -142,6 +143,7 @@ export * from './pokemon-catalog';
 export * from './fossil-lab';
 export * from './shop-management';
 export * from './account-management';
+export * from './trainer-sheet';
 
 export const RPG_ACCOUNT_VERSION = 5;
 export const RPG_SESSION_VERSION = 1;
@@ -254,6 +256,7 @@ export interface RPGCharacterState extends RPGCharacterSelection {
 	money: number;
 	bank?: RPGBankAccount;
 	profile?: RPGTrainerProfile;
+	trainerSheet?: RPGTrainerSheet;
 	team: PokemonSet[];
 	teamPresets?: RPGTeamPreset[];
 	/** Presentation-only Eggs that reserve party slots; never persisted as battle Pokémon. */
@@ -895,7 +898,8 @@ export class RPGLoginService {
 			},
 			shopAccess: Object.fromEntries(this.commerce.directory().shops.map(shop => [shop.id, true])),
 			money: request.initialMoney, bank: { version: 1, balance: 0, revision: 0 },
-			profile: this.createTrainerProfile(starter.species), team: [starter], box, inventory,
+			profile: this.createTrainerProfile(starter.species), trainerSheet: createRPGPendingTrainerSheet(),
+			team: [starter], box, inventory,
 			createdAt: now, updatedAt: now,
 		};
 		const credential = this.hashPassword(request.password);
@@ -5793,6 +5797,14 @@ function migrateCharacterProfiles(service: RPGLoginService): void {
 		service.repository.set(record);
 	}
 }
+/** Adiciona somente a ficha ausente; nunca substitui escolhas ou dados já registrados. */
+function migrateCharacterTrainerSheets(service: RPGLoginService): void {
+	for (const record of service.repository.list()) {
+		if (record.state.trainerSheet != null) continue;
+		record.state.trainerSheet = createRPGPendingTrainerSheet();
+		service.repository.set(record);
+	}
+}
 function migrateCharacterBags(service: RPGLoginService): void {
 	for (const record of service.repository.list()) {
 		const inventory = RPGInventorySystem.migrate(record.state.inventory);
@@ -5886,6 +5898,7 @@ export function createRPGLoginServiceFromConfig(
 	migrateCharacterPageAccess(service);
 	migrateCharacterBanks(service);
 	migrateCharacterProfiles(service);
+	migrateCharacterTrainerSheets(service);
 	migrateCharacterBags(service);
 	migrateCharacterBoxes(service);
 	service.recoverInterruptedBattleSessions();
@@ -5958,6 +5971,7 @@ Promise<RPGLoginService> {
 	migrateCharacterPageAccess(service);
 	migrateCharacterBanks(service);
 	migrateCharacterProfiles(service);
+	migrateCharacterTrainerSheets(service);
 	migrateCharacterBags(service);
 	migrateCharacterBoxes(service);
 	const persistedBattles = snapshot.legacyTableId ?
@@ -6014,6 +6028,7 @@ export async function createRPGTableLoginServiceAsync(
 			{ activity: tournament.activity, status: tournament.status, updated_at: tournament.updatedAt }, tableId),
 	});
 	migrateCharacterPageAccess(service); migrateCharacterBanks(service); migrateCharacterProfiles(service);
+	migrateCharacterTrainerSheets(service);
 	const persistedBattles = await persistence.listRuntimeSessionIds(tableId, 'battle');
 	const persistedContests = await persistence.listRuntimeSessionIds(tableId, 'contest');
 	migrateCharacterBags(service); migrateCharacterBoxes(service);
