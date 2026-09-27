@@ -378,6 +378,37 @@ export class RPGHttpServer {
 			this.json(res, 200, { values: this.login.rollTrainerAttributes(this.token(req)) });
 			return;
 		}
+		if (method === 'GET' && url.pathname === '/api/rpg/trainer/progression') {
+			this.json(res, 200, this.login.getTrainerProgression(this.token(req),
+				url.searchParams.get('characterId') || undefined));
+			return;
+		}
+		if (url.pathname === '/api/rpg/trainer/talents') {
+			if (method === 'GET') {
+				this.json(res, 200, this.login.getTrainerTalents(this.token(req),
+					url.searchParams.get('characterId') || undefined));
+				return;
+			}
+			if (method === 'POST') {
+				const body = await this.body(req);
+				this.json(res, 200, { sheet: this.login.chooseTrainerTalent(this.token(req),
+					body as unknown as import('./trainer-talents').RPGTrainerTalentChoice) });
+				return;
+			}
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/approve') {
+			const body = await this.body(req);
+			this.json(res, 200, { sheet: this.login.approveTrainerTalentPrerequisite(this.token(req),
+				this.string(body.characterId), this.string(body.key), this.string(body.reason)) });
+			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/rewards/master') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.grantMasterTrainerXP(this.token(req),
+				this.string(body.characterId), body.amount as number,
+				this.string(body.reason), this.string(body.requestId)));
+			return;
+		}
 		if (method === 'PUT' && url.pathname === '/api/rpg/campaign/trainer-attribute-method') {
 			const body = await this.body(req);
 			this.json(res, 200, { method: this.login.setTrainerAttributeMethod(this.token(req), body.method) });
@@ -987,7 +1018,8 @@ export class RPGHttpServer {
 		}
 		if (method === 'POST' && url.pathname === '/api/rpg/master-npc-library/heal') {
 			const body = await this.body(req);
-			this.json(res, 200, { npc: this.login.healMasterNPC(this.token(req), body.npcId, body.pokemonIndex) });
+			this.json(res, 200, { npc: this.login.healMasterNPC(this.token(req),
+				this.string(body.npcId), body.pokemonIndex === undefined ? undefined : Number(body.pokemonIndex)) });
 			return;
 		}
 		if (url.pathname === '/api/rpg/documents') {

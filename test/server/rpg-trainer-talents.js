@@ -1,0 +1,201 @@
+'use strict';
+
+const assert = require('assert').strict;
+const {
+	RPG_TRAINER_CLASSES, RPG_TRAINER_TALENTS, RPG_TRAINER_CLASS_FEATURES,
+	RPG_TRAINER_LEVEL_XP, createRPGPendingTrainerSheet, chooseRPGTrainerTalent,
+	rpgTrainerTalentCatalog, rpgTrainerClassFeatures, rpgTrainerDerivedStatistics,
+	awardRPGTrainerXP, completeRPGTrainerSheet, RPGLoginService, RPGMemoryCharacterRepository,
+} = require('../../dist/server/rpg-showdown');
+
+function ready(classId, level = 1, overrides = {}) {
+	return {
+		...createRPGPendingTrainerSheet(), status: 'complete', classId, level,
+		experience: RPG_TRAINER_LEVEL_XP[level - 1],
+		attributes: { strength: 12, dexterity: 14, constitution: 13,
+			intelligence: 14, wisdom: 12, charisma: 10 },
+		hitPoints: { current: 20, maximum: 20, temporary: 0 },
+		skills: { trained: ['atletismo', 'acrobacia', 'investigacao', 'conhecimento:arqueologia-fosseis'], focused: [] },
+		proficiencies: ['kit-arqueologia'], ...overrides,
+	};
+}
+
+describe('RPG trainer classes and talents', () => {
+	it('registers all twenty class bases, innate features and all published talents', () => {
+		assert.equal(Object.keys(RPG_TRAINER_CLASSES).length, 20);
+		assert.equal(Object.keys(RPG_TRAINER_CLASS_FEATURES).length, 20);
+		assert.equal(RPG_TRAINER_TALENTS.length, 457);
+		assert.equal(RPG_TRAINER_TALENTS.filter(talent => talent.kind === 'general').length, 54);
+		assert.equal(new Set(RPG_TRAINER_TALENTS.map(talent => talent.id)).size, 457);
+		for (const classId of Object.keys(RPG_TRAINER_CLASSES)) {
+			assert.ok(rpgTrainerClassFeatures(ready(classId)).length >= 2, classId);
+			assert.ok(RPG_TRAINER_TALENTS.some(talent => talent.classId === classId && talent.kind === 'apex'));
+		}
+	});
+
+	it('creates a complete level-one sheet for every class with its own base rules', () => {
+		const candidates = [
+			'acrobacia', 'atletismo', 'atuacao', 'captura', 'conhecimento:regioes',
+			'empatia-pokemon', 'enganacao', 'furtividade', 'intimidacao', 'intuicao',
+			'investigacao', 'ladinagem', 'medicina', 'medicina-pokemon',
+			'montaria-pokemon', 'natureza', 'oficio:escrita', 'percepcao',
+			'persuasao', 'pilotagem:automoveis', 'sobrevivencia', 'tecnologia',
+			'adestramento-pokemon',
+		];
+		for (const [classId, rule] of Object.entries(RPG_TRAINER_CLASSES)) {
+			const attributes = { strength: 15, dexterity: 14, constitution: 13,
+				intelligence: 12, wisdom: 10, charisma: 8 };
+			const fixedKnowledge = classId === 'cientista' ? 'conhecimento:biologia' : undefined;
+			const count = rule.choices + 1;
+			const optionalSkills = candidates.filter(skill => !rule.fixed.includes(skill) &&
+				skill !== fixedKnowledge && !rule.excluded.includes(skill.split(':')[0])).slice(0, count);
+			const gearChoices = Object.fromEntries(Object.entries(rule.gearChoices || {})
+				.map(([key, choices]) => [key, choices[0]]));
+			const sheet = completeRPGTrainerSheet(createRPGPendingTrainerSheet(), {
+				classId, attributes, fixedKnowledge, optionalSkills, gearChoices,
+			}, 'standard');
+			assert.equal(sheet.classId, classId);
+			assert.equal(sheet.skills.trained.length, rule.fixed.length + Number(!!fixedKnowledge) + count);
+			assert.ok(sheet.resistances.includes(rule.resistance));
+			assert.equal(sheet.hitPoints.maximum, 10 + rule.hitDie + 1);
+			assert.equal(sheet.equipment.length, rule.gear.length + Object.keys(gearChoices).length);
+			assert.ok(rpgTrainerClassFeatures(sheet).length >= 2);
+		}
+	});
+
+	it('enforces level, class, talent-chain and apex requirements', () => {
+		let sheet = ready('arqueologo', 7);
+		assert.throws(() => chooseRPGTrainerTalent(sheet, { id: 'arqueologo:achado-excepcional' }), /pré-requisito/);
+		assert.throws(() => chooseRPGTrainerTalent(sheet, { id: 'artista:tecnica-assinatura' }), /outra classe/);
+		sheet = chooseRPGTrainerTalent(sheet, { id: 'arqueologo:especialista-em-fosseis' });
+		sheet = chooseRPGTrainerTalent(sheet, { id: 'arqueologo:leitura-estratigrafica' });
+		sheet = chooseRPGTrainerTalent(sheet, { id: 'arqueologo:achado-excepcional' });
+		assert.equal(sheet.talents.class.length, 3);
+		assert.throws(() => chooseRPGTrainerTalent(sheet, { id: 'arqueologo:epigrafista' }), /Não há escolha/);
+		assert.throws(() => chooseRPGTrainerTalent(ready('arqueologo', 9),
+			{ id: 'arqueologo:grande-descobridor' }), /Ápices|escolha|Nível insuficiente/);
+		const apex = chooseRPGTrainerTalent(ready('arqueologo', 10), { id: 'arqueologo:grande-descobridor' });
+		assert.equal(apex.talents.apex, 'arqueologo:grande-descobridor');
+	});
+
+	it('applies general training, focus, resistance and domain without duplicate benefits', () => {
+		let sheet = ready('arqueologo', 10);
+		sheet = chooseRPGTrainerTalent(sheet, { id: 'treinamento-adicional', skill: 'medicina' });
+		sheet = chooseRPGTrainerTalent(sheet, { id: 'foco-em-pericia', skill: 'medicina' });
+		sheet = chooseRPGTrainerTalent(sheet, { id: 'resiliente', resistance: 'reflexes' });
+		sheet = chooseRPGTrainerTalent(sheet, { id: 'dominio-de-kit', proficiency: 'kit-medico' });
+		assert.ok(sheet.skills.trained.includes('medicina'));
+		assert.ok(sheet.skills.focused.includes('medicina'));
+		assert.ok(sheet.resistances.includes('reflexes'));
+		assert.ok(sheet.proficiencies.includes('kit-medico'));
+		assert.throws(() => chooseRPGTrainerTalent(sheet,
+			{ id: 'treinamento-adicional', skill: 'medicina' }), /já é treinada|Não há escolha/);
+		assert.throws(() => chooseRPGTrainerTalent(ready('arqueologo', 2),
+			{ id: 'dominio-de-kit', proficiency: 'kit-medico' }), /perícia correspondente/);
+	});
+
+	it('applies attribute growth, Constitution PV and Robust retroactively without healing', () => {
+		let sheet = ready('artista', 3);
+		sheet = chooseRPGTrainerTalent(sheet, { id: 'artista:presenca-magnetica', attribute: 'charisma' });
+		assert.equal(sheet.attributes.charisma, 11);
+		assert.throws(() => chooseRPGTrainerTalent(ready('artista', 3),
+			{ id: 'artista:presenca-magnetica', attribute: 'strength' }), /atributo permitido/);
+		let robust = chooseRPGTrainerTalent(ready('artista', 2), { id: 'robusto' });
+		assert.equal(robust.hitPoints.maximum, 22);
+		assert.equal(robust.hitPoints.current, 20);
+		robust = awardRPGTrainerXP(robust, { kind: 'master', sourceId: 'test-level-3',
+			amount: RPG_TRAINER_LEVEL_XP[2] - robust.experience, reason: 'Teste', grantedAt: 1 }).sheet;
+		assert.equal(robust.hitPoints.maximum, 28);
+		assert.equal(robust.hitPoints.current, 20);
+		let con = ready('artista', 6, { attributes: { strength: 12, dexterity: 14,
+			constitution: 13, intelligence: 14, wisdom: 12, charisma: 10 } });
+		con = chooseRPGTrainerTalent(con, { id: 'aprimoramento-de-atributo', attribute: 'constitution' });
+		assert.equal(con.hitPoints.maximum, 26);
+		assert.equal(con.hitPoints.current, 20);
+		assert.throws(() => chooseRPGTrainerTalent(con,
+			{ id: 'aprimoramento-de-atributo', attribute: 'constitution' }), /já recebeu/);
+	});
+
+	it('uses stable request IDs when a class talent may be acquired twice', () => {
+		let sheet = ready('cientista', 7);
+		assert.throws(() => chooseRPGTrainerTalent(sheet,
+			{ id: 'cientista:registros-paralelos', injected: { money: 99999 } }), /Escolha de talento inválida/);
+		assert.throws(() => chooseRPGTrainerTalent(sheet,
+			{ id: 'cientista:registros-paralelos' }), /identificador estável/);
+		const first = { id: 'cientista:registros-paralelos', requestId: 'register-1' };
+		sheet = chooseRPGTrainerTalent(sheet, first);
+		assert.strictEqual(chooseRPGTrainerTalent(sheet, first), sheet);
+		assert.throws(() => chooseRPGTrainerTalent(sheet,
+			{ id: 'cientista:especializacao-cientifica', requestId: 'register-1', variant: 'conhecimento:biologia' }),
+		/Identificador de escolha/);
+		sheet = chooseRPGTrainerTalent(sheet,
+			{ id: 'cientista:registros-paralelos', requestId: 'register-2' });
+		assert.equal(sheet.talents.class.length, 2);
+		assert.throws(() => chooseRPGTrainerTalent(sheet,
+			{ id: 'cientista:registros-paralelos', requestId: 'register-3' }), /já foi escolhido/);
+	});
+
+	it('accepts alternative prerequisites and verifies an area-specific chain', () => {
+		let athlete = ready('atleta', 10);
+		athlete = chooseRPGTrainerTalent(athlete,
+			{ id: 'atleta:especialidade-esportiva', variant: 'corrida' });
+		athlete = chooseRPGTrainerTalent(athlete, { id: 'atleta:recordista' });
+		assert.equal(athlete.talents.apex, 'atleta:recordista');
+		let scientist = ready('cientista', 7);
+		assert.throws(() => chooseRPGTrainerTalent(scientist,
+			{ id: 'cientista:especializacao-cientifica', variant: 'conhecimento:quimica' }), /área de Conhecimento treinada/);
+		scientist = chooseRPGTrainerTalent(scientist,
+			{ id: 'cientista:especializacao-cientifica', variant: 'conhecimento:arqueologia-fosseis' });
+		assert.throws(() => chooseRPGTrainerTalent(scientist,
+			{ id: 'cientista:publicacao-de-referencia', variant: 'conhecimento:quimica' }), /mesma área/);
+		scientist = chooseRPGTrainerTalent(scientist,
+			{ id: 'cientista:publicacao-de-referencia', variant: 'conhecimento:arqueologia-fosseis' });
+		assert.equal(scientist.talents.class.length, 2);
+	});
+
+	it('makes fixed class movement and unarmored defense effective', () => {
+		assert.equal(rpgTrainerDerivedStatistics(ready('atleta')).movementMeters, 10.5);
+		assert.equal(rpgTrainerDerivedStatistics(ready('artista-marcial')).defense, 13);
+		assert.equal(rpgTrainerDerivedStatistics(ready('artista-marcial'), { shield: true }).defense, 14);
+	});
+
+	it('exposes only general and own-class talents with their acquisition state', () => {
+		const sheet = ready('psiquico', 3);
+		const catalog = rpgTrainerTalentCatalog(sheet);
+		assert.equal(catalog.filter(talent => talent.kind === 'general').length, 54);
+		assert.ok(catalog.some(talent => talent.id === 'psiquico:elo-telepatico'));
+		assert.ok(!catalog.some(talent => talent.id === 'tecnologo:interface-remota'));
+		assert.ok(catalog.some(talent => talent.id === 'psiquico:telecinese-ampliada' &&
+			!talent.available));
+	});
+
+	it('requires a recorded Master approval for narrative prerequisites and controlled weapons', () => {
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({ masterCode: 'teste', repository });
+		service.createCharacter({ characterName: 'Ana', playerName: 'Conta', avatar: 'lucas',
+			password: 'senha-rpg', initialMoney: 100, starter: { species: 'Squirtle', gender: 'M' } });
+		const master = service.loginMaster('teste');
+		const player = service.loginPlayer('ana', 'senha-rpg');
+		const record = repository.get('ana');
+		record.state.trainerSheet = ready('diplomata', 10);
+		repository.set(record);
+		assert.throws(() => service.chooseTrainerTalent(player.token,
+			{ id: 'diplomata:reputacao-precedente' }), /verificados pelo Mestre/);
+		assert.throws(() => service.approveTrainerTalentPrerequisite(player.token, 'ana',
+			'diplomata:reputacao-precedente', 'Dois favores'), /master session required/);
+		service.approveTrainerTalentPrerequisite(master.token, 'ana',
+			'diplomata:reputacao-precedente', 'Dois favores em organizações diferentes');
+		const chosen = service.chooseTrainerTalent(player.token,
+			{ id: 'diplomata:reputacao-precedente' });
+		assert.ok(chosen.talents.class.includes('diplomata:reputacao-precedente'));
+		assert.equal(chosen.talentApprovals.length, 1);
+		assert.throws(() => service.chooseTrainerTalent(player.token,
+			{ id: 'dominio-de-arma', proficiency: 'armas-ranged-exoticas' }), /licença verificada/);
+		service.approveTrainerTalentPrerequisite(master.token, 'ana',
+			'dominio-de-arma:armas-ranged-exoticas', 'Licença regional válida');
+		const licensed = service.chooseTrainerTalent(player.token,
+			{ id: 'dominio-de-arma', proficiency: 'armas-ranged-exoticas' });
+		assert.ok(licensed.proficiencies.includes('armas-ranged-exoticas'));
+		assert.equal(licensed.talentApprovals.length, 2);
+	});
+});

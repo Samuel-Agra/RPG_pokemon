@@ -63,6 +63,14 @@ import {
 } from './contest-scoring';
 import { RPGMySQLPersistence, rpgMySQLConfig } from './database/mysql-persistence';
 import { createRPGPendingTrainerSheet, type RPGTrainerSheet } from './trainer-sheet';
+import { RPG_TRAINER_CLASS_FEATURES } from './trainer-class-features';
+import {
+	chooseRPGTrainerTalent, rpgTrainerTalentCatalog, RPG_TALENT_APPROVAL_KEYS, type RPGTrainerTalentChoice,
+} from './trainer-talents';
+import {
+	awardRPGTrainerXP, rpgBadgeXP, rpgContestPodiumXP, rpgTrainerXPToNextLevel,
+	type RPGTrainerXPReward,
+} from './trainer-progression';
 import {
 	completeRPGTrainerSheet, rollRPGTrainerAttributes, RPG_STANDARD_ATTRIBUTES, RPG_TRAINER_CLASSES,
 	type RPGTrainerAttributeMethod, type RPGTrainerCompletion,
@@ -150,6 +158,10 @@ export * from './account-management';
 export * from './trainer-sheet';
 export * from './trainer-creation';
 export * from './trainer-checks';
+export * from './trainer-progression';
+export * from './trainer-class-features';
+export * from './trainer-talents-catalog';
+export * from './trainer-talents';
 
 export const RPG_ACCOUNT_VERSION = 5;
 export const RPG_SESSION_VERSION = 1;
@@ -1714,6 +1726,7 @@ export class RPGLoginService {
 			method: this.campaignSettings.trainerAttributeMethod,
 			standardValues: [...RPG_STANDARD_ATTRIBUTES],
 			classes: structuredClone(RPG_TRAINER_CLASSES),
+			classFeatures: structuredClone(RPG_TRAINER_CLASS_FEATURES),
 			sheet: structuredClone(record.state.trainerSheet || createRPGPendingTrainerSheet()),
 		};
 	}
@@ -1759,6 +1772,74 @@ export class RPGLoginService {
 		record.state.updatedAt = this.now();
 		this.repository.set(record);
 		return structuredClone(sheet);
+	}
+
+	getTrainerProgression(token: string, characterId?: string) {
+		const state = this.getCharacter(token, characterId);
+		const sheet = state.trainerSheet || createRPGPendingTrainerSheet();
+		return { sheet, xpToNextLevel: rpgTrainerXPToNextLevel(sheet.experience) };
+	}
+
+	getTrainerTalents(token: string, characterId?: string) {
+		const state = this.getCharacter(token, characterId);
+		const sheet = state.trainerSheet || createRPGPendingTrainerSheet();
+		return { talents: rpgTrainerTalentCatalog(sheet), sheet };
+	}
+
+	chooseTrainerTalent(token: string, choice: RPGTrainerTalentChoice): RPGTrainerSheet {
+		const session = this.getSession(token);
+		if (session.role !== 'player' || !session.characterId) throw new Error('Entre com um personagem para escolher talento');
+		const record = this.requireCharacter(session.characterId);
+		const previous = record.state.trainerSheet || createRPGPendingTrainerSheet();
+		const sheet = chooseRPGTrainerTalent(previous, choice);
+		record.state.trainerSheet = sheet;
+		record.state.updatedAt = this.now();
+		this.repository.set(record);
+		return structuredClone(sheet);
+	}
+
+	approveTrainerTalentPrerequisite(token: string, characterId: string, key: string,
+		reason: string): RPGTrainerSheet {
+		this.requireMasterMode(token);
+		this.requirePlatformTablePermission(token, 'characters.manage');
+		if (!RPG_TALENT_APPROVAL_KEYS.has(key) || typeof reason !== 'string' ||
+			!reason.trim() || reason.length > 500) throw new Error('Aprovação de pré-requisito inválida');
+		const record = this.requireCharacter(toID(characterId));
+		const sheet = structuredClone(record.state.trainerSheet || createRPGPendingTrainerSheet());
+		if (!sheet.talentApprovals?.some(approval => approval.key === key)) {
+			sheet.talentApprovals = [...(sheet.talentApprovals || []), {
+				key, reason: reason.trim(), approvedBy: this.getSession(token).platformAccountId || 'master',
+				approvedAt: this.now(),
+			}];
+			record.state.trainerSheet = sheet;
+			record.state.updatedAt = this.now();
+			this.repository.set(record);
+		}
+		return structuredClone(sheet);
+	}
+
+	grantMasterTrainerXP(token: string, characterId: string, amount: number, reason: string,
+		requestId: string): { sheet: RPGTrainerSheet, awarded: boolean, levelsGained: number } {
+		this.requireMasterMode(token);
+		this.requirePlatformTablePermission(token, 'characters.manage');
+		const session = this.getSession(token);
+		const record = this.requireCharacter(toID(characterId));
+		const reward: RPGTrainerXPReward = {
+			kind: 'master', sourceId: requestId, amount, reason, grantedAt: this.now(),
+			grantedBy: session.platformAccountId || 'master',
+		};
+		return this.awardTrainerExperience(record, reward);
+	}
+
+	private awardTrainerExperience(record: RPGStoredCharacter, reward: RPGTrainerXPReward) {
+		const previous = record.state.trainerSheet || createRPGPendingTrainerSheet();
+		const result = awardRPGTrainerXP(previous, reward);
+		if (result.awarded) {
+			record.state.trainerSheet = result.sheet;
+			record.state.updatedAt = this.now();
+			this.repository.set(record);
+		}
+		return { ...result, sheet: structuredClone(result.sheet) };
 	}
 
 	getBank(token: string, characterId?: string): RPGBankView {
@@ -3875,6 +3956,7 @@ export class RPGLoginService {
 		if (session.status === 'ended') return session;
 		return this.persistAtomically(() => {
 			this.persistBattlePokemon(session, result);
+			this.persistBattleTrainerExperience(session, result);
 			this.persistCapture(session, result);
 			this.persistBattleRewards(session, result);
 			this.settleBattleWager(session, result);
@@ -4186,6 +4268,7 @@ export class RPGLoginService {
 	private applyContestResultsTransaction(
 		session: RPGContestSession, results: readonly RPGContestPlacement[]
 	): void {
+		if (session.status === 'cancelled') return;
 		const resultById = new Map(results.map(result => [result.participantId, result]));
 		for (const participant of session.participants) {
 			if (participant.kind !== 'player' || !participant.characterId) continue;
@@ -4210,6 +4293,11 @@ export class RPGLoginService {
 				const pokemon = record.state.team[selection.teamIndex];
 				if (pokemon) applyRPGContestPerformance(pokemon, record.state.id, result.performanceGain);
 			}
+			const podiumXP = rpgContestPodiumXP(session.rank, result.place, result.disqualified);
+			if (podiumXP) this.awardTrainerExperience(record, {
+				kind: 'contest', sourceId: session.id, amount: podiumXP,
+				reason: `${result.place}º lugar no concurso ${session.name} (${session.rank})`, grantedAt: this.now(),
+			});
 			rewarded.push(session.id);
 			record.state.updatedAt = Date.now();
 			this.repository.set(record);
@@ -5128,6 +5216,32 @@ export class RPGLoginService {
 		this.battleSessions.repository.set(session);
 	}
 
+	private persistBattleTrainerExperience(session: RPGBattleSession, result: RPGBattleResult): void {
+		if (!session.rules.grantsExperience || !result.experience?.length) return;
+		for (const [team, side] of [['A', 'p1'], ['B', 'p2']] as const) {
+			let position = 0;
+			for (const participant of session.participants.filter(entry => entry.team === team)) {
+				const positions = new Set<number>();
+				for (const pokemon of participant.pokemon) {
+					if (participant.kind === 'player' && pokemon.teamIndex !== undefined) positions.add(position);
+					position++;
+				}
+				if (participant.kind !== 'player' || !participant.characterId || !positions.size) continue;
+				const gained = result.experience.filter(entry => entry.side === side &&
+					entry.teamPosition !== undefined && positions.has(entry.teamPosition))
+					.reduce((total, entry) => total + entry.gained, 0);
+				if (!Number.isSafeInteger(gained) || gained < 0) throw new Error('XP da batalha inválida');
+				if (!gained) continue;
+				const record = this.requireCharacter(participant.characterId);
+				this.awardTrainerExperience(record, {
+					kind: 'battle', sourceId: session.id, amount: gained,
+					reason: `XP recebida pelos Pokémon na batalha ${session.name}`,
+					grantedAt: this.now(),
+				});
+			}
+		}
+	}
+
 	private persistBattleRewards(session: RPGBattleSession, result: RPGBattleResult): void {
 		const money = result.rewards
 			.filter(reward => ['money', 'currency', 'pokedollar'].includes(toID(reward.type)))
@@ -5170,6 +5284,10 @@ export class RPGLoginService {
 					const earned = profile.badges[badge.regionId] ||= [];
 					if (earned.includes(badgeId)) continue;
 					earned.push(badgeId);
+					this.awardTrainerExperience(record, {
+						kind: 'badge', sourceId: `${badge.regionId}:${badgeId}`, amount: rpgBadgeXP(badge.gymIndex),
+						reason: `Conquista da insígnia ${badgeName}`, grantedAt: this.now(),
+					});
 					result.badgeAwards.push({ characterId: participant.characterId, regionId: badge.regionId,
 						gymIndex: badge.gymIndex, badgeId, badgeName, leaderName: leader.displayName,
 						leaderAvatar: leader.avatar || '' });

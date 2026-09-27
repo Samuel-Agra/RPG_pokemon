@@ -150,7 +150,8 @@ export function completeRPGTrainerSheet(pending: RPGTrainerSheet, input: RPGTrai
 	method: RPGTrainerAttributeMethod): RPGTrainerSheet {
 	if (pending.status !== 'pending') throw new Error('A ficha do treinador já foi concluída');
 	if (!input || typeof input !== 'object' || Array.isArray(input)) throw new Error('Ficha de treinador inválida');
-	const chosenClass = Object.hasOwn(RPG_TRAINER_CLASSES, input.classId) ? RPG_TRAINER_CLASSES[input.classId] : undefined;
+	const chosenClass = Object.prototype.hasOwnProperty.call(RPG_TRAINER_CLASSES, input.classId) ?
+		RPG_TRAINER_CLASSES[input.classId] : undefined;
 	if (!chosenClass) throw new Error('Classe de treinador inválida');
 	const pool = method === 'rolled' ? pending.creation?.rolls : RPG_STANDARD_ATTRIBUTES;
 	if (!pool || (method === 'rolled' && pending.creation?.method !== 'rolled')) {
@@ -186,7 +187,9 @@ export function completeRPGTrainerSheet(pending: RPGTrainerSheet, input: RPGTrai
 			equipped: itemId.startsWith('roupa-') || itemId.startsWith('traje-') ||
 				['forro-termico', 'sistema-resfriamento', 'camada-impermeavel', 'arnes-escalada', 'colete-flutuacao', 'suporte-corrida'].includes(itemId) };
 	});
-	const hp = 10 + chosenClass.hitDie + rpgTrainerModifier(attributes.constitution);
+	const constitution = rpgTrainerModifier(attributes.constitution);
+	const growth = Math.max(1, (chosenClass.hitDie === 6 ? 4 : chosenClass.hitDie === 8 ? 5 : 6) + constitution);
+	const hp = 10 + chosenClass.hitDie + constitution + (pending.level - 1) * growth;
 	return { ...pending, status: 'complete', attributes, classId: chosenClass.id,
 		hitPoints: { current: hp, maximum: hp, temporary: 0 },
 		skills: { trained, focused: [] }, resistances: [chosenClass.resistance],

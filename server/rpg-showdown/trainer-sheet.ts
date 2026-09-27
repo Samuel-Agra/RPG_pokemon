@@ -20,6 +20,10 @@ export interface RPGTrainerSheet {
 	skills: { trained: string[], focused: string[] };
 	resistances: string[];
 	talents: { general: string[], class: string[], apex: string | null };
+	/** Escolhas parametrizadas preservam a variante e o nível de aquisição. */
+	talentSelections?: (import('./trainer-talents').RPGTrainerTalentChoice & { acquiredAtLevel: number })[];
+	/** Condições narrativas ou licenças verificadas pelo Mestre, sem confiar em sinalização do cliente. */
+	talentApprovals?: { key: string, reason: string, approvedBy: string, approvedAt: number }[];
 	/** Contadores próprios do treinador, identificados pela regra que os concede. */
 	resources: Record<string, { current: number, maximum: number }>;
 	/** A primeira série elegível fica vinculada ao personagem antes da distribuição. */
@@ -27,6 +31,9 @@ export interface RPGTrainerSheet {
 	/** Equipamento humano inicial; será integrado ao inventário de exploração. */
 	equipment?: { itemId: string, quantity: number, equipped: boolean, charges?: number }[];
 	proficiencies?: string[];
+	/** Registro da origem impede repetição por atualização, reinício ou nova requisição. */
+	rewards?: import('./trainer-progression').RPGTrainerXPReward[];
+	pendingChoices?: { general: number, class: number, apex: number };
 }
 
 export function createRPGPendingTrainerSheet(): RPGTrainerSheet {

@@ -46,7 +46,7 @@ function validateAttribute(attribute: RPGTrainerAttribute): void {
 function validateSkill(skill: string): string {
 	if (typeof skill !== 'string') throw new Error('Perícia inválida');
 	const family = skill.split(':')[0];
-	if (!Object.hasOwn(RPG_SKILL_ATTRIBUTES, family) ||
+	if (!Object.prototype.hasOwnProperty.call(RPG_SKILL_ATTRIBUTES, family) ||
 		(['conhecimento', 'oficio', 'pilotagem'].includes(family) && !/^[a-z0-9-]{2,40}$/.test(skill.slice(family.length + 1))) ||
 		(!['conhecimento', 'oficio', 'pilotagem'].includes(family) && skill !== family)) {
 		throw new Error('Perícia inválida');
@@ -82,7 +82,7 @@ export function rpgTrainerSkillBonus(sheet: RPGTrainerSheet, skill: string,
 
 export function rpgTrainerResistanceBonus(sheet: RPGTrainerSheet, resistance: RPGTrainerResistance): number {
 	completeSheet(sheet);
-	if (!Object.hasOwn(RESISTANCE_ATTRIBUTE, resistance)) throw new Error('Resistência inválida');
+	if (!Object.prototype.hasOwnProperty.call(RESISTANCE_ATTRIBUTE, resistance)) throw new Error('Resistência inválida');
 	return rpgTrainerAttributeBonus(sheet, RESISTANCE_ATTRIBUTE[resistance]) +
 		(sheet.resistances.includes(resistance) ? rpgTrainerProficiency(sheet.level) : 0);
 }
@@ -216,9 +216,12 @@ export function rpgTrainerDerivedStatistics(sheet: RPGTrainerSheet, options: RPG
 	const strength = sheet.attributes.strength;
 	const dexterity = rpgTrainerAttributeBonus(sheet, 'dexterity');
 	const constitution = rpgTrainerAttributeBonus(sheet, 'constitution');
-	const defenseBase = protection === 'heavy' ? 16 :
+	const martialDefense = sheet.classId === 'artista-marcial' &&
+		protection === 'ordinary' && !options.shield ?
+		10 + dexterity + rpgTrainerAttributeBonus(sheet, 'wisdom') : null;
+	const defenseBase = martialDefense ?? (protection === 'heavy' ? 16 :
 		(protection === 'medium' ? 14 + Math.min(2, dexterity) :
-		(protection === 'light' ? 12 : protection === 'protective-clothing' ? 11 : 10) + dexterity);
+		(protection === 'light' ? 12 : protection === 'protective-clothing' ? 11 : 10) + dexterity));
 	const encumbrance = carriedKg > strength * 7.5 ? 'over-capacity' :
 		carriedKg > strength * 5 ? 'heavily-encumbered' :
 		carriedKg > strength * 2.5 ? 'encumbered' : 'normal';
@@ -227,7 +230,7 @@ export function rpgTrainerDerivedStatistics(sheet: RPGTrainerSheet, options: RPG
 	if (!Number.isFinite(movementBonus) || movementBonus < -20 || movementBonus > 100 || movementBonus * 2 % 1 !== 0) {
 		throw new Error('Bônus de deslocamento inválido');
 	}
-	const movement = Math.max(0, 9 + movementBonus - movementPenalty);
+	const movement = Math.max(0, (sheet.classId === 'atleta' ? 10.5 : 9) + movementBonus - movementPenalty);
 	return {
 		defense: defenseBase + (options.shield ? 2 : 0) + validInteger(options.defenseBonus ?? 0, 'Bônus de Defesa', -100, 100),
 		initiativeBonus: dexterity,
