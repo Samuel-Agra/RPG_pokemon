@@ -149,6 +149,7 @@ export * from './shop-management';
 export * from './account-management';
 export * from './trainer-sheet';
 export * from './trainer-creation';
+export * from './trainer-checks';
 
 export const RPG_ACCOUNT_VERSION = 5;
 export const RPG_SESSION_VERSION = 1;
