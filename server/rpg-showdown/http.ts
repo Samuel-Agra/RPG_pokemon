@@ -383,6 +383,12 @@ export class RPGHttpServer {
 				url.searchParams.get('characterId') || undefined));
 			return;
 		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/survival') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.applyTrainerSurvival(this.token(req),
+				this.string(body.characterId), body.action as import('./trainer-survival').RPGTrainerSurvivalAction));
+			return;
+		}
 		if (url.pathname === '/api/rpg/trainer/talents') {
 			if (method === 'GET') {
 				this.json(res, 200, this.login.getTrainerTalents(this.token(req),

@@ -34,6 +34,8 @@ export interface RPGTrainerSheet {
 	/** Registro da origem impede repetição por atualização, reinício ou nova requisição. */
 	rewards?: import('./trainer-progression').RPGTrainerXPReward[];
 	pendingChoices?: { general: number, class: number, apex: number };
+	/** Estado exclusivamente humano; nunca é usado pelo simulador de Pokémon. */
+	survival?: import('./trainer-survival').RPGTrainerSurvival;
 }
 
 export function createRPGPendingTrainerSheet(): RPGTrainerSheet {

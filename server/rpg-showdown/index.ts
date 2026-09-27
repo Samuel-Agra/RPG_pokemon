@@ -63,6 +63,12 @@ import {
 } from './contest-scoring';
 import { RPGMySQLPersistence, rpgMySQLConfig } from './database/mysql-persistence';
 import { createRPGPendingTrainerSheet, type RPGTrainerSheet } from './trainer-sheet';
+import {
+	rpgTrainerAddExhaustion, rpgTrainerAddWound, rpgTrainerApplyCondition, rpgTrainerConditionTick,
+	rpgTrainerDeathSave, rpgTrainerHeal, rpgTrainerRemoveCondition, rpgTrainerRest,
+	rpgTrainerStabilize, rpgTrainerStartRest, rpgTrainerTakeDamage, rpgTrainerTreatWound,
+	type RPGTrainerSurvivalAction,
+} from './trainer-survival';
 import { RPG_TRAINER_CLASS_FEATURES } from './trainer-class-features';
 import {
 	chooseRPGTrainerTalent, rpgTrainerTalentCatalog, RPG_TALENT_APPROVAL_KEYS, type RPGTrainerTalentChoice,
@@ -162,6 +168,7 @@ export * from './trainer-progression';
 export * from './trainer-class-features';
 export * from './trainer-talents-catalog';
 export * from './trainer-talents';
+export * from './trainer-survival';
 
 export const RPG_ACCOUNT_VERSION = 5;
 export const RPG_SESSION_VERSION = 1;
@@ -1778,6 +1785,56 @@ export class RPGLoginService {
 		const state = this.getCharacter(token, characterId);
 		const sheet = state.trainerSheet || createRPGPendingTrainerSheet();
 		return { sheet, xpToNextLevel: rpgTrainerXPToNextLevel(sheet.experience) };
+	}
+
+	/** Alterações da sobrevivência humana são arbitradas pelo Mestre e persistidas com a ficha. */
+	applyTrainerSurvival(token: string, characterId: string, action: RPGTrainerSurvivalAction) {
+		this.requireMasterMode(token);
+		this.requirePlatformTablePermission(token, 'characters.manage');
+		const record = this.requireCharacter(toID(characterId));
+		const sheet = record.state.trainerSheet || createRPGPendingTrainerSheet();
+		if (!action || typeof action !== 'object') throw new Error('Ação de sobrevivência inválida');
+		let next: RPGTrainerSheet;
+		let result: Record<string, unknown> = {};
+		switch (action.type) {
+			case 'damage':
+				next = rpgTrainerTakeDamage(sheet, action.amount, action); break;
+			case 'heal':
+				next = rpgTrainerHeal(sheet, action.amount); break;
+			case 'death-save': {
+				const outcome = rpgTrainerDeathSave(sheet, this.random);
+				next = outcome.sheet; result = { natural: outcome.natural }; break;
+			}
+			case 'stabilize':
+				next = rpgTrainerStabilize(sheet); break;
+			case 'exhaustion':
+				next = rpgTrainerAddExhaustion(sheet, action.levels); break;
+			case 'condition-add':
+				next = rpgTrainerApplyCondition(sheet, action.condition); break;
+			case 'condition-remove':
+				next = rpgTrainerRemoveCondition(sheet, action.conditionId); break;
+			case 'condition-tick': {
+				const outcome = rpgTrainerConditionTick(sheet, this.random);
+				next = outcome.sheet; result = { damage: outcome.damage, actionLost: outcome.actionLost }; break;
+			}
+			case 'wound-add':
+				next = rpgTrainerAddWound(sheet, action.woundId, action.description); break;
+			case 'wound-treat':
+				next = rpgTrainerTreatWound(sheet, action.woundId); break;
+			case 'rest-start':
+				next = rpgTrainerStartRest(sheet, action.kind,
+					Date.parse(this.campaignSettings.currentDateTime)); break;
+			case 'rest': {
+				const outcome = rpgTrainerRest(sheet, action.kind,
+					Date.parse(this.campaignSettings.currentDateTime), action, this.random);
+				next = outcome.sheet; result = { recovered: outcome.recovered }; break;
+			}
+			default: throw new Error('Ação de sobrevivência inválida');
+		}
+		record.state.trainerSheet = next;
+		record.state.updatedAt = this.now();
+		this.repository.set(record);
+		return { sheet: structuredClone(next), ...result };
 	}
 
 	getTrainerTalents(token: string, characterId?: string) {

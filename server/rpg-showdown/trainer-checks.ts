@@ -1,5 +1,6 @@
 import { rpgTrainerModifier } from './trainer-creation';
 import type { RPGTrainerAttributes, RPGTrainerSheet } from './trainer-sheet';
+import { rpgTrainerSurvivalEffects } from './trainer-survival';
 
 export type RPGTrainerAttribute = keyof RPGTrainerAttributes;
 export type RPGTrainerResistance = 'fortitude' | 'reflexes' | 'will';
@@ -77,14 +78,16 @@ export function rpgTrainerSkillBonus(sheet: RPGTrainerSheet, skill: string,
 	const selectedAttribute = attribute || RPG_SKILL_ATTRIBUTES[family][0];
 	// O Mestre pode escolher outro atributo quando a abordagem justificar.
 	const modifier = rpgTrainerAttributeBonus(sheet, selectedAttribute);
-	return modifier + (sheet.skills.focused.includes(skill) ? 2 : trained ? 1 : 0) * rpgTrainerProficiency(sheet.level);
+	return modifier + (sheet.skills.focused.includes(skill) ? 2 : trained ? 1 : 0) * rpgTrainerProficiency(sheet.level) -
+		rpgTrainerSurvivalEffects(sheet).checkPenalty;
 }
 
 export function rpgTrainerResistanceBonus(sheet: RPGTrainerSheet, resistance: RPGTrainerResistance): number {
 	completeSheet(sheet);
 	if (!Object.prototype.hasOwnProperty.call(RESISTANCE_ATTRIBUTE, resistance)) throw new Error('Resistência inválida');
 	return rpgTrainerAttributeBonus(sheet, RESISTANCE_ATTRIBUTE[resistance]) +
-		(sheet.resistances.includes(resistance) ? rpgTrainerProficiency(sheet.level) : 0);
+		(sheet.resistances.includes(resistance) ? rpgTrainerProficiency(sheet.level) : 0) -
+		rpgTrainerSurvivalEffects(sheet).resistancePenalty;
 }
 
 export interface RPGD20Options {
@@ -142,7 +145,7 @@ function check(bonus: number, options: RPGTrainerCheckOptions, random: () => num
 
 export function rollRPGTrainerAttributeCheck(sheet: RPGTrainerSheet, attribute: RPGTrainerAttribute,
 	options: RPGTrainerCheckOptions, random: () => number = Math.random) {
-	return check(rpgTrainerAttributeBonus(sheet, attribute), options, random);
+	return check(rpgTrainerAttributeBonus(sheet, attribute) - rpgTrainerSurvivalEffects(sheet).checkPenalty, options, random);
 }
 
 export function rollRPGTrainerSkillCheck(sheet: RPGTrainerSheet, skill: string, attribute: RPGTrainerAttribute | undefined,
@@ -186,7 +189,8 @@ export function rpgPassiveScore(bonus: number, options: RPGD20Options = {}): num
 
 export function rpgTrainerEffectDC(sheet: RPGTrainerSheet, attribute: RPGTrainerAttribute): number {
 	completeSheet(sheet);
-	return 8 + rpgTrainerProficiency(sheet.level) + rpgTrainerAttributeBonus(sheet, attribute);
+	return 8 + rpgTrainerProficiency(sheet.level) + rpgTrainerAttributeBonus(sheet, attribute) -
+		rpgTrainerSurvivalEffects(sheet).dcPenalty;
 }
 
 export function rpgPokemonEffectDC(level: number, power: 0 | 1 | 2 | 3): number {
@@ -230,7 +234,9 @@ export function rpgTrainerDerivedStatistics(sheet: RPGTrainerSheet, options: RPG
 	if (!Number.isFinite(movementBonus) || movementBonus < -20 || movementBonus > 100 || movementBonus * 2 % 1 !== 0) {
 		throw new Error('Bônus de deslocamento inválido');
 	}
-	const movement = Math.max(0, (sheet.classId === 'atleta' ? 10.5 : 9) + movementBonus - movementPenalty);
+	const survival = rpgTrainerSurvivalEffects(sheet);
+	const movement = Math.max(0, (sheet.classId === 'atleta' ? 10.5 : 9) + movementBonus -
+		movementPenalty - survival.movementPenaltyMeters) * survival.movementMultiplier;
 	return {
 		defense: defenseBase + (options.shield ? 2 : 0) + validInteger(options.defenseBonus ?? 0, 'Bônus de Defesa', -100, 100),
 		initiativeBonus: dexterity,
@@ -248,7 +254,8 @@ export function rollRPGTrainerInitiative(sheet: RPGTrainerSheet, random: () => n
 	options: RPGD20Options = {}) {
 	const roll = rollRPGD20(random, options);
 	const dexterityBonus = rpgTrainerAttributeBonus(sheet, 'dexterity');
-	return { ...roll, dexterityBonus, total: roll.natural + dexterityBonus };
+	return { ...roll, dexterityBonus, total: roll.natural + dexterityBonus -
+		rpgTrainerSurvivalEffects(sheet).checkPenalty };
 }
 
 /** Em igualdade de total, prevalece DES; só depois ocorre o desempate aleatório. */
@@ -267,7 +274,8 @@ export function rpgInitiativeOrder(first: { total: number, dexterityBonus: numbe
 export function rpgTrainerAttackBonus(sheet: RPGTrainerSheet, attribute: RPGTrainerAttribute,
 	proficient: boolean): number {
 	if (typeof proficient !== 'boolean') throw new Error('Domínio da arma inválido');
-	return rpgTrainerAttributeBonus(sheet, attribute) + (proficient ? rpgTrainerProficiency(sheet.level) : 0);
+	return rpgTrainerAttributeBonus(sheet, attribute) + (proficient ? rpgTrainerProficiency(sheet.level) : 0) -
+		rpgTrainerSurvivalEffects(sheet).attackPenalty;
 }
 
 /** Críticos automáticos pertencem apenas aos ataques humanos, nunca aos testes ou golpes Pokémon. */
