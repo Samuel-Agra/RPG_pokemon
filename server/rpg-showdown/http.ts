@@ -383,6 +383,44 @@ export class RPGHttpServer {
 				url.searchParams.get('characterId') || undefined));
 			return;
 		}
+		if (url.pathname === '/api/rpg/trainer/equipment') {
+			if (method === 'GET') {
+				this.json(res, 200, this.login.getTrainerEquipment(this.token(req),
+					url.searchParams.get('characterId') || undefined));
+				return;
+			}
+			if (method === 'POST') {
+				const body = await this.body(req);
+				this.json(res, 200, this.login.changeTrainerEquipment(this.token(req),
+					body as unknown as Parameters<RPGLoginService['changeTrainerEquipment']>[1]));
+				return;
+			}
+		}
+		if (method === 'GET' && url.pathname === '/api/rpg/trainer/equipment/offers') {
+			this.json(res, 200, { offers: this.login.getTrainerEquipmentOffers(this.token(req),
+				this.string(url.searchParams.get('shopId')), url.searchParams.get('characterId') || undefined) });
+			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/equipment/offer') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.setTrainerEquipmentOffer(this.token(req),
+				this.string(body.shopId), this.string(body.itemId), Number(body.stock),
+				body.price === undefined ? undefined : Number(body.price)));
+			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/equipment/license') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.setTrainerLicense(this.token(req),
+				this.string(body.characterId), body.license as import('./trainer-equipment').RPGLicense,
+				body.waiveFee === true));
+			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/equipment/domain') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.grantTrainerKitDomain(this.token(req),
+				this.string(body.characterId), this.string(body.domain)));
+			return;
+		}
 		if (method === 'POST' && url.pathname === '/api/rpg/trainer/survival') {
 			const body = await this.body(req);
 			this.json(res, 200, this.login.applyTrainerSurvival(this.token(req),

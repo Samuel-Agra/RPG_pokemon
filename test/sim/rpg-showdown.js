@@ -1387,7 +1387,7 @@ describe('RPG Showdown', () => {
 			{ itemId: 'Poke Ball', quantity: 15 },
 			{ itemId: 'revive', quantity: 2 },
 		]);
-		assert.equal(original.version, 5);
+		assert.equal(original.version, 6);
 		assert.equal(original.revision, 0);
 		assert.equal(RPGBagSystem.getQuantity(original, 'pokeball'), 15);
 
@@ -1414,6 +1414,18 @@ describe('RPG Showdown', () => {
 		assert.throws(() => RPGBagSystem.add(limited, 'pokeball', 1, 99), /revision conflict/);
 		assert.equal(RPGBagSystem.getQuantity(limited, 'pokeball'), 1);
 		assert.equal(limited.revision, 0);
+	});
+
+	it('should reserve shared Bag slots for human equipment across migrations and Pokemon purchases', () => {
+		const bag = RPGBagSystem.create('trainer-with-gear', [{ itemId: 'pokeball', quantity: 10 }],
+			{ maxSlots: 4, generalReservedSlots: 3 });
+		assert.deepEqual(RPGBagSystem.getCapacity(bag), {
+			usedSlots: 4, maxSlots: 4, freeSlots: 0, full: true,
+		});
+		assert.throws(() => RPGBagSystem.add(bag, 'potion', 1), /no free slots/);
+		const restored = RPGBagSystem.migrate(JSON.parse(JSON.stringify(bag)));
+		assert.equal(restored.generalReservedSlots, 3);
+		assert.equal(RPGBagSystem.getUsedSlots(restored), 4);
 	});
 
 	it('should count every stored item type as one Bag slot across all categories', () => {
@@ -1473,7 +1485,7 @@ describe('RPG Showdown', () => {
 		const restored = RPGBagSystem.migrate(JSON.parse(JSON.stringify({
 			ownerId: 'player-3', revision: 7, items: [{ itemId: 'maxrevive', quantity: 3 }],
 		})));
-		assert.equal(restored.version, 5);
+		assert.equal(restored.version, 6);
 		assert.equal(restored.revision, 7);
 		assert.equal(RPGBagSystem.getQuantity(restored, 'maxrevive'), 3);
 		assert.throws(() => RPGBagSystem.migrate({
@@ -2213,9 +2225,9 @@ describe('RPG Showdown', () => {
 
 	it('should price and purchase cumulative Bag tier upgrades atomically', () => {
 		assert.deepEqual(RPG_BAG_TIERS.starter, {
-			id: 'starter', name: 'Starter Bag', maxSlots: 10, unlockPrice: 0,
+			id: 'starter', name: 'Starter Bag', maxSlots: 15, unlockPrice: 0,
 		});
-		assert.equal(RPG_BAG_TIERS.legendary.maxSlots, 60);
+		assert.equal(RPG_BAG_TIERS.legendary.maxSlots, 65);
 		assert.equal(RPG_BAG_TIERS.legendary.unlockPrice, 260000);
 
 		const account = RPGShopSystem.createAccount(
@@ -2228,7 +2240,7 @@ describe('RPG Showdown', () => {
 			actionId: 'bag:trainer', targetTier: 'trainer',
 		});
 		assert.equal(trainer.account.balance, 490000);
-		assert.equal(trainer.account.bag.maxSlots, 20);
+		assert.equal(trainer.account.bag.maxSlots, 25);
 		assert.equal(trainer.transaction.total, 10000);
 		assert.equal(trainer.transaction.type, 'bag-upgrade');
 		assert.equal(trainer.transaction.bagTier, 'trainer');
@@ -2237,10 +2249,10 @@ describe('RPG Showdown', () => {
 			actionId: 'bag:expert', targetTier: 'expert',
 		});
 		assert.equal(expert.account.balance, 430000);
-		assert.equal(expert.account.bag.maxSlots, 40);
+		assert.equal(expert.account.bag.maxSlots, 45);
 		assert.equal(expert.transaction.total, 60000);
 		assert.equal(account.balance, 500000);
-		assert.equal(account.bag.maxSlots, 10);
+		assert.equal(account.bag.maxSlots, 15);
 
 		const replay = RPGShopSystem.upgradeBag(expert.account, expert.catalog, {
 			actionId: 'bag:expert', targetTier: 'expert',
@@ -2266,7 +2278,7 @@ describe('RPG Showdown', () => {
 		});
 		assert.equal(upgraded.transaction.total, 90000);
 		assert.equal(upgraded.account.balance, 10000);
-		assert.equal(upgraded.account.bag.maxSlots, 30);
+		assert.equal(upgraded.account.bag.maxSlots, 35);
 
 		const poor = RPGShopSystem.createAccount(
 			'poor-bag-player',
@@ -2278,7 +2290,7 @@ describe('RPG Showdown', () => {
 			actionId: 'bag:too-expensive', targetTier: 'trainer',
 		}), /Not enough Pokedollars/);
 		assert.equal(poor.balance, 1000);
-		assert.equal(poor.bag.maxSlots, 10);
+		assert.equal(poor.bag.maxSlots, 15);
 
 		assert.throws(() => RPGShopSystem.upgradeBag(upgraded.account, upgraded.catalog, {
 			actionId: 'bag:downgrade', targetTier: 'trainer',

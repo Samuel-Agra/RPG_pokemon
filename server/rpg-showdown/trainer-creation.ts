@@ -70,7 +70,7 @@ export const RPG_TRAINER_CLASSES: Readonly<Record<string, ClassRule>> = Object.f
 		`${DISGUISE} refil-disfarce ${LIGHT}`, { traje: SOCIAL }),
 	rule('explorador', 'Explorador', 10, 'fortitude', 'natureza percepcao sobrevivencia', 2,
 		'atuacao enganacao intimidacao ladinagem persuasao',
-		`${EXPLORER} ${SURVIVAL} ${LIGHT} flecha*10`,
+		`${EXPLORER} ${SURVIVAL} ${LIGHT} flecha`,
 		{ arco: ['arco-curto', 'arco-longo'], melhoria: ['forro-termico', 'sistema-resfriamento', 'camada-impermeavel', 'arnes-escalada', 'colete-flutuacao'] }),
 	rule('fotografo', 'Fotógrafo', 8, 'reflexes', 'oficio:fotografia percepcao', 3,
 		'enganacao intimidacao ladinagem medicina medicina-pokemon montaria-pokemon',

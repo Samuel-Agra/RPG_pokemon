@@ -28,7 +28,7 @@ export interface RPGTrainerSheet {
 	resources: Record<string, { current: number, maximum: number }>;
 	/** A primeira série elegível fica vinculada ao personagem antes da distribuição. */
 	creation?: { method: 'standard' | 'rolled', rolls: number[] | null };
-	/** Equipamento humano inicial; será integrado ao inventário de exploração. */
+	/** Escolhas do equipamento inicial; instâncias, cargas e armazenamento ficam em trainerInventory. */
 	equipment?: { itemId: string, quantity: number, equipped: boolean, charges?: number }[];
 	proficiencies?: string[];
 	/** Registro da origem impede repetição por atualização, reinício ou nova requisição. */

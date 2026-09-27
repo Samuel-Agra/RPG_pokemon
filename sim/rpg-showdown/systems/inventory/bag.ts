@@ -42,6 +42,8 @@ export interface RPGBagState {
 	/** Todos os tipos guardados contam uma vaga: bolas, TMs, equipáveis, itens-chave etc. */
 	/** Ausente significa sem limite de tipos diferentes. */
 	maxSlots?: number;
+	/** Espaços ocupados pelos equipamentos humanos guardados na mesma Bag. */
+	generalReservedSlots?: number;
 	items: RPGBagEntry[];
 	/** IDs favoritos que ainda possuem quantidade na Bag. */
 	favorites: string[];
@@ -80,7 +82,7 @@ export class RPGBagSystem {
 		ownerId: string,
 		items: readonly RPGBagEntry[] = [],
 		options: {
-			revision?: number, maxSlots?: number, favorites?: readonly string[],
+			revision?: number, maxSlots?: number, generalReservedSlots?: number, favorites?: readonly string[],
 			missionItems?: readonly string[], missionQuantities?: Readonly<Record<string, number>>,
 			missionNotes?: Readonly<Record<string, string>>,
 			registry?: RPGItemRegistry,
@@ -92,6 +94,9 @@ export class RPGBagSystem {
 		if (options.maxSlots !== undefined && (!Number.isSafeInteger(options.maxSlots) || options.maxSlots < 1)) {
 			throw new Error('RPG Bag maxSlots must be a positive integer');
 		}
+		if (options.generalReservedSlots !== undefined && (!Number.isSafeInteger(options.generalReservedSlots) || options.generalReservedSlots < 0)) {
+			throw new Error('Invalid RPG Bag equipment slots');
+		}
 		const normalizedIds = items.map(item => RPGItemRegistry.normalizeId(item.itemId));
 		if (new Set(normalizedIds).size !== normalizedIds.length) throw new Error('RPG Bag cannot contain duplicated items');
 		const bag: RPGBagState = {
@@ -99,6 +104,7 @@ export class RPGBagSystem {
 			ownerId: ownerId.trim(),
 			revision,
 			maxSlots: options.maxSlots,
+			generalReservedSlots: options.generalReservedSlots || 0,
 			items: [],
 			favorites: [],
 			missionItems: [],
@@ -200,6 +206,7 @@ export class RPGBagSystem {
 		return this.create(input.ownerId || '', items, {
 			revision: input.revision ?? 0,
 			maxSlots,
+			generalReservedSlots: input.generalReservedSlots,
 			favorites: input.favorites,
 			missionItems: input.missionItems,
 			missionQuantities: input.missionQuantities,
@@ -210,7 +217,7 @@ export class RPGBagSystem {
 
 	/** Cada itemId presente usa exatamente uma vaga, independentemente da quantidade ou categoria. */
 	static getUsedSlots(bag: RPGBagState): number {
-		return bag.items.length;
+		return bag.items.length + (bag.generalReservedSlots || 0);
 	}
 
 	static getFreeSlots(bag: RPGBagState): number | undefined {
@@ -288,7 +295,9 @@ export class RPGBagSystem {
 			if (next) quantities.set(item.id, next);
 			else quantities.delete(item.id);
 		}
-		if (bag.maxSlots !== undefined && quantities.size > bag.maxSlots) throw new Error('RPG Bag has no free slots');
+		if (bag.maxSlots !== undefined && quantities.size + (bag.generalReservedSlots || 0) > bag.maxSlots) {
+			throw new Error('RPG Bag has no free slots');
+		}
 
 		const ids = new Set([...previous.keys(), ...quantities.keys()]);
 		const changes = [...ids]
@@ -409,6 +418,9 @@ export class RPGBagSystem {
 		if (bag.maxSlots !== undefined && (!Number.isSafeInteger(bag.maxSlots) || bag.maxSlots < 1)) {
 			throw new Error('Invalid RPG Bag maxSlots');
 		}
+		if (bag.generalReservedSlots !== undefined && (!Number.isSafeInteger(bag.generalReservedSlots) || bag.generalReservedSlots < 0)) {
+			throw new Error('Invalid RPG Bag equipment slots');
+		}
 		if (!Array.isArray(bag.items)) throw new Error('RPG Bag requires an items array');
 		if (!Array.isArray(bag.favorites)) throw new Error('RPG Bag requires a favorites array');
 		if (!Array.isArray(bag.missionItems)) throw new Error('RPG Bag requires a missionItems array');
@@ -429,7 +441,9 @@ export class RPGBagSystem {
 			}
 			ids.add(item.id);
 		}
-		if (bag.maxSlots !== undefined && ids.size > bag.maxSlots) throw new Error('RPG Bag has no free slots');
+		if (bag.maxSlots !== undefined && ids.size + (bag.generalReservedSlots || 0) > bag.maxSlots) {
+			throw new Error('RPG Bag has no free slots');
+		}
 		const favorites = new Set<string>();
 		for (const itemId of bag.favorites) {
 			const id = registry.require(itemId).id;

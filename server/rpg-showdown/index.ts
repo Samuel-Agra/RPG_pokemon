@@ -64,6 +64,12 @@ import {
 import { RPGMySQLPersistence, rpgMySQLConfig } from './database/mysql-persistence';
 import { createRPGPendingTrainerSheet, type RPGTrainerSheet } from './trainer-sheet';
 import {
+	RPG_EQUIPMENT_CATALOG, rpgAssertEquipmentLicense, rpgEquipment, rpgEquipmentSlots,
+	rpgEquipmentWeight, rpgInitialTrainerInventory, rpgCanAcquireKitDomain, rpgEquipmentDerivedOptions,
+	type RPGEquipmentInstance, type RPGTrainerInventory, type RPGLicense,
+} from './trainer-equipment';
+import { rpgTrainerDerivedStatistics } from './trainer-checks';
+import {
 	rpgTrainerAddExhaustion, rpgTrainerAddWound, rpgTrainerApplyCondition, rpgTrainerConditionTick,
 	rpgTrainerDeathSave, rpgTrainerHeal, rpgTrainerRemoveCondition, rpgTrainerRest,
 	rpgTrainerStabilize, rpgTrainerStartRest, rpgTrainerTakeDamage, rpgTrainerTreatWound,
@@ -169,6 +175,7 @@ export * from './trainer-class-features';
 export * from './trainer-talents-catalog';
 export * from './trainer-talents';
 export * from './trainer-survival';
+export * from './trainer-equipment';
 
 export const RPG_ACCOUNT_VERSION = 5;
 export const RPG_SESSION_VERSION = 1;
@@ -282,6 +289,7 @@ export interface RPGCharacterState extends RPGCharacterSelection {
 	bank?: RPGBankAccount;
 	profile?: RPGTrainerProfile;
 	trainerSheet?: RPGTrainerSheet;
+	trainerInventory?: RPGTrainerInventory;
 	team: PokemonSet[];
 	teamPresets?: RPGTeamPreset[];
 	/** Presentation-only Eggs that reserve party slots; never persisted as battle Pokémon. */
@@ -773,6 +781,7 @@ export class RPGLoginService {
 		name: string, currentDateTime: string, quickNotes: string, events: RPGCampaignEvent[],
 		playerNotes: Record<string, string>, sceneNpcIds: string[], sceneNpcRevealed: Record<string, number[]>,
 		trainerAttributeMethod: RPGTrainerAttributeMethod,
+		equipmentOffers: Record<string, Record<string, { stock: number, price: number }>>,
 	};
 	readonly mysqlPersistence?: RPGMySQLPersistence;
 	readonly accounts: RPGAccountManagement;
@@ -811,11 +820,15 @@ export class RPGLoginService {
 		this.campaignSettings = {
 			name: 'Minha campanha', currentDateTime: new Date(this.now()).toISOString(), quickNotes: '', events: [],
 			playerNotes: {}, sceneNpcIds: [], sceneNpcRevealed: {}, trainerAttributeMethod: 'standard',
+			equipmentOffers: {},
 		};
 		const initialCampaignSettings = options.campaignSettings || (this.campaignSettingsFile && existsSync(this.campaignSettingsFile) ?
 			JSON.parse(readFileSync(this.campaignSettingsFile, 'utf8')) as Record<string, unknown> : null);
 		if (initialCampaignSettings) {
 			const stored = initialCampaignSettings as Partial<typeof this.campaignSettings>;
+			if (stored.equipmentOffers && typeof stored.equipmentOffers === 'object' && !Array.isArray(stored.equipmentOffers)) {
+				this.campaignSettings.equipmentOffers = structuredClone(stored.equipmentOffers);
+			}
 			if (stored.trainerAttributeMethod === 'rolled') this.campaignSettings.trainerAttributeMethod = 'rolled';
 			if (typeof stored.name === 'string' && stored.name.trim()) this.campaignSettings.name = stored.name.trim().slice(0, 80);
 			if (typeof stored.currentDateTime === 'string' && Number.isFinite(Date.parse(stored.currentDateTime))) {
@@ -1774,11 +1787,400 @@ export class RPGLoginService {
 		const sheet = completeRPGTrainerSheet(pending, input, this.campaignSettings.trainerAttributeMethod);
 		const money = record.state.money + (RPG_TRAINER_CLASSES[sheet.classId!].money || 0);
 		if (!Number.isSafeInteger(money) || money > 10_000_000) throw new Error('Limite de Pokécoin excedido');
+		const trainerInventory = rpgInitialTrainerInventory(sheet);
+		const pokemonGear = (sheet.equipment || []).filter(entry => !RPG_EQUIPMENT_CATALOG[entry.itemId]);
+		const inventory = RPGInventorySystem.migrate(record.state.inventory);
+		const reserved = rpgEquipmentSlots(trainerInventory.items);
+		const bag = { ...inventory.bag, generalReservedSlots: reserved };
+		if (pokemonGear.length) {
+			inventory.bag = RPGBagSystem.apply(bag, pokemonGear.map(entry => ({
+				type: 'add' as const, itemId: entry.itemId, quantity: entry.quantity,
+			})), bag.revision).bag;
+		} else if (bag.maxSlots !== undefined && RPGBagSystem.getUsedSlots(bag) > bag.maxSlots) {
+			throw new Error('O equipamento inicial não cabe na Bag');
+		} else inventory.bag = bag;
 		record.state.trainerSheet = sheet;
+		record.state.trainerInventory = trainerInventory;
+		record.state.inventory = inventory;
 		record.state.money = money;
 		record.state.updatedAt = this.now();
 		this.repository.set(record);
 		return structuredClone(sheet);
+	}
+
+	/** Itens humanos são instâncias: duas unidades podem ter cargas e destinos diferentes. */
+	private ensureTrainerInventory(record: RPGStoredCharacter): RPGTrainerInventory {
+		if (!record.state.trainerInventory) {
+			const inventory = rpgInitialTrainerInventory(record.state.trainerSheet || createRPGPendingTrainerSheet());
+			const bag = record.state.inventory.bag;
+			// Fichas anteriores ganham suas instâncias sem descartar itens caso a Bag já esteja cheia.
+			while (bag.maxSlots !== undefined && bag.items.length + rpgEquipmentSlots(inventory.items) > bag.maxSlots) {
+				const overflow = [...inventory.items].reverse().find(entry => entry.location === 'bag' && !entry.equipped);
+				if (!overflow) break;
+				overflow.location = 'bank';
+			}
+			record.state.trainerInventory = inventory;
+		}
+		record.state.trainerInventory.pokemonStorage ||= [];
+		record.state.inventory.bag.generalReservedSlots = rpgEquipmentSlots(record.state.trainerInventory.items);
+		return record.state.trainerInventory;
+	}
+
+	private validateTrainerInventory(record: RPGStoredCharacter): void {
+		const equipment = this.ensureTrainerInventory(record);
+		const bag = RPGInventorySystem.migrate(record.state.inventory).bag;
+		const reserved = rpgEquipmentSlots(equipment.items);
+		const max = bag.maxSlots;
+		if (max !== undefined && bag.items.length + reserved > max) throw new Error('A Bag não tem espaços suficientes');
+		const strength = record.state.trainerSheet?.attributes?.strength || 10;
+		const bagWeight = ({ starter: 1, trainer: 1.5, adventurer: 2.5, expert: 3.5, master: 5, legendary: 6.5 })[
+			RPGBagSystem.getTier(bag) || 'starter'];
+		const carried = rpgEquipmentWeight(equipment.items, 'bag') + bag.items.reduce((sum, item) => sum + item.quantity * 0.1, 0) + bagWeight;
+		if (carried > strength * 7.5 + 1e-9) throw new Error('O peso excede a capacidade máxima do treinador');
+		const slots = new Set<string>();
+		const instanceIds = new Set<string>();
+		for (const entry of equipment.items) {
+			const item = rpgEquipment(entry.itemId);
+			if (!entry.id || instanceIds.has(entry.id) ||
+				!['bag', 'bank', 'vehicle'].includes(entry.location)) throw new Error('Instância de equipamento inválida');
+			instanceIds.add(entry.id);
+			if (!Number.isSafeInteger(entry.quantity) || entry.quantity < 1 || entry.quantity > item.stackLimit) {
+				throw new Error('Pilha de equipamento inválida');
+			}
+			if (entry.charges !== undefined && (item.maxCharges === undefined || !Number.isSafeInteger(entry.charges) ||
+				entry.charges < 0 || entry.charges > item.maxCharges)) throw new Error('Cargas inválidas');
+			if (entry.equipped) {
+				if (entry.location !== 'bag' || !item.equipSlot || entry.quantity !== 1) throw new Error('Equipamento não pode ser vestido');
+				if (item.equipSlot !== 'accessory' && slots.has(item.equipSlot)) throw new Error('Espaço de equipamento ocupado');
+				slots.add(item.equipSlot);
+			}
+			if (item.vehicle && entry.location === 'bag') throw new Error('Veículos devem ficar na garagem ou no banco');
+			if (entry.location === 'vehicle') {
+				if (!item.vehicle && !entry.vehicleId) throw new Error('Carga sem veículo');
+				if (entry.vehicleId && !equipment.items.some(owner => owner.id === entry.vehicleId &&
+					rpgEquipment(owner.itemId).vehicle && owner.location === 'vehicle')) throw new Error('Veículo da carga indisponível');
+			}
+		}
+		if (slots.has('body-improvement') && !slots.has('body-outfit')) throw new Error('A melhoria de corpo exige um traje');
+		if (slots.has('head-improvement') && !slots.has('body-outfit')) throw new Error('A melhoria de cabeça exige um traje');
+		for (const stored of equipment.pokemonStorage || []) {
+			const item = RPGItems.require(stored.itemId);
+			if (!Number.isSafeInteger(stored.quantity) || stored.quantity < 1 || stored.quantity > item.stackLimit ||
+				!['bank', 'vehicle'].includes(stored.location) ||
+				(stored.location === 'vehicle' && !equipment.items.some(vehicle => vehicle.id === stored.vehicleId &&
+					vehicle.location === 'vehicle' && rpgEquipment(vehicle.itemId).vehicle))) {
+				throw new Error('Item Pokémon armazenado inválido');
+			}
+		}
+		for (const vehicle of equipment.items.filter(entry => rpgEquipment(entry.itemId).vehicle && entry.location === 'vehicle')) {
+			const spec = rpgEquipment(vehicle.itemId).vehicle!;
+			const cargo = equipment.items.filter(entry => entry.vehicleId === vehicle.id);
+			const pokemonCargo = (equipment.pokemonStorage || []).filter(entry => entry.vehicleId === vehicle.id);
+			if (rpgEquipmentSlots(cargo, 'vehicle') + pokemonCargo.length > spec.cargoSpaces ||
+				rpgEquipmentWeight(cargo, 'vehicle') + pokemonCargo.reduce((sum, entry) => sum + entry.quantity * 0.1, 0) > spec.cargoKg) {
+				throw new Error('Carga excede a capacidade do veículo');
+			}
+		}
+		record.state.inventory = { ...record.state.inventory, bag: { ...bag, generalReservedSlots: reserved } };
+	}
+
+	getTrainerEquipment(token: string, characterId?: string) {
+		const record = this.requireBagRecord(token, characterId, 'bag:read');
+		const equipment = this.ensureTrainerInventory(record);
+		const bag = record.state.inventory.bag;
+		const bagWeight = ({ starter: 1, trainer: 1.5, adventurer: 2.5, expert: 3.5, master: 5, legendary: 6.5 })[
+			RPGBagSystem.getTier(bag) || 'starter'];
+		const derived = record.state.trainerSheet?.status === 'complete' ?
+			rpgTrainerDerivedStatistics(record.state.trainerSheet, rpgEquipmentDerivedOptions(record.state.trainerSheet,
+				equipment, bag.items.reduce((total, entry) => total + entry.quantity, 0), bagWeight)) : null;
+		return { inventory: structuredClone(equipment), catalog: RPG_EQUIPMENT_CATALOG,
+			capacity: RPGBagSystem.getCapacity({ ...bag, generalReservedSlots: rpgEquipmentSlots(equipment.items) }),
+			derived };
+	}
+
+	getTrainerEquipmentOffers(token: string, shopId: string, characterId?: string) {
+		const record = this.requireBagRecord(token, characterId, 'bag:read', true);
+		this.requireCommerceAccess(token, record, shopId);
+		return structuredClone(this.campaignSettings.equipmentOffers[shopId] || {});
+	}
+
+	setTrainerEquipmentOffer(token: string, shopId: string, itemId: string, stock: number, price?: number) {
+		this.requireMasterRole(token);
+		if (!this.commerce.directory().shops.some(shop => shop.id === shopId)) throw new Error('Loja inválida');
+		const item = rpgEquipment(itemId);
+		if (!Number.isSafeInteger(stock) || stock < 0) throw new Error('Estoque inválido');
+		const selectedPrice = price ?? item.price;
+		if (!Number.isSafeInteger(selectedPrice) || selectedPrice < 0) throw new Error('Preço inválido');
+		const previous = structuredClone(this.campaignSettings.equipmentOffers);
+		this.campaignSettings.equipmentOffers[shopId] ||= {};
+		this.campaignSettings.equipmentOffers[shopId][item.id] = { stock, price: selectedPrice };
+		try { this.persistAtomically(() => this.persistCampaignSettings()); } catch (error) { this.campaignSettings.equipmentOffers = previous; throw error; }
+		return structuredClone(this.campaignSettings.equipmentOffers[shopId][item.id]);
+	}
+
+	setTrainerLicense(token: string, characterId: string, license: RPGLicense, waiveFee = false) {
+		this.requireMasterRole(token);
+		const record = this.requireCharacter(toID(characterId));
+		if (!['contencao', 'defensiva', 'medica', 'cientifica', 'tecnologica', 'veiculo', 'arma-fogo', 'restrito', 'institucional'].includes(license?.id) ||
+			!['active', 'temporary', 'suspended', 'revoked'].includes(license?.status) ||
+			(license.expiresAt !== undefined && (!Number.isSafeInteger(license.expiresAt) || license.expiresAt <= 0))) {
+			throw new Error('Licença inválida');
+		}
+		const previous = structuredClone(record);
+		const inventory = this.ensureTrainerInventory(record);
+		const current = inventory.licenses.find(entry => entry.id === license.id &&
+			['active', 'temporary'].includes(entry.status) && (entry.expiresAt === undefined || entry.expiresAt > this.now()));
+		const activating = license.status === 'active' || license.status === 'temporary';
+		const fee = activating && !current && !waiveFee ?
+			(['arma-fogo', 'restrito'].includes(license.id) ? 5000 : license.id === 'institucional' ? 0 : 1000) : 0;
+		if (record.state.money < fee) throw new Error('Pokécoin insuficiente para a licença');
+		record.state.money -= fee;
+		inventory.licenses = [...inventory.licenses.filter(entry => entry.id !== license.id),
+			{ ...license, issuedBy: this.getSession(token).platformAccountId || 'master' }];
+		inventory.revision++;
+		try { this.persistAtomically(() => this.repository.set(record)); } catch (error) { this.repository.set(previous); throw error; }
+		return structuredClone(inventory.licenses);
+	}
+
+	grantTrainerKitDomain(token: string, characterId: string, domain: string) {
+		this.requireMasterRole(token);
+		const record = this.requireCharacter(toID(characterId));
+		const sheet = record.state.trainerSheet;
+		if (!sheet || sheet.status !== 'complete' || !rpgCanAcquireKitDomain(sheet, domain)) throw new Error('Pré-requisito de domínio não atendido');
+		if ((sheet.proficiencies || []).includes(domain)) return structuredClone(sheet.proficiencies);
+		const previous = structuredClone(record);
+		sheet.proficiencies = [...(sheet.proficiencies || []), domain];
+		try { this.persistAtomically(() => this.repository.set(record)); } catch (error) { this.repository.set(previous); throw error; }
+		return structuredClone(sheet.proficiencies);
+	}
+
+	/** Compra, consumo, banco e transferência compartilham a mesma validação e o mesmo COMMIT. */
+	changeTrainerEquipment(token: string, input: {
+		action: 'buy' | 'sell' | 'grant' | 'transfer' | 'move' | 'movePokemon' | 'equip' | 'consume' | 'refill',
+		characterId?: string, expectedRevision: number, itemId?: string, instanceId?: string,
+		quantity?: number, shopId?: string, targetCharacterId?: string, expectedTargetRevision?: number,
+		expectedBagRevision?: number, sourceLocation?: 'bag' | 'bank' | 'vehicle',
+		location?: RPGEquipmentInstance['location'], vehicleId?: string, equipped?: boolean,
+		refillInstanceId?: string,
+	}) {
+		if (!input || !['buy', 'sell', 'grant', 'transfer', 'move', 'movePokemon', 'equip', 'consume', 'refill'].includes(input.action)) {
+			throw new Error('Ação de equipamento inválida');
+		}
+		const actor = structuredClone(this.requireBagRecord(token, input.characterId, 'bag:edit'));
+		const actorInventory = this.ensureTrainerInventory(actor);
+		if (actorInventory.revision !== input.expectedRevision) throw new Error('Inventário alterado; atualize antes de tentar novamente');
+		const previousActor = structuredClone(actor);
+		const previousOffers = structuredClone(this.campaignSettings.equipmentOffers);
+		const workingOffers = structuredClone(previousOffers);
+		const quantity = input.quantity ?? 1;
+		if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > 99) throw new Error('Quantidade inválida');
+		let target: RPGStoredCharacter | undefined;
+		let previousTarget: RPGStoredCharacter | undefined;
+		if (input.action === 'transfer') {
+			target = structuredClone(this.requireCharacter(toID(input.targetCharacterId || '')));
+			if (target.state.id === actor.state.id || target.state.pageAccess?.bag === false) throw new Error('Destinatário indisponível');
+			previousTarget = structuredClone(target);
+			if (this.ensureTrainerInventory(target).revision !== input.expectedTargetRevision) throw new Error('Inventário do destinatário alterado');
+		}
+		const find = (id: string | undefined) => {
+			const entry = actorInventory.items.find(candidate => candidate.id === id);
+			if (!entry) throw new Error('Equipamento não encontrado');
+			return entry;
+		};
+		const add = (inventory: RPGTrainerInventory, itemId: string, count: number, location: RPGEquipmentInstance['location'], vehicleId?: string) => {
+			const item = rpgEquipment(itemId);
+			if (item.vehicle && location === 'bag') throw new Error('Veículo precisa de garagem');
+			if (location === 'vehicle' && !item.vehicle && !vehicleId) throw new Error('Escolha um veículo para a carga');
+			let left = count;
+			for (const stack of inventory.items.filter(entry => entry.itemId === item.id && entry.location === location &&
+				entry.vehicleId === vehicleId && !entry.equipped && entry.quantity < item.stackLimit)) {
+				const moved = Math.min(left, item.stackLimit - stack.quantity);
+				stack.quantity += moved; left -= moved;
+				if (!left) break;
+			}
+			while (left) {
+				const moved = Math.min(left, item.stackLimit);
+				inventory.items.push({ id: secureRandomBytes(12).toString('hex'), itemId: item.id, quantity: moved,
+					equipped: false, location, ...(vehicleId ? { vehicleId } : {}),
+					...(item.maxCharges !== undefined ? { charges: item.maxCharges } : {}) });
+				left -= moved;
+			}
+		};
+		const take = (entry: RPGEquipmentInstance, count: number) => {
+			if (entry.equipped || count > entry.quantity) throw new Error('Quantidade indisponível ou item equipado');
+			entry.quantity -= count;
+			if (!entry.quantity) actorInventory.items.splice(actorInventory.items.indexOf(entry), 1);
+		};
+		if (input.action === 'grant') {
+			this.requireMasterRole(token);
+			add(actorInventory, rpgEquipment(input.itemId || '').id, quantity,
+				rpgEquipment(input.itemId || '').vehicle ? 'vehicle' : 'bag');
+		} else if (input.action === 'buy') {
+			const item = rpgEquipment(input.itemId || '');
+			const shopId = input.shopId || '';
+			this.requireCommerceAccess(token, actor, shopId);
+			const offer = workingOffers[shopId]?.[item.id];
+			if (!offer || offer.stock < quantity || offer.price <= 0) throw new Error('Equipamento não está disponível na loja');
+			rpgAssertEquipmentLicense(actorInventory, item, this.now());
+			const cost = offer.price * quantity;
+			if (!Number.isSafeInteger(cost) || cost > actor.state.money) throw new Error('Pokécoin insuficiente');
+			actor.state.money -= cost; offer.stock -= quantity;
+			add(actorInventory, item.id, quantity, item.vehicle ? 'vehicle' : 'bag');
+		} else if (input.action === 'sell') {
+			const entry = find(input.instanceId);
+			const item = rpgEquipment(entry.itemId);
+			const shopId = input.shopId || '';
+			this.requireCommerceAccess(token, actor, shopId);
+			const offer = workingOffers[shopId]?.[item.id];
+			if (!offer || offer.price <= 0) throw new Error('A loja não negocia este equipamento');
+			if (entry.location !== 'bag' && entry.location !== 'vehicle') throw new Error('Retire o item do banco antes de vender');
+			const payment = Math.floor(offer.price * 0.25 / 10) * 10 * quantity;
+			if (actor.state.money + payment > 10_000_000) throw new Error('Limite de Pokécoin excedido');
+			take(entry, quantity); actor.state.money += payment; offer.stock += quantity;
+		} else if (input.action === 'transfer') {
+			const entry = find(input.instanceId);
+			if (entry.location !== 'bag') throw new Error('Somente itens da Bag podem ser entregues');
+			const item = rpgEquipment(entry.itemId);
+			if (item.vehicle || item.stackLimit === 1 && quantity !== 1) throw new Error('Transferência inválida');
+			const destination = this.ensureTrainerInventory(target!);
+			rpgAssertEquipmentLicense(destination, item, this.now());
+			if (item.stackLimit === 1 || entry.charges !== undefined) {
+				if (quantity !== entry.quantity) throw new Error('Item com cargas deve ser transferido inteiro');
+				take(entry, quantity);
+				destination.items.push({ ...structuredClone(entry), id: secureRandomBytes(12).toString('hex'), quantity, equipped: false });
+			} else { take(entry, quantity); add(destination, item.id, quantity, 'bag'); }
+			destination.revision++;
+		} else if (input.action === 'move') {
+			const entry = find(input.instanceId);
+			const location = input.location;
+			if (!location || location === entry.location || entry.equipped || quantity !== entry.quantity) throw new Error('Movimentação inválida');
+			if (location === 'bank' || entry.location === 'bank') this.requireBankRecord(token, actor.state.id, 'money:edit');
+			const item = rpgEquipment(entry.itemId);
+			if (location !== 'bank') rpgAssertEquipmentLicense(actorInventory, item, this.now());
+			if (item.vehicle && location === 'bag') throw new Error('Veículo exige garagem');
+			if (location === 'vehicle' && !item.vehicle && !input.vehicleId) throw new Error('Escolha o veículo');
+			if (item.vehicle && location === 'bank' && (actorInventory.items.some(cargo => cargo.vehicleId === entry.id) ||
+				(actorInventory.pokemonStorage || []).some(cargo => cargo.vehicleId === entry.id))) {
+				throw new Error('Retire a carga antes de guardar o veículo');
+			}
+			entry.location = location;
+			entry.vehicleId = location === 'vehicle' && !item.vehicle ? input.vehicleId : undefined;
+		} else if (input.action === 'movePokemon') {
+			const source = input.sourceLocation;
+			const destination = input.location;
+			if (!source || !destination || source === destination ||
+				!['bag', 'bank', 'vehicle'].includes(source) || !['bag', 'bank', 'vehicle'].includes(destination) ||
+				(source === 'vehicle' && destination === 'vehicle')) throw new Error('Movimentação inválida');
+			if (source === 'bank' || destination === 'bank') this.requireBankRecord(token, actor.state.id, 'money:edit');
+			const item = RPGItems.require(input.itemId || '');
+			if (item.tags?.includes('mission')) throw new Error('Item de Missão não pode ser armazenado');
+			const storage = actorInventory.pokemonStorage ||= [];
+			if (source === 'bag' || destination === 'bag') {
+				if (actor.state.inventory.bag.revision !== input.expectedBagRevision) throw new Error('RPG Bag revision conflict');
+			}
+			if (source === 'bag') {
+				if (RPGBagSystem.getRegularQuantity(actor.state.inventory.bag, item.id) < quantity) {
+					throw new Error('Quantidade fora de Itens de Missão insuficiente');
+				}
+				actor.state.inventory = { ...actor.state.inventory, bag: RPGBagSystem.remove(
+					actor.state.inventory.bag, item.id, quantity, input.expectedBagRevision
+				).bag };
+			} else {
+				const available = storage.filter(entry => entry.itemId === item.id && entry.location === source &&
+					(source !== 'vehicle' || entry.vehicleId === input.vehicleId));
+				if (available.reduce((sum, entry) => sum + entry.quantity, 0) < quantity) throw new Error('Quantidade armazenada insuficiente');
+				let left = quantity;
+				for (const entry of available) {
+					const moved = Math.min(left, entry.quantity);
+					entry.quantity -= moved; left -= moved;
+					if (!entry.quantity) storage.splice(storage.indexOf(entry), 1);
+					if (!left) break;
+				}
+			}
+			if (destination === 'bag') {
+				actor.state.inventory = { ...actor.state.inventory, bag: RPGBagSystem.add(
+					actor.state.inventory.bag, item.id, quantity, input.expectedBagRevision
+				).bag };
+			} else {
+				if (destination === 'vehicle' && !actorInventory.items.some(entry => entry.id === input.vehicleId &&
+					entry.location === 'vehicle' && rpgEquipment(entry.itemId).vehicle)) throw new Error('Veículo indisponível');
+				let left = quantity;
+				for (const entry of storage.filter(candidate => candidate.itemId === item.id &&
+					candidate.location === destination && candidate.vehicleId === (destination === 'vehicle' ? input.vehicleId : undefined))) {
+					const moved = Math.min(left, item.stackLimit - entry.quantity);
+					entry.quantity += moved; left -= moved;
+					if (!left) break;
+				}
+				while (left) {
+					const moved = Math.min(left, item.stackLimit);
+					storage.push({ itemId: item.id, quantity: moved, location: destination,
+						...(destination === 'vehicle' ? { vehicleId: input.vehicleId } : {}) });
+					left -= moved;
+				}
+			}
+		} else if (input.action === 'equip') {
+			const entry = find(input.instanceId);
+			if (entry.location !== 'bag') throw new Error('O item deve estar na Bag');
+			if (!rpgEquipment(entry.itemId).equipSlot) throw new Error('Este item não pode ser equipado');
+			entry.equipped = !!input.equipped;
+		} else if (input.action === 'consume') {
+			const entry = find(input.instanceId);
+			if (entry.location !== 'bag' && !(entry.location === 'vehicle' && rpgEquipment(entry.itemId).vehicle)) {
+				throw new Error('O item não está disponível para uso');
+			}
+			if (entry.charges !== undefined) {
+				if (entry.charges < quantity) throw new Error('Cargas insuficientes');
+				entry.charges -= quantity;
+				if (entry.charges === 0 && rpgEquipment(entry.itemId).category === 'refill') {
+					entry.quantity--;
+					if (entry.quantity) entry.charges = rpgEquipment(entry.itemId).maxCharges;
+					else actorInventory.items.splice(actorInventory.items.indexOf(entry), 1);
+				}
+			} else take(entry, quantity);
+		} else if (input.action === 'refill') {
+			const kit = find(input.instanceId);
+			const refill = find(input.refillInstanceId);
+			const kitRule = rpgEquipment(kit.itemId);
+			const refillRule = rpgEquipment(refill.itemId);
+			if ((kit.location !== 'bag' && !(kit.location === 'vehicle' && kitRule.vehicle)) ||
+				refill.location !== 'bag' || kit.charges === undefined ||
+				!refillRule.refillFor || !(refillRule.refillFor === 'device' ? kitRule.category === 'device' :
+			refillRule.refillFor === 'vehicle' ? !!kitRule.vehicle : kitRule.id.startsWith(refillRule.refillFor)) ||
+			kit.charges === kitRule.maxCharges) {
+				throw new Error('Refil incompatível ou desnecessário');
+			}
+			const used = Math.min(kitRule.maxCharges! - kit.charges, refill.charges ?? refillRule.maxCharges!);
+			if (used < 1) throw new Error('Refil sem cargas');
+			kit.charges += used;
+			refill.charges = (refill.charges ?? refillRule.maxCharges!) - used;
+			if (refill.charges === 0) {
+				refill.quantity--;
+				if (refill.quantity) refill.charges = refillRule.maxCharges;
+				else actorInventory.items.splice(actorInventory.items.indexOf(refill), 1);
+			}
+		}
+		actorInventory.revision++;
+		this.validateTrainerInventory(actor);
+		if (target) this.validateTrainerInventory(target);
+		actor.state.updatedAt = this.now();
+		if (target) target.state.updatedAt = this.now();
+		try {
+			this.persistAtomically(() => {
+				this.repository.set(actor);
+				if (target) this.repository.set(target);
+				if (input.action === 'buy' || input.action === 'sell') {
+					this.campaignSettings.equipmentOffers = workingOffers;
+					this.persistCampaignSettings();
+				}
+			});
+		} catch (error) {
+			this.repository.set(previousActor);
+			if (previousTarget) this.repository.set(previousTarget);
+			this.campaignSettings.equipmentOffers = previousOffers;
+			throw error;
+		}
+		return { inventory: structuredClone(actorInventory), money: actor.state.money,
+			...(target ? { targetInventory: structuredClone(target.state.trainerInventory) } : {}) };
 	}
 
 	getTrainerProgression(token: string, characterId?: string) {
@@ -2168,6 +2570,7 @@ export class RPGLoginService {
 		record.state.inventory = prepared.character.inventory;
 		record.state.shopRevision = prepared.character.shopRevision;
 		record.state.shopTransactions = prepared.character.shopTransactions;
+		if (record.state.trainerSheet?.status === 'complete') this.validateTrainerInventory(record);
 		record.state.updatedAt = this.now();
 		this.persistAtomically(() => {
 			this.repository.set(record);
@@ -3048,6 +3451,8 @@ export class RPGLoginService {
 		const added = RPGBagSystem.add(targetInventory.bag, item.id, quantity, expectedTargetRevision);
 		sender.state.inventory = { ...senderInventory, bag: removed.bag };
 		target.state.inventory = { ...targetInventory, bag: added.bag };
+		if (sender.state.trainerSheet?.status === 'complete') this.validateTrainerInventory(sender);
+		if (target.state.trainerSheet?.status === 'complete') this.validateTrainerInventory(target);
 		if (eggProject?.egg) {
 			this.removePortableEggProject(sender, eggProject.egg.id);
 			eggProject.egg.ownerId = target.state.id;
@@ -4997,6 +5402,7 @@ export class RPGLoginService {
 		if (!target) throw new Error('RPG Bag requires a character');
 		this.requirePermission(token, permission, target);
 		const record = this.requireCharacter(target);
+		if (record.state.trainerSheet?.status === 'complete') this.ensureTrainerInventory(record);
 		if (session.role === 'player' && !ignorePlayerPageAccess && record.state.pageAccess?.bag === false) {
 			throw new Error('O Mestre bloqueou o acesso à página da Bag.');
 		}
@@ -5134,6 +5540,10 @@ export class RPGLoginService {
 	}
 
 	private persistBoxRecord(record: RPGStoredCharacter): void {
+		const previousBag = this.repository.get(record.state.id)?.state.inventory?.bag;
+		if (record.state.trainerSheet?.status === 'complete' && previousBag &&
+			(JSON.stringify(previousBag.items) !== JSON.stringify(record.state.inventory.bag.items) ||
+				previousBag.maxSlots !== record.state.inventory.bag.maxSlots)) this.validateTrainerInventory(record);
 		RPGFossilLab.ensure(record.state, this.random);
 		record.state.updatedAt = this.now();
 		this.repository.set(record);
