@@ -170,6 +170,7 @@ export * from './account-management';
 export * from './trainer-sheet';
 export * from './trainer-creation';
 export * from './trainer-checks';
+export * from './trainer-conflicts';
 export * from './trainer-progression';
 export * from './trainer-class-features';
 export * from './trainer-talents-catalog';
