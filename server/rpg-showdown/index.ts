@@ -68,7 +68,11 @@ import {
 	rpgEquipmentWeight, rpgInitialTrainerInventory, rpgCanAcquireKitDomain, rpgEquipmentDerivedOptions,
 	type RPGEquipmentInstance, type RPGTrainerInventory, type RPGLicense,
 } from './trainer-equipment';
-import { rpgTrainerDerivedStatistics } from './trainer-checks';
+import {
+	RPG_DIFFICULTIES, RPG_SKILL_ATTRIBUTES, rpgTrainerDerivedStatistics,
+	rollRPGTrainerAttributeCheck, rollRPGTrainerResistance, rollRPGTrainerSkillCheck,
+	type RPGTrainerAttribute, type RPGTrainerCheckOptions, type RPGTrainerResistance,
+} from './trainer-checks';
 import {
 	rpgTrainerAddExhaustion, rpgTrainerAddWound, rpgTrainerApplyCondition, rpgTrainerConditionTick,
 	rpgTrainerDeathSave, rpgTrainerHeal, rpgTrainerRemoveCondition, rpgTrainerRest,
@@ -2192,6 +2196,59 @@ export class RPGLoginService {
 		const state = this.getCharacter(token, characterId);
 		const sheet = state.trainerSheet || createRPGPendingTrainerSheet();
 		return { sheet, xpToNextLevel: rpgTrainerXPToNextLevel(sheet.experience) };
+	}
+
+	/** Catálogo público da mesa; a consulta ainda exige sessão válida na mesa selecionada. */
+	getTrainerRules(token: string) {
+		this.getSession(token);
+		return {
+			attributes: ['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma'],
+			skills: RPG_SKILL_ATTRIBUTES, difficulties: RPG_DIFFICULTIES,
+			resistances: ['fortitude', 'reflexes', 'will'],
+			classes: structuredClone(RPG_TRAINER_CLASSES),
+			classFeatures: structuredClone(RPG_TRAINER_CLASS_FEATURES),
+			equipment: RPG_EQUIPMENT_CATALOG,
+		};
+	}
+
+	/** Rolagem humana arbitrada pelo Mestre, idempotente e restrita ao personagem desta mesa. */
+	rollTrainerCheck(token: string, input: {
+		characterId: string, requestId: string, kind: 'attribute' | 'skill' | 'resistance',
+		attribute?: RPGTrainerAttribute, skill?: string, resistance?: RPGTrainerResistance,
+		options: RPGTrainerCheckOptions,
+	}) {
+		this.requireMasterMode(token);
+		this.requirePlatformTablePermission(token, 'characters.manage');
+		if (!input || typeof input !== 'object' || typeof input.characterId !== 'string' ||
+			typeof input.requestId !== 'string' || !/^[a-zA-Z0-9_-]{8,100}$/.test(input.requestId) ||
+			!input.options || typeof input.options !== 'object') throw new Error('Teste do treinador inválido');
+		const record = this.requireCharacter(toID(input.characterId));
+		const sheet = record.state.trainerSheet || createRPGPendingTrainerSheet();
+		const fingerprint = createHash('sha256').update(JSON.stringify({
+			kind: input.kind, attribute: input.attribute, skill: input.skill,
+			resistance: input.resistance, options: input.options,
+		})).digest('hex');
+		const previous = sheet.checks?.find(entry => entry.requestId === input.requestId);
+		if (previous) {
+			if (previous.fingerprint !== fingerprint) throw new Error('Identificador de teste já utilizado');
+			return { result: structuredClone(previous.result), repeated: true };
+		}
+		let result;
+		switch (input.kind) {
+			case 'attribute':
+				result = rollRPGTrainerAttributeCheck(sheet, input.attribute!, input.options, this.random); break;
+			case 'skill':
+				result = rollRPGTrainerSkillCheck(sheet, input.skill!, input.attribute, input.options, this.random); break;
+			case 'resistance':
+				result = rollRPGTrainerResistance(sheet, input.resistance!, input.options, this.random); break;
+			default: throw new Error('Tipo de teste inválido');
+		}
+		const next = structuredClone(sheet);
+		next.checks = [...(next.checks || []), { requestId: input.requestId, fingerprint, result }];
+		record.state.trainerSheet = next;
+		record.state.updatedAt = this.now();
+		this.repository.set(record);
+		return { result, repeated: false };
 	}
 
 	/** Alterações da sobrevivência humana são arbitradas pelo Mestre e persistidas com a ficha. */

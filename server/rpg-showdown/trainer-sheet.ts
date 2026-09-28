@@ -36,6 +36,8 @@ export interface RPGTrainerSheet {
 	pendingChoices?: { general: number, class: number, apex: number };
 	/** Estado exclusivamente humano; nunca é usado pelo simulador de Pokémon. */
 	survival?: import('./trainer-survival').RPGTrainerSurvival;
+	/** Rolagens arbitradas: a chave impede repetir dados após retry ou concorrência. */
+	checks?: { requestId: string, fingerprint: string, result: Record<string, unknown> }[];
 }
 
 export function createRPGPendingTrainerSheet(): RPGTrainerSheet {

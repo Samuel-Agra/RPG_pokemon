@@ -384,6 +384,21 @@ export class RPGHttpServer {
 				url.searchParams.get('characterId') || undefined));
 			return;
 		}
+		if (method === 'GET' && url.pathname === '/api/rpg/trainer/rules') {
+			this.json(res, 200, this.login.getTrainerRules(this.token(req)));
+			return;
+		}
+		if (method === 'GET' && url.pathname === '/api/rpg/trainer/sheet') {
+			this.json(res, 200, this.login.getTrainerProgression(this.token(req),
+				url.searchParams.get('characterId') || undefined));
+			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/checks') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.rollTrainerCheck(this.token(req),
+				body as unknown as Parameters<RPGLoginService['rollTrainerCheck']>[1]));
+			return;
+		}
 		if (url.pathname === '/api/rpg/trainer/equipment') {
 			if (method === 'GET') {
 				this.json(res, 200, this.login.getTrainerEquipment(this.token(req),
@@ -2323,6 +2338,7 @@ export class RPGHttpServer {
 			.some(part => message.includes(part))) {
 			status = 403; publicDomainError = true;
 		} else if (message.includes('already exists') || message.includes('já está em uso') ||
+			message.includes('Identificador de teste já utilizado') ||
 			message.includes('já foi utilizado') || message.includes('já está nesta mesa') ||
 			message.includes('já possui um convite ativo')) {
 			status = 409; publicDomainError = true;
