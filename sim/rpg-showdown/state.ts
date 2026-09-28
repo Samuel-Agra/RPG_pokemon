@@ -232,7 +232,7 @@ export interface RPGCapturedPokemon {
 export type RPGCaptureFailureReason =
 	| 'not-wild-battle' | 'capture-disabled' | 'not-wild-target' | 'own-pokemon' |
 	'target-fainted' | 'battle-ended' | 'missing-catch-rate' | 'unknown-ball' |
-	'ball-not-throwable' | 'missing-ball-context';
+	'ball-not-throwable' | 'missing-ball-context' | 'throw-missed' | 'reflect-blocked';
 
 export interface RPGCaptureResult {
 	allowed: boolean;

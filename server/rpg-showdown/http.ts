@@ -88,6 +88,7 @@ export class RPGHttpServer {
 		if (manager) return manager;
 		manager = new RPGContestRuntimeManager({
 			getCharacterTeam: characterId => this.login.repository.get(characterId)?.state.team,
+			getTrainerSheet: characterId => this.login.repository.get(characterId)?.state.trainerSheet,
 			getCombos: () => this.login.contestCombos.list(),
 			onMovePPSpent: (characterId, teamIndex, moveId) =>
 				this.login.consumeContestMovePP(characterId, teamIndex, moveId),
@@ -1966,6 +1967,9 @@ export class RPGHttpServer {
 					characterId: session.mode === 'player' ? (session.characterId || session.viewAsCharacterId) : undefined,
 				});
 				if (battle.status === 'ended' && battle.result) {
+					this.battleRuntimes.settleRecoverableBalls(battleSessionId, (characterId, inventory) => {
+						this.login.persistBattleInventory(characterId, inventory);
+					});
 					const completed = this.login.completeBattleSession(battleSessionId, battle.result);
 					battle.result.badgeAwards = completed.result?.badgeAwards || [];
 				}

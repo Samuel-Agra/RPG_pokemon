@@ -23,6 +23,10 @@ export interface RPGCaptureOptions {
 	ballContext?: RPGCaptureBallContext;
 	capturePower?: number;
 	guaranteed?: boolean;
+	/** Bônus direto de talentos do treinador, limitado a dez pontos percentuais. */
+	trainerProbabilityBonus?: number;
+	/** O ápice repete somente a etapa percentual, sem outra Poké Bola. */
+	secondChance?: boolean;
 }
 
 interface CaptureCalculation {
@@ -81,12 +85,24 @@ export class CaptureSystem {
 			options.capturePower ?? 1
 		);
 
-		let shakes = 0;
-		if (calculation.probability >= 1) {
-			shakes = 4;
-		} else {
-			while (shakes < 4 && battle.random(65536) < calculation.shakeThreshold) shakes++;
-		}
+		const trainerBonus = Math.max(0, Math.min(0.10, options.trainerProbabilityBonus || 0));
+		const probability = Math.max(calculation.probability,
+			Math.min(0.95, calculation.probability + trainerBonus));
+		const rollShakes = () => {
+			if (calculation.probability >= 1) return 4;
+			// Sem bônus, preserve exatamente a sequência aleatória da captura existente.
+			if (!trainerBonus) {
+				let count = 0;
+				while (count < 4 && battle.random(65536) < calculation.shakeThreshold) count++;
+				return count;
+			}
+			const threshold = Math.floor(65536 * probability ** (1 / 4));
+			let count = 0;
+			while (count < 4 && battle.random(65536) < threshold) count++;
+			return count;
+		};
+		let shakes = rollShakes();
+		if (shakes < 4 && options.secondChance) shakes = rollShakes();
 		const success = shakes === 4;
 		const result: RPGCaptureResult = {
 			allowed: true,
@@ -102,7 +118,7 @@ export class CaptureSystem {
 			modifiedCatchRate: calculation.modifiedCatchRate,
 			shakeThreshold: calculation.shakeThreshold,
 			shakes,
-			probability: calculation.probability,
+			probability: trainerBonus ? probability : calculation.probability,
 			target: { side: target.side.id, position: target.position },
 		};
 		if (!success) return result;

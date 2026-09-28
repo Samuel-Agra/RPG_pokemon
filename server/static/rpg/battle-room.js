@@ -923,7 +923,7 @@ function rpgBattleBagItemDescription(item) {
 	if (item.category === 'battle') return 'produz um efeito tempor\u00e1rio em batalha';
 	return item.usableInBattle ? 'pode ser usado em batalha' : 'n\u00e3o pode ser usado em combate';
 }
-function rpgRuntimeCommands(session, side, foe, submit, observer, moveDetails, requestTarget, controllerParticipant, isMaster, loadBattleBag, battleTurn) {
+function rpgRuntimeCommands(session, side, foe, submit, observer, moveDetails, requestTarget, controllerParticipant, isMaster, loadBattleBag, battleTurn, ballInsights) {
 	if (observer || !side) return null;
 	const panel = createElement('section', 'rpg-command-panel');
 	const tabs = createElement('div', 'rpg-command-tabs');
@@ -1231,6 +1231,24 @@ function rpgRuntimeCommands(session, side, foe, submit, observer, moveDetails, r
 				actionId: bagActionId('capture', item.id), expectedRevision: bag.revision,
 			});
 		}
+		function ballInsightText(item, insight) {
+			const conditions = {
+				netball: 'alvo Água/Inseto', duskball: 'à noite ou em caverna',
+				quickball: 'primeiro turno', timerball: 'turnos avançados',
+				diveball: 'na água', dreamball: 'alvo adormecido',
+				fastball: 'alvo veloz', levelball: 'nível do seu Pokémon superior',
+				loveball: 'mesma espécie e gêneros opostos', nestball: 'alvo de nível baixo',
+				moonball: 'evolução por Pedra da Lua', repeatball: 'espécie já capturada',
+				lureball: 'encontro por pesca', beastball: 'Ultra Beast',
+			};
+			const condition = conditions[item.id] ? conditions[item.id] + ' · ' : '';
+			if (!insight.complete) return condition + 'efeito ainda indeterminado';
+			if (insight.guaranteed) return condition + 'captura garantida após acertar';
+			if (!insight.active) return condition + 'sem bônus ativo';
+			if (insight.catchRateAdd) return condition + 'taxa base ' +
+				(insight.catchRateAdd > 0 ? '+' : '') + insight.catchRateAdd;
+			return condition + 'modificador ×' + insight.modifier.toFixed(2);
+		}
 		function selectCaptureTarget(item, backHandler) {
 			const wildBattle = ['wild', 'horde'].includes(session.opponentType) || session.format === 'boss';
 			if (!wildBattle) {
@@ -1247,6 +1265,9 @@ function rpgRuntimeCommands(session, side, foe, submit, observer, moveDetails, r
 			for (const pokemon of targets) {
 				const targetButton = button('', 'rpg-bag-capture-target');
 				targetButton.append(rpgRuntimeSprite(pokemon, false, true, true), createElement('strong', '', pokemon.name));
+				const insight = ballInsights?.[pokemon.activeSlot]?.[item.id];
+				if (insight) targetButton.append(createElement('span', 'rpg-bag-ball-insight',
+					ballInsightText(item, insight)));
 				targetButton.addEventListener('click', () => captureTarget(item, pokemon));
 				targetGrid.append(targetButton);
 			}
@@ -1273,6 +1294,11 @@ function rpgRuntimeCommands(session, side, foe, submit, observer, moveDetails, r
 					createElement('strong', '', item.name),
 					createElement('em', 'rpg-bag-item-description', ' (' + rpgBattleBagItemDescription(item) + ')')
 				);
+				const targets = (foe?.pokemon || []).filter(pokemon => pokemon.active && !pokemon.fainted);
+				const insight = item.category === 'ball' && targets.length === 1 ?
+					ballInsights?.[targets[0].activeSlot]?.[item.id] : null;
+				if (insight) itemName.append(createElement('em', 'rpg-bag-ball-insight',
+					' · ' + ballInsightText(item, insight)));
 				use.append(bagItemIcon(item), itemName, createElement('b', '', '\u00d7' + entry.quantity));
 				use.addEventListener('click', () => item.category === 'ball' ?
 					selectCaptureTarget(item, renderItems) : selectMedicineTarget(item, renderItems));
@@ -1827,6 +1853,14 @@ async function rpgBattleRoom(session, character, characters = [], isMaster = fal
 		if (event.type === 'capture') {
 			const target = (event.targets || []).map(runtimePokemonElement).find(Boolean);
 			if (!target) return;
+			if (event.feedback === 'blocked' || event.feedback === 'miss') {
+				window.RPGBattleAudio?.playEffect('captureThrow');
+				engine.textContent = event.feedback === 'blocked' ?
+					'Reflect desviou a Poké Bola antes que ela fosse ativada!' :
+					'A Poké Bola não acertou o Pokémon selvagem.';
+				await wait(650);
+				return;
+			}
 			engine.textContent = event.actor.name + ' lançou ' + event.ball.name;
 			await window.RPGShowdownAnimations?.capture?.(field, attacker, target, {
 				ball: event.ball.id, ballSprite: event.ball.sprite, success: event.success, shakes: event.shakes,
@@ -2520,7 +2554,7 @@ async function rpgBattleRoom(session, character, characters = [], isMaster = fal
 			!animatingSwitchInKeys.has(element.dataset.runtimeSide + ':' + element.dataset.teamPosition));
 		center.append(field);
 		if (snapshot.status === 'active') {
-			const commands = rpgRuntimeCommands(session, commandSide, commandFoe, submit, observer, moveDetails, requestFieldTarget, viewerParticipant || masterParticipant, isMaster, battleCharacter ? loadBattleBag : null, snapshot.turn);
+			const commands = rpgRuntimeCommands(session, commandSide, commandFoe, submit, observer, moveDetails, requestFieldTarget, viewerParticipant || masterParticipant, isMaster, battleCharacter ? loadBattleBag : null, snapshot.turn, snapshot.ballInsights);
 			if (commands) center.append(commands);
 		}
 		layout.append(center, createElement('aside', 'rpg-battle-bag'));

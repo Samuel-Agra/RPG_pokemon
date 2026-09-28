@@ -45,7 +45,7 @@ describe('RPG official Showdown animation vendor', () => {
 	});	it('keeps field target selection defined and connected to battle commands', () => {
 		const source = fs.readFileSync(path.resolve(__dirname, '../../server/static/rpg/battle-room.js'), 'utf8');
 		assert(source.includes('function requestFieldTarget(config)'));
-		assert(source.includes('isMaster, battleCharacter ? loadBattleBag : null, snapshot.turn)'));
+		assert(source.includes('isMaster, battleCharacter ? loadBattleBag : null, snapshot.turn, snapshot.ballInsights)'));
 		assert(source.includes("element.classList.add('rpg-valid-target')"));
 		assert(source.includes("pokemon?.automaticMove"));
 		assert(source.includes("queueMicrotask(() => submit({ type: 'turn', choices }))"));

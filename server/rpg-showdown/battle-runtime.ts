@@ -13,7 +13,9 @@ import type { PokemonSet } from '../../sim/teams';
 import {
 	CaptureSystem,
 	FleeSystem,
+	RPGGen9PokeballCalculator,
 	RPGInventorySystem,
+	RPGBagSystem,
 	RPGItemUseSystem,
 	RPGItems,
 	RPGManager,
@@ -40,6 +42,7 @@ import {
 } from './battle-move-analysis';
 import { getRPGAbilityDescriptionPTBR } from './ability-descriptions-pt-br';
 import { getRPGStatusPresentation, type RPGStatusPresentation } from './status-descriptions-pt-br';
+import { rollRPGD20, rollRPGTrainerSkillCheck } from './trainer-checks';
 
 export type RPGBattleRuntimeStatus = 'active' | 'ended';
 export type RPGBattleRuntimeSlotAction =
@@ -333,6 +336,11 @@ export interface RPGBattleRuntimeSnapshot {
 	};
 	result?: RPGBattleResult;
 	lastAction?: RPGCaptureResult | RPGFleeResult;
+	/** Somente o dono de Escolha Adequada recebe efeitos observáveis, nunca a chance final. */
+	ballInsights?: Record<number, Record<string, {
+		active: boolean, complete: boolean, modifier: number, catchRateAdd: number,
+		guaranteed: boolean, conditions: string[],
+	}>>;
 }
 
 type RPGBagSlotAction = Extract<RPGBattleRuntimeSlotAction, { type: 'item' | 'capture' }>;
@@ -384,6 +392,7 @@ interface RuntimeRecord {
 	pendingSideTurns: Map<SideID, PendingSideTurn>;
 	initialPokemon: Map<Pokemon, RPGInitialPokemonState>;
 	itemEvents: RPGBattleItemEvent[];
+	recoverableBalls: { characterId: string, ball: string }[];
 	finishedAt?: number;
 }
 
@@ -398,6 +407,21 @@ export class RPGBattleRuntimeManager {
 	private readonly runtimes = new Map<string, RuntimeRecord>();
 	private static readonly ENDED_RUNTIME_TTL = 60 * 60 * 1000;
 	private static readonly MAX_ENDED_RUNTIMES = 50;
+
+	/** Devolve apenas Poké Balls cujo arremesso falhou, uma vez ao encerrar a batalha. */
+	settleRecoverableBalls(sessionId: string, persistInventory: RPGBattleInventoryPersist): void {
+		const runtime = this.require(sessionId);
+		if (!runtime.battle.ended) return;
+		for (const entry of runtime.recoverableBalls) {
+			const character = runtime.characters.get(toID(entry.characterId));
+			if (!character) continue;
+			const inventory = RPGInventorySystem.migrate(character.inventory);
+			inventory.bag = RPGBagSystem.add(inventory.bag, entry.ball, 1, inventory.bag.revision).bag;
+			persistInventory(character.id, inventory);
+			character.inventory = inventory;
+		}
+		runtime.recoverableBalls = [];
+	}
 
 	exportState(sessionId: string): unknown {
 		const runtime = this.runtimes.get(toID(sessionId));
@@ -425,6 +449,7 @@ export class RPGBattleRuntimeManager {
 			}]),
 			initialPokemon: [...runtime.initialPokemon].map(([pokemon, value]) => [pokemonRef(pokemon), value]),
 			itemEvents: runtime.itemEvents, finishedAt: runtime.finishedAt,
+			recoverableBalls: runtime.recoverableBalls,
 		};
 	}
 
@@ -457,6 +482,7 @@ export class RPGBattleRuntimeManager {
 			initialPokemon: new Map(value.initialPokemon.map(([ref, initial]: [[number, number], RPGInitialPokemonState]) =>
 				[pokemon(ref), initial]).filter(([entry]: [Pokemon | undefined, RPGInitialPokemonState]) => !!entry)),
 			itemEvents: value.itemEvents, finishedAt: value.finishedAt,
+			recoverableBalls: value.recoverableBalls || [],
 		};
 		this.runtimes.set(id, runtime);
 		RPGManager.setQueuedBattleActionHandler(battle, (entry, actionId) => {
@@ -515,7 +541,7 @@ export class RPGBattleRuntimeManager {
 				new Map(battle.p2.pokemon.map((pokemon, index) => [pokemon, index])),
 			],
 			readyViewers: new Set(), characters, customAnimations: [], itemTurns: new Set(),
-			pendingBagActions: new Map(), pendingSideTurns: new Map(), itemEvents: [],
+			pendingBagActions: new Map(), pendingSideTurns: new Map(), itemEvents: [], recoverableBalls: [],
 			initialPokemon: new Map(battle.getAllPokemon().map(pokemon => [pokemon, {
 				hp: pokemon.hp, status: pokemon.status, item: pokemon.item,
 				pp: pokemon.baseMoveSlots.map(slot => slot.pp),
@@ -614,7 +640,44 @@ export class RPGBattleRuntimeManager {
 			},
 			result: this.resultSnapshot(runtime),
 			lastAction: runtime.lastAction && structuredClone(runtime.lastAction),
+			ballInsights: this.ballInsights(runtime, viewer),
 		};
+	}
+
+	private ballInsights(runtime: RuntimeRecord, viewer?: RPGRuntimeViewer): RPGBattleRuntimeSnapshot['ballInsights'] {
+		const character = viewer?.characterId ? runtime.characters.get(toID(viewer.characterId)) : undefined;
+		if (character?.trainerSheet?.status !== 'complete' ||
+			!character.trainerSheet.talents.class.includes('mestre-pokemon:escolha-adequada') ||
+			!CaptureSystem.isAllowed(runtime.battle)) return undefined;
+		const inventory = RPGInventorySystem.migrate(character.inventory);
+		const balls = inventory.bag.items.filter(entry => entry.quantity > 0 &&
+			RPGItems.get(entry.itemId)?.category === 'ball');
+		const user = runtime.battle.p1.active.find(pokemon => pokemon &&
+			this.runtimePokemonOwner(runtime, runtime.battle.p1, pokemon)?.characterId === character.id);
+		const result: NonNullable<RPGBattleRuntimeSnapshot['ballInsights']> = {};
+		for (const [activeSlot, target] of runtime.battle.p2.active.entries()) {
+			if (!target || target.fainted) continue;
+			result[activeSlot] = {};
+			for (const entry of balls) {
+				const calculation = RPGGen9PokeballCalculator.calculate(entry.itemId, {
+					catchRate: target.rpg.captureRate,
+					targetLevel: target.level, userLevel: user?.level,
+					targetSpecies: target.species.name, userSpecies: user?.species.name,
+					targetGender: target.gender, userGender: user?.gender,
+					targetTypes: target.getTypes(), targetBaseSpeed: target.species.baseStats.spe,
+					targetWeightKg: target.species.weightkg, targetStatus: target.status,
+					targetAbility: target.getAbility().id, ...runtime.launch.captureContext,
+					turnNumber: Math.max(1, runtime.battle.turn),
+				});
+				result[activeSlot][entry.itemId] = {
+					active: calculation.guaranteed || calculation.ballModifier !== 1 || calculation.catchRateAdd !== 0,
+					complete: calculation.complete, modifier: calculation.ballModifier,
+					catchRateAdd: calculation.catchRateAdd, guaranteed: calculation.guaranteed,
+					conditions: calculation.conditions,
+				};
+			}
+		}
+		return result;
 	}
 
 	ready(sessionId: string, viewer: RPGRuntimeViewer): RPGBattleRuntimeSnapshot {
@@ -643,7 +706,12 @@ export class RPGBattleRuntimeManager {
 				pokemon && !pokemon.fainted && this.viewerControlsPokemon(runtime, side, pokemon, viewer)
 			);
 			if (!active) throw new Error('RPG side has no active Pokemon able to flee');
-			runtime.lastAction = FleeSystem.attempt(active);
+			const owner = this.runtimePokemonOwner(runtime, side, active);
+			const sheet = owner?.characterId ? runtime.characters.get(toID(owner.characterId))?.trainerSheet : undefined;
+			runtime.lastAction = FleeSystem.attempt(active, {
+				trainerActionBonus: sheet?.status === 'complete' &&
+					sheet.talents.general.includes('retirada-planejada') ? 2 : 0,
+			});
 			if (!runtime.lastAction.success) this.submit(runtime.battle, sideId, this.defaultChoice(side));
 			return this.snapshot(sessionId, viewer);
 		}
@@ -1035,8 +1103,53 @@ export class RPGBattleRuntimeManager {
 		);
 		persistInventory?.(character.id, committed.inventory);
 		character.inventory = committed.inventory;
+		const sheet = character.trainerSheet;
+		const talents = sheet?.status === 'complete' ? new Set([
+			...sheet.talents.class, ...sheet.talents.general,
+			sheet.talents.apex || '',
+		]) : new Set<string>();
+		const reflectBlocked = !!target.side.getSideCondition('reflect') &&
+			!talents.has('mestre-pokemon:arremesso-angulado');
+		const throwRandom = () => runtime.battle.random(0x1000000) / 0x1000000;
+		const throwCheck = reflectBlocked ? null : sheet?.status === 'complete' ?
+			rollRPGTrainerSkillCheck(sheet, 'captura', undefined, {
+				dc: 15,
+				advantages: talents.has('mestre-pokemon:pontaria-paciente') ? 1 : 0,
+			}, throwRandom) : (() => {
+				const roll = rollRPGD20(throwRandom);
+				return { ...roll, total: roll.natural, success: roll.natural >= 15 };
+			})();
+		if (reflectBlocked || !throwCheck?.success) {
+			if (talents.has('mestre-pokemon:captura-sem-risco')) {
+				runtime.recoverableBalls.push({ characterId: character.id, ball: item.id });
+			}
+			const miss: RPGCaptureResult = {
+				allowed: true, success: false, continued: true,
+				reason: reflectBlocked ? 'reflect-blocked' : 'throw-missed',
+				ball: item.id, catchRate: target.rpg.captureRate!, ballModifier: 1,
+				statusModifier: 1, modifiedCatchRate: 0, shakeThreshold: 0, shakes: 0,
+				probability: 0, target: { side: target.side.id, position: target.position },
+			};
+			runtime.lastAction = miss;
+			runtime.itemEvents.push({
+				side: side.id, position: actor.position, item: item.id, itemName: item.name, quantity: 1,
+				targetSide: target.side.id, targetPosition: target.position,
+			});
+			runtime.customAnimations.push({
+				sequence: runtime.battle.log.length - 0.5, type: 'capture', actor: this.pokemonRef(actor),
+				targets: [this.pokemonRef(target)], ball: this.itemPresentation(item.id, item.name),
+				feedback: reflectBlocked ? 'blocked' : 'miss', success: false, shakes: 0,
+				updates: [],
+			});
+			return;
+		}
+		const trainerProbabilityBonus = Math.min(0.10,
+			(talents.has('mestre-pokemon:arremesso-perfeito') && throwCheck && throwCheck.total >= 25 ? 0.05 : 0) +
+			(talents.has('mestre-pokemon:capturador-especialista') && runtime.battle.turn > 1 ? 0.05 : 0));
 		const capture = CaptureSystem.attempt(target, {
 			captorSide: side.id, ball: item.id,
+			trainerProbabilityBonus,
+			secondChance: talents.has('mestre-pokemon:mestre-da-captura'),
 			ballContext: {
 				isNight: runtime.launch.captureContext.isNight,
 				isCave: runtime.launch.captureContext.isCave,

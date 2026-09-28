@@ -36,6 +36,25 @@ function judging(overrides = {}) {
 }
 
 describe('RPG contest runtime', () => {
+	it('applies only small, earned trainer talent bonuses to the final presentation', () => {
+		const team = [pokemon('Milotic', ['surf', 'icebeam', 'raindance'])];
+		const runtime = new RPGContestRuntimeManager({
+			getCharacterTeam: () => team,
+			getTrainerSheet: () => ({ status: 'complete', talents: {
+				class: ['coreografo:entrada-marcante', 'coreografo:encerramento-memoravel',
+					'coreografo:transicao-fluida'], general: [], apex: null,
+			} }),
+		});
+		runtime.start(startedSession());
+		const state = runtime.runtimes.get('contestruntime');
+		const participant = state.participants[0];
+		participant.rounds[0] = ['surf', 'raindance', 'icebeam'];
+		participant.roundScores[0] = { matchedCombos: [{ id: 'example', name: 'Example' }] };
+		assert.equal(runtime.trainerContestBonus(state, participant), 3);
+		assert.deepEqual(participant.rounds[0], ['surf', 'raindance', 'icebeam']);
+		participant.rounds[0][1] = 'contestnopp';
+		assert.equal(runtime.trainerContestBonus(state, participant), 2);
+	});
 	it('continues one contest after transferring its runtime state to another server', () => {
 		const teams = new Map([['may', [pokemon('Milotic', ['surf', 'icebeam'])]]]);
 		const first = new RPGContestRuntimeManager({ getCharacterTeam: id => teams.get(id) });

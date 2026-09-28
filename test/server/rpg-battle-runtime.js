@@ -1053,6 +1053,7 @@ describe('RPG private battle runtime', () => {
 		]));
 		const manager = new RPGBattleRuntimeManager();
 		manager.start(session, launch, () => character);
+		manager.runtimes.get('runtimebagcapture').battle.random = count => count - 1;
 		manager.ready(session.id, { master: false, characterId: 'hero' });
 		manager.ready(session.id, { master: true });
 		let persisted;
@@ -1120,6 +1121,7 @@ describe('RPG private battle runtime', () => {
 		]));
 		const manager = new RPGBattleRuntimeManager();
 		manager.start(session, launch, () => character);
+		manager.runtimes.get('runtimebagcapturedoubles').battle.random = count => count - 1;
 		manager.ready(session.id, { master: false, characterId: 'hero' });
 		manager.ready(session.id, { master: true });
 		manager.action(session.id, { master: false, characterId: 'hero' }, {
@@ -1290,6 +1292,118 @@ describe('RPG residual damage animations', () => {
 		assert.equal(foe.get('spikes').layers, 1);
 		assert.equal(foe.has('stealthrock'), false);
 		assert.equal(foe.get('toxicspikes').layers, 1);
+	});
+
+	it('blocks a wild capture at Reflect before activating the ball', () => {
+		const { session, launch, character } = setup();
+		session.id = 'runtime-reflect-capture';
+		launch.sessionId = session.id;
+		character.inventory = RPGInventorySystem.create(RPGBagSystem.createForTier('hero', 'starter', [
+			{ itemId: 'masterball', quantity: 1 },
+		]));
+		const manager = new RPGBattleRuntimeManager();
+		manager.start(session, launch, () => character);
+		const battle = manager.runtimes.get('runtimereflectcapture').battle;
+		battle.p2.addSideCondition('reflect', battle.p2.active[0]);
+		manager.ready(session.id, { master: false, characterId: 'hero' });
+		manager.ready(session.id, { master: true });
+		manager.action(session.id, { master: false, characterId: 'hero' }, {
+			type: 'turn', choices: [{ type: 'capture', ball: 'masterball', target: 0,
+				actionId: 'reflect-blocked' }],
+		});
+		const state = manager.action(session.id, { master: true }, { type: 'move', move: 1 });
+		assert.equal(state.lastAction.reason, 'reflect-blocked');
+		assert.equal(state.lastAction.success, false);
+		assert.equal(state.status, 'active');
+	});
+
+	it('requires a throw check before even a Master Ball can activate', () => {
+		const { session, launch, character } = setup();
+		session.id = 'runtime-missed-throw';
+		launch.sessionId = session.id;
+		character.inventory = RPGInventorySystem.create(RPGBagSystem.createForTier('hero', 'starter', [
+			{ itemId: 'masterball', quantity: 1 },
+		]));
+		const manager = new RPGBattleRuntimeManager();
+		manager.start(session, launch, () => character);
+		manager.runtimes.get('runtimemissedthrow').battle.random = () => 0;
+		manager.ready(session.id, { master: false, characterId: 'hero' });
+		manager.ready(session.id, { master: true });
+		manager.action(session.id, { master: false, characterId: 'hero' }, {
+			type: 'turn', choices: [{ type: 'capture', ball: 'masterball', target: 0, actionId: 'missed-throw' }],
+		});
+		const state = manager.action(session.id, { master: true }, { type: 'move', move: 1 });
+		assert.equal(state.lastAction.reason, 'throw-missed');
+		assert.equal(state.lastAction.shakes, 0);
+		assert.equal(state.animations.find(event => event.type === 'capture').feedback, 'miss');
+	});
+
+	it('reveals conditional Poké Ball benefits only to the trainer with Escolha Adequada', () => {
+		const { session, launch, character } = setup();
+		session.id = 'runtime-ball-insights';
+		launch.sessionId = session.id;
+		character.trainerSheet = {
+			version: 1, status: 'complete', level: 3, experience: 0, classId: 'mestre-pokemon',
+			attributes: { strength: 10, dexterity: 12, constitution: 10,
+				intelligence: 10, wisdom: 10, charisma: 10 },
+			hitPoints: { current: 20, maximum: 20, temporary: 0 },
+			skills: { trained: ['captura'], focused: [] }, resistances: [],
+			talents: { general: [], class: ['mestre-pokemon:escolha-adequada'], apex: null }, resources: {},
+		};
+		character.inventory = RPGInventorySystem.create(RPGBagSystem.createForTier('hero', 'starter', [
+			{ itemId: 'greatball', quantity: 1 }, { itemId: 'netball', quantity: 1 },
+		]));
+		const manager = new RPGBattleRuntimeManager();
+		manager.start(session, launch, () => character);
+		const owned = manager.snapshot(session.id, { master: false, characterId: 'hero' });
+		assert.equal(owned.ballInsights[0].greatball.active, true);
+		assert.equal(owned.ballInsights[0].netball.active, false);
+		assert.equal('probability' in owned.ballInsights[0].greatball, false);
+		assert.equal(manager.snapshot(session.id, { master: true }).ballInsights, undefined);
+	});
+
+	it('lets an angled throw bypass Reflect and returns a deflected ball only with Captura Sem Risco', () => {
+		const run = angled => {
+			const { session, launch, character } = setup();
+			session.id = angled ? 'runtime-angled-capture' : 'runtime-safe-capture';
+			launch.sessionId = session.id;
+			character.trainerSheet = {
+				version: 1, status: 'complete', level: 5, experience: 0, classId: 'mestre-pokemon',
+				attributes: { strength: 10, dexterity: 20, constitution: 10,
+					intelligence: 10, wisdom: 10, charisma: 10 },
+				hitPoints: { current: 20, maximum: 20, temporary: 0 },
+				skills: { trained: ['captura'], focused: [] }, resistances: [],
+				talents: { general: [], class: angled ? ['mestre-pokemon:arremesso-angulado'] :
+				['mestre-pokemon:captura-sem-risco'], apex: null }, resources: {},
+			};
+			character.inventory = RPGInventorySystem.create(RPGBagSystem.createForTier('hero', 'starter', [
+				{ itemId: 'masterball', quantity: 1 },
+			]));
+			const manager = new RPGBattleRuntimeManager();
+			manager.start(session, launch, () => character);
+			const battle = manager.runtimes.get(session.id.replaceAll('-', '')).battle;
+			battle.p2.addSideCondition('reflect', battle.p2.active[0]);
+			battle.random = count => count - 1;
+			manager.ready(session.id, { master: false, characterId: 'hero' });
+			manager.ready(session.id, { master: true });
+			manager.action(session.id, { master: false, characterId: 'hero' }, {
+				type: 'turn', choices: [{ type: 'capture', ball: 'masterball', target: 0,
+					actionId: angled ? 'angled' : 'safe' }],
+			});
+			const state = manager.action(session.id, { master: true }, { type: 'move', move: 1 });
+			return { manager, session, state, battle };
+		};
+		const angled = run(true);
+		assert.equal(angled.state.lastAction.success, true);
+		assert.equal(angled.state.status, 'ended');
+		const safe = run(false);
+		assert.equal(safe.state.lastAction.reason, 'reflect-blocked');
+		assert.equal(safe.manager.runtimes.get('runtimesafecapture').recoverableBalls.length, 1);
+		safe.battle.tie();
+		let restored;
+		safe.manager.settleRecoverableBalls(safe.session.id, (_id, inventory) => { restored = inventory; });
+		assert.equal(RPGBagSystem.getQuantity(restored.bag, 'masterball'), 1);
+		assert.equal(safe.manager.runtimes.get('runtimesafecapture').recoverableBalls.length, 0);
 	});
 
 	it('restores a queued Bag action while waiting for the opposing side', () => {

@@ -10,6 +10,7 @@ import { toID } from '../../sim/dex-data';
 import type { PokemonSet } from '../../sim/teams';
 import { getRPGPokemonSizeClass, type RPGPokemonSizeClass } from '../../sim/rpg-showdown';
 import { getRPGContestMove, RPG_CONTEST_NO_PP_ACTION } from './contest-move-catalog';
+import type { RPGTrainerSheet } from './trainer-sheet';
 import { getRPGContestItemClassification } from './contest-item-catalog';
 import {
 	applyRPGContestSecondRoundCreativity, applyRPGContestWithinRoundRepetition,
@@ -207,6 +208,7 @@ interface RPGContestRuntimeState {
 export interface RPGContestRuntimeManagerOptions {
 	now?: () => number;
 	getCharacterTeam?: (characterId: string) => PokemonSet[] | undefined;
+	getTrainerSheet?: (characterId: string) => RPGTrainerSheet | undefined;
 	getCombos?: () => readonly RPGContestComboDefinition[];
 	onFinished?: (session: RPGContestSession, results: readonly RPGContestPlacement[]) => void;
 	onMovePPSpent?: (characterId: string, teamIndex: number, moveId: string) => boolean;
@@ -220,6 +222,7 @@ export class RPGContestRuntimeManager {
 	private readonly now: () => number;
 	private readonly onFinished?: RPGContestRuntimeManagerOptions['onFinished'];
 	private readonly getCharacterTeam: (characterId: string) => PokemonSet[] | undefined;
+	private readonly getTrainerSheet: (characterId: string) => RPGTrainerSheet | undefined;
 	private readonly getCombos: () => readonly RPGContestComboDefinition[];
 	private readonly onMovePPSpent?: RPGContestRuntimeManagerOptions['onMovePPSpent'];
 	private readonly onNPCMovePPSpent?: RPGContestRuntimeManagerOptions['onNPCMovePPSpent'];
@@ -227,6 +230,7 @@ export class RPGContestRuntimeManager {
 	constructor(options: RPGContestRuntimeManagerOptions = {}) {
 		this.now = options.now || Date.now;
 		this.getCharacterTeam = options.getCharacterTeam || (() => undefined);
+		this.getTrainerSheet = options.getTrainerSheet || (() => undefined);
 		this.getCombos = options.getCombos || (() => RPG_DEFAULT_CONTEST_COMBOS);
 		this.onFinished = options.onFinished;
 		this.onMovePPSpent = options.onMovePPSpent;
@@ -476,7 +480,8 @@ export class RPGContestRuntimeManager {
 		state.results = rankRPGContestParticipants(state.participants.map(participant => ({
 			id: participant.id, disqualified: participant.disqualified,
 			roundTotals: participant.judging.filter(Boolean).map(judging => judging!.totalAfterJudging),
-			scenarioCoherenceBonus: participant.scenarioCoherenceBonus,
+			scenarioCoherenceBonus: participant.scenarioCoherenceBonus +
+				this.trainerContestBonus(state, participant),
 			performanceBonus: participant.pokemonTeam.reduce((sum, pokemon) => sum + pokemon.performanceBonus, 0) / participant.pokemonTeam.length,
 		})));
 		if (!awardPerformance) {
@@ -484,6 +489,27 @@ export class RPGContestRuntimeManager {
 		}
 		this.emit(state, 'contest-finished');
 		this.onFinished?.(structuredClone(state.session), structuredClone(state.results));
+	}
+
+	/** Pontos de apresentação do treinador: nunca alteram golpes, PP ou notas dos jurados. */
+	private trainerContestBonus(state: RPGContestRuntimeState, participant: RPGContestRuntimeParticipant): number {
+		if (!participant.characterId || participant.disqualified) return 0;
+		const sheet = this.getTrainerSheet(participant.characterId);
+		if (sheet?.status !== 'complete') return 0;
+		const talents = new Set(sheet.talents.class);
+		const rounds = participant.rounds.filter(round => round.length === 3);
+		const coherent = (move: string) => move !== RPG_CONTEST_NO_PP_ACTION &&
+			getRPGContestMove(move).category === state.session.category;
+		let bonus = 0;
+		if (state.session.mode === 'solo' && talents.has('coreografo:entrada-marcante') &&
+			rounds.some((round, index) => coherent(round[0]) &&
+				(index === 0 || round[0] !== rounds[index - 1][0]))) bonus++;
+		if (state.session.mode === 'solo' && talents.has('coreografo:encerramento-memoravel') &&
+			rounds.some(round => coherent(round[2]) && round[2] !== round[1])) bonus++;
+		if (talents.has('coreografo:transicao-fluida') && rounds.some((round, index) =>
+			new Set(round).size === 3 && !round.includes(RPG_CONTEST_NO_PP_ACTION) &&
+				!!participant.roundScores[index]?.matchedCombos.length)) bonus++;
+		return bonus;
 	}
 
 	private pruneEndedRuntimes(now = this.now()): void {

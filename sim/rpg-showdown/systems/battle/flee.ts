@@ -7,6 +7,8 @@ import { RPGBattleRulesSystem } from "./rules";
 
 export interface RPGFleeOptions {
 	guaranteed?: boolean;
+	/** Bônus do treinador à execução da fuga, sem alterar a Velocidade do Pokémon. */
+	trainerActionBonus?: number;
 }
 
 export class FleeSystem {
@@ -37,8 +39,10 @@ export class FleeSystem {
 		}
 
 		const calculation = this.calculate(playerSpeed, opponentSpeed, attempts);
-		const escapeValue = guaranteedBy ? 256 : calculation.escapeValue;
-		const probability = guaranteedBy ? 1 : calculation.probability;
+		const trainerActionBonus = Math.max(0, Math.min(2, Math.trunc(options.trainerActionBonus || 0)));
+		const escapeValue = guaranteedBy ? 256 : Math.min(256,
+			calculation.escapeValue + Math.round(256 * trainerActionBonus / 20));
+		const probability = escapeValue / 256;
 		const success = guaranteedBy !== undefined || battle.random(256) < escapeValue;
 		const result = this.createResult(pokemon, opponent, {
 			allowed: true, success, continued: !success, attempts,
