@@ -23,6 +23,16 @@ export const RPG_SKILL_ATTRIBUTES: Readonly<Record<string, readonly RPGTrainerAt
 	'adestramento-pokemon': ['wisdom'],
 });
 
+/** Áreas comuns da ficha; treinamentos personalizados continuam aparecendo além destas opções. */
+export const RPG_KNOWLEDGE_DOMAINS = Object.freeze([
+	'regioes', 'historia-personagens-historicos', 'lendarios-miticos', 'pokemon',
+	'organizacoes', 'cultura-sociedade', 'arqueologia-fosseis', 'ciencias',
+]);
+export const RPG_CRAFT_DOMAINS = Object.freeze([
+	'culinaria', 'mecanica', 'costura', 'fotografia', 'carpintaria',
+	'ferraria', 'jornalismo', 'artesanato',
+]);
+
 const RESISTANCE_ATTRIBUTE: Readonly<Record<RPGTrainerResistance, RPGTrainerAttribute>> = {
 	fortitude: 'constitution', reflexes: 'dexterity', will: 'wisdom',
 };

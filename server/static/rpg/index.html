@@ -16,6 +16,7 @@
 	<link rel="stylesheet" href="./nursery.css?v=20260826-1" />
 	<link rel="stylesheet" href="./shop-ui.css?v=20260904-6" />
 	<link rel="stylesheet" href="./contest-ui.css?v=20260902-30" />
+	<link rel="stylesheet" href="./trainer-sheet.css?v=20260930-15" />
 </head>
 <body>
 	<div class="app-shell">
@@ -283,7 +284,7 @@
 						<button class="back-button" data-back="player" type="button">&lsaquo; Voltar</button>
 						<p class="eyebrow">Novo aventureiro</p>
 						<h1>Criar personagem</h1>
-						<p>Os atributos n&atilde;o informados e os golpes poss&iacute;veis no n&iacute;vel ser&atilde;o definidos automaticamente.</p>
+						<p id="create-screen-description">Os atributos n&atilde;o informados e os golpes poss&iacute;veis no n&iacute;vel ser&atilde;o definidos automaticamente.</p>
 					</div>
 					<form class="panel form-grid" id="create-form">
 						<div class="field">
@@ -359,6 +360,18 @@
 							<button class="button primary" type="submit">Criar e entrar</button>
 						</div>
 					</form>
+				</div>
+			</section>
+
+			<section class="screen hidden" id="trainer-creation-screen">
+				<div class="content-column narrow-column">
+					<div class="panel page-heading">
+						<button class="back-button" id="cancel-trainer-creation" type="button">&lsaquo; Cancelar e ir para a mesa</button>
+						<p class="eyebrow">Novo treinador</p>
+						<h1>Criar ficha do treinador</h1>
+						<p>Defina as escolhas da ficha para come&ccedil;ar sua jornada nesta mesa.</p>
+					</div>
+					<div id="character-trainer-creation"></div>
 				</div>
 			</section>
 
@@ -463,6 +476,7 @@
 	<script src="./nursery-ui.js?v=20260826-1"></script>
 	<script src="./contest-ui.js?v=20260914-40"></script>
 	<script src="./shop-ui.js?v=20260904-4"></script>
-	<script src="./rpg.js?v=20260915-191"></script>
+	<script src="./trainer-sheet-ui.js?v=20260930-17"></script>
+	<script src="./rpg.js?v=20260930-3"></script>
 </body>
 </html>

@@ -4,7 +4,9 @@ export const RPG_STANDARD_ATTRIBUTES = [15, 14, 13, 12, 10, 8] as const;
 export type RPGTrainerAttributeMethod = 'standard' | 'rolled';
 
 const SKILLS = 'acrobacia atletismo atuacao captura conhecimento empatia-pokemon enganacao furtividade intimidacao intuicao investigacao ladinagem medicina medicina-pokemon montaria-pokemon natureza oficio percepcao persuasao pilotagem sobrevivencia tecnologia adestramento-pokemon'.split(' ');
-const PILOTING = ['automoveis', 'motocicletas', 'embarcacoes', 'aeronaves', 'maquinas-pesadas', 'veiculos-especiais'];
+export const RPG_TRAINER_PILOTING_DOMAINS = Object.freeze([
+	'automoveis', 'motocicletas', 'embarcacoes', 'aeronaves', 'maquinas-pesadas', 'veiculos-especiais',
+]);
 const ATTRS: (keyof RPGTrainerAttributes)[] = ['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma'];
 
 interface ClassRule {
@@ -116,23 +118,35 @@ export function validateRPGAttributeAssignment(value: unknown, pool: readonly nu
 	return input as unknown as RPGTrainerAttributes;
 }
 
+export function rollRPGTrainerAttributeGroup(die: () => number): { dice: number[], value: number } {
+	const dice = Array.from({ length: 4 }, die);
+	if (dice.some(value => !Number.isSafeInteger(value) || value < 1 || value > 6)) {
+		throw new Error('Fonte de rolagem inválida');
+	}
+	return { dice, value: dice.slice().sort((a, b) => a - b).slice(1)
+		.reduce((total, value) => total + value, 0) };
+}
+
+export function rollRPGTrainerAttributeSeries(die: () => number): {
+	dice: number[][], values: number[], valid: boolean,
+} {
+	const groups = Array.from({ length: 6 }, () => rollRPGTrainerAttributeGroup(die));
+	const dice = groups.map(group => group.dice);
+	const values = groups.map(group => group.value);
+	return { dice, values, valid: values.reduce((total, score) => total + score, 0) >= 70 && Math.max(...values) >= 14 };
+}
+
 export function rollRPGTrainerAttributes(die: () => number): number[] {
 	for (let attempt = 0; attempt < 1000; attempt++) {
-		const rolls = Array.from({ length: 6 }, () => {
-			const dice = Array.from({ length: 4 }, die).sort((a, b) => a - b);
-			if (dice.some(value => !Number.isSafeInteger(value) || value < 1 || value > 6)) {
-				throw new Error('Fonte de rolagem inválida');
-			}
-			return dice[1] + dice[2] + dice[3];
-		});
-		if (rolls.reduce((total, score) => total + score, 0) >= 70 && Math.max(...rolls) >= 14) return rolls;
+		const series = rollRPGTrainerAttributeSeries(die);
+		if (series.valid) return series.values;
 	}
 	throw new Error('Não foi possível gerar uma série válida de atributos');
 }
 
 function validSkill(skill: string): boolean {
 	if (skill.startsWith('conhecimento:')) return /^[a-z0-9-]{2,40}$/.test(skill.slice(13));
-	if (skill.startsWith('pilotagem:')) return PILOTING.includes(skill.slice(10));
+	if (skill.startsWith('pilotagem:')) return RPG_TRAINER_PILOTING_DOMAINS.includes(skill.slice(10));
 	if (skill.startsWith('oficio:')) return /^[a-z0-9-]{2,40}$/.test(skill.slice(7));
 	return SKILLS.includes(skill) && !['conhecimento', 'pilotagem', 'oficio'].includes(skill);
 }
@@ -193,6 +207,7 @@ export function completeRPGTrainerSheet(pending: RPGTrainerSheet, input: RPGTrai
 	return { ...pending, status: 'complete', attributes, classId: chosenClass.id,
 		hitPoints: { current: hp, maximum: hp, temporary: 0 },
 		skills: { trained, focused: [] }, resistances: [chosenClass.resistance],
-		creation: { method, rolls: method === 'rolled' ? [...pool] : null }, equipment: gear,
+		creation: { method, rolls: method === 'rolled' ? [...pool] : null,
+			...(method === 'rolled' && pending.creation?.dice ? { dice: pending.creation.dice.map(group => [...group]) } : {}) }, equipment: gear,
 		proficiencies: CLASS_PROFICIENCIES[chosenClass.id] || [] };
 }

@@ -52,6 +52,7 @@ describe('RPG trainer equipment and item bank', () => {
 		const master = service.loginMaster('teste');
 		const alice = character(service, 'Alice');
 		const bob = character(service, 'Bob');
+		service.chooseTrainerAttributeMethod(alice.token, 'standard');
 		service.completeTrainerCreation(alice.token, { classId: 'arqueologo', attributes,
 			optionalSkills: ['percepcao', 'sobrevivencia', 'pilotagem:automoveis'], gearChoices: { arma: 'faca' } });
 		const initial = service.getTrainerEquipment(alice.token);

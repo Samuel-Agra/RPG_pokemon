@@ -92,6 +92,10 @@ function platformPlayerNeedsCharacter(session = state.session) {
 /** Abre o cadastro compartilhado, mas mantém a conta global como dona do novo personagem. */
 function openCharacterCreation() {
 	setError('create-error', '');
+	$('#create-form').classList.remove('hidden');
+	$('#character-trainer-creation').replaceChildren();
+	$('#create-screen .page-heading h1').textContent = 'Criar personagem';
+	$('#create-screen-description').textContent = 'Os atributos não informados e os golpes possíveis no nível serão definidos automaticamente.';
 	$('#create-form').reset();
 	$('#initial-money').value = '3000';
 	$('#player-name').value = state.account?.handle || '';
@@ -101,6 +105,7 @@ function openCharacterCreation() {
 	setAvatarPickerOpen(false);
 	setStarterPickerOpen(false);
 	const required = platformPlayerNeedsCharacter();
+	$('#create-form button[type="submit"]').textContent = required ? 'Criar e continuar' : 'Criar e entrar';
 	$('#legacy-player-name-field').classList.toggle('hidden', required);
 	$('#legacy-initial-money-field').classList.toggle('hidden', required);
 	for (const id of ['character-password-field', 'character-password-confirmation-field']) {
@@ -2416,6 +2421,7 @@ function dashboardNav(isMaster) {
 	const shopsBlocked = !masterViewingPlayer && state.currentCharacter?.pageAccess?.shops === false;
 	const entries = isMaster ? [
 		['overview', 'Vis\u00e3o geral'],
+		['trainer-sheet', 'Fichas'],
 		['players', 'Jogadores'],
 		['npcs', 'NPCs e selvagens'],
 		['shops', 'Lojas'],
@@ -2425,6 +2431,7 @@ function dashboardNav(isMaster) {
 		['tournaments', 'Torneios'],
 	] : [
 		['overview', 'Vis\u00e3o geral'],
+		['trainer-sheet', 'Ficha'],
 		['team-builder', 'Team Builder'],
 		['team', 'Equipe'],
 		['bag', 'Bag', bagBlocked],
@@ -7923,6 +7930,7 @@ async function renderDashboard() {
 	dashboardNav(isMasterMode);
 
 	try {
+		$('#dashboard-title').classList.remove('trainer-sheet-heading-summary');
 		if (!isMasterMode && state.tableReadOnly && !state.session.characterId) {
 			$('.dashboard-heading').classList.add('hidden');
 			body.replaceChildren(createElement('section', 'panel empty-state',
@@ -7942,18 +7950,21 @@ async function renderDashboard() {
 			$('#profile-name').textContent = 'Mestre';
 			$('#profile-role').textContent = 'Controle da campanha';
 			$('#dashboard-eyebrow').textContent = state.dashboardView === 'battles' ? 'CENTRO DE BATALHAS' :
+				state.dashboardView === 'trainer-sheet' ? 'TREINADORES DA CAMPANHA' :
 				state.dashboardView === 'contests' ? 'PALCO DE CONCURSOS' :
 				state.dashboardView === 'npcs' ? 'ARQUIVO DA CAMPANHA' :
 				state.dashboardView === 'players' ? 'GESTÃO DE JOGADORES' :
 				state.dashboardView === 'tournaments' ? 'CENTRAL DE TORNEIOS' : 'PAINEL DO MESTRE';
 			$('#dashboard-eyebrow').classList.remove('hidden');
 			$('#dashboard-title').textContent = state.dashboardView === 'battles' ? 'Prepara\u00e7\u00e3o de batalhas' :
+				state.dashboardView === 'trainer-sheet' ? 'Fichas dos treinadores' :
 				state.dashboardView === 'contests' ? 'Concursos Pok\u00e9mon' :
 				state.dashboardView === 'npcs' ? 'NPCs e selvagens' :
 				state.dashboardView === 'players' ? 'Jogadores' :
 				state.dashboardView === 'tournaments' ? 'Torneios' :
 				'Vis\u00e3o geral da campanha';
 			$('#dashboard-description').textContent = state.dashboardView === 'battles' ? 'Monte o confronto, envie convites e aguarde as confirma\u00e7\u00f5es.' :
+				state.dashboardView === 'trainer-sheet' ? 'Consulte os atributos, progressão e equipamentos dos personagens da mesa.' :
 				state.dashboardView === 'contests' ? 'Organize apresenta\u00e7\u00f5es, participantes e convites do concurso.' :
 				state.dashboardView === 'npcs' ? 'Organize Pok\u00e9mon importantes e NPCs para batalhas e concursos.' :
 				state.dashboardView === 'players' ? 'Acompanhe e gerencie os treinadores desta campanha.' :
@@ -7963,6 +7974,7 @@ async function renderDashboard() {
 			$('#logout-button').classList.add('danger');
 			$('#delete-character').classList.add('hidden');
 			body.replaceChildren(
+				state.dashboardView === 'trainer-sheet' ? await window.RPGTrainerSheetUI.render({ api, state, master: true, characters }) :
 				state.dashboardView === 'battles' ? await renderMasterBattles(characters) :
 				state.dashboardView === 'contests' ? await window.RPGContestUI.render({ state, api, master: true, characters, rerender: renderDashboard }) :
 				state.dashboardView === 'npcs' ? await renderMasterNPCLibraryDashboard() :
@@ -7986,11 +7998,13 @@ async function renderDashboard() {
 			$('#dashboard-eyebrow').textContent = '';
 			$('#dashboard-eyebrow').classList.add('hidden');
 			$('#dashboard-title').textContent = state.dashboardView === 'battles' ? 'Convites de batalha' :
+				state.dashboardView === 'trainer-sheet' ? '' :
 				state.dashboardView === 'contests' ? 'Concursos Pok\u00e9mon' :
 				state.dashboardView === 'tournaments' ? 'Torneios' :
 				state.dashboardView === 'players' ? 'Players' :
 				state.dashboardView === 'documents' ? 'Documentos' : 'Ol\u00e1, ' + character.characterName;
 			$('#dashboard-description').textContent = state.dashboardView === 'battles' ? 'Participe dos seus combates ou assista aos combates em andamento.' :
+				state.dashboardView === 'trainer-sheet' ? '' :
 				state.dashboardView === 'tournaments' ? 'Inscreva sua equipe e acompanhe as chaves dos torneios.' :
 				state.dashboardView === 'players' ? 'Veja os outros treinadores e suas equipes atuais.' :
 				state.dashboardView === 'documents' ? 'Organize suas pastas e blocos de notas.' : 'Sua equipe e seus recursos persistentes.';
@@ -7999,6 +8013,7 @@ async function renderDashboard() {
 			$('#logout-button').classList.toggle('danger', !viewing);
 			$('#delete-character').classList.toggle('hidden', !viewing);
 			const playerView = state.dashboardView === 'battles' ? await renderPlayerBattles(character) :
+				state.dashboardView === 'trainer-sheet' ? await window.RPGTrainerSheetUI.render({ api, state, master: false, character }) :
 				state.dashboardView === 'contests' ? await window.RPGContestUI.render({ state, api, master: false, character, rerender: renderDashboard }) :
 				state.dashboardView === 'tournaments' ? await renderPlayerTournaments(character) :
 				state.dashboardView === 'box' ? await renderPlayerBox(character) :
@@ -8275,6 +8290,12 @@ for (const back of document.querySelectorAll('[data-back]')) {
 	});
 }
 
+function leaveTrainerCreation() {
+	state.dashboardView = 'overview';
+	void renderDashboard();
+}
+$('#cancel-trainer-creation').addEventListener('click', leaveTrainerCreation);
+
 function visibleElement(element) {
 	if (!element || element.disabled || element.classList.contains('hidden')) return false;
 	const style = window.getComputedStyle(element);
@@ -8376,6 +8397,11 @@ function handleEscapeNavigation(event) {
 		} else {
 			void loadCharacters();
 		}
+		return;
+	}
+	if (visibleScreen === 'trainer-creation-screen') {
+		event.preventDefault();
+		if (!window.RPGTrainerSheetUI?.backCreationWizard?.()) leaveTrainerCreation();
 		return;
 	}
 	if (visibleScreen !== 'dashboard-screen') return;
@@ -8485,14 +8511,24 @@ $('#create-form').addEventListener('submit', async event => {
 		});
 		form.reset();
 		saveSession(login.session);
-		state.dashboardView = 'overview';
-		await renderDashboard();
-		showToast('Personagem criado com sucesso.');
+		if (platformCreation) {
+			const wizard = $('#character-trainer-creation');
+			show('trainer-creation');
+			await window.RPGTrainerSheetUI.mountCreationWizard(wizard, api, async () => {
+				state.dashboardView = 'overview';
+				await renderDashboard();
+				showToast('Personagem e ficha criados com sucesso.');
+			});
+		} else {
+			state.dashboardView = 'overview';
+			await renderDashboard();
+			showToast('Personagem criado com sucesso.');
+		}
 	} catch (error) {
 		setError('create-error', error.message);
 	} finally {
 		submit.disabled = false;
-		submit.textContent = 'Criar e entrar';
+		submit.textContent = platformCreation ? 'Criar e continuar' : 'Criar e entrar';
 	}
 });
 

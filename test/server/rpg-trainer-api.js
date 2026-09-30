@@ -8,13 +8,15 @@ const { RPGLoginService, RPGMemoryCharacterRepository } = require('../../dist/se
 describe('RPG trainer API', () => {
 	const attributes = { strength: 15, dexterity: 14, constitution: 13, intelligence: 12, wisdom: 10, charisma: 8 };
 	let service;
+	let repository;
 	let server;
 	let baseUrl;
 	let master;
 	let player;
 
 	before(async () => {
-		service = new RPGLoginService({ masterCode: 'segredo', repository: new RPGMemoryCharacterRepository(),
+		repository = new RPGMemoryCharacterRepository();
+		service = new RPGLoginService({ masterCode: 'segredo', repository,
 			random: () => 0.45 });
 		service.createCharacter({ characterName: 'Treinador', playerName: 'Pessoa', avatar: 'lucas',
 			password: 'senha-rpg', initialMoney: 100, starter: { species: 'Squirtle', gender: 'M' } });
@@ -22,6 +24,7 @@ describe('RPG trainer API', () => {
 			password: 'senha-rpg', initialMoney: 100, starter: { species: 'Bulbasaur', gender: 'M' } });
 		master = service.loginMaster('segredo');
 		player = service.loginPlayer('treinador', 'senha-rpg');
+		service.chooseTrainerAttributeMethod(player.token, 'standard');
 		service.completeTrainerCreation(player.token, { classId: 'arqueologo', attributes,
 			optionalSkills: ['percepcao', 'sobrevivencia', 'pilotagem:automoveis'], gearChoices: { arma: 'faca' } });
 		server = http.createServer((req, res) => new RPGHttpServer(service).handle(req, res));
@@ -50,6 +53,27 @@ describe('RPG trainer API', () => {
 		assert.notEqual((await request('/api/rpg/trainer/rules', 'invalido')).status, 200);
 	});
 
+	it('projects every human skill, resistance, Defense and base attack from the rules engine', async () => {
+		const view = await request('/api/rpg/trainer/sheet', player.token);
+		assert.equal(view.status, 200);
+		assert.equal(view.data.resistances.length, 3);
+		assert.equal(view.data.proficiency, 2);
+		assert.equal(view.data.resistances.find(entry => entry.id === 'will').trained, true);
+		assert.equal(view.data.resistances.find(entry => entry.id === 'reflexes').trained, false);
+		assert.equal(view.data.skills.find(entry => entry.id === 'investigacao').trained, true);
+		assert.equal(view.data.skills.find(entry => entry.id === 'acrobacia').trained, false);
+		assert.equal(view.data.skills.find(entry => entry.id === 'ladinagem').requiresTraining, true);
+		assert.equal(view.data.skills.filter(entry => entry.id.startsWith('pilotagem:')).length, 6);
+		assert.equal(view.data.skills.filter(entry => entry.id.startsWith('conhecimento:')).length, 8);
+		assert.equal(view.data.skills.filter(entry => entry.id.startsWith('oficio:')).length, 8);
+		assert.equal(view.data.skills.find(entry => entry.id === 'conhecimento:arqueologia-fosseis').trained, true);
+		assert.equal(view.data.skills.find(entry => entry.id === 'conhecimento:regioes').trained, false);
+		assert.equal(view.data.skills.find(entry => entry.id === 'oficio:mecanica').bonus, null);
+		assert.equal(view.data.derived.defense,
+			service.getTrainerEquipment(player.token).derived.defense);
+		assert.deepEqual(view.data.attacks, { melee: 2, ranged: 2 });
+	});
+
 	it('arbitrates a check once, persists it, and rejects player rerolls or changed requests', async () => {
 		const body = { characterId: 'treinador', requestId: 'teste_unico_001', kind: 'skill',
 			skill: 'percepcao', options: { dc: 15 } };
@@ -76,5 +100,74 @@ describe('RPG trainer API', () => {
 		assert.ok(responses.every(response =>
 			response.data.result.total === responses[0].data.result.total));
 		assert.equal(service.getTrainerProgression(master.token, 'treinador').sheet.checks.length, 2);
+	});
+
+	it('arbitrates campaign activities once and keeps their state on the character', async () => {
+		const start = { characterId: 'treinador', requestId: 'viagem_inicio_001',
+			action: { type: 'travel-start', hex: { q: 0, r: 0 } } };
+		assert.notEqual((await request('/api/rpg/trainer/activities', player.token, start)).status, 200);
+		assert.equal((await request('/api/rpg/trainer/activities', master.token, start)).status, 200);
+		const repeat = await request('/api/rpg/trainer/activities', master.token, start);
+		assert.equal(repeat.data.repeated, true);
+		const leg = { characterId: 'treinador', requestId: 'viagem_trecho_001',
+			action: { type: 'travel-advance', leg: { destination: { q: 1, r: 0 },
+				mode: 'foot', route: 'road', weather: 'normal', pace: 'normal', carriedKg: 99999 },
+			hoursBudget: 2 } };
+		const advanced = await request('/api/rpg/trainer/activities', master.token, leg);
+		assert.equal(advanced.status, 200);
+		assert.equal(advanced.data.result.arrived, true);
+		const visible = await request('/api/rpg/trainer/activities', player.token);
+		assert.equal(visible.status, 200);
+		assert.deepEqual(visible.data.activities.travel.hex, { q: 1, r: 0 });
+		assert.notEqual((await request('/api/rpg/trainer/activities?characterId=outro', player.token)).status, 200);
+		assert.notEqual((await request('/api/rpg/trainer/activities', master.token,
+			{ ...leg, action: start.action })).status, 200);
+	});
+
+	it('does not consume a craft project before its campaign time or prerequisites', async () => {
+		const begin = { characterId: 'treinador', requestId: 'fabricacao_inicio_01',
+			action: { type: 'craft-start', recipeId: 'culinary:pokemon-ration' } };
+		assert.equal((await request('/api/rpg/trainer/activities', master.token, begin)).status, 200);
+		const complete = { characterId: 'treinador', requestId: 'fabricacao_final_01',
+			action: { type: 'craft-complete', craftId: begin.requestId } };
+		assert.notEqual((await request('/api/rpg/trainer/activities', master.token, complete)).status, 200);
+		const state = (await request('/api/rpg/trainer/activities?characterId=treinador', master.token)).data.activities;
+		assert.equal(state.crafts[0].completedAt, undefined);
+		assert.equal(state.receipts.filter(entry => entry.id === complete.requestId).length, 0);
+	});
+
+	it('commits craft charges and produced items together and returns the same receipt on retry', async () => {
+		const record = repository.get('treinador');
+		record.state.trainerSheet.talents.class.push('cientista:producao-farmaceutica-pokemon');
+		record.state.trainerSheet.skills.trained.push('conhecimento:quimica');
+		record.state.trainerSheet.proficiencies.push('kit-cientifico');
+		record.state.trainerInventory.items.push({ id: 'kit_teste_01', itemId: 'kit-cientifico-1',
+			quantity: 1, equipped: false, charges: 5, location: 'bag' });
+		repository.set(record);
+		const begin = { characterId: 'treinador', requestId: 'fabricacao_inicio_02',
+			action: { type: 'craft-start', recipeId: 'pharmacy:potion' } };
+		assert.equal((await request('/api/rpg/trainer/activities', master.token, begin)).status, 200);
+		service.advanceCampaignTime(master.token, 1);
+		const complete = { characterId: 'treinador', requestId: 'fabricacao_final_02',
+			action: { type: 'craft-complete', craftId: begin.requestId, facility: 'higienica' } };
+		const result = await request('/api/rpg/trainer/activities', master.token, complete);
+		assert.equal(result.status, 200);
+		assert.equal(result.data.result.produced.quantity, 3);
+		const finished = repository.get('treinador');
+		assert.equal(finished.state.trainerInventory.items.find(item => item.id === 'kit_teste_01').charges, 4);
+		const bag = finished.state.inventory.bag;
+		assert.equal(bag.items.find(item => item.itemId === 'potion').quantity, 3);
+		assert.equal((await request('/api/rpg/trainer/activities', master.token, complete)).data.repeated, true);
+		assert.equal(repository.get('treinador').state.inventory.bag.items.find(item => item.itemId === 'potion').quantity, 3);
+	});
+
+	it('reloads activity receipts from character persistence without leaking to another character', () => {
+		const restarted = new RPGLoginService({ masterCode: 'segredo', repository,
+			random: () => 0.45 });
+		const token = restarted.loginMaster('segredo').token;
+		const activities = restarted.getTrainerActivities(token, 'treinador').activities;
+		assert.equal(activities.travel.hex.q, 1);
+		assert.equal(activities.receipts.filter(entry => entry.id === 'viagem_inicio_001').length, 1);
+		assert.deepEqual(restarted.getTrainerActivities(token, 'outro').activities, {});
 	});
 });

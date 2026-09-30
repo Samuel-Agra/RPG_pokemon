@@ -25,6 +25,7 @@ import {
 	type RPGCommerceTradeRequest,
 	type RPGLoginService,
 	type RPGInternalSession,
+	type RPGCharacterDeletionStore,
 	type RPGUpdateContestSessionRequest,
 	type RPGUpdateBattleSessionRequest,
 } from './index';
@@ -34,6 +35,9 @@ import { getRPGBattleSceneCatalog } from './battle-scene';
 import { getRPGContestMoveCatalog, getRPGContestPokemonMoveCatalog } from './contest-move-catalog';
 import { RPGContestRuntimeManager, type RPGContestRuntimeAction } from './contest-runtime';
 import { getRPGItemIconPath } from './item-icons';
+import { rollRPGD20, rpgTrainerAttackBonus, rollRPGTrainerSkillCheck, rollRPGTrainerInitiative,
+	rollRPGTrainerAttributeCheck, rollRPGTrainerResistance, RPG_SKILL_ATTRIBUTES,
+	type RPGTrainerAttribute, type RPGTrainerResistance } from './trainer-checks';
 
 const MAX_BODY_SIZE = 2 * 1024 * 1024;
 const MAX_BACKUP_BODY_SIZE = 25 * 1024 * 1024;
@@ -46,6 +50,7 @@ export class RPGHttpServer {
 	/** Mantido somente para repositórios locais/dublês; MySQL sempre recarrega a mesa. */
 	private readonly localTableServices = new Map<string, Promise<RPGLoginService>>();
 	private readonly tableSessionStores = new Map<string, Map<string, RPGInternalSession>>();
+	private readonly tableDeletionStores = new Map<string, RPGCharacterDeletionStore>();
 	private readonly battleRuntimeManagers = new Map<string, RPGBattleRuntimeManager>();
 	private readonly contestRuntimeManagers = new Map<string, RPGContestRuntimeManager>();
 	private readonly pendingResponses = new WeakMap<http.ServerResponse, { status: number, data: unknown }>();
@@ -178,7 +183,13 @@ export class RPGHttpServer {
 							sessionStore = new Map<string, RPGInternalSession>();
 							this.tableSessionStores.set(tableId, sessionStore);
 						}
-						const tableService = await createRPGTableLoginServiceAsync(this.service!, tableId, sessionStore);
+						let deletionStore = this.tableDeletionStores.get(tableId);
+						if (!deletionStore) {
+							deletionStore = { challenges: new Map(), lastWords: new Map() };
+							this.tableDeletionStores.set(tableId, deletionStore);
+						}
+						const tableService = await createRPGTableLoginServiceAsync(
+							this.service!, tableId, sessionStore, deletionStore);
 						tableService.authorizePlatformSession(match[1], context);
 						const auditContext = { origin: req.socket.remoteAddress || 'unknown', method: req.method || 'GET', path: url.pathname };
 						const runRequest = () => this.service!.accounts.withAuditContext(auditContext,
@@ -376,7 +387,12 @@ export class RPGHttpServer {
 			}
 		}
 		if (method === 'POST' && url.pathname === '/api/rpg/trainer/roll') {
-			this.json(res, 200, { values: this.login.rollTrainerAttributes(this.token(req)) });
+			this.json(res, 200, this.login.rollTrainerAttributes(this.token(req)));
+			return;
+		}
+		if (method === 'PUT' && url.pathname === '/api/rpg/trainer/creation/method') {
+			const body = await this.body(req);
+			this.json(res, 200, { method: this.login.chooseTrainerAttributeMethod(this.token(req), body.method) });
 			return;
 		}
 		if (method === 'GET' && url.pathname === '/api/rpg/trainer/progression') {
@@ -398,6 +414,107 @@ export class RPGHttpServer {
 			this.json(res, 200, this.login.rollTrainerCheck(this.token(req),
 				body as unknown as Parameters<RPGLoginService['rollTrainerCheck']>[1]));
 			return;
+		}
+		if (method === 'POST' && ['/api/rpg/trainer/attribute-roll', '/api/rpg/trainer/resistance-roll',
+			'/api/rpg/trainer/skill-roll', '/api/rpg/trainer/attack-roll', '/api/rpg/trainer/initiative-roll']
+			.includes(url.pathname)) {
+			const resistanceRoll = url.pathname.endsWith('/resistance-roll');
+			const skillRoll = url.pathname.endsWith('/skill-roll');
+			const attackRoll = url.pathname.endsWith('/attack-roll');
+			const initiativeRoll = url.pathname.endsWith('/initiative-roll');
+			const token = this.token(req);
+			const session = this.login.getSession(token);
+			if (session.mode !== 'player') throw new Error('Entre como jogador para rolar pela ficha');
+			const persistence = this.login.mysqlPersistence;
+			if (!persistence || !session.platformTableId || !session.platformAccountId) {
+				throw new RPGHttpError(503, 'As rolagens no chat requerem o banco de dados');
+			}
+			const body = await this.body(req);
+			const attribute = resistanceRoll || skillRoll || attackRoll || initiativeRoll ? undefined :
+				this.string(body.attribute) as RPGTrainerAttribute;
+			const resistance = resistanceRoll ? this.string(body.resistance) as RPGTrainerResistance : undefined;
+			const skill = skillRoll ? this.string(body.skill) : undefined;
+			const attack = attackRoll ? this.string(body.attack) : undefined;
+			if (attackRoll && attack !== 'melee' && attack !== 'ranged') throw new Error('Ataque inválido');
+			const skillAttribute = skillRoll && body.attribute ? this.string(body.attribute) as RPGTrainerAttribute : undefined;
+			if (skillRoll && skillAttribute &&
+				!RPG_SKILL_ATTRIBUTES[skill!.split(':')[0]]?.includes(skillAttribute)) {
+				throw new Error('Atributo incompatível com a perícia');
+			}
+			const mode = this.string(body.mode);
+			if (!['normal', 'advantage', 'disadvantage'].includes(mode)) throw new Error('Modo de rolagem inválido');
+			const characterId = body.characterId ? this.string(body.characterId) :
+				session.viewAsCharacterId || session.characterId;
+			if (session.role === 'master' && (!session.viewAsCharacterId ||
+				toID(characterId || '') !== toID(session.viewAsCharacterId))) {
+				throw new Error('Entre como esse jogador para rolar seus atributos');
+			}
+			const character = this.login.getCharacter(token, characterId);
+			const options = {
+				dc: 0, advantages: mode === 'advantage' ? 1 : 0,
+				disadvantages: mode === 'disadvantage' ? 1 : 0,
+			};
+			const result = initiativeRoll ? (() => {
+				const roll = rollRPGTrainerInitiative(character.trainerSheet!, Math.random, options);
+				return { ...roll, bonus: roll.total - roll.natural };
+			})() : attackRoll ? (() => {
+				const roll = rollRPGD20(Math.random, options);
+				const bonus = rpgTrainerAttackBonus(character.trainerSheet!, attack === 'melee' ? 'strength' : 'dexterity', false);
+				return { ...roll, bonus, total: roll.natural + bonus };
+			})() : skillRoll ? rollRPGTrainerSkillCheck(character.trainerSheet!, skill!, skillAttribute, options) :
+			resistanceRoll ? rollRPGTrainerResistance(character.trainerSheet!, resistance!, options) :
+			rollRPGTrainerAttributeCheck(character.trainerSheet!, attribute!, options);
+			const names: Record<string, string> = { strength: 'Força', dexterity: 'Destreza',
+				constitution: 'Constituição', intelligence: 'Inteligência', wisdom: 'Sabedoria', charisma: 'Carisma',
+				fortitude: 'Fortitude', reflexes: 'Reflexos', will: 'Vontade' };
+			const bonus = result.bonus < 0 ? `- ${Math.abs(result.bonus)}` : `+ ${result.bonus}`;
+			const rolls = result.dice.length === 1 ? '' :
+				`${mode === 'advantage' ? 'Vantagem' : 'Desvantagem'}\n` +
+				`1ª rolagem: ${result.dice[0]}\n2ª rolagem: ${result.dice[1]}\n`;
+			const skillNames: Record<string, string> = { acrobacia: 'Acrobacia', atletismo: 'Atletismo',
+				atuacao: 'Atuação', captura: 'Captura', conhecimento: 'Conhecimento',
+				'empatia-pokemon': 'Empatia Pokémon', enganacao: 'Enganação', furtividade: 'Furtividade',
+				intimidacao: 'Intimidação', intuicao: 'Intuição', investigacao: 'Investigação',
+				ladinagem: 'Ladinagem', medicina: 'Medicina', 'medicina-pokemon': 'Medicina Pokémon',
+				'montaria-pokemon': 'Montaria Pokémon', natureza: 'Natureza', oficio: 'Ofício',
+				percepcao: 'Percepção', persuasao: 'Persuasão', pilotagem: 'Pilotagem',
+				sobrevivencia: 'Sobrevivência', tecnologia: 'Tecnologia',
+				'adestramento-pokemon': 'Adestramento Pokémon' };
+			const domainNames: Record<string, string> = { regioes: 'Regiões',
+				'historia-personagens-historicos': 'História e Personagens Históricos',
+				'lendarios-miticos': 'Lendários e Míticos', pokemon: 'Pokémon', organizacoes: 'Organizações',
+				'cultura-sociedade': 'Cultura e Sociedade', 'arqueologia-fosseis': 'Arqueologia e Fósseis',
+				ciencias: 'Ciências', culinaria: 'Culinária', mecanica: 'Mecânica', costura: 'Costura',
+				fotografia: 'Fotografia', carpintaria: 'Carpintaria', ferraria: 'Ferraria',
+				jornalismo: 'Jornalismo', artesanato: 'Artesanato', automoveis: 'Automóveis',
+				motocicletas: 'Motocicletas', embarcacoes: 'Embarcações', aeronaves: 'Aeronaves',
+				'maquinas-pesadas': 'Máquinas pesadas', 'veiculos-especiais': 'Veículos especiais' };
+			const skillParts = skill?.split(':');
+			const domainName = skillParts?.[1] ?
+				(domainNames[skillParts[1]] || skillParts[1].replace(/-/g, ' ')) : null;
+			const rollName = initiativeRoll ? 'Iniciativa' :
+				attackRoll ? attack === 'melee' ? 'Ataque corpo a corpo' : 'Ataque à distância' :
+				skillRoll ? `${skillNames[skillParts![0]]}${domainName ? `: ${domainName}` : ''}` :
+				resistanceRoll ? names[resistance!] : names[attribute!];
+			const message = `${rolls}${rollName}: 1d20 tirou ` +
+				`${result.natural} ${bonus} = ${result.total}`;
+			const posted = await persistence.createTableChatMessage(
+				session.platformTableId, session.platformAccountId, message);
+			this.json(res, 201, { result, message: posted });
+			return;
+		}
+		if (url.pathname === '/api/rpg/trainer/activities') {
+			if (method === 'GET') {
+				this.json(res, 200, this.login.getTrainerActivities(this.token(req),
+					url.searchParams.get('characterId') || undefined));
+				return;
+			}
+			if (method === 'POST') {
+				const body = await this.body(req);
+				this.json(res, 200, this.login.applyTrainerActivity(this.token(req),
+					body as unknown as Parameters<RPGLoginService['applyTrainerActivity']>[1]));
+				return;
+			}
 		}
 		if (url.pathname === '/api/rpg/trainer/equipment') {
 			if (method === 'GET') {
@@ -443,6 +560,28 @@ export class RPGHttpServer {
 				this.string(body.characterId), body.action as import('./trainer-survival').RPGTrainerSurvivalAction));
 			return;
 		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/death-save') {
+			const token = this.token(req);
+			const session = this.login.getSession(token);
+			const persistence = this.login.mysqlPersistence;
+			if (!persistence || !session.platformTableId || !session.platformAccountId) {
+				throw new RPGHttpError(503, 'O teste de morte no chat requer o banco de dados');
+			}
+			const body = await this.body(req);
+			const outcome = this.login.rollOwnTrainerDeathSave(token, this.string(body.requestId));
+			if (!outcome.repeated) {
+				const survival = outcome.sheet.survival!;
+				const result = survival.lifeState === 'dead' ? 'morreu' :
+					survival.lifeState === 'stable' ? 'estabilizou' :
+					survival.lifeState === 'conscious' ? 'recuperou 1 PV' :
+					outcome.natural >= 10 ? `sucesso (${survival.deathSaves.successes}/3)` :
+					`falha (${survival.deathSaves.failures}/3)`;
+				await persistence.createTableChatMessage(session.platformTableId, session.platformAccountId,
+					`Teste de morte: 1d20 tirou ${outcome.natural} — ${result}`);
+			}
+			this.json(res, 200, outcome);
+			return;
+		}
 		if (url.pathname === '/api/rpg/trainer/talents') {
 			if (method === 'GET') {
 				this.json(res, 200, this.login.getTrainerTalents(this.token(req),
@@ -467,11 +606,6 @@ export class RPGHttpServer {
 			this.json(res, 200, this.login.grantMasterTrainerXP(this.token(req),
 				this.string(body.characterId), body.amount as number,
 				this.string(body.reason), this.string(body.requestId)));
-			return;
-		}
-		if (method === 'PUT' && url.pathname === '/api/rpg/campaign/trainer-attribute-method') {
-			const body = await this.body(req);
-			this.json(res, 200, { method: this.login.setTrainerAttributeMethod(this.token(req), body.method) });
 			return;
 		}
 		if (method === 'POST' && url.pathname === '/api/rpg/table-chat/typing') {
@@ -811,7 +945,8 @@ export class RPGHttpServer {
 						});
 						this.login.accounts.recordAdministrativeSuccess(token, tableId, 'table.backup.restored', 'table', tableId);
 					}));
-				this.tableSessionStores.delete(tableId); this.battleRuntimeManagers.delete(tableId);
+				this.tableSessionStores.delete(tableId); this.tableDeletionStores.delete(tableId);
+				this.battleRuntimeManagers.delete(tableId);
 				this.contestRuntimeManagers.delete(tableId); this.localTableServices.delete(tableId);
 				this.json(res, 200, { ok: true }); return;
 			}
@@ -2360,7 +2495,7 @@ export class RPGHttpServer {
 	/** Only established domain validation messages may cross the HTTP boundary. */
 	private isPublicValidationError(message: string): boolean {
 		if (/persisted|estado persistido|table scope|random source|repository|repositório/i.test(message)) return false;
-		return /^(?:RPG (?:request|session|password|character|player|master|battle|contest|tournament|Bag|Box|shop|commerce|nursery|team|held|move|starter|temporary|NPC)|Invalid RPG|Incorrect RPG|Unknown RPG|Apenas |Permissão necessária:|Usuário ou senha |Conta (?:indisponível|convidada)|Mesa (?:indisponível|arquivada)|Convite |Código de recuperação |Muitas tentativas |Pokémon |Item |Golpe |Equipe |Batalha |Concurso |Torneio |NPC |Pasta |Documento |Loja |Banco |Pokécoin |Quantidade |Valor |Nível |Formato |Participante |Treinador |Campanha |nome de exibição inválido|descrição inválido|Texto muito longo|Cor da mesa inválida|Visibilidade da mesa inválida|Função (?:de membro|de convite) inválida|Identificador de sessão inválido|Motivo da auditoria muito longo|A senha deve |O usuário deve |O @ deve |Este (?:nome de usuário|convite|Pokémon|held item|@)|Esta (?:conta|loja|procriação)|O (?:Mestre|acesso|valor|usuário|proprietário|limite|item|Pokémon|reembolso|prêmio)|Os documentos |A (?:conta|equipe|aposta|expiração|incubadora|recompensa|procriação|quantidade|sessão|natureza|habilidade|loja|mensagem)|Informe pelo menos um @|Envie convites |Não repita o mesmo @|@[^ ]+ |Nenhum (?:Pokémon|participante|item)|Não (?:é possível|foi possível|há|existe|pode))/.test(message);
+		return /^(?:Atividade |Exposição |Perigo |Viagem |Hexágono |Condição de viagem |O próximo hexágono |Progresso ou tempo de viagem |Jornada |Rota |Pokémon não foi aprovado |Carga da carroça |Carroça |Sobrecarga |Receita |Talento exigido |Perícia exigida |Tempo de fabricação |Instalação adequada |Kit apropriado |Domínio do kit |Cargas do kit |Ingredientes |Fabricação |Identificador de atividade |RPG (?:request|session|password|character|player|master|battle|contest|tournament|Bag|Box|shop|commerce|nursery|team|held|move|starter|temporary|NPC)|Invalid RPG|Incorrect RPG|Unknown RPG|Apenas |Permissão necessária:|Usuário ou senha |Conta (?:indisponível|convidada)|Mesa (?:indisponível|arquivada)|Convite |Código de recuperação |Muitas tentativas |Pokémon |Item |Golpe |Equipe |Batalha |Concurso |Torneio |NPC |Pasta |Documento |Loja |Banco |Pokécoin |Quantidade |Valor |Nível |Formato |Participante |Treinador |Campanha |nome de exibição inválido|descrição inválido|Texto muito longo|Cor da mesa inválida|Visibilidade da mesa inválida|Função (?:de membro|de convite) inválida|Identificador de sessão inválido|Motivo da auditoria muito longo|A senha deve |O usuário deve |O @ deve |Este (?:nome de usuário|convite|Pokémon|held item|@)|Esta (?:conta|loja|procriação)|O (?:Mestre|acesso|valor|usuário|proprietário|limite|item|Pokémon|reembolso|prêmio)|Os documentos |A (?:conta|equipe|aposta|expiração|incubadora|recompensa|procriação|quantidade|sessão|natureza|habilidade|loja|mensagem)|Informe pelo menos um @|Envie convites |Não repita o mesmo @|@[^ ]+ |Nenhum (?:Pokémon|participante|item)|Não (?:é possível|foi possível|há|existe|pode))/.test(message);
 	}
 
 	private isPersistenceError(error: { code?: unknown, sqlState?: unknown }): boolean {

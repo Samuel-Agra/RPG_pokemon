@@ -324,6 +324,21 @@ describe('RPG login', () => {
 		assert.throws(() => service.getSession(player.token), /Invalid or expired RPG session/);
 	});
 
+	it('keeps a deletion challenge valid when the table service is recreated for the confirmation request', () => {
+		const repository = new RPGMemoryCharacterRepository();
+		const sessionStore = new Map();
+		const deletionStore = { challenges: new Map(), lastWords: new Map() };
+		const first = createService({ repository, sessionStore, deletionStore });
+		createCharacter(first);
+		const master = first.viewAsPlayer(first.loginMaster('14081998').token, 'samuel');
+		const challenge = first.createCharacterDeletionChallenge(master.token);
+		const second = createService({ repository, sessionStore, deletionStore });
+		const result = second.deleteViewedCharacter(master.token, challenge.challengeId, challenge.word);
+		assert.equal(result.characterId, 'samuel');
+		assert.equal(result.session.mode, 'master');
+		assert.deepEqual(second.listSelectableCharacters(), []);
+	});
+
 	it('invalidates logout and expired sessions', () => {
 		let now = 1000;
 		const service = createService({ now: () => now, sessionTtlMs: 10 });

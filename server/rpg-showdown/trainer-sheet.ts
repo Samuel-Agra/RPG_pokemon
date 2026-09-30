@@ -27,7 +27,8 @@ export interface RPGTrainerSheet {
 	/** Contadores próprios do treinador, identificados pela regra que os concede. */
 	resources: Record<string, { current: number, maximum: number }>;
 	/** A primeira série elegível fica vinculada ao personagem antes da distribuição. */
-	creation?: { method: 'standard' | 'rolled', rolls: number[] | null };
+	creation?: { method: 'standard' | 'rolled', rolls: number[] | null, dice?: number[][],
+		rollProgress?: { dice: number[][], values: number[] }, };
 	/** Escolhas do equipamento inicial; instâncias, cargas e armazenamento ficam em trainerInventory. */
 	equipment?: { itemId: string, quantity: number, equipped: boolean, charges?: number }[];
 	proficiencies?: string[];
@@ -38,6 +39,14 @@ export interface RPGTrainerSheet {
 	survival?: import('./trainer-survival').RPGTrainerSurvival;
 	/** Rolagens arbitradas: a chave impede repetir dados após retry ou concorrência. */
 	checks?: { requestId: string, fingerprint: string, result: Record<string, unknown> }[];
+	/** Atividades humanas são mantidas na ficha da mesa e jamais no estado de combate Pokémon. */
+	activities?: {
+		travel?: import('./trainer-travel').RPGTravelState,
+		exposureTests?: Record<string, number>,
+		crafts?: { id: string, recipeId: string, startedAt: number, completedAt?: number,
+			result?: Record<string, unknown>, }[],
+		receipts?: { id: string, fingerprint: string, result: Record<string, unknown> }[],
+	};
 }
 
 export function createRPGPendingTrainerSheet(): RPGTrainerSheet {

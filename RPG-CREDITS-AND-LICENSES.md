@@ -27,6 +27,8 @@ As referencias externas podem ser desativadas em server/static/rpg/asset-config.
 
 O sprite sheet server/static/rpg/assets/hud/battle-effects.png e um recurso original criado para o HUD do RPG com auxilio de geracao de imagens. O conjunto em server/static/rpg/assets/item-icons/ contem 19 sprites originais de medicamentos e itens de recuperacao, tambem criado para o RPG com auxilio de geracao de imagens, sem incorporar arquivos oficiais. O simbolo de Mega Evolucao e carregado, quando permitido pela configuracao, de https://play.pokemonshowdown.com/sprites/misc/mega.png. O arquivo nao e incorporado ao repositorio; quando a referencia externa esta desativada ou falha, a interface usa um fallback original desenhado em CSS.
 
+Os 20 emblemas em pixel art de `server/static/rpg/assets/trainer-classes/` foram criados para as classes de treinador com geracao de imagens da OpenAI/Codex. Cada imagem representa objetos da classe, sem reutilizar sprites oficiais.
+
 ### Insignias de Liga Pokemon
 
 O arquivo `server/static/rpg/assets/badges-kanto-unova.png` utiliza recriacoes vetoriais de insignias do projeto [pokemon-badges](https://github.com/SteGriff/pokemon-badges), de Stephen Griffiths, Copyright (c) 2011.

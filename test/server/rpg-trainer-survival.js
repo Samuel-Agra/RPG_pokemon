@@ -117,4 +117,25 @@ describe('RPG trainer survival', () => {
 		assert.throws(() => service.applyTrainerSurvival(master.token, 'ana',
 			{ type: 'condition-add', condition: { id: 'inválida', source: 'teste' } }), /Condição inválida/);
 	});
+
+	it('lets only the dying trainer roll and preserves the result on retry', () => {
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({ masterCode: 'secret', repository, random: () => 0.5 });
+		service.createCharacter({ characterName: 'Ana', playerName: 'Ana', avatar: 'lucas',
+			password: 'senha-rpg', initialMoney: 100, starter: { species: 'Bulbasaur', gender: 'M' } });
+		const record = repository.get('ana');
+		record.state.trainerSheet = rpgTrainerTakeDamage(ready(), 20);
+		repository.set(record);
+		const player = service.loginPlayer('ana', 'senha-rpg');
+		const master = service.loginMaster('secret');
+		assert.throws(() => service.rollOwnTrainerDeathSave(master.token, 'death_save_001'), /jogador/);
+		const first = service.rollOwnTrainerDeathSave(player.token, 'death_save_001');
+		assert.equal(first.natural, 11);
+		assert.equal(first.sheet.survival.deathSaves.successes, 1);
+		assert.equal(first.repeated, false);
+		const repeat = service.rollOwnTrainerDeathSave(player.token, 'death_save_001');
+		assert.equal(repeat.repeated, true);
+		assert.equal(repeat.sheet.survival.deathSaves.successes, 1);
+		assert.throws(() => service.rollOwnTrainerDeathSave(player.token, 'invalid'), /Identificador/);
+	});
 });

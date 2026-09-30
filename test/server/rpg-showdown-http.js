@@ -621,9 +621,30 @@ describe('RPG HTTP frontend API', () => {
 			result = await scopedRequest('/character');
 			assert.equal(result.data.character.playerName, 'playermultimesa');
 			assert.equal(result.data.character.money, 3000);
+			result = await scopedRequest('/trainer/creation/method', { method: 'PUT', body: { method: 'standard' } });
+			assert.equal(result.response.status, 200, JSON.stringify(result.data));
+			result = await scopedRequest('/trainer/creation', { method: 'POST', body: {
+				classId: 'arqueologo', attributes: { strength: 15, dexterity: 14, constitution: 13,
+					intelligence: 12, wisdom: 10, charisma: 8 },
+				optionalSkills: ['percepcao', 'sobrevivencia', 'pilotagem:automoveis'],
+				gearChoices: { arma: 'faca' },
+			} });
+			assert.equal(result.response.status, 200, JSON.stringify(result.data));
+			accounts.selectTable(owner.token, tableB.id);
+			result = await scopedRequest('/trainer/activities', { method: 'POST', body: {
+				characterId: 'personagemb', requestId: 'mesa_b_atividade_01',
+				action: { type: 'travel-start', hex: { q: 2, r: 3 } },
+			} }, owner.token);
+			assert.equal(result.response.status, 200, JSON.stringify(result.data));
 			accounts.selectTable(player.token, tableA.id);
 			result = await scopedRequest('/characters'); assert.deepEqual(result.data.characters, []);
+			accounts.selectTable(owner.token, tableA.id);
+			result = await scopedRequest('/trainer/activities?characterId=personagemb', {}, owner.token);
+			assert.notEqual(result.response.status, 200);
 			accounts.selectTable(player.token, tableB.id);
+			accounts.selectTable(owner.token, tableB.id);
+			result = await scopedRequest('/trainer/activities?characterId=personagemb', {}, owner.token);
+			assert.equal(result.data.activities.travel.hex.q, 2);
 			result = await scopedRequest('/characters');
 			assert.deepEqual(result.data.characters.map(character => character.id), ['personagemb']);
 			result = await scopedRequest('/characters/all');
@@ -716,6 +737,7 @@ describe('RPG HTTP frontend API', () => {
 		const table = seedAccounts.createTable(owner.token, { name: 'Mesa distribuída' });
 		seedAccounts.updateTable(owner.token, table.id, { requireJoinApproval: false });
 		seedAccounts.joinByInvite(player.token, seedAccounts.createInvite(owner.token, table.id).code);
+		seedAccounts.selectTable(owner.token, table.id);
 		seedAccounts.selectTable(player.token, table.id);
 		const accountIds = [ownerAccount.id, playerAccount.id];
 		const central = {
@@ -770,7 +792,7 @@ describe('RPG HTTP frontend API', () => {
 		await Promise.all(nodes.map(node => new Promise(resolve => node.listen(0, '127.0.0.1', resolve))));
 		const call = async (node, path, options = {}) => {
 			const response = await fetch(`http://127.0.0.1:${node.address().port}/api/rpg${path}`, {
-				...options, headers: { Authorization: `Bearer ${player.token}`,
+				...options, headers: { Authorization: `Bearer ${options.token || player.token}`,
 					...(options.body ? { 'Content-Type': 'application/json' } : {}) },
 				body: options.body ? JSON.stringify(options.body) : undefined,
 			});
@@ -785,6 +807,22 @@ describe('RPG HTTP frontend API', () => {
 			assert.equal(created.response.status, 201, JSON.stringify(created.data));
 			const reloaded = await call(nodes[1], '/characters');
 			assert.deepEqual(reloaded.data.characters.map(character => character.id), ['compartilhado']);
+			const view = await call(nodes[0], '/session/view-as', {
+				method: 'POST', token: owner.token, body: { characterId: 'compartilhado' },
+			});
+			assert.equal(view.response.status, 200, JSON.stringify(view.data));
+			const challenge = await call(nodes[0], '/character/delete-challenge', {
+				method: 'POST', token: owner.token,
+			});
+			assert.equal(challenge.response.status, 200, JSON.stringify(challenge.data));
+			const removed = await call(nodes[0], '/character', {
+				method: 'DELETE', token: owner.token, body: {
+					challengeId: challenge.data.challenge.challengeId,
+					confirmation: challenge.data.challenge.word,
+				},
+			});
+			assert.equal(removed.response.status, 200, JSON.stringify(removed.data));
+			assert.deepEqual((await call(nodes[1], '/characters')).data.characters, []);
 		} finally {
 			await Promise.all(nodes.map(node => new Promise(resolve => node.close(resolve))));
 		}
