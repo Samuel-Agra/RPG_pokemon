@@ -3854,12 +3854,21 @@ async function renderTableChat() {
 	root.dataset.realtimeSignature = signature;
 	root.replaceChildren(...(messages.length ? messages.map(entry => {
 		const item = createElement('article', 'table-chat-message');
+		const meta = createElement('span', 'table-chat-message-meta');
+		meta.append(createElement('time', '', formatChatTime(entry.createdAt)));
+		if (['sortudo', 'determinado', 'esforco-heroico'].includes(entry.rerollTalent)) {
+			item.classList.add('table-chat-message--rerolled');
+			const icon = createElement('img', 'table-chat-reroll-icon');
+			icon.src = `./assets/talent-icons/${entry.rerollTalent}.svg`;
+			icon.alt = entry.rerollTalent === 'sortudo' ? 'Sortudo' :
+				entry.rerollTalent === 'determinado' ? 'Determinado' : 'Esforço Heroico';
+			icon.width = 24; icon.height = 24; meta.append(icon);
+		}
 		const heading = createElement('div', 'table-chat-message-heading');
 		const authorName = entry.authorRole === 'owner' ? 'Mestre proprietário' :
 			entry.authorRole === 'master' ? 'Mestre' :
 			entry.authorCharacterName || entry.authorDisplayName || 'Membro da mesa';
-		heading.append(createElement('strong', '', authorName),
-			createElement('time', '', formatChatTime(entry.createdAt)));
+		heading.append(createElement('strong', '', authorName), meta);
 		item.append(heading, createElement('p', '', entry.message));
 		return item;
 	}) : [createElement('div', 'table-chat-empty', 'Nenhuma mensagem nas últimas 48 horas.')]));
@@ -8491,6 +8500,7 @@ $('#create-form').addEventListener('submit', async event => {
 	submit.textContent = 'Criando...';
 	const request = {
 		characterName: String(data.get('characterName') || ''),
+		characterGender: String(data.get('characterGender') || ''),
 		...(platformCreation ? {} : {
 			playerName: String(data.get('playerName') || ''),
 			password,

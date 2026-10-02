@@ -90,6 +90,7 @@ describe('RPG HTTP frontend API', () => {
 			method: 'POST',
 			body: {
 				characterName: 'Samuel',
+				characterGender: 'F',
 				playerName: 'Samuel real',
 				avatar: 'lucas',
 				password: 'senha-rpg',
@@ -114,6 +115,7 @@ describe('RPG HTTP frontend API', () => {
 
 		result = await request('/character', { headers: { Authorization: 'Bearer ' + token } });
 		assert.equal(result.response.status, 200);
+		assert.equal(result.data.character.characterGender, 'F');
 		assert.equal(result.data.character.team[0].species, 'Squirtle');
 		assert.equal(result.data.character.money, 3000);
 

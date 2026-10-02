@@ -1,4 +1,5 @@
 import { RPG_TRAINER_CLASSES, rpgTrainerModifier } from './trainer-creation';
+import { RPG_TRAINER_TALENTS } from './trainer-talents-catalog';
 import type { RPGTrainerSheet } from './trainer-sheet';
 
 export const RPG_TRAINER_LEVEL_XP = Object.freeze([
@@ -83,32 +84,133 @@ export function awardRPGTrainerXP(sheet: RPGTrainerSheet, reward: RPGTrainerXPRe
 	const oldLevel = rpgTrainerLevelForXP(sheet.experience);
 	const level = rpgTrainerLevelForXP(experience);
 	const levelsGained = level - oldLevel;
-	const hitPoints = { ...sheet.hitPoints };
-	if (sheet.status === 'complete' && levelsGained) {
-		const chosenClass = sheet.classId && RPG_TRAINER_CLASSES[sheet.classId];
-		if (!chosenClass || !sheet.attributes || hitPoints.maximum === null || hitPoints.current === null) {
-			throw new Error('Ficha completa sem dados válidos para subir de nível');
-		}
-		const growth = (chosenClass.hitDie === 6 ? 4 : chosenClass.hitDie === 8 ? 5 : 6) +
-			rpgTrainerModifier(sheet.attributes.constitution);
-		hitPoints.maximum += Math.max(1, growth) * levelsGained;
-		if (sheet.talents.general.includes('robusto')) hitPoints.maximum += levelsGained;
-		// Subir de nível não cura ferimentos nem remove condições.
-	}
-	const pendingChoices = { ...(sheet.pendingChoices || { general: 0, class: 0, apex: 0 }) };
-	for (let next = oldLevel + 1; next <= level; next++) {
-		if (next === 10) {
-			pendingChoices.general++;
-			pendingChoices.apex++;
-		} else if (next % 2 === 0) {
-			pendingChoices.general++;
-		} else {
-			pendingChoices.class++;
-		}
-	}
 	return {
-		sheet: { ...sheet, level, experience, hitPoints, pendingChoices,
+		sheet: { ...sheet, experience,
 			rewards: [...(sheet.rewards || []), { ...reward, reason: reward.reason.trim() }] },
 		awarded: true, levelsGained,
 	};
+}
+
+/** XP não altera a ficha: o nível é aplicado após o descanso e a confirmação de todas as escolhas. */
+export function advanceRPGTrainerLevel(sheet: RPGTrainerSheet, bypassRest = false): RPGTrainerSheet {
+	if (sheet.status !== 'complete' || !sheet.attributes || !sheet.classId ||
+		sheet.hitPoints.maximum === null || sheet.hitPoints.current === null) throw new Error('Conclua a ficha primeiro');
+	const nextLevel = sheet.level + 1;
+	if (nextLevel > 10 || rpgTrainerLevelForXP(sheet.experience) < nextLevel) throw new Error('XP insuficiente para o próximo nível');
+	if (!bypassRest && (sheet.levelUpReady || 0) < nextLevel) throw new Error('Aguarde um descanso longo de 8 horas na campanha');
+	if (Object.values(sheet.pendingChoices || {}).some(count => count > 0)) {
+		throw new Error('Escolha os talentos pendentes antes de subir novamente');
+	}
+	const rule = RPG_TRAINER_CLASSES[sheet.classId];
+	if (!rule) throw new Error('Classe inválida');
+	const next = structuredClone(sheet);
+	const snapshot = {
+		level: sheet.level, attributes: structuredClone(sheet.attributes), hitPointsMaximum: sheet.hitPoints.maximum,
+		skills: structuredClone(sheet.skills), resistances: [...sheet.resistances], talents: structuredClone(sheet.talents),
+		talentSelections: structuredClone(sheet.talentSelections || []), proficiencies: [...(sheet.proficiencies || [])],
+		resources: structuredClone(sheet.resources), pendingChoices: structuredClone(sheet.pendingChoices ||
+			{ general: 0, class: 0, apex: 0 }),
+	};
+	next.levelSnapshots = [...(next.levelSnapshots || []), snapshot];
+	next.level = nextLevel;
+	const growth = (rule.hitDie === 6 ? 4 : rule.hitDie === 8 ? 5 : 6) +
+		rpgTrainerModifier(sheet.attributes.constitution);
+	next.hitPoints.maximum = sheet.hitPoints.maximum + Math.max(1, growth) +
+		Number(sheet.talents.general.includes('robusto'));
+	// Subir de nível não recupera PV, condições ou ferimentos.
+	next.pendingChoices = { ...(sheet.pendingChoices || { general: 0, class: 0, apex: 0 }) };
+	if (nextLevel === 10) { next.pendingChoices.general++; next.pendingChoices.apex++; } else if (nextLevel % 2 === 0) next.pendingChoices.general++;
+	else next.pendingChoices.class++;
+	if (nextLevel >= rpgTrainerLevelForXP(next.experience)) delete next.levelUpWaitingSince;
+	return next;
+}
+
+/** Reversão usa o estado anterior ao nível, preservando saúde e histórico de recompensas atuais. */
+export function lowerRPGTrainerLevel(sheet: RPGTrainerSheet): RPGTrainerSheet {
+	if (sheet.status !== 'complete' || sheet.level <= 1) throw new Error('Não é possível diminuir este nível');
+	const snapshot = [...(sheet.levelSnapshots || [])].reverse().find(entry => entry.level === sheet.level - 1);
+	if (!snapshot) return lowerLegacyRPGTrainerLevel(sheet);
+	const next = structuredClone(sheet);
+	const previousMaximum = next.hitPoints.maximum || 0;
+	next.level = snapshot.level;
+	next.attributes = structuredClone(snapshot.attributes);
+	next.hitPoints.maximum = snapshot.hitPointsMaximum;
+	next.hitPoints.current = Math.min(next.hitPoints.current || 0, snapshot.hitPointsMaximum);
+	next.skills = structuredClone(snapshot.skills);
+	next.resistances = [...snapshot.resistances];
+	next.talents = structuredClone(snapshot.talents);
+	next.talentSelections = structuredClone(snapshot.talentSelections || []);
+	next.proficiencies = [...(snapshot.proficiencies || [])];
+	next.resources = Object.fromEntries(Object.entries(snapshot.resources).map(([key, resource]) => [key, {
+		maximum: resource.maximum, current: Math.min(next.resources[key]?.current ?? resource.current, resource.maximum),
+	}]));
+	next.pendingChoices = structuredClone(snapshot.pendingChoices || { general: 0, class: 0, apex: 0 });
+	next.levelSnapshots = next.levelSnapshots?.filter(entry => entry.level < snapshot.level);
+	next.levelUpReady = Math.min(next.levelUpReady || next.level, next.level);
+	next.experience = Math.min(next.experience, RPG_TRAINER_LEVEL_XP[next.level] - 1);
+	if (previousMaximum < snapshot.hitPointsMaximum) throw new Error('Histórico de PV inconsistente');
+	return next;
+}
+
+/** Fichas de antes dos retratos de nível são revertidas pela sequência de escolhas registrada. */
+function lowerLegacyRPGTrainerLevel(sheet: RPGTrainerSheet): RPGTrainerSheet {
+	if (!sheet.attributes || !sheet.classId || sheet.hitPoints.maximum === null) {
+		throw new Error('Ficha antiga sem dados suficientes para reverter o nível');
+	}
+	const next = structuredClone(sheet);
+	const currentLevel = next.level;
+	const attributes = next.attributes!;
+	let maximum = next.hitPoints.maximum!;
+	const currentSelections = (next.talentSelections || []).filter(entry => entry.acquiredAtLevel === currentLevel).reverse();
+	const remove = (values: string[], id: string) => {
+		const index = values.lastIndexOf(id);
+		if (index < 0) throw new Error('Histórico de talentos inconsistente');
+		values.splice(index, 1);
+	};
+	for (const selection of currentSelections) {
+		const talent = RPG_TRAINER_TALENTS.find(entry => entry.id === selection.id);
+		if (!talent) throw new Error('Talento antigo desconhecido; não é seguro diminuir o nível');
+		if (talent.kind === 'apex') next.talents.apex = null;
+		else remove(next.talents[talent.kind], selection.id);
+		if (selection.attribute) {
+			const attribute = selection.attribute;
+			const oldValue = attributes[attribute] - 1;
+			if (oldValue < 1) throw new Error('Histórico de atributo inconsistente');
+			if (attribute === 'constitution') {
+				maximum -= (rpgTrainerModifier(attributes.constitution) -
+					rpgTrainerModifier(oldValue)) * currentLevel;
+			}
+			attributes[attribute] = oldValue;
+		}
+		if (selection.id === 'treinamento-adicional' && selection.skill) remove(next.skills.trained, selection.skill);
+		if (selection.id === 'foco-em-pericia' && selection.skill) remove(next.skills.focused, selection.skill);
+		if (selection.id === 'resiliente' && selection.resistance) remove(next.resistances, selection.resistance);
+		if (selection.id === 'artista-marcial:reflexos-treinados' && selection.variant !== 'already-trained') {
+			remove(next.resistances, 'reflexes');
+		}
+		if (selection.id === 'dominio-de-escudos') remove(next.proficiencies || [], 'escudos');
+		if (selection.proficiency) remove(next.proficiencies || [], selection.proficiency);
+		if (selection.id === 'robusto') maximum -= currentLevel;
+	}
+	next.talentSelections = (next.talentSelections || []).filter(entry => entry.acquiredAtLevel !== currentLevel);
+	const rule = RPG_TRAINER_CLASSES[next.classId!];
+	if (!rule) throw new Error('Classe antiga desconhecida');
+	const growth = Math.max(1, (rule.hitDie === 6 ? 4 : rule.hitDie === 8 ? 5 : 6) +
+		rpgTrainerModifier(attributes.constitution));
+	maximum -= growth + Number(next.talents.general.includes('robusto'));
+	next.level--;
+	if (maximum < 1 || next.talents.general.length > Math.floor(next.level / 2) ||
+		next.talents.class.length > Math.floor((next.level - 1) / 2) || (next.talents.apex && next.level < 10)) {
+		throw new Error('Histórico insuficiente para reverter este nível com segurança');
+	}
+	next.hitPoints.maximum = maximum;
+	next.hitPoints.current = Math.min(next.hitPoints.current || 0, maximum);
+	next.pendingChoices = {
+		general: Math.floor(next.level / 2) - next.talents.general.length,
+		class: Math.floor((next.level - 1) / 2) - next.talents.class.length,
+		apex: next.level === 10 && !next.talents.apex ? 1 : 0,
+	};
+	next.levelUpReady = Math.min(next.levelUpReady || next.level, next.level);
+	next.experience = Math.min(next.experience, RPG_TRAINER_LEVEL_XP[next.level] - 1);
+	return next;
 }

@@ -35,12 +35,36 @@ import { getRPGBattleSceneCatalog } from './battle-scene';
 import { getRPGContestMoveCatalog, getRPGContestPokemonMoveCatalog } from './contest-move-catalog';
 import { RPGContestRuntimeManager, type RPGContestRuntimeAction } from './contest-runtime';
 import { getRPGItemIconPath } from './item-icons';
-import { rollRPGD20, rpgTrainerAttackBonus, rollRPGTrainerSkillCheck, rollRPGTrainerInitiative,
-	rollRPGTrainerAttributeCheck, rollRPGTrainerResistance, RPG_SKILL_ATTRIBUTES,
+import { rollRPGD20, rpgTrainerAttackBonus, rpgTrainerSkillBonus, rollRPGTrainerSkillCheck, rollRPGTrainerInitiative,
+	rollRPGTrainerAttributeCheck, rollRPGTrainerResistance, rpgTrainerSkillAttributes,
 	type RPGTrainerAttribute, type RPGTrainerResistance } from './trainer-checks';
+import { rpgResolveTrainerRollTalents, rpgTrainerRollBonusTerms } from './trainer-roll-talents';
 
 const MAX_BODY_SIZE = 2 * 1024 * 1024;
 const MAX_BACKUP_BODY_SIZE = 25 * 1024 * 1024;
+const TRAINER_SKILL_NAMES: Record<string, string> = { acrobacia: 'Acrobacia', atletismo: 'Atletismo',
+	atuacao: 'Atuação', captura: 'Captura', conhecimento: 'Conhecimento',
+	'empatia-pokemon': 'Empatia Pokémon', enganacao: 'Enganação', furtividade: 'Furtividade',
+	intimidacao: 'Intimidação', intuicao: 'Intuição', investigacao: 'Investigação',
+	ladinagem: 'Ladinagem', medicina: 'Medicina', 'medicina-pokemon': 'Medicina Pokémon',
+	'montaria-pokemon': 'Montaria Pokémon', natureza: 'Natureza', oficio: 'Ofício',
+	percepcao: 'Percepção', persuasao: 'Persuasão', pilotagem: 'Pilotagem',
+	sobrevivencia: 'Sobrevivência', tecnologia: 'Tecnologia',
+	'adestramento-pokemon': 'Adestramento Pokémon' };
+const TRAINER_SKILL_DOMAINS: Record<string, string> = { regioes: 'Regiões',
+	'historia-personagens-historicos': 'História e Personagens Históricos',
+	'lendarios-miticos': 'Lendários e Míticos', pokemon: 'Pokémon', organizacoes: 'Organizações',
+	'cultura-sociedade': 'Cultura e Sociedade', 'arqueologia-fosseis': 'Arqueologia e Fósseis',
+	ciencias: 'Ciências', culinaria: 'Culinária', mecanica: 'Mecânica', costura: 'Costura',
+	fotografia: 'Fotografia', carpintaria: 'Carpintaria', ferraria: 'Ferraria',
+	jornalismo: 'Jornalismo', artesanato: 'Artesanato', automoveis: 'Automóveis',
+	motocicletas: 'Motocicletas', embarcacoes: 'Embarcações', aeronaves: 'Aeronaves',
+	'maquinas-pesadas': 'Máquinas pesadas', 'veiculos-especiais': 'Veículos especiais' };
+function trainerSkillLabel(skill: string): string {
+	const [family, domain] = skill.split(':');
+	return `${TRAINER_SKILL_NAMES[family] || family}` +
+		(domain ? `: ${TRAINER_SKILL_DOMAINS[domain] || domain.replace(/-/g, ' ')}` : '');
+}
 
 export class RPGHttpServer {
 	private service?: RPGLoginService;
@@ -409,10 +433,78 @@ export class RPGHttpServer {
 				url.searchParams.get('characterId') || undefined));
 			return;
 		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/shared-archive') {
+			const body = await this.body(req);
+			if (!Number.isInteger(body.slot)) throw new Error('Espaço de acervo inválido');
+			const slot = Number(body.slot);
+			const entry = body.clear === true ? null : {
+				topic: this.string(body.topic), knowledge: this.string(body.knowledge),
+				recipientCharacterId: this.string(body.recipientCharacterId),
+			};
+			this.json(res, 200, this.login.setTrainerSharedArchive(this.token(req), slot, entry));
+			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/use') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.useTrainerSheetTalent(this.token(req), this.string(body.talentId)));
+			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/reroll') {
+			const body = await this.body(req);
+			const talentId = this.string(body.talentId);
+			if (talentId !== 'sortudo' && talentId !== 'determinado' && talentId !== 'esforco-heroico') {
+				throw new Error('Talento inválido');
+			}
+			this.json(res, 200, await this.login.rerollTrainerChatTalent(this.token(req), talentId));
+			return;
+		}
+		if (method === 'GET' && url.pathname === '/api/rpg/trainer/ally-roll-talents') {
+			const token = this.token(req);
+			const session = this.login.getSession(token);
+			if (session.mode !== 'player') throw new Error('Entre como jogador para rolar pela ficha');
+			const characterId = session.viewAsCharacterId || session.characterId;
+			if (!characterId) throw new Error('Selecione um personagem');
+			this.json(res, 200, this.login.getTrainerAllyRollTalents(token, characterId));
+			return;
+		}
 		if (method === 'POST' && url.pathname === '/api/rpg/trainer/checks') {
 			const body = await this.body(req);
 			this.json(res, 200, this.login.rollTrainerCheck(this.token(req),
 				body as unknown as Parameters<RPGLoginService['rollTrainerCheck']>[1]));
+			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/help-roll') {
+			const token = this.token(req);
+			const session = this.login.getSession(token);
+			if (session.mode !== 'player') throw new Error('Entre como jogador para ajudar');
+			if (!this.login.mysqlPersistence || !session.platformTableId || !session.platformAccountId) {
+				throw new RPGHttpError(503, 'As rolagens no chat requerem o banco de dados');
+			}
+			const body = await this.body(req);
+			const skill = this.string(body.skill);
+			const attribute = body.attribute ? this.string(body.attribute) as RPGTrainerAttribute : undefined;
+			const mode = this.string(body.mode) as 'normal' | 'advantage' | 'disadvantage';
+			const characterId = session.viewAsCharacterId || session.characterId;
+			if (!characterId) throw new Error('Selecione um personagem');
+			const character = this.login.getCharacter(token, characterId);
+			const offered = this.login.offerTrainerHelp(token, skill, attribute, mode,
+				body.talents === undefined ? [] : body.talents as string[]);
+			const label = trainerSkillLabel(skill);
+			const talentLines = offered.talents.map(talent => talent.name).join('\n');
+			const rolls = offered.result.dice.length === 1 ? '' :
+				`${offered.result.mode === 'advantage' ? 'Vantagem' : 'Desvantagem'}\n` +
+				`1ª rolagem: ${offered.result.dice[0]}\n2ª rolagem: ${offered.result.dice[1]}\n`;
+			const terms = rpgTrainerRollBonusTerms(offered.result.total - offered.result.natural -
+				offered.talents.reduce((total, talent) => total + talent.bonus, 0), offered.talents);
+			const message = `${character.characterName} ajudou com ${label}.\n` +
+				`${talentLines ? `${talentLines}\n` : ''}${rolls}${label}: 1d20 tirou ` +
+				`${offered.result.natural} ${terms} = ${offered.result.total}.\n` +
+				`Bônus de ajuda +${offered.bonus}`;
+			const posted = await this.login.mysqlPersistence.createTableChatMessage(
+				session.platformTableId, session.platformAccountId, message);
+			this.login.recordTrainerChatRoll(token, 'skill', label, terms, posted, { ...offered.result,
+				mode: offered.result.mode as 'normal' | 'advantage' | 'disadvantage' });
+			this.json(res, 201, { result: offered.result, helpBonus: offered.bonus, message: posted });
 			return;
 		}
 		if (method === 'POST' && ['/api/rpg/trainer/attribute-roll', '/api/rpg/trainer/resistance-roll',
@@ -437,10 +529,6 @@ export class RPGHttpServer {
 			const attack = attackRoll ? this.string(body.attack) : undefined;
 			if (attackRoll && attack !== 'melee' && attack !== 'ranged') throw new Error('Ataque inválido');
 			const skillAttribute = skillRoll && body.attribute ? this.string(body.attribute) as RPGTrainerAttribute : undefined;
-			if (skillRoll && skillAttribute &&
-				!RPG_SKILL_ATTRIBUTES[skill!.split(':')[0]]?.includes(skillAttribute)) {
-				throw new Error('Atributo incompatível com a perícia');
-			}
 			const mode = this.string(body.mode);
 			if (!['normal', 'advantage', 'disadvantage'].includes(mode)) throw new Error('Modo de rolagem inválido');
 			const characterId = body.characterId ? this.string(body.characterId) :
@@ -450,16 +538,37 @@ export class RPGHttpServer {
 				throw new Error('Entre como esse jogador para rolar seus atributos');
 			}
 			const character = this.login.getCharacter(token, characterId);
+			if (skillRoll && skillAttribute &&
+				!rpgTrainerSkillAttributes(character.trainerSheet!, skill!).includes(skillAttribute)) {
+				throw new Error('Atributo incompatível com a perícia');
+			}
+			const kind = initiativeRoll ? 'initiative' : attackRoll ? 'attack' : skillRoll ? 'skill' :
+				resistanceRoll ? 'resistance' : 'attribute';
+			const rollId = initiativeRoll ? '' : attackRoll ? attack! : skillRoll ? skill! :
+				resistanceRoll ? resistance! : attribute!;
+			const selectedTalents = body.talents === undefined ? [] : body.talents;
+			const talentEffects = rpgResolveTrainerRollTalents(character.trainerSheet!, kind,
+				rollId, selectedTalents as string[],
+				resistanceRoll || skillRoll ? this.login.getTrainerAllyRollTalents(token, characterId!) : []);
+			const observedSkill = skillRoll && talentEffects.chosen.some(talent =>
+				talent.id === 'aprendizado-por-observacao');
+			if (skillRoll) rpgTrainerSkillBonus(character.trainerSheet!, skill!, skillAttribute, false, observedSkill);
+			const help = skillRoll ? this.login.consumeTrainerHelp(token, skill!) : null;
+			const helpBonus = help?.bonus || 0;
 			const options = {
-				dc: 0, advantages: mode === 'advantage' ? 1 : 0,
+				dc: 0, bonus: talentEffects.bonus + helpBonus,
+				temporarilyTrained: observedSkill,
+				advantages: (mode === 'advantage' ? 1 : 0) + talentEffects.advantages,
 				disadvantages: mode === 'disadvantage' ? 1 : 0,
 			};
 			const result = initiativeRoll ? (() => {
 				const roll = rollRPGTrainerInitiative(character.trainerSheet!, Math.random, options);
-				return { ...roll, bonus: roll.total - roll.natural };
+				return { ...roll, bonus: roll.total - roll.natural + talentEffects.bonus,
+					total: roll.total + talentEffects.bonus };
 			})() : attackRoll ? (() => {
 				const roll = rollRPGD20(Math.random, options);
-				const bonus = rpgTrainerAttackBonus(character.trainerSheet!, attack === 'melee' ? 'strength' : 'dexterity', false);
+				const bonus = rpgTrainerAttackBonus(character.trainerSheet!,
+					attack === 'melee' ? 'strength' : 'dexterity', false) + talentEffects.bonus;
 				return { ...roll, bonus, total: roll.natural + bonus };
 			})() : skillRoll ? rollRPGTrainerSkillCheck(character.trainerSheet!, skill!, skillAttribute, options) :
 			resistanceRoll ? rollRPGTrainerResistance(character.trainerSheet!, resistance!, options) :
@@ -467,39 +576,29 @@ export class RPGHttpServer {
 			const names: Record<string, string> = { strength: 'Força', dexterity: 'Destreza',
 				constitution: 'Constituição', intelligence: 'Inteligência', wisdom: 'Sabedoria', charisma: 'Carisma',
 				fortitude: 'Fortitude', reflexes: 'Reflexos', will: 'Vontade' };
-			const bonus = result.bonus < 0 ? `- ${Math.abs(result.bonus)}` : `+ ${result.bonus}`;
+			const baseBonus = result.total - result.natural - talentEffects.bonus - helpBonus;
+			const bonus = help ? [baseBonus, helpBonus, ...talentEffects.chosen
+				.filter(talent => talent.bonus !== 0).map(talent => talent.bonus)]
+				.map(value => value < 0 ? `- ${Math.abs(value)}` : `+ ${value}`).join(' ') :
+				rpgTrainerRollBonusTerms(baseBonus, talentEffects.chosen);
 			const rolls = result.dice.length === 1 ? '' :
-				`${mode === 'advantage' ? 'Vantagem' : 'Desvantagem'}\n` +
+				`${result.mode === 'advantage' ? 'Vantagem' : 'Desvantagem'}\n` +
 				`1ª rolagem: ${result.dice[0]}\n2ª rolagem: ${result.dice[1]}\n`;
-			const skillNames: Record<string, string> = { acrobacia: 'Acrobacia', atletismo: 'Atletismo',
-				atuacao: 'Atuação', captura: 'Captura', conhecimento: 'Conhecimento',
-				'empatia-pokemon': 'Empatia Pokémon', enganacao: 'Enganação', furtividade: 'Furtividade',
-				intimidacao: 'Intimidação', intuicao: 'Intuição', investigacao: 'Investigação',
-				ladinagem: 'Ladinagem', medicina: 'Medicina', 'medicina-pokemon': 'Medicina Pokémon',
-				'montaria-pokemon': 'Montaria Pokémon', natureza: 'Natureza', oficio: 'Ofício',
-				percepcao: 'Percepção', persuasao: 'Persuasão', pilotagem: 'Pilotagem',
-				sobrevivencia: 'Sobrevivência', tecnologia: 'Tecnologia',
-				'adestramento-pokemon': 'Adestramento Pokémon' };
-			const domainNames: Record<string, string> = { regioes: 'Regiões',
-				'historia-personagens-historicos': 'História e Personagens Históricos',
-				'lendarios-miticos': 'Lendários e Míticos', pokemon: 'Pokémon', organizacoes: 'Organizações',
-				'cultura-sociedade': 'Cultura e Sociedade', 'arqueologia-fosseis': 'Arqueologia e Fósseis',
-				ciencias: 'Ciências', culinaria: 'Culinária', mecanica: 'Mecânica', costura: 'Costura',
-				fotografia: 'Fotografia', carpintaria: 'Carpintaria', ferraria: 'Ferraria',
-				jornalismo: 'Jornalismo', artesanato: 'Artesanato', automoveis: 'Automóveis',
-				motocicletas: 'Motocicletas', embarcacoes: 'Embarcações', aeronaves: 'Aeronaves',
-				'maquinas-pesadas': 'Máquinas pesadas', 'veiculos-especiais': 'Veículos especiais' };
-			const skillParts = skill?.split(':');
-			const domainName = skillParts?.[1] ?
-				(domainNames[skillParts[1]] || skillParts[1].replace(/-/g, ' ')) : null;
 			const rollName = initiativeRoll ? 'Iniciativa' :
 				attackRoll ? attack === 'melee' ? 'Ataque corpo a corpo' : 'Ataque à distância' :
-				skillRoll ? `${skillNames[skillParts![0]]}${domainName ? `: ${domainName}` : ''}` :
+				skillRoll ? trainerSkillLabel(skill!) :
 				resistanceRoll ? names[resistance!] : names[attribute!];
-			const message = `${rolls}${rollName}: 1d20 tirou ` +
+			const talentLines = talentEffects.chosen.length ?
+				`${talentEffects.chosen.map(talent => talent.name).join('\n')}\n` : '';
+			const helpLine = help ? `Ajuda de ${help.helperName}\n` : '';
+			const message = `${helpLine}${talentLines}${rolls}${rollName}: 1d20 tirou ` +
 				`${result.natural} ${bonus} = ${result.total}`;
 			const posted = await persistence.createTableChatMessage(
 				session.platformTableId, session.platformAccountId, message);
+			if (kind === 'attribute' || kind === 'skill' || kind === 'resistance') {
+				this.login.recordTrainerChatRoll(token, kind, rollName, bonus, posted, { ...result,
+					mode: result.mode as 'normal' | 'advantage' | 'disadvantage' });
+			}
 			this.json(res, 201, { result, message: posted });
 			return;
 		}
@@ -606,6 +705,23 @@ export class RPGHttpServer {
 			this.json(res, 200, this.login.grantMasterTrainerXP(this.token(req),
 				this.string(body.characterId), body.amount as number,
 				this.string(body.reason), this.string(body.requestId)));
+			return;
+		}
+		if (method === 'GET' && url.pathname === '/api/rpg/trainer/level-up') {
+			this.json(res, 200, this.login.previewOwnTrainerLevel(this.token(req)));
+			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/level-up') {
+			const body = await this.body(req);
+			this.json(res, 200, { sheet: this.login.advanceOwnTrainerLevel(this.token(req),
+				body.choices as import('./trainer-talents').RPGTrainerTalentChoice[]) });
+			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/level/master') {
+			const body = await this.body(req);
+			this.json(res, 200, { sheet: this.login.adjustMasterTrainerLevel(this.token(req),
+				this.string(body.characterId), this.string(body.direction) as 'up' | 'down',
+				this.string(body.requestId)) });
 			return;
 		}
 		if (method === 'POST' && url.pathname === '/api/rpg/table-chat/typing') {
@@ -2213,6 +2329,8 @@ export class RPGHttpServer {
 		const level = typeof starter.level === 'number' ? starter.level : undefined;
 		return {
 			characterName: this.string(body.characterName),
+			characterGender: body.characterGender === undefined ? undefined :
+			this.string(body.characterGender) as RPGCreateCharacterRequest['characterGender'],
 			playerName: platformCreation ? '' : this.string(body.playerName),
 			avatar: this.string(body.avatar),
 			password: platformCreation ? '' : this.string(body.password),
@@ -2495,7 +2613,8 @@ export class RPGHttpServer {
 	/** Only established domain validation messages may cross the HTTP boundary. */
 	private isPublicValidationError(message: string): boolean {
 		if (/persisted|estado persistido|table scope|random source|repository|repositório/i.test(message)) return false;
-		return /^(?:Atividade |Exposição |Perigo |Viagem |Hexágono |Condição de viagem |O próximo hexágono |Progresso ou tempo de viagem |Jornada |Rota |Pokémon não foi aprovado |Carga da carroça |Carroça |Sobrecarga |Receita |Talento exigido |Perícia exigida |Tempo de fabricação |Instalação adequada |Kit apropriado |Domínio do kit |Cargas do kit |Ingredientes |Fabricação |Identificador de atividade |RPG (?:request|session|password|character|player|master|battle|contest|tournament|Bag|Box|shop|commerce|nursery|team|held|move|starter|temporary|NPC)|Invalid RPG|Incorrect RPG|Unknown RPG|Apenas |Permissão necessária:|Usuário ou senha |Conta (?:indisponível|convidada)|Mesa (?:indisponível|arquivada)|Convite |Código de recuperação |Muitas tentativas |Pokémon |Item |Golpe |Equipe |Batalha |Concurso |Torneio |NPC |Pasta |Documento |Loja |Banco |Pokécoin |Quantidade |Valor |Nível |Formato |Participante |Treinador |Campanha |nome de exibição inválido|descrição inválido|Texto muito longo|Cor da mesa inválida|Visibilidade da mesa inválida|Função (?:de membro|de convite) inválida|Identificador de sessão inválido|Motivo da auditoria muito longo|A senha deve |O usuário deve |O @ deve |Este (?:nome de usuário|convite|Pokémon|held item|@)|Esta (?:conta|loja|procriação)|O (?:Mestre|acesso|valor|usuário|proprietário|limite|item|Pokémon|reembolso|prêmio)|Os documentos |A (?:conta|equipe|aposta|expiração|incubadora|recompensa|procriação|quantidade|sessão|natureza|habilidade|loja|mensagem)|Informe pelo menos um @|Envie convites |Não repita o mesmo @|@[^ ]+ |Nenhum (?:Pokémon|participante|item)|Não (?:é possível|foi possível|há|existe|pode))/.test(message);
+		if (/^(?:Identificador de nível |Ajuste de nível )/.test(message)) return true;
+		return /^(?:Atividade |Exposição |Perigo |Viagem |Hexágono |Condição de viagem |O próximo hexágono |Progresso ou tempo de viagem |Jornada |Rota |Pokémon não foi aprovado |Carga da carroça |Carroça |Sobrecarga |Receita |Talento exigido |Perícia exigida |Tempo de fabricação |Instalação adequada |Kit apropriado |Domínio do kit |Cargas do kit |Ingredientes |Fabricação |Identificador de atividade |RPG (?:request|session|password|character|player|master|battle|contest|tournament|Bag|Box|shop|commerce|nursery|team|held|move|starter|temporary|NPC)|Invalid RPG|Incorrect RPG|Unknown RPG|Apenas |Permissão necessária:|Usuário ou senha |Conta (?:indisponível|convidada)|Mesa (?:indisponível|arquivada)|Convite |Código de recuperação |Muitas tentativas |Pokémon |Item |Golpe |Equipe |Batalha |Concurso |Torneio |NPC |Pasta |Documento |Loja |Banco |Pokécoin |Quantidade |Valor |Nível |XP insuficiente |Aguarde um descanso longo |Escolha os talentos pendentes |Conclua a ficha |Histórico insuficiente |Não há histórico suficiente |Formato |Participante |Treinador |Campanha |nome de exibição inválido|descrição inválido|Texto muito longo|Cor da mesa inválida|Visibilidade da mesa inválida|Função (?:de membro|de convite) inválida|Identificador de sessão inválido|Motivo da auditoria muito longo|A senha deve |O usuário deve |O @ deve |Este (?:nome de usuário|convite|Pokémon|held item|@)|Esta (?:conta|loja|procriação)|O (?:Mestre|acesso|valor|usuário|proprietário|limite|item|Pokémon|reembolso|prêmio)|Os documentos |A (?:conta|equipe|aposta|expiração|incubadora|recompensa|procriação|quantidade|sessão|natureza|habilidade|loja|mensagem)|Informe pelo menos um @|Envie convites |Não repita o mesmo @|@[^ ]+ |Nenhum (?:Pokémon|participante|item)|Não (?:é possível|foi possível|há|existe|pode))/.test(message);
 	}
 
 	private isPersistenceError(error: { code?: unknown, sqlState?: unknown }): boolean {

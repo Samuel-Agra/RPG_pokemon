@@ -34,6 +34,7 @@ export interface RPGTableChatMessage {
 	authorCharacterName: string;
 	authorRole: RPGTableMember['role'];
 	message: string;
+	rerollTalent?: 'sortudo' | 'determinado' | 'esforco-heroico';
 	createdAt: number;
 	expiresAt: number;
 }
@@ -529,8 +530,28 @@ export class RPGMySQLPersistence {
 			id: String(row.id), tableId: String(row.table_id), authorAccountId: String(row.author_account_id),
 			authorHandle: String(row.handle), authorDisplayName: String(row.display_name),
 			authorCharacterName: String(row.character_name), authorRole: row.role, message: String(row.message),
+			...(row.reroll_talent ? { rerollTalent: String(row.reroll_talent) as RPGTableChatMessage['rerollTalent'] } : {}),
 			createdAt: Number(row.created_at), expiresAt: Number(row.expires_at),
 		}));
+	}
+
+	/** Só o autor pode repetir uma rolagem genuína ainda presente no chat da mesa. */
+	async getTableChatRollMessage(tableId: string, authorAccountId: string, messageId: string,
+		now = Date.now()): Promise<string | null> {
+		const scope = this.requireTableScope(tableId);
+		const [rows] = await this.pool.query<RowDataPacket[]>(`SELECT message FROM rpg_table_chat_messages
+			WHERE table_id = ? AND author_account_id = ? AND id = ? AND expires_at > ?
+				AND reroll_talent IS NULL LIMIT 1`, [scope, authorAccountId, messageId, now]);
+		return rows.length ? String(rows[0].message) : null;
+	}
+
+	/** Enfileirada junto da ficha na transação da requisição RPG. */
+	markTableChatRollRerolled(tableId: string, authorAccountId: string, messageId: string,
+		original: string, message: string, talent: 'sortudo' | 'determinado' | 'esforco-heroico'): void {
+		if (message.length > 4000) throw new Error('Mensagem de rolagem extensa demais para repetir');
+		this.enqueue(`UPDATE rpg_table_chat_messages SET message = ?, reroll_talent = ?
+			WHERE table_id = ? AND author_account_id = ? AND id = ? AND message = ? AND reroll_talent IS NULL`,
+		[message, talent, this.requireTableScope(tableId), authorAccountId, messageId, original]);
 	}
 
 	/** Persists a plain-text message after confirming that its author still belongs to the table. */

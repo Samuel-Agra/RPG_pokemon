@@ -53,8 +53,8 @@ describe('RPG trainer checks engine', () => {
 		assert.deepEqual([9, 10, 14, 15, 20, 25, 30, 40].map(rpgHelpBonus),
 			[0, 1, 1, 2, 3, 4, 5, 5]);
 		assert.equal(rpgBestHelpBonus([16, 22, 12]), 3);
-		const aid = rollRPGTrainerHelp(trainer(), 'percepcao', 'intelligence', sequence(20));
-		assert.equal(aid.attribute, 'intelligence');
+		const aid = rollRPGTrainerHelp(trainer(), 'percepcao', 'wisdom', sequence(20));
+		assert.equal(aid.attribute, 'wisdom');
 		assert.equal(aid.helpBonus, 3);
 		const result = rollRPGTrainerSkillCheck(trainer(), 'percepcao', undefined,
 			{ dc: 15, helpResults: [{ skill: 'percepcao', total: 16 }, aid], advantages: 1 }, sequence(7, 11));

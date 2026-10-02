@@ -62,7 +62,7 @@ import {
 	type RPGContestComboRepository,
 } from './contest-scoring';
 import { RPGMySQLPersistence, rpgMySQLConfig } from './database/mysql-persistence';
-import { createRPGPendingTrainerSheet, type RPGTrainerSheet } from './trainer-sheet';
+import { createRPGPendingTrainerSheet, type RPGTrainerChatRoll, type RPGTrainerSheet } from './trainer-sheet';
 import {
 	RPG_EQUIPMENT_CATALOG, rpgAssertEquipmentLicense, rpgEquipment, rpgEquipmentSlots,
 	rpgEquipmentWeight, rpgInitialTrainerInventory, rpgCanAcquireKitDomain, rpgEquipmentDerivedOptions,
@@ -72,9 +72,14 @@ import {
 	RPG_DIFFICULTIES, RPG_SKILL_ATTRIBUTES, RPG_KNOWLEDGE_DOMAINS, RPG_CRAFT_DOMAINS,
 	rpgTrainerDerivedStatistics,
 	rpgTrainerAttackBonus, rpgTrainerProficiency, rpgTrainerResistanceBonus, rpgTrainerSkillBonus,
-	rollRPGTrainerAttributeCheck, rollRPGTrainerResistance, rollRPGTrainerSkillCheck,
+	rpgTrainerSkillAttributes,
+	rollRPGTrainerAttributeCheck, rollRPGTrainerResistance, rollRPGTrainerSkillCheck, rpgHelpBonus,
 	type RPGTrainerAttribute, type RPGTrainerCheckOptions, type RPGTrainerResistance,
 } from './trainer-checks';
+import { rpgEncouragingPresenceOption, rpgResolveTrainerRollTalents, rpgSetSharedArchive,
+	rpgSharedArchiveOptions, rpgTrainerRollTalents } from './trainer-roll-talents';
+import { rpgTrainerHeroicMessage, rpgTrainerRerollCandidate, rpgTrainerRerollMessage,
+	rpgUseTrainerSheetTalent } from './trainer-active-talents';
 import {
 	rpgTrainerAddExhaustion, rpgTrainerAddWound, rpgTrainerApplyCondition, rpgTrainerConditionTick,
 	rpgTrainerDeathSave, rpgTrainerHeal, rpgTrainerRemoveCondition, rpgTrainerRest,
@@ -90,12 +95,13 @@ import {
 	chooseRPGTrainerTalent, rpgTrainerTalentCatalog, RPG_TALENT_APPROVAL_KEYS, type RPGTrainerTalentChoice,
 } from './trainer-talents';
 import {
-	awardRPGTrainerXP, rpgBadgeXP, rpgContestPodiumXP, rpgTrainerXPToNextLevel,
+	advanceRPGTrainerLevel, awardRPGTrainerXP, lowerRPGTrainerLevel,
+	rpgBadgeXP, rpgContestPodiumXP, rpgTrainerLevelForXP, rpgTrainerXPToNextLevel, RPG_TRAINER_LEVEL_XP,
 	type RPGTrainerXPReward,
 } from './trainer-progression';
 import {
 	completeRPGTrainerSheet, rollRPGTrainerAttributeGroup, RPG_STANDARD_ATTRIBUTES, RPG_TRAINER_CLASSES,
-	RPG_TRAINER_PILOTING_DOMAINS,
+	RPG_TRAINER_PILOTING_DOMAINS, rpgTrainerModifier,
 	type RPGTrainerAttributeMethod, type RPGTrainerCompletion,
 } from './trainer-creation';
 import {
@@ -299,6 +305,8 @@ export interface RPGTeamEggView {
 
 export interface RPGCharacterState extends RPGCharacterSelection {
 	version: number;
+	/** Ausente apenas em personagens criados antes da escolha de gênero. */
+	characterGender?: 'M' | 'F';
 	pageAccess: RPGCharacterPageAccess;
 	shopAccess?: Record<string, boolean>;
 	money: number;
@@ -338,6 +346,8 @@ export interface RPGStoredCharacter {
 
 export interface RPGCreateCharacterRequest {
 	characterName: string;
+	/** Opcional para chamadas legadas; o formulário atual sempre informa M ou F. */
+	characterGender?: 'M' | 'F';
 	playerName: string;
 	avatar: string;
 	password: string;
@@ -803,6 +813,7 @@ export class RPGLoginService {
 		name: string, currentDateTime: string, quickNotes: string, events: RPGCampaignEvent[],
 		playerNotes: Record<string, string>, sceneNpcIds: string[], sceneNpcRevealed: Record<string, number[]>,
 		equipmentOffers: Record<string, Record<string, { stock: number, price: number }>>,
+		trainerHelp: { characterId: string, skill: string, total: number, bonus: number }[],
 	};
 	readonly mysqlPersistence?: RPGMySQLPersistence;
 	readonly accounts: RPGAccountManagement;
@@ -843,12 +854,18 @@ export class RPGLoginService {
 		this.campaignSettings = {
 			name: 'Minha campanha', currentDateTime: new Date(this.now()).toISOString(), quickNotes: '', events: [],
 			playerNotes: {}, sceneNpcIds: [], sceneNpcRevealed: {},
-			equipmentOffers: {},
+			equipmentOffers: {}, trainerHelp: [],
 		};
 		const initialCampaignSettings = options.campaignSettings || (this.campaignSettingsFile && existsSync(this.campaignSettingsFile) ?
 			JSON.parse(readFileSync(this.campaignSettingsFile, 'utf8')) as Record<string, unknown> : null);
 		if (initialCampaignSettings) {
 			const stored = initialCampaignSettings as Partial<typeof this.campaignSettings>;
+			if (Array.isArray(stored.trainerHelp)) {
+				this.campaignSettings.trainerHelp = stored.trainerHelp.filter(entry =>
+					entry && typeof entry.characterId === 'string' && typeof entry.skill === 'string' &&
+					Number.isSafeInteger(entry.total) && Number.isSafeInteger(entry.bonus) &&
+					entry.bonus >= 0 && entry.bonus <= 5).slice(-100);
+			}
 			if (stored.equipmentOffers && typeof stored.equipmentOffers === 'object' && !Array.isArray(stored.equipmentOffers)) {
 				this.campaignSettings.equipmentOffers = structuredClone(stored.equipmentOffers);
 			}
@@ -933,6 +950,9 @@ export class RPGLoginService {
 
 	createCharacter(request: RPGCreateCharacterRequest, platformAccountId?: string): RPGCharacterSelection {
 		const characterName = this.text(request.characterName, 'character name', 30);
+		if (request.characterGender !== undefined && !['M', 'F'].includes(request.characterGender)) {
+			throw new Error('Invalid RPG character gender');
+		}
 		const id = toID(characterName);
 		if (!id) throw new Error('RPG character name requires letters or numbers');
 		if (this.repository.get(id)) throw new Error('RPG character already exists');
@@ -955,6 +975,7 @@ export class RPGLoginService {
 		const inventory = RPGInventorySystem.create(RPGBagSystem.createForTier(id, 'starter'));
 		const state: RPGCharacterState = {
 			version: RPG_ACCOUNT_VERSION, id, characterName, playerName, avatar,
+			characterGender: request.characterGender || 'M',
 			pageAccess: {
 				bank: true, bag: true, box: true, training: true, center: true, fossils: true, nursery: true, shops: true,
 			},
@@ -1198,6 +1219,7 @@ export class RPGLoginService {
 	private advanceCampaignTimeTransaction(hours: 1 | 8): RPGCampaignTimeAdvanceResult {
 		const milliseconds = hours * 60 * 60 * 1000;
 		const now = this.now();
+		const campaignStart = Date.parse(this.campaignSettings.currentDateTime);
 		const records = this.repository.list();
 		const recordsById = new Map(records.map(record => [record.state.id, record]));
 		const changedIds = new Set<string>();
@@ -1218,6 +1240,25 @@ export class RPGLoginService {
 			occurredAt: this.campaignSettings.currentDateTime,
 		});
 		for (const record of records) {
+			if (record.state.trainerSheet?.status === 'complete') {
+				const sheet = record.state.trainerSheet;
+				if (hours === 8) {
+					sheet.talentRestCycle = (sheet.talentRestCycle || 0) + 1;
+					changedIds.add(record.state.id);
+				}
+				const eligible = rpgTrainerLevelForXP(sheet.experience);
+				if (eligible > sheet.level) {
+					if (sheet.levelUpWaitingSince === undefined) {
+						sheet.levelUpWaitingSince = campaignStart;
+						changedIds.add(record.state.id);
+					}
+					if (campaignStart + milliseconds - sheet.levelUpWaitingSince >= 8 * 3_600_000 &&
+						(sheet.levelUpReady || 0) < Math.min(eligible, sheet.level + 1)) {
+						sheet.levelUpReady = sheet.level + 1;
+						changedIds.add(record.state.id);
+					}
+				}
+			}
 			const completingTrainings = [
 				...record.state.box.party,
 				...record.state.box.boxes.flatMap(box => box.slots).filter((entry): entry is NonNullable<typeof entry> => !!entry),
@@ -1361,6 +1402,7 @@ export class RPGLoginService {
 		this.campaignSettings.currentDateTime = new Date(
 			Date.parse(this.campaignSettings.currentDateTime) + milliseconds
 		).toISOString();
+		this.campaignSettings.trainerHelp = [];
 		for (const event of completedEvents) event.occurredAt = this.campaignSettings.currentDateTime;
 		this.campaignSettings.events.push(...completedEvents);
 		this.campaignSettings.events = this.campaignSettings.events.slice(-200);
@@ -2243,7 +2285,14 @@ export class RPGLoginService {
 			const trained = sheet.skills.trained.includes(id);
 			const requiresTraining = !trained && (['ladinagem', 'pilotagem', 'oficio',
 				'adestramento-pokemon', 'montaria-pokemon'].includes(family) || id === 'conhecimento:organizacoes');
-			return { id, trained, focused: sheet.skills.focused.includes(id), requiresTraining,
+			const halfProficiency = !trained && sheet.talents.general.includes('conhecimento-diversificado') &&
+				(sheet.talentSelections || []).some(selection => selection.id === 'conhecimento-diversificado' &&
+					(selection.skill === id || selection.variant === id));
+			const observationEligible = !trained && sheet.talents.general.includes('aprendizado-por-observacao') &&
+				id !== 'conhecimento' && id !== 'oficio';
+			return { id, trained, focused: sheet.skills.focused.includes(id), halfProficiency, requiresTraining,
+				attributes: ['conhecimento', 'oficio'].includes(id) ? [] : rpgTrainerSkillAttributes(sheet, id),
+				observationEligible,
 				bonus: requiresTraining || ['conhecimento', 'oficio'].includes(id) ? null : rpgTrainerSkillBonus(sheet, id) };
 		});
 		const resistances = (['fortitude', 'reflexes', 'will'] as const).map(id => ({
@@ -2257,8 +2306,182 @@ export class RPGLoginService {
 			bag.items.reduce((total, item) => total + item.quantity, 0), bagWeight));
 		const attacks = { melee: rpgTrainerAttackBonus(sheet, 'strength', false),
 			ranged: rpgTrainerAttackBonus(sheet, 'dexterity', false) };
-		return { sheet, xpToNextLevel: rpgTrainerXPToNextLevel(sheet.experience),
-			proficiency: rpgTrainerProficiency(sheet.level), skills, resistances, derived, attacks };
+		const nextLevelXP = sheet.level >= 10 ? null : RPG_TRAINER_LEVEL_XP[sheet.level];
+		return { sheet, xpToNextLevel: nextLevelXP === null ? null : Math.max(0, nextLevelXP - sheet.experience),
+			nextLevelXP,
+			eligibleLevel: rpgTrainerLevelForXP(sheet.experience),
+			canLevelUp: sheet.level < rpgTrainerLevelForXP(sheet.experience) &&
+				(sheet.levelUpReady || 0) > sheet.level &&
+				!Object.values(sheet.pendingChoices || {}).some(count => count > 0),
+			proficiency: rpgTrainerProficiency(sheet.level), skills, resistances, derived, attacks,
+			rollTalents: [...rpgTrainerRollTalents(sheet), ...this.getTrainerAllyRollTalents(token, state.id)],
+			archiveRecipients: sheet.talents.class.includes('arqueologo:acervo-compartilhado') ?
+				this.trainerArchiveRecipients(token) : [],
+			activeTalentUses: { restCycle: sheet.talentRestCycle || 0, used: sheet.talentUses || {} },
+			rerollAvailability: this.getTrainerRerollAvailability(token, state.id) };
+	}
+
+	useTrainerSheetTalent(token: string, talentId: string) {
+		const session = this.getSession(token);
+		if (session.mode !== 'player') throw new Error('Entre como jogador para usar o talento');
+		const characterId = session.role === 'master' ? session.viewAsCharacterId : session.characterId;
+		if (!characterId) throw new Error('Nenhum personagem selecionado');
+		const record = this.requireCharacter(toID(characterId));
+		const original = structuredClone(record);
+		const outcome = rpgUseTrainerSheetTalent(record.state.trainerSheet || createRPGPendingTrainerSheet(),
+			talentId, this.random);
+		record.state.trainerSheet = outcome.sheet;
+		record.state.updatedAt = this.now();
+		try { this.persistAtomically(() => this.repository.set(record)); } catch (error) {
+			this.repository.set(original); throw error;
+		}
+		return { sheet: structuredClone(outcome.sheet), die: outcome.die, recovered: outcome.recovered };
+	}
+
+	/** Guarda a referência da rolagem real do chat; texto enviado pelo usuário não entra neste registro. */
+	recordTrainerChatRoll(token: string, kind: 'attribute' | 'skill' | 'resistance', label: string,
+		bonusTerms: string,
+		posted: { id: string, message: string, createdAt: number },
+		result: { natural: number, total: number, dice: number[], mode: 'normal' | 'advantage' | 'disadvantage' }) {
+		const session = this.getSession(token);
+		const characterId = session.role === 'master' ? session.viewAsCharacterId : session.characterId;
+		if (!characterId || !session.platformAccountId) throw new Error('Treinador da rolagem indisponível');
+		const record = this.requireCharacter(toID(characterId));
+		const sheet = record.state.trainerSheet;
+		if (!sheet || sheet.status !== 'complete') throw new Error('Ficha não concluída');
+		const roll: RPGTrainerChatRoll = { messageId: posted.id, message: posted.message, label, bonusTerms,
+			authorAccountId: session.platformAccountId, kind, mode: result.mode,
+			diceCount: result.dice.length, bonus: result.total - result.natural,
+			campaignTime: this.campaignSettings.currentDateTime, createdAt: posted.createdAt };
+		sheet.lastChatRolls = { ...sheet.lastChatRolls, any: roll,
+			...(kind === 'resistance' ? { resistance: roll } : {}),
+			...(kind === 'skill' ? { skill: roll } : {}) };
+		record.state.updatedAt = this.now();
+		this.repository.set(record);
+	}
+
+	getTrainerRerollAvailability(token: string, characterId: string) {
+		const session = this.getSession(token);
+		const state = this.getCharacter(token, characterId);
+		const sheet = state.trainerSheet;
+		const current = this.campaignSettings.currentDateTime;
+		return { sortudo: !!rpgTrainerRerollCandidate(sheet, 'sortudo', session.platformAccountId,
+			current, this.now()),
+		determinado: !!rpgTrainerRerollCandidate(sheet, 'determinado', session.platformAccountId,
+			current, this.now()),
+		'esforco-heroico': !!rpgTrainerRerollCandidate(sheet, 'esforco-heroico', session.platformAccountId,
+			current, this.now()) };
+	}
+
+	/** Aplica o talento ao último teste elegível e atualiza sua mensagem original na mesma transação. */
+	async rerollTrainerChatTalent(token: string, talentId: 'sortudo' | 'determinado' | 'esforco-heroico') {
+		const session = this.getSession(token);
+		if (session.mode !== 'player' || !session.platformTableId || !session.platformAccountId ||
+			!this.mysqlPersistence) throw new Error('Entre como jogador em uma mesa para repetir a rolagem');
+		const characterId = session.role === 'master' ? session.viewAsCharacterId : session.characterId;
+		if (!characterId) throw new Error('Nenhum personagem selecionado');
+		if (!['sortudo', 'determinado', 'esforco-heroico'].includes(talentId)) {
+			throw new Error('Talento de alteração de teste inválido');
+		}
+		const record = this.requireCharacter(toID(characterId));
+		const sheet = record.state.trainerSheet;
+		if (!sheet || sheet.status !== 'complete' || !sheet.talents.general.includes(talentId)) {
+			throw new Error('Este treinador não possui o talento');
+		}
+		const cycle = sheet.talentRestCycle || 0;
+		if (sheet.talentUses?.[talentId] === cycle) throw new Error('Talento já usado neste descanso longo');
+		if (talentId === 'esforco-heroico' &&
+			(sheet.survival?.exhaustion || 0) >= 5) throw new Error('Exaustão alta demais para Esforço Heroico');
+		const candidate = rpgTrainerRerollCandidate(sheet, talentId, session.platformAccountId,
+			this.campaignSettings.currentDateTime, this.now());
+		if (!candidate) {
+			throw new Error('Nenhuma rolagem elegível desde o último avanço do relógio');
+		}
+		const original = await this.mysqlPersistence.getTableChatRollMessage(session.platformTableId,
+			session.platformAccountId, candidate.messageId, this.now());
+		if (original !== candidate.message) throw new Error('A rolagem original não está mais disponível');
+		const heroic = talentId === 'esforco-heroico';
+		const reroll = heroic ? null : rpgTrainerRerollMessage(original, candidate, talentId, this.random);
+		const exhausted = heroic ? rpgTrainerAddExhaustion(sheet, 1) : structuredClone(sheet);
+		const message = heroic ? rpgTrainerHeroicMessage(original, exhausted.survival!.exhaustion) : reroll!.message;
+		const previous = structuredClone(record);
+		const next = exhausted;
+		next.talentUses = { ...next.talentUses, [talentId]: cycle };
+		for (const roll of Object.values(next.lastChatRolls || {})) {
+			if (roll?.messageId === candidate.messageId) roll.rerolled = true;
+		}
+		record.state.trainerSheet = next;
+		record.state.updatedAt = this.now();
+		try {
+			this.persistAtomically(() => {
+				this.mysqlPersistence!.markTableChatRollRerolled(session.platformTableId!,
+					session.platformAccountId!, candidate.messageId, original, message, talentId);
+				this.repository.set(record);
+			});
+		} catch (error) { this.repository.set(previous); throw error; }
+		return { messageId: candidate.messageId, message, ...(reroll || {}), talentId,
+			...(heroic ? { exhaustion: next.survival!.exhaustion } : {}) };
+	}
+
+	/** Exibe apenas treinadores de contas ativas da mesa atual; a mesma busca valida a rolagem. */
+	getTrainerAllyRollTalents(token: string, characterId: string) {
+		return [...this.encouragingPresenceOptions(token, characterId),
+			...this.sharedArchiveOptions(token, characterId)];
+	}
+
+	private trainerArchiveRecipients(token: string) {
+		const session = this.getSession(token);
+		if (!session.platformTableId) return [];
+		return this.repository.list().filter(record => record.tableId === session.platformTableId &&
+			record.accountId && record.state.trainerSheet?.status === 'complete' &&
+			this.accounts.repository.getMembership(session.platformTableId!, record.accountId)?.status === 'active')
+			.map(record => ({ id: record.state.id, name: record.state.characterName }));
+	}
+
+	/** O servidor valida autoria, treinamento, vagas e vínculo do destinatário à mesma mesa. */
+	setTrainerSharedArchive(token: string, slot: number, entry: {
+		topic: string, knowledge: string, recipientCharacterId: string,
+	} | null) {
+		const session = this.getSession(token);
+		if (session.mode !== 'player' || !session.platformTableId) throw new Error('Entre como jogador em uma mesa');
+		const characterId = session.role === 'master' ? session.viewAsCharacterId : session.characterId;
+		if (!characterId) throw new Error('Nenhum personagem selecionado');
+		const record = this.requireCharacter(toID(characterId));
+		if (record.tableId !== session.platformTableId) throw new Error('Personagem fora da mesa atual');
+		if (entry && !this.trainerArchiveRecipients(token).some(person => person.id === entry.recipientCharacterId)) {
+			throw new Error('Destinatário indisponível nesta mesa');
+		}
+		const previous = structuredClone(record);
+		record.state.trainerSheet = rpgSetSharedArchive(record.state.trainerSheet ||
+			createRPGPendingTrainerSheet(), slot, entry);
+		record.state.updatedAt = this.now();
+		try { this.persistAtomically(() => this.repository.set(record)); } catch (error) {
+			this.repository.set(previous); throw error;
+		}
+		return { archives: structuredClone(record.state.trainerSheet.sharedArchives) };
+	}
+
+	private sharedArchiveOptions(token: string, characterId: string) {
+		const session = this.getSession(token);
+		if (!session.platformTableId) return [];
+		return this.repository.list().filter(record => record.tableId === session.platformTableId &&
+			record.accountId &&
+			this.accounts.repository.getMembership(session.platformTableId!, record.accountId)?.status === 'active')
+			.flatMap(record => record.state.trainerSheet ? rpgSharedArchiveOptions(record.state.id,
+				record.state.characterName, record.state.trainerSheet, characterId) : []);
+	}
+
+	private encouragingPresenceOptions(token: string, characterId: string) {
+		const session = this.getSession(token);
+		if (!session.platformTableId) return [];
+		return this.repository.list().filter(record => record.state.id !== characterId &&
+			record.tableId === session.platformTableId && record.accountId &&
+			this.accounts.repository.getMembership(session.platformTableId!, record.accountId)?.status === 'active')
+			.flatMap(record => {
+				const option = record.state.trainerSheet && rpgEncouragingPresenceOption(record.state.id,
+					record.state.characterName, record.state.trainerSheet);
+				return option ? [option] : [];
+			});
 	}
 
 	/** Catálogo público da mesa; a consulta ainda exige sessão válida na mesa selecionada. */
@@ -2410,6 +2633,61 @@ export class RPGLoginService {
 		return { result: structuredClone(result), repeated: false };
 	}
 
+	/** Uma ajuda pendente pertence ao personagem e à mesa, não à sessão do navegador. */
+	offerTrainerHelp(token: string, skill: string, attribute: RPGTrainerAttribute | undefined,
+		mode: 'normal' | 'advantage' | 'disadvantage', selectedTalents: string[] = []) {
+		const session = this.getSession(token);
+		const actorId = session.viewAsCharacterId || session.characterId;
+		if (session.mode !== 'player' || !actorId) throw new Error('Entre como jogador para ajudar');
+		const character = this.getCharacter(token, actorId);
+		const sheet = character.trainerSheet;
+		if (!sheet || !Object.prototype.hasOwnProperty.call(RPG_SKILL_ATTRIBUTES, skill.split(':')[0])) {
+			throw new Error('Perícia de ajuda inválida');
+		}
+		if (attribute && !rpgTrainerSkillAttributes(sheet, skill).includes(attribute)) {
+			throw new Error('Atributo incompatível com a perícia');
+		}
+		if (!['normal', 'advantage', 'disadvantage'].includes(mode)) throw new Error('Modo de rolagem inválido');
+		if (this.campaignSettings.trainerHelp.some(entry => entry.characterId === character.id && entry.skill === skill)) {
+			throw new Error('Você já ofereceu ajuda para essa perícia neste período');
+		}
+		const talents = rpgResolveTrainerRollTalents(sheet, 'skill', skill, selectedTalents,
+			this.getTrainerAllyRollTalents(token, character.id));
+		const observedSkill = talents.chosen.some(talent => talent.id === 'aprendizado-por-observacao');
+		const result = rollRPGTrainerSkillCheck(sheet, skill, attribute, {
+			dc: 0, bonus: talents.bonus,
+			temporarilyTrained: observedSkill,
+			advantages: (mode === 'advantage' ? 1 : 0) + talents.advantages,
+			disadvantages: mode === 'disadvantage' ? 1 : 0,
+		}, this.random);
+		const specialized = sheet.talents.general.includes('ajuda-especializada') &&
+			sheet.skills.trained.includes(skill);
+		const bonus = Math.max(rpgHelpBonus(result.total), specialized && result.total >= 10 ? 2 : 0);
+		this.persistAtomically(() => {
+			this.campaignSettings.trainerHelp.push({ characterId: character.id, skill, total: result.total, bonus });
+			this.campaignSettings.trainerHelp = this.campaignSettings.trainerHelp.slice(-100);
+			this.persistCampaignSettings();
+		});
+		return { result, bonus, talents: talents.chosen };
+	}
+
+	consumeTrainerHelp(token: string, skill: string): { bonus: number, helperName: string } | null {
+		const session = this.getSession(token);
+		const actorId = session.viewAsCharacterId || session.characterId;
+		if (session.mode !== 'player' || !actorId) throw new Error('Entre como jogador para receber ajuda');
+		const available = this.campaignSettings.trainerHelp.filter(entry =>
+			entry.skill === skill && entry.characterId !== actorId);
+		if (!available.length) return null;
+		const best = available.reduce((winner, entry) => entry.bonus > winner.bonus ? entry : winner);
+		const helperName = this.repository.get(best.characterId)?.state.characterName || 'Personagem';
+		this.persistAtomically(() => {
+			this.campaignSettings.trainerHelp = this.campaignSettings.trainerHelp.filter(entry =>
+				entry.skill !== skill || entry.characterId === actorId);
+			this.persistCampaignSettings();
+		});
+		return { bonus: best.bonus, helperName };
+	}
+
 	/** Rolagem humana arbitrada pelo Mestre, idempotente e restrita ao personagem desta mesa. */
 	rollTrainerCheck(token: string, input: {
 		characterId: string, requestId: string, kind: 'attribute' | 'skill' | 'resistance',
@@ -2531,14 +2809,86 @@ export class RPGLoginService {
 
 	chooseTrainerTalent(token: string, choice: RPGTrainerTalentChoice): RPGTrainerSheet {
 		const session = this.getSession(token);
-		if (session.role !== 'player' || !session.characterId) throw new Error('Entre com um personagem para escolher talento');
-		const record = this.requireCharacter(session.characterId);
+		const characterId = session.mode === 'player' && (session.role === 'master' ?
+			session.viewAsCharacterId : session.characterId);
+		if (!characterId) throw new Error('Entre com um personagem para escolher talento');
+		const record = this.requireCharacter(characterId);
+		const original = structuredClone(record);
 		const previous = record.state.trainerSheet || createRPGPendingTrainerSheet();
 		const sheet = chooseRPGTrainerTalent(previous, choice);
 		record.state.trainerSheet = sheet;
 		record.state.updatedAt = this.now();
-		this.repository.set(record);
+		try { this.persistAtomically(() => this.repository.set(record)); } catch (error) { this.repository.set(original); throw error; }
 		return structuredClone(sheet);
+	}
+
+	previewOwnTrainerLevel(token: string) {
+		const session = this.getSession(token);
+		const characterId = session.mode === 'player' && (session.role === 'master' ?
+			session.viewAsCharacterId : session.characterId);
+		if (!characterId) throw new Error('Entre com um personagem para atualizar a ficha');
+		const next = advanceRPGTrainerLevel(this.requireCharacter(characterId).state.trainerSheet ||
+			createRPGPendingTrainerSheet());
+		return { pendingChoices: next.pendingChoices, talents: rpgTrainerTalentCatalog(next) };
+	}
+
+	advanceOwnTrainerLevel(token: string, choices: RPGTrainerTalentChoice[]): RPGTrainerSheet {
+		const session = this.getSession(token);
+		const characterId = session.mode === 'player' && (session.role === 'master' ?
+			session.viewAsCharacterId : session.characterId);
+		if (!characterId) throw new Error('Entre com um personagem para atualizar a ficha');
+		const record = this.requireCharacter(characterId);
+		const previous = structuredClone(record);
+		if (!Array.isArray(choices) || choices.length < 1 || choices.length > 2) {
+			throw new Error('Escolha os talentos do novo nível antes de atualizar a ficha');
+		}
+		let sheet = advanceRPGTrainerLevel(record.state.trainerSheet || createRPGPendingTrainerSheet());
+		for (const choice of choices) sheet = chooseRPGTrainerTalent(sheet, choice);
+		if (Object.values(sheet.pendingChoices || {}).some(count => count > 0)) {
+			throw new Error('Escolha todos os talentos do novo nível');
+		}
+		sheet.levelUpReady = sheet.level;
+		if (rpgTrainerLevelForXP(sheet.experience) > sheet.level) {
+			sheet.levelUpWaitingSince = Date.parse(this.campaignSettings.currentDateTime);
+		} else delete sheet.levelUpWaitingSince;
+		record.state.trainerSheet = sheet;
+		record.state.updatedAt = this.now();
+		try { this.persistAtomically(() => this.repository.set(record)); } catch (error) { this.repository.set(previous); throw error; }
+		return structuredClone(record.state.trainerSheet);
+	}
+
+	adjustMasterTrainerLevel(token: string, characterId: string, direction: 'up' | 'down', requestId: string): RPGTrainerSheet {
+		this.requireMasterMode(token);
+		this.requirePlatformTablePermission(token, 'characters.manage');
+		if (direction !== 'up' && direction !== 'down') throw new Error('Ajuste de nível inválido');
+		if (typeof requestId !== 'string' || !/^[a-zA-Z0-9:_-]{8,100}$/.test(requestId)) {
+			throw new Error('Identificador de nível inválido');
+		}
+		const record = this.requireCharacter(toID(characterId));
+		const previous = structuredClone(record);
+		const sheet = record.state.trainerSheet || createRPGPendingTrainerSheet();
+		const repeated = sheet.levelAdjustments?.find(entry => entry.requestId === requestId);
+		if (repeated) {
+			if (repeated.direction !== direction) throw new Error('Identificador de nível já utilizado para outra ação');
+			return structuredClone(sheet);
+		}
+		if (direction === 'up') {
+			if (sheet.level >= 10) throw new Error('Nível máximo alcançado');
+			if (rpgTrainerLevelForXP(sheet.experience) > sheet.level) {
+				throw new Error('O treinador já possui XP suficiente para o próximo nível');
+			}
+			const threshold = RPG_TRAINER_LEVEL_XP[sheet.level];
+			record.state.trainerSheet = { ...sheet, experience: threshold,
+				levelUpWaitingSince: Date.parse(this.campaignSettings.currentDateTime),
+				levelUpReady: Math.min(sheet.levelUpReady || sheet.level, sheet.level) };
+		} else record.state.trainerSheet = lowerRPGTrainerLevel(sheet);
+		record.state.trainerSheet.levelAdjustments = [...(sheet.levelAdjustments || []), {
+			requestId, direction, from: sheet.level, to: record.state.trainerSheet.level,
+			at: this.now(), by: this.getSession(token).platformAccountId || 'master',
+		}];
+		record.state.updatedAt = this.now();
+		try { this.persistAtomically(() => this.repository.set(record)); } catch (error) { this.repository.set(previous); throw error; }
+		return structuredClone(record.state.trainerSheet);
 	}
 
 	approveTrainerTalentPrerequisite(token: string, characterId: string, key: string,
@@ -2575,12 +2925,18 @@ export class RPGLoginService {
 	}
 
 	private awardTrainerExperience(record: RPGStoredCharacter, reward: RPGTrainerXPReward) {
+		const original = structuredClone(record);
 		const previous = record.state.trainerSheet || createRPGPendingTrainerSheet();
 		const result = awardRPGTrainerXP(previous, reward);
 		if (result.awarded) {
 			record.state.trainerSheet = result.sheet;
+			if (result.sheet.status === 'complete' &&
+				rpgTrainerLevelForXP(result.sheet.experience) > result.sheet.level &&
+				result.sheet.levelUpWaitingSince === undefined) {
+				result.sheet.levelUpWaitingSince = Date.parse(this.campaignSettings.currentDateTime);
+			}
 			record.state.updatedAt = this.now();
-			this.repository.set(record);
+			try { this.persistAtomically(() => this.repository.set(record)); } catch (error) { this.repository.set(original); throw error; }
 		}
 		return { ...result, sheet: structuredClone(result.sheet) };
 	}

@@ -5,6 +5,8 @@ const {
 	RPG_TRAINER_CLASSES, RPG_TRAINER_TALENTS, RPG_TRAINER_CLASS_FEATURES,
 	RPG_TRAINER_LEVEL_XP, createRPGPendingTrainerSheet, chooseRPGTrainerTalent,
 	rpgTrainerTalentCatalog, rpgTrainerClassFeatures, rpgTrainerDerivedStatistics,
+	rpgTrainerSkillBonus, rpgTrainerResistanceBonus, rpgTrainerProficiency, rollRPGTrainerInitiative,
+	rpgTrainerSkillAttributes,
 	awardRPGTrainerXP, completeRPGTrainerSheet, RPGLoginService, RPGMemoryCharacterRepository,
 } = require('../../dist/server/rpg-showdown');
 
@@ -94,6 +96,82 @@ describe('RPG trainer classes and talents', () => {
 			{ id: 'dominio-de-kit', proficiency: 'kit-medico' }), /perícia correspondente/);
 	});
 
+	it('chooses two distinct untrained Knowledge areas and applies half proficiency without training', () => {
+		const base = ready('arqueologo', 10);
+		const catalog = rpgTrainerTalentCatalog(base).find(talent => talent.id === 'conhecimento-diversificado');
+		assert(catalog.available);
+		assert(catalog.choiceFields.skill && catalog.choiceFields.variant);
+		assert(!catalog.variantChoices.includes('conhecimento:arqueologia-fosseis'));
+		assert(!catalog.variantChoices.includes('conhecimento:organizacoes'));
+		const choice = { id: 'conhecimento-diversificado', skill: 'conhecimento:regioes',
+			variant: 'conhecimento:pokemon' };
+		assert.throws(() => chooseRPGTrainerTalent(base, { id: choice.id }), /duas áreas/);
+		assert.throws(() => chooseRPGTrainerTalent(base, { ...choice, variant: choice.skill }), /duas áreas/);
+		assert.throws(() => chooseRPGTrainerTalent(base,
+			{ ...choice, skill: 'conhecimento:arqueologia-fosseis' }), /não treinadas/);
+		const chosen = chooseRPGTrainerTalent(base, choice);
+		assert(!chosen.skills.trained.includes(choice.skill));
+		assert(!chosen.skills.trained.includes(choice.variant));
+		assert.equal(rpgTrainerSkillBonus(chosen, choice.skill) - rpgTrainerSkillBonus(base, choice.skill), 2);
+		assert.equal(rpgTrainerSkillBonus(chosen, choice.variant) - rpgTrainerSkillBonus(base, choice.variant), 2);
+		assert.equal(rpgTrainerSkillBonus(chosen, 'conhecimento:ciencias'),
+			rpgTrainerSkillBonus(base, 'conhecimento:ciencias'));
+		assert.throws(() => rpgTrainerSkillBonus(chosen, choice.skill, undefined, true), /treinamento/);
+		const mid = chooseRPGTrainerTalent(ready('arqueologo', 6), choice);
+		assert.equal(rpgTrainerSkillBonus(mid, choice.skill) -
+			rpgTrainerSkillBonus(ready('arqueologo', 6), choice.skill), 1);
+	});
+
+	it('acquires Specialized Help without restricting it to one trained skill', () => {
+		const base = ready('arqueologo', 2);
+		const catalog = rpgTrainerTalentCatalog(base).find(talent => talent.id === 'ajuda-especializada');
+		assert.equal(catalog.choiceFields.skill, false);
+		const chosen = chooseRPGTrainerTalent(base, { id: 'ajuda-especializada' });
+		assert(chosen.talents.general.includes('ajuda-especializada'));
+		assert.equal(chosen.talentSelections.at(-1).skill, undefined);
+	});
+
+	it('fixes a trained skill and an alternate attribute for Practical Competence', () => {
+		const base = ready('arqueologo', 10);
+		const catalog = rpgTrainerTalentCatalog(base).find(talent => talent.id === 'competencia-pratica');
+		assert.equal(catalog.available, true);
+		assert.equal(catalog.needsChoice, true);
+		assert.equal(rpgTrainerTalentCatalog(ready('arqueologo', 2))
+			.find(talent => talent.id === 'competencia-pratica').available, true);
+		assert(catalog.choiceFields.skill && catalog.choiceFields.variant);
+		assert(catalog.variantChoices.includes('wisdom'));
+		assert.throws(() => chooseRPGTrainerTalent(base,
+			{ id: 'competencia-pratica', skill: 'investigacao' }), /atributo alternativo/);
+		assert.throws(() => chooseRPGTrainerTalent(base,
+			{ id: 'competencia-pratica', skill: 'investigacao', variant: 'intelligence' }), /atributo alternativo/);
+		assert.throws(() => chooseRPGTrainerTalent(base,
+			{ id: 'competencia-pratica', skill: 'percepcao', variant: 'intelligence' }), /perícia treinada/);
+		const chosen = chooseRPGTrainerTalent(base,
+			{ id: 'competencia-pratica', skill: 'investigacao', variant: 'wisdom' });
+		assert.deepEqual(rpgTrainerSkillAttributes(chosen, 'investigacao'), ['intelligence', 'wisdom']);
+		assert.deepEqual(rpgTrainerSkillAttributes(chosen, 'atletismo'), ['strength']);
+		assert.equal(rpgTrainerSkillBonus(chosen, 'investigacao', 'wisdom'),
+			rpgTrainerSkillBonus(base, 'investigacao') - 1);
+		assert.throws(() => rpgTrainerSkillBonus(chosen, 'investigacao', 'charisma'), /Atributo não permitido/);
+		assert.throws(() => chooseRPGTrainerTalent(chosen,
+			{ id: 'competencia-pratica', skill: 'investigacao', variant: 'strength' }), /já foi escolhida/);
+		assert.equal(rpgTrainerTalentCatalog(ready('arqueologo', 1))
+			.find(talent => talent.id === 'competencia-pratica').available, false);
+	});
+
+	it('lets Additional Training teach a skill outside the class list while Focus still requires training', () => {
+		const original = ready('arqueologo', 10);
+		assert(!original.skills.trained.includes('atuacao'));
+		assert.throws(() => chooseRPGTrainerTalent(original,
+			{ id: 'foco-em-pericia', skill: 'atuacao' }), /Foco exige treinamento/);
+		const trained = chooseRPGTrainerTalent(original, { id: 'treinamento-adicional', skill: 'atuacao' });
+		const focused = chooseRPGTrainerTalent(trained, { id: 'foco-em-pericia', skill: 'atuacao' });
+		assert(focused.skills.trained.includes('atuacao'));
+		assert(focused.skills.focused.includes('atuacao'));
+		assert.throws(() => chooseRPGTrainerTalent(focused,
+			{ id: 'foco-em-pericia', skill: 'atuacao' }), /já possui foco/);
+	});
+
 	it('applies attribute growth, Constitution PV and Robust retroactively without healing', () => {
 		let sheet = ready('artista', 3);
 		sheet = chooseRPGTrainerTalent(sheet, { id: 'artista:presenca-magnetica', attribute: 'charisma' });
@@ -105,7 +183,7 @@ describe('RPG trainer classes and talents', () => {
 		assert.equal(robust.hitPoints.current, 20);
 		robust = awardRPGTrainerXP(robust, { kind: 'master', sourceId: 'test-level-3',
 			amount: RPG_TRAINER_LEVEL_XP[2] - robust.experience, reason: 'Teste', grantedAt: 1 }).sheet;
-		assert.equal(robust.hitPoints.maximum, 28);
+		assert.equal(robust.hitPoints.maximum, 22);
 		assert.equal(robust.hitPoints.current, 20);
 		let con = ready('artista', 6, { attributes: { strength: 12, dexterity: 14,
 			constitution: 13, intelligence: 14, wisdom: 12, charisma: 10 } });
@@ -151,6 +229,54 @@ describe('RPG trainer classes and talents', () => {
 		scientist = chooseRPGTrainerTalent(scientist,
 			{ id: 'cientista:publicacao-de-referencia', variant: 'conhecimento:arqueologia-fosseis' });
 		assert.equal(scientist.talents.class.length, 2);
+	});
+
+	it('offers only valid finite variants and trained Pilotagem categories', () => {
+		const sheet = ready('arqueologo', 10, { skills: {
+			trained: ['pilotagem:automoveis', 'conhecimento:arqueologia-fosseis'], focused: [],
+		} });
+		const catalog = rpgTrainerTalentCatalog(sheet);
+		const variants = id => catalog.find(talent => talent.id === id).variantChoices;
+		assert.deepEqual(variants('condutor-versatil'), ['pilotagem:automoveis']);
+		assert(variants('aclimatacao').includes('floresta-umida'));
+		assert.throws(() => chooseRPGTrainerTalent(sheet,
+			{ id: 'condutor-versatil', variant: 'pilotagem:motocicletas' }), /Pilotagem treinada/);
+		assert.throws(() => chooseRPGTrainerTalent(sheet,
+			{ id: 'aclimatacao', variant: 'qualquer ambiente' }), /variante disponível/);
+		const chosen = chooseRPGTrainerTalent(sheet,
+			{ id: 'condutor-versatil', variant: 'pilotagem:automoveis' });
+		assert(chosen.talents.general.includes('condutor-versatil'));
+		assert.equal(rpgTrainerSkillBonus(chosen, 'pilotagem:automoveis'),
+			rpgTrainerSkillBonus(sheet, 'pilotagem:automoveis') + 2);
+	});
+
+	it('reflects trained resistance and passive talent bonuses in the sheet calculations', () => {
+		const base = ready('arqueologo', 10);
+		const resilient = chooseRPGTrainerTalent(base, { id: 'resiliente', resistance: 'reflexes' });
+		assert(resilient.resistances.includes('reflexes'));
+		assert.equal(rpgTrainerResistanceBonus(resilient, 'reflexes'),
+			rpgTrainerResistanceBonus(base, 'reflexes') + rpgTrainerProficiency(10));
+		let sheet = chooseRPGTrainerTalent(base, { id: 'iniciativa-aprimorada' });
+		assert.equal(rpgTrainerDerivedStatistics(sheet).initiativeBonus,
+			rpgTrainerDerivedStatistics(base).initiativeBonus + 3);
+		assert.equal(rollRPGTrainerInitiative(sheet, () => 0).total,
+			rollRPGTrainerInitiative(base, () => 0).total + 3);
+		sheet = chooseRPGTrainerTalent(sheet, { id: 'corredor' });
+		assert.equal(rpgTrainerDerivedStatistics(sheet).movementMeters,
+			rpgTrainerDerivedStatistics(base).movementMeters + 3);
+		sheet = chooseRPGTrainerTalent(sheet, { id: 'carregador' });
+		assert.equal(rpgTrainerDerivedStatistics(sheet).carrying.maximumKg,
+			rpgTrainerDerivedStatistics(base).carrying.maximumKg * 1.5);
+	});
+
+	it('trains Reflexos through the martial talent or keeps its alternative situational bonus', () => {
+		const base = ready('artista-marcial', 3, { resistances: ['fortitude'] });
+		const trained = chooseRPGTrainerTalent(base, { id: 'artista-marcial:reflexos-treinados' });
+		assert(trained.resistances.includes('reflexes'));
+		const alreadyTrained = chooseRPGTrainerTalent(
+			{ ...base, resistances: ['fortitude', 'reflexes'] },
+			{ id: 'artista-marcial:reflexos-treinados' });
+		assert.equal(alreadyTrained.talentSelections[0].variant, 'already-trained');
 	});
 
 	it('makes fixed class movement and unarmored defense effective', () => {

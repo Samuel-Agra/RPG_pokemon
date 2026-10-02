@@ -3,6 +3,7 @@
 const assert = require('assert').strict;
 const { RPGLoginService, RPGMemoryCharacterRepository, RPG_TRAINER_CLASSES,
 	RPG_EQUIPMENT_CATALOG, rpgInitialTrainerInventory, rpgEquipmentSlots,
+	rpgCanAcquireKitDomain, rpgKitBonus,
 	rpgTractionCapacity, rpgTractionLoad,
 	completeRPGTrainerSheet, createRPGPendingTrainerSheet } = require('../../dist/server/rpg-showdown');
 const { RPGItems, RPGBagSystem } = require('../../dist/sim/rpg-showdown');
@@ -16,6 +17,19 @@ function character(service, name) {
 }
 
 describe('RPG trainer equipment and item bank', () => {
+	it('catalogs profession kits without a journalism kit and requires the matching trade for mastery', () => {
+		const trades = ['mecanica', 'costura', 'carpintaria', 'ferraria', 'artesanato'];
+		for (const trade of trades) {
+			const kit = RPG_EQUIPMENT_CATALOG[`kit-${trade}`];
+			assert.equal(kit.category, 'kit');
+			assert.equal(kit.skill, `oficio:${trade}`);
+			assert.equal(kit.stackLimit, 1);
+			assert.equal(rpgCanAcquireKitDomain({ skills: { trained: [`oficio:${trade}`] } }, kit.domain), true);
+			assert.equal(rpgCanAcquireKitDomain({ skills: { trained: ['oficio:culinaria'] } }, kit.domain), false);
+			assert.deepEqual(rpgKitBonus({ proficiencies: [kit.domain] }, kit.id), { bonus: 0, disadvantage: false });
+		}
+		assert.equal(RPG_EQUIPMENT_CATALOG['kit-jornalismo'], undefined);
+	});
 	it('catalogs every class starting item and puts its equipment into real Bag slots', () => {
 		const candidates = ['acrobacia', 'atletismo', 'atuacao', 'captura', 'conhecimento:regioes',
 			'empatia-pokemon', 'enganacao', 'furtividade', 'intimidacao', 'intuicao', 'investigacao',

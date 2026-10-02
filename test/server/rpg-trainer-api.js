@@ -170,4 +170,29 @@ describe('RPG trainer API', () => {
 		assert.equal(activities.receipts.filter(entry => entry.id === 'viagem_inicio_001').length, 1);
 		assert.deepEqual(restarted.getTrainerActivities(token, 'outro').activities, {});
 	});
+
+	it('authorizes XP and level adjustments while withholding player advancement until eight campaign hours', async () => {
+		assert.notEqual((await request('/api/rpg/trainer/level/master', player.token,
+			{ characterId: 'treinador', direction: 'up', requestId: 'api-level-denied' })).status, 200);
+		const premature = await request('/api/rpg/trainer/level-up', player.token,
+			{ choices: [{ id: 'treinamento-adicional', skill: 'medicina' }] });
+		assert.equal(premature.status, 400);
+		assert.match(premature.data.error, /XP insuficiente/);
+		const reward = await request('/api/rpg/trainer/rewards/master', master.token,
+			{ characterId: 'treinador', amount: 1_000_000, reason: 'Missão', requestId: 'api-level-reward' });
+		assert.equal(reward.status, 200);
+		assert.equal((await request('/api/rpg/trainer/sheet', player.token)).data.sheet.level, 1);
+		const earlyPreview = await request('/api/rpg/trainer/level-up', player.token);
+		assert.equal(earlyPreview.status, 400);
+		assert.match(earlyPreview.data.error, /descanso longo/);
+		service.advanceCampaignTime(master.token, 8);
+		assert.equal((await request('/api/rpg/trainer/sheet', player.token)).data.canLevelUp, true);
+		const preview = await request('/api/rpg/trainer/level-up', player.token);
+		assert.equal(preview.status, 200);
+		assert.equal(preview.data.pendingChoices.general, 1);
+		assert.equal((await request('/api/rpg/trainer/level-up', player.token,
+			{ choices: [{ id: 'treinamento-adicional', skill: 'medicina' }] })).data.sheet.level, 2);
+		assert.equal((await request('/api/rpg/trainer/level/master', master.token,
+			{ characterId: 'treinador', direction: 'down', requestId: 'api-level-down' })).data.sheet.level, 1);
+	});
 });

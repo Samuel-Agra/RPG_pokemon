@@ -8,6 +8,7 @@ const root = path.resolve(__dirname, '../..');
 const http = fs.readFileSync(path.join(root, 'server/rpg-showdown/http.ts'), 'utf8');
 const persistence = fs.readFileSync(path.join(root, 'server/rpg-showdown/database/mysql-persistence.ts'), 'utf8');
 const migration = fs.readFileSync(path.join(root, 'server/rpg-showdown/database/migrations/014-table-chat.sql'), 'utf8');
+const rerollMigration = fs.readFileSync(path.join(root, 'server/rpg-showdown/database/migrations/021-chat-trainer-rerolls.sql'), 'utf8');
 const typingMigration = fs.readFileSync(path.join(root, 'server/rpg-showdown/database/migrations/016-table-chat-typing.sql'), 'utf8');
 const logMigration = fs.readFileSync(path.join(root, 'server/rpg-showdown/database/migrations/017-table-system-log.sql'), 'utf8');
 const service = fs.readFileSync(path.join(root, 'server/rpg-showdown/index.ts'), 'utf8');
@@ -19,6 +20,16 @@ const contestUi = fs.readFileSync(path.join(root, 'server/static/rpg/contest-ui.
 const sockets = fs.readFileSync(path.join(root, 'server/sockets.ts'), 'utf8');
 
 describe('RPG table text chat', () => {
+	it('edits verified trainer rolls and marks Lucky or Determined visually without forging chat text', () => {
+		assert.match(rerollMigration, /ADD COLUMN reroll_talent/);
+		assert.match(persistence, /markTableChatRollRerolled\(/);
+		assert.match(persistence, /author_account_id = \? AND id = \? AND message = \?/);
+		assert.match(ui, /entry\.rerollTalent/);
+		assert.match(css, /\.table-chat-message--rerolled \{[^}]*border: 2px solid #48a957/);
+		for (const id of ['sortudo', 'determinado', 'esforco-heroico']) {
+			assert(fs.existsSync(path.join(root, `server/static/rpg/assets/talent-icons/${id}.svg`)));
+		}
+	});
 	it('isolates messages by table and expires each message after 48 hours', () => {
 		assert.match(migration, /table_id VARCHAR\(100\) NOT NULL/);
 		assert.match(migration, /expires_at BIGINT UNSIGNED NOT NULL/);

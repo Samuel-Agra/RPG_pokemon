@@ -1,5 +1,5 @@
-import { RPG_TRAINER_CLASSES, rpgTrainerModifier } from './trainer-creation';
-import { RPG_SKILL_ATTRIBUTES, type RPGTrainerResistance } from './trainer-checks';
+import { RPG_TRAINER_CLASSES, RPG_TRAINER_PILOTING_DOMAINS, rpgTrainerModifier } from './trainer-creation';
+import { RPG_KNOWLEDGE_DOMAINS, RPG_SKILL_ATTRIBUTES, type RPGTrainerResistance } from './trainer-checks';
 import { RPG_TRAINER_CLASS_FEATURES } from './trainer-class-features';
 import { RPG_TRAINER_TALENTS, type RPGTrainerTalentDefinition } from './trainer-talents-catalog';
 import type { RPGTrainerAttributes, RPGTrainerSheet } from './trainer-sheet';
@@ -53,6 +53,9 @@ const KIT_SKILLS: Readonly<Record<string, string | null>> = {
 	'kit-cientifico': 'conhecimento',
 	'kit-tecnologico': 'tecnologia', 'kit-disfarce': null,
 	'kit-investigacao': 'investigacao',
+	'kit-mecanica': 'oficio:mecanica', 'kit-costura': 'oficio:costura',
+	'kit-carpintaria': 'oficio:carpintaria', 'kit-ferraria': 'oficio:ferraria',
+	'kit-artesanato': 'oficio:artesanato',
 };
 const WEAPON_PROFICIENCIES = new Set([
 	'armas-melee-comuns', 'armas-melee-exoticas', 'armas-ranged-comuns',
@@ -62,6 +65,8 @@ const TECH_AREAS = new Set(['hardware', 'programacao', 'redes', 'robotica',
 	'seguranca-digital', 'telecomunicacoes', 'eletronica']);
 const EXPLORER_TERRAINS = new Set(['floresta', 'montanha', 'deserto', 'pantano',
 	'ambiente-gelado', 'litoral', 'subterraneo', 'urbano-em-ruinas']);
+const ACCLIMATION_ENVIRONMENTS = new Set(['frio', 'calor', 'altitude', 'floresta-umida',
+	'deserto', 'regiao-costeira']);
 export const RPG_TALENT_APPROVAL_KEYS = new Set([
 	'diplomata:reputacao-precedente', 'dominio-de-arma:armas-ranged-exoticas',
 ]);
@@ -139,6 +144,28 @@ function allowedAttributeChoices(talent: RPGTrainerTalentDefinition): (keyof RPG
 	return Object.entries(ATTRIBUTE_NAMES).filter(([name]) => containsName(beforeLimit, name)).map(([, key]) => key);
 }
 
+function allowedVariantChoices(sheet: RPGTrainerSheet, talent: RPGTrainerTalentDefinition): string[] | null {
+	const id = talent.id;
+	if (id === 'competencia-pratica') return Object.values(ATTRIBUTE_NAMES);
+	if (id === 'conhecimento-diversificado') return RPG_KNOWLEDGE_DOMAINS
+		.filter(domain => domain !== 'organizacoes').map(domain => `conhecimento:${domain}`)
+		.filter(skill => !sheet.skills.trained.includes(skill));
+	if (id === 'cientista:especializacao-cientifica') {
+		return sheet.skills.trained.filter(skill => skill.startsWith('conhecimento:'));
+	}
+	if (id === 'cientista:publicacao-de-referencia') {
+		return (sheet.talentSelections || []).filter(selection =>
+			selection.id === 'cientista:especializacao-cientifica' && selection.variant)
+			.map(selection => selection.variant!);
+	}
+	if (id === 'tecnologo:especializacao-tecnica') return [...TECH_AREAS];
+	if (id === 'explorador:especialista-de-terreno') return [...EXPLORER_TERRAINS];
+	if (id === 'aclimatacao') return [...ACCLIMATION_ENVIRONMENTS];
+	if (id === 'condutor-versatil') return RPG_TRAINER_PILOTING_DOMAINS.map(domain => `pilotagem:${domain}`)
+		.filter(skill => sheet.skills.trained.includes(skill));
+	return null;
+}
+
 function prerequisiteError(sheet: RPGTrainerSheet, talent: RPGTrainerTalentDefinition,
 	choice: RPGTrainerTalentChoice): string | null {
 	if (sheet.status !== 'complete' || !sheet.attributes || !sheet.classId) return 'Conclua a ficha do treinador primeiro';
@@ -168,9 +195,6 @@ function prerequisiteError(sheet: RPGTrainerSheet, talent: RPGTrainerTalentDefin
 	if (talent.id === 'competencia-pratica' && (!choice.skill || !sheet.skills.trained.includes(choice.skill))) {
 		return 'Competência Prática exige uma perícia treinada';
 	}
-	if (talent.id === 'ajuda-especializada' && (!choice.skill || !sheet.skills.trained.includes(choice.skill))) {
-		return 'A perícia de ajuda deve ser treinada';
-	}
 	if (talent.id === 'diplomata:reputacao-precedente' &&
 		!sheet.talentApprovals?.some(approval => approval.key === talent.id)) {
 		return 'Os favores institucionais devem ser verificados pelo Mestre antes da aquisição';
@@ -184,6 +208,10 @@ function prerequisiteError(sheet: RPGTrainerSheet, talent: RPGTrainerTalentDefin
 			selection.variant === choice.variant)) {
 		return 'A publicação exige especialização científica na mesma área';
 	}
+	if (talent.id === 'condutor-versatil' &&
+		!sheet.skills.trained.some(skill => skill.startsWith('pilotagem:'))) {
+		return 'Condutor Versátil exige treinamento em uma categoria de Pilotagem';
+	}
 	return null;
 }
 
@@ -196,9 +224,29 @@ export function rpgTrainerTalentCatalog(sheet: RPGTrainerSheet) {
 	return RPG_TRAINER_TALENTS.filter(talent => talent.kind === 'general' || talent.classId === sheet.classId)
 		.map(talent => {
 			const unavailableReason = prerequisiteError(sheet, talent, { id: talent.id });
-			const needsChoice = !!unavailableReason && /escolhida|perícia de ajuda/.test(unavailableReason);
+			const practicalSkillAvailable = talent.id === 'competencia-pratica' && sheet.skills.trained.some(skill =>
+				!sheet.talentSelections?.some(selection => selection.id === talent.id && selection.skill === skill));
+			const needsChoice = !!unavailableReason && (/escolhida|perícia de ajuda/.test(unavailableReason) ||
+				unavailableReason === 'Competência Prática exige uma perícia treinada' && practicalSkillAvailable);
 			return { ...talent, available: !unavailableReason || needsChoice, needsChoice,
-				unavailableReason: needsChoice ? null : unavailableReason };
+				unavailableReason: needsChoice ? null : unavailableReason,
+				attributeChoices: allowedAttributeChoices(talent),
+				variantChoices: allowedVariantChoices(sheet, talent)?.filter(variant =>
+					talent.id === 'competencia-pratica' || !sheet.talentSelections?.some(selection => selection.id === talent.id &&
+						selection.variant === variant)) || null,
+				choiceFields: {
+					skill: ['treinamento-adicional', 'foco-em-pericia', 'competencia-pratica',
+						'conhecimento-diversificado'].includes(talent.id),
+					resistance: talent.id === 'resiliente',
+					proficiency: ['dominio-de-kit', 'dominio-de-arma'].includes(talent.id),
+					variant: talent.id === 'conhecimento-diversificado' || !!REPEATABLE[talent.id] && !['aprimoramento-de-atributo', 'resiliente',
+						'treinamento-adicional', 'foco-em-pericia',
+						'dominio-de-arma', 'dominio-de-kit', 'cientista:registros-paralelos',
+						'tecnologo:prototipos-paralelos'].includes(talent.id) ||
+						['cientista:publicacao-de-referencia', 'cientista:especializacao-cientifica',
+							'tecnologo:especializacao-tecnica', 'explorador:especialista-de-terreno'].includes(talent.id),
+				},
+			};
 		});
 }
 
@@ -229,6 +277,9 @@ function applyTalentEffect(sheet: RPGTrainerSheet, talent: RPGTrainerTalentDefin
 			next.resistances.includes(choice.resistance)) throw new Error('Escolha uma resistência ainda não treinada');
 		next.resistances.push(choice.resistance);
 	} else if (choice.resistance !== undefined) throw new Error('Este talento não escolhe resistência');
+	if (talent.id === 'artista-marcial:reflexos-treinados' && !next.resistances.includes('reflexes')) {
+		next.resistances.push('reflexes');
+	}
 	if (talent.id === 'treinamento-adicional' || talent.id === 'foco-em-pericia' ||
 		talent.id === 'competencia-pratica') {
 		if (!choice.skill || !validSkill(choice.skill)) throw new Error('Escolha uma perícia válida');
@@ -241,10 +292,22 @@ function applyTalentEffect(sheet: RPGTrainerSheet, talent: RPGTrainerTalentDefin
 		} else if (next.talentSelections?.some(selection => selection.id === talent.id &&
 			selection.skill === choice.skill)) {
 			throw new Error('Competência Prática já foi escolhida para esta perícia');
+		} else if (!choice.variant || !Object.values(ATTRIBUTE_NAMES).includes(
+			choice.variant as keyof RPGTrainerAttributes) ||
+			RPG_SKILL_ATTRIBUTES[choice.skill.split(':')[0]].includes(choice.variant as keyof RPGTrainerAttributes)) {
+			throw new Error('Escolha um atributo alternativo para a perícia treinada');
+		}
+	} else if (talent.id === 'conhecimento-diversificado') {
+		const choices = allowedVariantChoices(next, talent) || [];
+		if (!choice.skill || !choice.variant || choice.skill === choice.variant ||
+			!choices.includes(choice.skill) || !choices.includes(choice.variant)) {
+			throw new Error('Escolha duas áreas diferentes e não treinadas de Conhecimento');
 		}
 	} else if (choice.skill !== undefined && talent.id !== 'ajuda-especializada') {
 		throw new Error('Este talento não escolhe perícia');
 	}
+	if (talent.id === 'ajuda-especializada' && choice.skill !== undefined &&
+		!next.skills.trained.includes(choice.skill)) throw new Error('A perícia de ajuda deve ser treinada');
 	if (talent.id === 'dominio-de-escudos') {
 		if (next.proficiencies?.includes('escudos')) throw new Error('O treinador já domina escudos');
 		next.proficiencies = [...(next.proficiencies || []), 'escudos'];
@@ -286,6 +349,11 @@ function applyTalentEffect(sheet: RPGTrainerSheet, talent: RPGTrainerTalentDefin
 		!TECH_AREAS.has(choice.variant || '')) throw new Error('Área técnica inválida');
 	if (talent.id === 'explorador:especialista-de-terreno' &&
 		!EXPLORER_TERRAINS.has(choice.variant || '')) throw new Error('Terreno inválido');
+	const variants = allowedVariantChoices(next, talent);
+	if (variants && !variants.includes(choice.variant || '')) {
+		throw new Error(talent.id === 'condutor-versatil' ?
+			'Escolha uma categoria de Pilotagem treinada' : 'Escolha uma variante disponível para este talento');
+	}
 	return next;
 }
 
@@ -306,7 +374,9 @@ export function chooseRPGTrainerTalent(sheet: RPGTrainerSheet, choice: RPGTraine
 		selection.requestId === choice.requestId);
 	if (previousRequest) {
 		if (['id', 'attribute', 'skill', 'resistance', 'proficiency', 'variant'].some(key =>
-			previousRequest[key as keyof RPGTrainerTalentChoice] !== choice[key as keyof RPGTrainerTalentChoice])) {
+			previousRequest[key as keyof RPGTrainerTalentChoice] !== choice[key as keyof RPGTrainerTalentChoice] &&
+			!(key === 'variant' && previousRequest.id === 'artista-marcial:reflexos-treinados' &&
+				previousRequest.variant === 'already-trained' && choice.variant === undefined))) {
 			throw new Error('Identificador de escolha já utilizado para outro talento');
 		}
 		return sheet;
@@ -321,7 +391,9 @@ export function chooseRPGTrainerTalent(sheet: RPGTrainerSheet, choice: RPGTraine
 	if (talent.kind === 'general') next.talents.general.push(talent.id);
 	else if (talent.kind === 'class') next.talents.class.push(talent.id);
 	else next.talents.apex = talent.id;
-	next.talentSelections = [...(next.talentSelections || []), { ...choice, acquiredAtLevel: next.level }];
+	const selection = talent.id === 'artista-marcial:reflexos-treinados' &&
+		sheet.resistances.includes('reflexes') ? { ...choice, variant: 'already-trained' } : choice;
+	next.talentSelections = [...(next.talentSelections || []), { ...selection, acquiredAtLevel: next.level }];
 	next.pendingChoices = {
 		general: availableSlots(next, 'general'),
 		class: availableSlots(next, 'class'),

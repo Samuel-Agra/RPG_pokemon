@@ -36,6 +36,11 @@
 		'kit-medicina-pokemon': ['Kit de Medicina Pokémon', 'Permite usar o Kit de Medicina Pokémon sem a desvantagem por falta de domínio.'],
 		'kit-arqueologia': ['Kit de Arqueologia', 'Permite usar o Kit de Arqueologia sem a desvantagem por falta de domínio.'],
 		'kit-fotografia': ['Kit de Fotografia', 'Permite usar o Kit de Fotografia sem a desvantagem por falta de domínio.'],
+		'kit-mecanica': ['Kit de Mecânica', 'Permite usar o Kit de Mecânica sem a desvantagem por falta de domínio. Exige treinamento em Ofício: Mecânica.'],
+		'kit-costura': ['Kit de Costura', 'Permite usar o Kit de Costura sem a desvantagem por falta de domínio. Exige treinamento em Ofício: Costura.'],
+		'kit-carpintaria': ['Kit de Carpintaria', 'Permite usar o Kit de Carpintaria sem a desvantagem por falta de domínio. Exige treinamento em Ofício: Carpintaria.'],
+		'kit-ferraria': ['Kit de Ferraria', 'Permite usar o Kit de Ferraria sem a desvantagem por falta de domínio. Exige treinamento em Ofício: Ferraria.'],
+		'kit-artesanato': ['Kit de Artesanato', 'Permite usar o Kit de Artesanato sem a desvantagem por falta de domínio. Exige treinamento em Ofício: Artesanato.'],
 		'kit-ladinagem': ['Kit de Ladinagem', 'Permite usar Kits de Ladinagem sem a desvantagem por falta de domínio. Kits de nível II e III concedem, respectivamente, +1 e +2 nos testes apropriados.'],
 		'kit-cientifico': ['Kit Científico', 'Permite usar Kits Científicos sem a desvantagem por falta de domínio. Kits de nível II e III concedem, respectivamente, +1 e +2 nos testes apropriados.'],
 		'kit-tecnologico': ['Kit Tecnológico', 'Permite usar Kits Tecnológicos sem a desvantagem por falta de domínio. Kits de nível II e III concedem, respectivamente, +1 e +2 nos testes apropriados.'],
@@ -94,9 +99,9 @@
 		return `${SKILLS[family] || label(family)}: ${SKILL_DOMAINS[domain] || label(domain)}`;
 	}
 	function skillRow(entry, domainOnly = false, roll = null) {
-		const clickable = !!roll && entry.bonus != null;
+		const clickable = !!roll && (entry.bonus != null || entry.observationEligible);
 		const row = el(clickable ? 'button' : 'div', 'trainer-sheet-list-row' +
-			(entry.focused ? ' focused' : entry.trained ? ' trained' : '') +
+			(entry.focused ? ' focused' : entry.trained ? ' trained' : entry.halfProficiency ? ' half-proficiency' : '') +
 			(clickable ? ' trainer-sheet-roll-row' : ''));
 		const domain = String(entry.id).split(':')[1];
 		const name = domainOnly ? SKILL_DOMAINS[domain] || label(domain) : skillLabel(entry.id);
@@ -139,20 +144,75 @@
 		window.addEventListener('scroll', scroll, true);
 		window.addEventListener('resize', close);
 	}
-	function showRollPopover(button, name, kind, id, characterId, api) {
+	function showRollPopover(button, name, kind, id, characterId, api, rollTalents = [], trained = false,
+		attributeOptions = []) {
 		if (closeAttributePopover) closeAttributePopover();
 		if (closeSkillPopover) closeSkillPopover();
 		if (closeTalentPopover) closeTalentPopover();
 		const panel = el('div', 'trainer-sheet-attribute-popover');
 		panel.append(el('strong', '', `Rolar ${name}`));
 		let selectedAttribute;
-		if (kind === 'skill' && id === 'intimidacao') {
-			const attributeChoice = select([['strength', 'Força'], ['charisma', 'Carisma']]);
+		if (kind === 'skill' && attributeOptions.length > 1) {
+			const attributeChoice = select(attributeOptions.map(attribute => [attribute,
+				ATTRIBUTES.find(entry => entry[0] === attribute)?.[1] || label(attribute)]));
 			attributeChoice.className = 'trainer-sheet-roll-attribute';
-			attributeChoice.setAttribute('aria-label', 'Atributo para Intimidação');
+			attributeChoice.setAttribute('aria-label', `Atributo para ${name}`);
 			attributeChoice.addEventListener('change', () => { selectedAttribute = attributeChoice.value; });
 			panel.append(attributeChoice);
 		}
+		const availableTalents = rollTalents.filter(talent =>
+			(talent.id !== 'aprendizado-por-observacao' || kind === 'skill' && !trained) &&
+			(talent.targets || []).some(target => {
+				const actual = kind === 'initiative' ? 'initiative' : `${kind}:${id}`;
+				return target === actual || target.endsWith('*') && actual.startsWith(target.slice(0, -1));
+			}));
+		// O talento pertence a outro membro e pode surgir após a ficha ser carregada.
+		if (kind === 'skill' || kind === 'resistance' && id === 'will') {
+			api('/trainer/ally-roll-talents').then(allies => {
+				if (!panel.isConnected) return;
+				for (const talent of allies) {
+					const actual = `${kind}:${id}`;
+					if (!(talent.targets || []).some(target => target === actual ||
+						target.endsWith('*') && actual.startsWith(target.slice(0, -1)))) continue;
+					if (availableTalents.some(entry => entry.key === talent.key)) continue;
+					availableTalents.push(talent);
+					addTalentButton(talent);
+				}
+				if (availableTalents.length) content.append(talentChoices);
+			}).catch(failure => {
+				if (!panel.isConnected) return;
+				error.textContent = failure.message || 'Não foi possível consultar os talentos dos aliados.';
+				error.classList.remove('hidden');
+			});
+		}
+		const choices = el('div', 'trainer-sheet-roll-modes');
+		const selectedTalents = new Set();
+		const talentChoices = el('div', 'trainer-sheet-roll-talents');
+		const talentButtons = new Map();
+		function addTalentButton(talent) {
+			if (!talentChoices.childElementCount) talentChoices.append(el('strong', '', 'Talentos situacionais'));
+			const item = el('button', 'trainer-sheet-roll-talent');
+			item.type = 'button'; item.setAttribute('aria-pressed', 'false');
+			item.addEventListener('click', () => {
+				if (!selectedTalents.has(talent.key)) {
+					for (const other of availableTalents.filter(entry => entry.id === talent.id && entry.key !== talent.key)) {
+						selectedTalents.delete(other.key);
+						const otherButton = talentButtons.get(other.key);
+						if (otherButton) otherButton.setAttribute('aria-pressed', 'false');
+					}
+					selectedTalents.add(talent.key);
+					item.setAttribute('aria-pressed', 'true');
+				} else {
+					selectedTalents.delete(talent.key);
+					item.setAttribute('aria-pressed', 'false');
+				}
+			});
+			const detail = el('span');
+			detail.append(el('b', '', `${talent.name} · ${talent.advantage ? 'vantagem' :
+				`+${talent.bonus}`}`), el('small', '', talent.condition));
+			item.append(detail); talentChoices.append(item); talentButtons.set(talent.key, item);
+		}
+		for (const talent of availableTalents) addTalentButton(talent);
 		const error = el('p', 'trainer-sheet-roll-error hidden');
 		for (const [mode, caption] of [
 			['advantage', 'Vantagem'], ['normal', 'Normal'], ['disadvantage', 'Desvantagem'],
@@ -163,7 +223,7 @@
 				panel.querySelectorAll('button').forEach(item => { item.disabled = true; });
 				try {
 					await api(`/trainer/${kind}-roll`, { method: 'POST',
-						body: { characterId, [kind]: id, mode,
+						body: { characterId, [kind]: id, mode, talents: [...selectedTalents],
 							...(selectedAttribute ? { attribute: selectedAttribute } : {}) } });
 					close();
 					window.dispatchEvent(new CustomEvent('rpg:realtime-sync', { detail: { tableId: selectedTable } }));
@@ -173,9 +233,31 @@
 					panel.querySelectorAll('button').forEach(item => { item.disabled = false; });
 				}
 			});
-			panel.append(choice);
+			choices.append(choice);
 		}
-		panel.append(error);
+		const content = el('div', 'trainer-sheet-roll-content');
+		if (kind === 'skill') {
+			const helpButton = el('button', 'trainer-sheet-roll-choice', 'Ajuda');
+			helpButton.type = 'button';
+			helpButton.addEventListener('click', () => {
+				panel.querySelectorAll('button').forEach(item => { item.disabled = true; });
+				api('/trainer/help-roll', { method: 'POST', body: {
+					characterId, skill: id, mode: 'normal', talents: [...selectedTalents],
+					...(selectedAttribute ? { attribute: selectedAttribute } : {}),
+				} }).then(() => {
+					close();
+					window.dispatchEvent(new CustomEvent('rpg:realtime-sync', { detail: { tableId: selectedTable } }));
+				}).catch(failure => {
+					error.textContent = failure.message || 'Não foi possível oferecer ajuda.';
+					error.classList.remove('hidden');
+					panel.querySelectorAll('button').forEach(item => { item.disabled = false; });
+				});
+			});
+			choices.append(helpButton);
+		}
+		content.append(choices);
+		if (availableTalents.length) content.append(talentChoices);
+		panel.append(content, error);
 		document.body.append(panel);
 		const rect = button.getBoundingClientRect();
 		const width = panel.offsetWidth;
@@ -198,14 +280,167 @@
 		window.addEventListener('scroll', close, true);
 		window.addEventListener('resize', close);
 	}
-	function showTalentPopover(button, name, description) {
+	/** Renderiza apenas os formatos usados nas regras; nunca insere HTML do catálogo diretamente. */
+	function renderTrainerDescription(description, className = '') {
+		const root = el('div', className);
+		const source = String(description || 'Descrição indisponível.').replace(/<empty-block\s*\/>/gi, '');
+		const inline = (parent, line) => {
+			for (const piece of line.split(/(\*\*[^*\n]+\*\*|`[^`\n]+`|<page\b[^>]*>[^<]*<\/page>)/gi)) {
+				if (!piece) continue;
+				if (piece.startsWith('**') && piece.endsWith('**')) parent.append(el('strong', '', piece.slice(2, -2)));
+				else if (piece.startsWith('`') && piece.endsWith('`')) parent.append(el('code', '', piece.slice(1, -1)));
+				else if (/^<page\b/i.test(piece)) {
+					const page = new DOMParser().parseFromString(piece, 'text/html').querySelector('page');
+					const url = page?.getAttribute('url') || '';
+					if (/^https:\/\/app\.notion\.com\/p\//.test(url)) {
+						const link = el('a', '', page.textContent);
+						link.href = url; link.target = '_blank'; link.rel = 'noopener noreferrer'; parent.append(link);
+					} else parent.append(document.createTextNode(page?.textContent || piece));
+				} else parent.append(document.createTextNode(piece));
+			}
+		};
+		const textBlocks = source.split(/(<table\b[^>]*>[\s\S]*?<\/table>)/gi);
+		for (const block of textBlocks) {
+			if (!block.trim()) continue;
+			if (/^<table\b/i.test(block)) {
+				const parsed = new DOMParser().parseFromString(block, 'text/html').querySelector('table');
+				if (!parsed) continue;
+				const wrapper = el('div', 'trainer-sheet-description-table-wrap');
+				const table = el('table', 'trainer-sheet-description-table');
+				const headerRow = parsed.getAttribute('header-row') === 'true';
+				for (const [index, row] of [...parsed.querySelectorAll('tr')].entries()) {
+					const renderedRow = el('tr');
+					for (const cell of row.querySelectorAll('td, th')) {
+						const renderedCell = el(headerRow && index === 0 ? 'th' : 'td');
+						inline(renderedCell, cell.textContent.trim());
+						renderedRow.append(renderedCell);
+					}
+					table.append(renderedRow);
+				}
+				wrapper.append(table); root.append(wrapper);
+				continue;
+			}
+			let codeLines = null;
+			let list = null;
+			let listType = null;
+			for (const rawLine of block.split(/\r?\n/)) {
+				const line = rawLine.trim();
+				if (line.startsWith('```')) {
+					if (codeLines) {
+						const pre = el('pre'); pre.append(el('code', '', codeLines.join('\n')));
+						root.append(pre); codeLines = null;
+					} else codeLines = [];
+					list = null; listType = null;
+					continue;
+				}
+				if (codeLines) { codeLines.push(rawLine); continue; }
+				if (!line) { list = null; listType = null; continue; }
+				const heading = /^(#{1,6})\s+(.+)$/.exec(line);
+				if (heading) {
+					const title = el(heading[1].length <= 2 ? 'h3' : 'h4');
+					inline(title, heading[2]); root.append(title);
+					list = null; listType = null; continue;
+				}
+				const bullet = /^[-*]\s+(.+)$/.exec(line);
+				const numbered = /^\d+[.)]\s+(.+)$/.exec(line);
+				if (bullet || numbered) {
+					const type = bullet ? 'ul' : 'ol';
+					if (!list || listType !== type) { list = el(type); root.append(list); listType = type; }
+					const item = el('li'); inline(item, (bullet || numbered)[1]); list.append(item);
+					continue;
+				}
+				list = null; listType = null;
+				const paragraph = el('p'); inline(paragraph, line); root.append(paragraph);
+			}
+			if (codeLines?.length) { const pre = el('pre'); pre.append(el('code', '', codeLines.join('\n'))); root.append(pre); }
+		}
+		return root;
+	}
+	function showTalentPopover(button, name, description, action = null) {
 		if (closeTalentPopover) closeTalentPopover();
 		if (closeSkillPopover) closeSkillPopover();
 		if (closeAttributePopover) closeAttributePopover();
 		const panel = el('div', 'trainer-sheet-talent-popover');
 		panel.append(el('strong', 'trainer-sheet-talent-popover-title', name),
-			el('div', 'trainer-sheet-talent-description', String(description || 'Descrição indisponível.')
-				.replace(/```[^\n]*\n/g, '').replace(/```|\*\*|`/g, '')));
+			renderTrainerDescription(description, 'trainer-sheet-talent-description'));
+		if (action?.archive) {
+			panel.classList.add('trainer-sheet-talent-popover--archive');
+			const archives = action.archive.slots || [];
+			const editor = el('div', 'trainer-sheet-archive-editor');
+			editor.append(el('strong', '', `Referências preparadas (${archives.length}/${action.archive.proficiency})`));
+			for (let slot = 0; slot < action.archive.proficiency; slot++) {
+				const prepared = archives.find(entry => entry.slot === slot);
+				const row = el('div', 'trainer-sheet-archive-row');
+				const topic = el('input'); topic.type = 'text'; topic.maxLength = 120;
+				topic.placeholder = 'Tema da referência'; topic.value = prepared?.topic || '';
+				topic.setAttribute('aria-label', `Tema do acervo ${slot + 1}`);
+				const knowledge = select([['', 'Conhecimento'], ...action.archive.knowledge.map(id =>
+					[id, skillLabel(id)])]);
+				knowledge.value = prepared?.knowledge || '';
+				knowledge.setAttribute('aria-label', `Conhecimento do acervo ${slot + 1}`);
+				const recipient = select([['', 'Destinatário'], ...action.archive.recipients.map(person =>
+					[person.id, person.name])]);
+				recipient.value = prepared?.recipientCharacterId || '';
+				recipient.setAttribute('aria-label', `Destinatário do acervo ${slot + 1}`);
+				const controls = el('div', 'trainer-sheet-archive-controls');
+				const save = el('button', 'trainer-sheet-talent-use', prepared ? 'Atualizar' : 'Preparar');
+				save.type = 'button';
+				const remove = el('button', 'trainer-sheet-archive-remove', 'Remover');
+				remove.type = 'button'; remove.classList.toggle('hidden', !prepared);
+				const feedback = el('p', 'trainer-sheet-roll-error hidden');
+				async function submit(clear) {
+					save.disabled = true; remove.disabled = true;
+					try {
+						await action.api('/trainer/talents/shared-archive', { method: 'POST', body: {
+							slot, ...(clear ? { clear: true } : { topic: topic.value,
+								knowledge: knowledge.value, recipientCharacterId: recipient.value }),
+						} });
+						close();
+						window.dispatchEvent(new CustomEvent('rpg:realtime-sync',
+							{ detail: { tableId: selectedTable } }));
+						await action.refresh();
+					} catch (error) {
+						feedback.textContent = error.message || 'Não foi possível preparar o acervo.';
+						feedback.classList.remove('hidden'); save.disabled = false; remove.disabled = false;
+					}
+				}
+				save.addEventListener('click', () => submit(false));
+				remove.addEventListener('click', () => submit(true));
+				row.append(topic, knowledge, recipient);
+				controls.append(save, remove); row.append(controls, feedback); editor.append(row);
+			}
+			panel.append(editor);
+		} else if (action) {
+			const unavailable = action.reroll && !action.available;
+			const use = el('button', 'trainer-sheet-talent-use', action.used ? 'Usado neste descanso' : 'Usar');
+			use.type = 'button'; use.disabled = action.used || unavailable;
+			const feedback = el('p', 'trainer-sheet-roll-error hidden');
+			if (unavailable && !action.used) {
+				panel.append(el('p', 'trainer-sheet-talent-unavailable',
+					'Nenhuma rolagem elegível desde o último avanço do relógio da campanha.'));
+			}
+			use.addEventListener('click', async () => {
+				use.disabled = true;
+				try {
+					const outcome = await action.api(action.reroll ? '/trainer/talents/reroll' :
+						'/trainer/talents/use', { method: 'POST',
+						body: { talentId: action.id } });
+					feedback.textContent = action.reroll ? action.id === 'esforco-heroico' ?
+						`A falha virou sucesso no chat. Exaustão: ${outcome.exhaustion}.` :
+						'A rolagem original foi atualizada no chat.' :
+						`Recuperou ${outcome.recovered} PV (d6: ${outcome.die}).`;
+					feedback.classList.remove('hidden');
+					use.textContent = 'Usado neste descanso';
+					window.dispatchEvent(new CustomEvent('rpg:realtime-sync',
+						{ detail: { tableId: selectedTable } }));
+					await action.refresh();
+				} catch (error) {
+					feedback.textContent = error.message || 'Não foi possível usar o talento.';
+					feedback.classList.remove('hidden'); use.disabled = false;
+				}
+			});
+			panel.append(use, feedback);
+		}
 		document.body.append(panel);
 		const rect = button.getBoundingClientRect();
 		panel.style.left = `${Math.max(12, Math.min(rect.left, window.innerWidth - panel.offsetWidth - 12))}px`;
@@ -808,7 +1043,8 @@
 			['Classe', className], ['Nível', sheet.level],
 			['XP / próximo nível', progression.xpToNextLevel == null ?
 				`${xp.format(sheet.experience)} / nível máximo` :
-				`${xp.format(sheet.experience)} / ${xp.format(sheet.experience + progression.xpToNextLevel)}`],
+				`${xp.format(sheet.experience)} / ${xp.format(progression.nextLevelXP ??
+					sheet.experience + progression.xpToNextLevel)}`],
 		]) {
 			const item = el('span', 'trainer-sheet-heading-item');
 			item.append(el('small', '', name), el('strong', '', value)); details.append(item);
@@ -824,7 +1060,7 @@
 		spriteFrame.append(sprite);
 		title.append(spriteFrame);
 	}
-	function renderSheet(root, character, sheet, progression, talents, rules, api, readOnly) {
+	function renderSheet(root, character, sheet, progression, talents, rules, api, readOnly, refresh, masterControls = false) {
 		if (closeSkillPopover) closeSkillPopover();
 		if (closeAttributePopover) closeAttributePopover();
 		if (closeTalentPopover) closeTalentPopover();
@@ -832,6 +1068,138 @@
 		if (!sheet || sheet.status !== 'complete') {
 			root.append(empty(`${character.characterName || 'Este treinador'} ainda não concluiu a criação da ficha.`));
 			return;
+		}
+		if (masterControls) {
+			const controls = section('Progressão do treinador', 'trainer-sheet-panel trainer-sheet-progression-controls');
+			const line = el('div', 'trainer-sheet-progression-line');
+			const amount = el('input', 'trainer-sheet-progression-input');
+			amount.type = 'number'; amount.min = '1'; amount.step = '1'; amount.placeholder = 'Quantidade de XP';
+			const reason = el('input', 'trainer-sheet-progression-input');
+			reason.type = 'text'; reason.maxLength = 500; reason.placeholder = 'Motivo da XP';
+			const grant = el('button', 'button', 'Conceder XP'); grant.type = 'button';
+			const up = el('button', 'button', 'Preparar próximo nível'); up.type = 'button';
+			up.disabled = sheet.level >= 10 || progression.eligibleLevel > sheet.level;
+			const down = el('button', 'button', 'Diminuir 1 nível'); down.type = 'button'; down.disabled = sheet.level <= 1;
+			const feedback = el('p', 'trainer-sheet-progression-feedback');
+			const requestId = () => `trainer-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+			let grantRequestId = requestId();
+			for (const input of [amount, reason]) input.addEventListener('input', () => { grantRequestId = requestId(); });
+			const act = async (button, endpoint, body) => {
+				button.disabled = true; feedback.textContent = '';
+				try { await api(endpoint, { method: 'POST', body }); await refresh(); } catch (error) { feedback.textContent = error.message || 'Não foi possível atualizar a progressão.'; button.disabled = false; }
+			};
+			grant.addEventListener('click', () => {
+				const value = Number(amount.value);
+				if (!Number.isSafeInteger(value) || value < 1 || !reason.value.trim()) {
+					feedback.textContent = 'Informe a XP e o motivo.'; return;
+				}
+				void act(grant, '/trainer/rewards/master', { characterId: character.id, amount: value,
+					reason: reason.value.trim(), requestId: grantRequestId });
+			});
+			const upRequestId = requestId();
+			up.addEventListener('click', () => void act(up, '/trainer/level/master',
+				{ characterId: character.id, direction: 'up', requestId: upRequestId }));
+			let confirmDown = false;
+			const downRequestId = requestId();
+			down.addEventListener('click', () => {
+				if (!confirmDown) { confirmDown = true; down.textContent = 'Confirmar redução'; down.classList.add('trainer-sheet-danger'); return; }
+				void act(down, '/trainer/level/master', { characterId: character.id, direction: 'down', requestId: downRequestId });
+			});
+			line.append(amount, reason, grant, up, down); controls.append(line, feedback); root.append(controls);
+		}
+		if (!readOnly) {
+			const pending = sheet.pendingChoices || { general: 0, class: 0, apex: 0 };
+			const availableKinds = ['general', 'class', 'apex'].filter(kind => pending[kind] > 0);
+			if (availableKinds.length) {
+				const captions = { general: 'geral', class: 'específico da classe', apex: 'ápice' };
+				let choices = (talents?.talents || []).filter(entry => entry.kind === availableKinds[0] && entry.available);
+				const panel = section('Pode escolher agora', 'trainer-sheet-panel trainer-sheet-choice-panel');
+				panel.append(el('p', '', 'Escolha um talento disponível. Os talentos já adquiridos permanecem na seção Talentos.'));
+				const kindPicker = select(availableKinds.map(kind => [kind,
+					`${pending[kind]} escolha(s): ${captions[kind]}`]));
+				const picker = select([['', 'Selecione um talento'], ...choices.map(entry => [entry.id, entry.name])]);
+				const description = el('p', 'trainer-sheet-choice-description');
+				const fields = el('div', 'trainer-sheet-progression-line');
+				const feedback = el('p', 'trainer-sheet-progression-feedback');
+				const confirm = el('button', 'button', 'Aprender talento'); confirm.type = 'button'; confirm.disabled = true;
+				const values = {};
+				let talentRequestId = `talent-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+				const resetTalentRequest = () => { talentRequestId = `talent-${Date.now()}-${Math.random().toString(36).slice(2)}`; };
+				const field = (name, options) => {
+					const control = select([['', `Escolha ${name}`], ...options]);
+					control.addEventListener('change', () => { values[name] = control.value; resetTalentRequest(); }); fields.append(control);
+					return control;
+				};
+				kindPicker.addEventListener('change', () => {
+					choices = (talents?.talents || []).filter(entry => entry.kind === kindPicker.value && entry.available);
+					picker.replaceChildren(...select([['', 'Selecione um talento'],
+						...choices.map(entry => [entry.id, entry.name])]).children);
+					picker.value = ''; picker.dispatchEvent(new Event('change'));
+				});
+				picker.addEventListener('change', () => {
+					fields.replaceChildren(); Object.keys(values).forEach(key => delete values[key]); feedback.textContent = '';
+					resetTalentRequest();
+					const chosen = choices.find(entry => entry.id === picker.value); confirm.disabled = !chosen;
+					description.replaceChildren(...renderTrainerDescription(chosen?.text || '').childNodes);
+					if (!chosen) return;
+					if (chosen.attributeChoices?.length) field('attribute', chosen.attributeChoices.map(id => [id,
+						ATTRIBUTES.find(entry => entry[0] === id)?.[1] || label(id)]));
+					if (chosen.choiceFields?.skill) {
+						field('skill', chosen.id === 'conhecimento-diversificado' ?
+							(chosen.variantChoices || []).map(id => [id, skillLabel(id)]) :
+							(progression.skills || []).filter(entry =>
+								!['conhecimento', 'oficio'].includes(entry.id) &&
+								(chosen.id === 'treinamento-adicional' ? !entry.trained :
+								entry.trained && (chosen.id !== 'foco-em-pericia' || !entry.focused) &&
+								(chosen.id !== 'competencia-pratica' || !(sheet.talentSelections || []).some(selection =>
+									selection.id === chosen.id && selection.skill === entry.id))))
+								.map(entry => [entry.id, skillLabel(entry.id)]));
+					}
+					if (chosen.choiceFields?.resistance) field('resistance', (progression.resistances || [])
+						.filter(entry => !entry.trained).map(entry => [entry.id, RESISTANCES[entry.id] || entry.id]));
+					if (chosen.choiceFields?.proficiency) {
+						const category = chosen.id === 'dominio-de-kit' ? 'kit-' : 'armas-';
+						field('proficiency', Object.entries(PROFICIENCY_DOMAINS).filter(([id]) =>
+							id.startsWith(category) && !(sheet.proficiencies || []).includes(id))
+							.map(([id, info]) => [id, info[0]]));
+					}
+					if (chosen.choiceFields?.variant) {
+						if (chosen.variantChoices) {
+							const second = field('variant', chosen.variantChoices.map(id =>
+								[id, id.includes(':') ? skillLabel(id) :
+								ATTRIBUTES.find(entry => entry[0] === id)?.[1] || label(id)]));
+							if (['conhecimento-diversificado', 'competencia-pratica'].includes(chosen.id)) {
+								const first = fields.querySelector('select');
+								const update = () => {
+									const unavailable = chosen.id === 'conhecimento-diversificado' ? [first.value] :
+										(progression.skills || []).find(entry => entry.id === first.value)?.attributes || [];
+									for (const option of second.options) option.disabled = !!first.value && unavailable.includes(option.value);
+									if (first.value && unavailable.includes(second.value)) { second.value = ''; delete values.variant; }
+								};
+								first.addEventListener('change', update); update();
+							}
+						} else {
+							const input = el('input', 'trainer-sheet-progression-input'); input.placeholder = 'Área ou variante';
+							input.maxLength = 80; input.addEventListener('input', () => {
+								values.variant = input.value.trim(); resetTalentRequest();
+							}); fields.append(input);
+						}
+					}
+				});
+				confirm.addEventListener('click', async () => {
+					const chosen = choices.find(entry => entry.id === picker.value); if (!chosen) return;
+					if ((chosen.attributeChoices?.length && !values.attribute) ||
+						Object.entries(chosen.choiceFields || {}).some(([key, needed]) => needed && !values[key])) {
+						feedback.textContent = 'Complete as escolhas adicionais deste talento.'; return;
+					}
+					confirm.disabled = true;
+					try {
+						await api('/trainer/talents', { method: 'POST', body: { id: chosen.id, ...values,
+							requestId: talentRequestId } }); await refresh();
+					} catch (error) { feedback.textContent = error.message || 'Não foi possível aprender o talento.'; confirm.disabled = false; }
+				});
+				panel.append(kindPicker, picker, description, fields, confirm, feedback); root.append(panel);
+			}
 		}
 		const attributeLayout = el('div', 'trainer-sheet-top-grid');
 		const attributes = section('Atributos', 'trainer-sheet-panel trainer-sheet-attribute-section');
@@ -842,7 +1210,8 @@
 			if (!readOnly) {
 				tile.type = 'button'; tile.setAttribute('aria-haspopup', 'menu');
 				tile.setAttribute('aria-expanded', 'false');
-				tile.addEventListener('click', () => showRollPopover(tile, name, 'attribute', id, character.id, api));
+				tile.addEventListener('click', () => showRollPopover(tile, name, 'attribute', id, character.id, api,
+					progression.rollTalents));
 			}
 			tile.append(el('span', 'trainer-sheet-attribute-name', name),
 				el('strong', 'trainer-sheet-attribute-modifier', signed(Math.floor((value - 10) / 2))),
@@ -862,7 +1231,8 @@
 			const roll = el('button', 'trainer-sheet-initiative-roll');
 			roll.type = 'button'; roll.setAttribute('aria-label', 'Rolar Iniciativa');
 			roll.setAttribute('aria-haspopup', 'menu'); roll.setAttribute('aria-expanded', 'false');
-			roll.addEventListener('click', () => showRollPopover(roll, 'Iniciativa', 'initiative', '', character.id, api));
+			roll.addEventListener('click', () => showRollPopover(roll, 'Iniciativa', 'initiative', '', character.id, api,
+				progression.rollTalents));
 			initiative.append(roll);
 		}
 		const movement = section('Deslocamento', 'trainer-sheet-panel trainer-sheet-primary-stat');
@@ -920,7 +1290,8 @@
 				row.type = 'button'; row.setAttribute('aria-haspopup', 'menu');
 				row.setAttribute('aria-expanded', 'false');
 				row.addEventListener('click', () => showRollPopover(
-					row, RESISTANCES[entry.id], 'resistance', entry.id, character.id, api));
+					row, RESISTANCES[entry.id], 'resistance', entry.id, character.id, api,
+					progression.rollTalents));
 			}
 			row.append(el('span', '', RESISTANCES[entry.id]),
 				el('strong', 'trainer-sheet-bonus', signed(entry.bonus)));
@@ -934,7 +1305,8 @@
 			if (!readOnly) {
 				row.type = 'button'; row.setAttribute('aria-haspopup', 'menu');
 				row.setAttribute('aria-expanded', 'false');
-				row.addEventListener('click', () => showRollPopover(row, name, 'attack', id, character.id, api));
+				row.addEventListener('click', () => showRollPopover(row, name, 'attack', id, character.id, api,
+					progression.rollTalents));
 			}
 			row.append(el('small', '', name), el('strong', '', bonus == null ? '—' : signed(bonus)));
 			return row;
@@ -949,7 +1321,8 @@
 			(progression.skills || []).filter(entry => entry.id.startsWith(family + ':'))]));
 		const shownFamilies = new Set();
 		const rollSkill = (button, name, entry) => showRollPopover(
-			button, name, 'skill', entry.id, character.id, api);
+			button, name, 'skill', entry.id, character.id, api, progression.rollTalents,
+			entry.trained, entry.attributes || []);
 		for (const entry of progression.skills || []) {
 			const family = entry.id.split(':')[0];
 			if (!divided.has(family)) { skillList.append(skillRow(entry, false, readOnly ? null : rollSkill)); continue; }
@@ -972,27 +1345,63 @@
 		skills.append(skillList);
 		attributes.append(attributeGrid);
 
-		const talentNames = Object.fromEntries((talents?.talents || []).map(entry => [entry.id, entry.name]));
-		const talentDescriptions = new Map([
-			...(rules?.classFeatures?.[sheet.classId] || []).map(entry => [entry.name, entry.text]),
-			...(talents?.talents || []).map(entry => [entry.name, entry.text]),
-		]);
+		const talentDefinitions = Object.fromEntries((talents?.talents || []).map(entry => [entry.id, entry]));
 		const talentSection = section('Talentos', 'trainer-sheet-panel trainer-sheet-talents');
-		const sortNames = names => [...new Set(names.filter(Boolean))]
-			.sort((left, right) => left.localeCompare(right, 'pt-BR', { sensitivity: 'base' }));
-		const acquired = ids => (ids || []).map(id => talentNames[id] || id);
-		const classTalents = sortNames([
-			...(rules?.classFeatures?.[sheet.classId] || []).map(feature => feature.name),
+		const chosenByTalent = new Map();
+		for (const selection of sheet.talentSelections || []) {
+			if (!chosenByTalent.has(selection.id)) chosenByTalent.set(selection.id, []);
+			chosenByTalent.get(selection.id).push(selection);
+		}
+		const chosenLabel = selection => {
+			if (!selection) return '';
+			if (selection.id === 'competencia-pratica' && selection.skill && selection.variant) {
+				const attribute = ATTRIBUTES.find(entry => entry[0] === selection.variant)?.[1] || label(selection.variant);
+				return `${skillLabel(selection.skill)} com ${attribute}`;
+			}
+			if (selection.id === 'conhecimento-diversificado' && selection.skill && selection.variant) {
+				return `${skillLabel(selection.skill)} e ${skillLabel(selection.variant)}`;
+			}
+			if (selection.id === 'artista-marcial:reflexos-treinados' && selection.variant === 'already-trained') {
+				return 'Bônus +2';
+			}
+			if (selection.skill) return skillLabel(selection.skill);
+			if (selection.attribute) return ATTRIBUTES.find(entry => entry[0] === selection.attribute)?.[1] || label(selection.attribute);
+			if (selection.resistance) return RESISTANCES[selection.resistance] || label(selection.resistance);
+			if (selection.proficiency) return PROFICIENCY_DOMAINS[selection.proficiency]?.[0] || label(selection.proficiency);
+			if (selection.variant) return selection.variant.startsWith('conhecimento:') ?
+				skillLabel(selection.variant) : label(selection.variant);
+			return '';
+		};
+		const acquired = ids => (ids || []).map(id => {
+			const definition = talentDefinitions[id];
+			const choice = chosenByTalent.get(id)?.shift();
+			const baseName = definition?.name || id;
+			const detail = chosenLabel(choice);
+			return { id, name: detail ? `${baseName} (${detail})` : baseName, description: definition?.text };
+		});
+		const sortTalents = entries => entries.sort((left, right) =>
+			left.name.localeCompare(right.name, 'pt-BR', { sensitivity: 'base' }));
+		const classTalents = sortTalents([
+			...(rules?.classFeatures?.[sheet.classId] || []).map(feature =>
+				({ name: feature.name, description: feature.text })),
 			...acquired(sheet.talents?.class),
 		]);
 		const apexTalents = acquired(sheet.talents?.apex ? [sheet.talents.apex] : []);
-		const generalTalents = sortNames(acquired(sheet.talents?.general));
+		const generalTalents = sortTalents(acquired(sheet.talents?.general));
 		const talentList = el('div', 'trainer-sheet-talent-list');
-		for (const name of [...classTalents, ...apexTalents, ...generalTalents]) {
+		for (const { id, name, description } of [...classTalents, ...apexTalents, ...generalTalents]) {
 			const button = el('button', 'trainer-sheet-talent-row', name);
 			button.type = 'button'; button.setAttribute('aria-haspopup', 'dialog');
 			button.setAttribute('aria-expanded', 'false');
-			button.addEventListener('click', () => showTalentPopover(button, name, talentDescriptions.get(name)));
+			button.addEventListener('click', () => showTalentPopover(button, name, description,
+				!readOnly && id === 'arqueologo:acervo-compartilhado' ? { id, api, refresh, archive: {
+					slots: sheet.sharedArchives || [], proficiency: progression.proficiency,
+					knowledge: (sheet.skills?.trained || []).filter(skill => skill.startsWith('conhecimento:')),
+					recipients: progression.archiveRecipients || [],
+				} } : !readOnly && ['segundo-folego', 'sortudo', 'determinado', 'esforco-heroico'].includes(id) ?
+					{ id, api, refresh, reroll: id !== 'segundo-folego',
+						available: progression.rerollAvailability?.[id],
+						used: progression.activeTalentUses?.used?.[id] === progression.activeTalentUses?.restCycle } : null));
 			talentList.append(button);
 		}
 		talentSection.append(talentList);
@@ -1053,6 +1462,125 @@
 		let signature = '';
 		let loading = false;
 		const creationState = { step: 0 };
+		const refresh = async () => { signature = ''; await update(); };
+		async function chooseLevelTalents() {
+			const preview = await api('/trainer/level-up');
+			const kinds = ['general', 'class', 'apex'].flatMap(kind =>
+				Array(preview.pendingChoices?.[kind] || 0).fill(kind));
+			const overlay = el('div', 'trainer-sheet-level-overlay');
+			const panel = section('Escolhas do próximo nível', 'trainer-sheet-panel trainer-sheet-level-dialog');
+			const caption = { general: 'Talento geral', class: 'Talento específico', apex: 'Ápice' };
+			const feedback = el('p', 'trainer-sheet-progression-feedback');
+			const picks = kinds.map(kind => {
+				const group = el('div', 'trainer-sheet-level-choice');
+				group.append(el('strong', '', caption[kind]));
+				const available = preview.talents.filter(entry => entry.kind === kind && entry.available);
+				const picker = select([['', 'Selecione um talento'], ...available.map(entry => [entry.id, entry.name])]);
+				const description = el('p', 'trainer-sheet-choice-description');
+				const fields = el('div', 'trainer-sheet-progression-line');
+				const values = {};
+				picker.addEventListener('change', () => {
+					fields.replaceChildren(); Object.keys(values).forEach(key => delete values[key]);
+					const chosen = available.find(entry => entry.id === picker.value);
+					description.replaceChildren(...renderTrainerDescription(chosen?.text || '').childNodes);
+					if (!chosen) return;
+					const field = (key, options) => {
+						const control = select([['', `Escolha ${key}`], ...options]);
+						control.addEventListener('change', () => { values[key] = control.value; });
+						fields.append(control);
+						return control;
+					};
+					if (chosen.attributeChoices?.length) field('attribute', chosen.attributeChoices.map(id =>
+						[id, ATTRIBUTES.find(entry => entry[0] === id)?.[1] || label(id)]));
+					if (chosen.choiceFields?.skill) field('skill',
+						chosen.id === 'conhecimento-diversificado' ?
+							(chosen.variantChoices || []).map(id => [id, skillLabel(id)]) :
+							(progressionForChoice.skills || []).filter(entry =>
+								!['conhecimento', 'oficio'].includes(entry.id) &&
+								(chosen.id === 'treinamento-adicional' ? !entry.trained :
+								entry.trained && (chosen.id !== 'foco-em-pericia' || !entry.focused) &&
+								(chosen.id !== 'competencia-pratica' || !(progressionForChoice.sheet.talentSelections || [])
+									.some(selection => selection.id === chosen.id && selection.skill === entry.id))))
+								.map(entry => [entry.id, skillLabel(entry.id)]));
+					if (chosen.choiceFields?.resistance) field('resistance',
+						(progressionForChoice.resistances || []).filter(entry => !entry.trained)
+							.map(entry => [entry.id, RESISTANCES[entry.id] || entry.id]));
+					if (chosen.choiceFields?.proficiency) field('proficiency',
+						Object.entries(PROFICIENCY_DOMAINS).filter(([id]) =>
+							id.startsWith(chosen.id === 'dominio-de-kit' ? 'kit-' : 'armas-') &&
+							!(progressionForChoice.sheet.proficiencies || []).includes(id))
+							.map(([id, info]) => [id, info[0]]));
+					if (chosen.choiceFields?.variant) {
+						if (chosen.variantChoices) {
+							const second = field('variant', chosen.variantChoices.map(id =>
+								[id, id.includes(':') ? skillLabel(id) :
+								ATTRIBUTES.find(entry => entry[0] === id)?.[1] || label(id)]));
+							if (['conhecimento-diversificado', 'competencia-pratica'].includes(chosen.id)) {
+								const first = fields.querySelector('select');
+								const update = () => {
+									const unavailable = chosen.id === 'conhecimento-diversificado' ? [first.value] :
+										(progressionForChoice.skills || []).find(entry => entry.id === first.value)?.attributes || [];
+									for (const option of second.options) option.disabled = !!first.value && unavailable.includes(option.value);
+									if (first.value && unavailable.includes(second.value)) { second.value = ''; delete values.variant; }
+								};
+								first.addEventListener('change', update); update();
+							}
+						} else {
+							const input = el('input', 'trainer-sheet-progression-input');
+							input.placeholder = 'Área ou variante'; input.maxLength = 80;
+							input.addEventListener('input', () => { values.variant = input.value.trim(); });
+							fields.append(input);
+						}
+					}
+				});
+				group.append(picker, description, fields); panel.append(group);
+				return () => {
+					const chosen = available.find(entry => entry.id === picker.value);
+					if (!chosen || (chosen.attributeChoices?.length && !values.attribute) ||
+						Object.entries(chosen.choiceFields || {}).some(([key, needed]) => needed && !values[key])) {
+						throw new Error(`Complete a escolha: ${caption[kind]}.`);
+					}
+					return { id: chosen.id, ...values };
+				};
+			});
+			const actions = el('div', 'trainer-sheet-progression-line');
+			const cancel = el('button', 'button', 'Cancelar'); cancel.type = 'button';
+			const confirm = el('button', 'button', 'Confirmar atualização'); confirm.type = 'button';
+			const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
+			const onKey = event => { if (event.key === 'Escape') close(); };
+			cancel.addEventListener('click', close);
+			overlay.addEventListener('click', event => { if (event.target === overlay) close(); });
+			confirm.addEventListener('click', async () => {
+				try {
+					const choices = picks.map(pick => pick());
+					confirm.disabled = true;
+					await api('/trainer/level-up', { method: 'POST', body: { choices } });
+					close(); await refresh();
+				} catch (error) {
+					feedback.textContent = error.message || 'Não foi possível atualizar a ficha.';
+					confirm.disabled = false;
+				}
+			});
+			actions.append(cancel, confirm); panel.append(actions, feedback); overlay.append(panel);
+			document.body.append(overlay); document.addEventListener('keydown', onKey);
+		}
+		let progressionForChoice = null;
+		function updateLevelButton(progression) {
+			progressionForChoice = progression;
+			const host = master ? masterSummary : document.getElementById('dashboard-title')?.closest('.dashboard-heading');
+			host?.querySelector('.trainer-sheet-level-button')?.remove();
+			if (master || state.tableReadOnly || !progression?.canLevelUp || !host) return;
+			const button = el('button', 'trainer-sheet-level-button', 'Atualizar');
+			button.type = 'button';
+			button.addEventListener('click', async () => {
+				button.disabled = true;
+				try { await chooseLevelTalents(); button.disabled = false; } catch (error) {
+					button.textContent = error.message || 'Não foi possível preparar as escolhas.';
+					button.disabled = false;
+				}
+			});
+			host.append(button);
+		}
 		async function update() {
 			if (!root.isConnected || loading) return;
 			const target = active();
@@ -1068,7 +1596,9 @@
 					const nextSignature = JSON.stringify([tableId, target.id, progression.sheet, creation]);
 					if (nextSignature !== signature) {
 						signature = nextSignature;
+						root.querySelector('.trainer-sheet-progression-controls')?.remove();
 						updateTrainerHeading(progression.sheet, progression, null, masterSummary);
+						updateLevelButton(progression);
 						if (creation) {
 							const refreshCreation = async () => { signature = ''; await update(); };
 							renderCreationWizard(content, creation, api, refreshCreation, refreshCreation,
@@ -1084,8 +1614,12 @@
 				if (nextSignature !== signature) {
 					signature = nextSignature;
 					updateTrainerHeading(progression.sheet, progression, rules, masterSummary);
+					updateLevelButton(progression);
+					root.querySelector('.trainer-sheet-progression-controls')?.remove();
 					renderSheet(content, target, progression.sheet, progression, talents, rules, api,
-						state.tableReadOnly || master);
+						state.tableReadOnly || master, refresh, master && !state.tableReadOnly);
+					const controls = content.querySelector('.trainer-sheet-progression-controls');
+					if (controls && masterSummary) root.insertBefore(controls, masterSummary);
 				}
 				root.querySelectorAll('.trainer-sheet-choice').forEach(node =>
 					node.classList.toggle('active', node.dataset.characterId === target.id));

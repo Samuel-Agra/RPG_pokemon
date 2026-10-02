@@ -11,6 +11,31 @@ describe('RPG trainer sheet read-only frontend', () => {
 	const page = fs.readFileSync(path.join(root, 'trainer-sheet-ui.js'), 'utf8');
 	const style = fs.readFileSync(path.join(root, 'trainer-sheet.css'), 'utf8');
 	const http = fs.readFileSync(path.resolve(root, '../../rpg-showdown/http.ts'), 'utf8');
+	it('offers two Knowledge choices and marks half-proficiency on the right half of each skill', () => {
+		assert(page.includes("chosen.id === 'conhecimento-diversificado'"));
+		assert(page.includes("entry.halfProficiency ? ' half-proficiency'"));
+		assert(page.includes('option.disabled = !!first.value && unavailable.includes(option.value)'));
+		assert(style.includes('linear-gradient(to right, #f1f4f9 50%, #e4edf9 50%)'));
+	});
+	it('offers Observation Learning on untrained skill rolls, including trained-only skills', () => {
+		assert(page.includes('entry.observationEligible'));
+		assert(page.includes("talent.id !== 'aprendizado-por-observacao' || kind === 'skill' && !trained"));
+		assert(http.includes('temporarilyTrained: observedSkill'));
+	});
+	it('shows the fixed Practical Competence attribute beside the normal skill attribute', () => {
+		assert(page.includes("selection.id === 'competencia-pratica' && selection.skill && selection.variant"));
+		assert(page.includes('entry.trained, entry.attributes || []'));
+		assert(page.includes("chosen.id !== 'competencia-pratica' ||"));
+	});
+	it('offers help from the skill roll popover and routes it through the shared chat', () => {
+		assert(page.includes("'trainer-sheet-roll-choice', 'Ajuda'"));
+		assert(page.includes("api('/trainer/help-roll'"));
+		assert(page.includes('characterId, skill: id, mode: \'normal\''));
+		assert(!page.includes('trainer-sheet-help-list'));
+		assert(http.includes("'/api/rpg/trainer/help-roll'"));
+		assert(http.includes('consumeTrainerHelp(token, skill!)'));
+		assert(http.includes('Ajuda de ${help.helperName}'));
+	});
 
 	it('has an original transparent PNG emblem for every trainer class and shows it on the class cards', () => {
 		const rules = fs.readFileSync(path.resolve(root, '../../rpg-showdown/trainer-creation.ts'), 'utf8');
@@ -59,6 +84,20 @@ describe('RPG trainer sheet read-only frontend', () => {
 		assert(!page.includes("api('/trainer/equipment' + query)"));
 	});
 
+	it('separates earned XP from level confirmation and presents available talents beside acquired ones', () => {
+		assert(page.includes("api('/trainer/level-up', { method: 'POST'"));
+		assert(page.includes("section('Pode escolher agora'"));
+		assert(page.includes("section('Talentos'"));
+		assert(page.includes("api('/trainer/talents', { method: 'POST'"));
+		assert(page.includes("act(grant, '/trainer/rewards/master'"));
+		assert(page.includes("act(up, '/trainer/level/master'"));
+		assert(style.includes('.trainer-sheet-level-button'));
+		assert(!page.includes("section('Próximo nível'"));
+		assert(page.includes("'trainer-sheet-level-button', 'Atualizar'"));
+		assert(page.includes('!progression?.canLevelUp'));
+		assert(!page.includes('preview.remainingHours'));
+	});
+
 	it('renders separate cards for each trainer statistic group', () => {
 		assert(page.includes("el('div', 'trainer-sheet-top-grid')"));
 		assert(page.includes("section('Atributos', 'trainer-sheet-panel trainer-sheet-attribute-section')"));
@@ -68,6 +107,8 @@ describe('RPG trainer sheet read-only frontend', () => {
 		assert(page.includes("section('Ataques', 'trainer-sheet-panel trainer-sheet-attacks')"));
 		assert(page.includes("section('Perícias', 'trainer-sheet-panel trainer-sheet-skills-panel')"));
 		assert(page.includes("section('Talentos', 'trainer-sheet-panel trainer-sheet-talents')"));
+		assert(page.includes('`${baseName} (${detail})`'));
+		assert(page.includes("entry.trained && (chosen.id !== 'foco-em-pericia' || !entry.focused)"));
 		assert(page.includes("section('Domínios', 'trainer-sheet-panel trainer-sheet-domains')"));
 		assert(page.includes("section('Condições e ferimentos', 'trainer-sheet-panel trainer-sheet-conditions')"));
 		assert(page.includes('rightStats.append(conditions)'));
@@ -182,6 +223,8 @@ describe('RPG trainer sheet read-only frontend', () => {
 		assert(page.includes("entry.id.startsWith(family + ':')"));
 		assert(page.includes('showSkillPopover(button, SKILLS[family], entries, readOnly ? null : rollSkill)'));
 		assert(style.includes('.trainer-sheet-skills .trainer-sheet-list-row { align-items: center; padding: 5px 8px;'));
+		assert(style.includes('.trainer-sheet-skills .trainer-sheet-list-row.focused { background: #a8c9f4; }'));
+		assert(style.includes('.trainer-sheet-skill-popover .trainer-sheet-list-row.focused { background: #a8c9f4; }'));
 		assert(page.includes('for (const entry of progression.resistances || [])'));
 		assert(page.includes('progression.derived?.defense'));
 		assert(page.includes('progression.attacks?.melee'));
@@ -232,7 +275,7 @@ describe('RPG trainer sheet read-only frontend', () => {
 	it('rolls attributes, resistances, attacks and skills on the server and posts to the table chat', () => {
 		assert(page.includes("['advantage', 'Vantagem'], ['normal', 'Normal'], ['disadvantage', 'Desvantagem']"));
 		assert(page.includes('api(`/trainer/${kind}-roll`, { method: \'POST\''));
-		assert(page.includes("showRollPopover(tile, name, 'attribute', id, character.id, api)"));
+		assert(page.includes("showRollPopover(tile, name, 'attribute', id, character.id, api,"));
 		assert(page.includes("'resistance', entry.id, character.id, api"));
 		assert(page.includes("el(readOnly ? 'div' : 'button', 'trainer-sheet-attribute')"));
 		assert(http.includes("'/api/rpg/trainer/attribute-roll', '/api/rpg/trainer/resistance-roll'"));
@@ -245,14 +288,14 @@ describe('RPG trainer sheet read-only frontend', () => {
 		assert(http.includes('persistence.createTableChatMessage('));
 		assert(http.includes("mode === 'advantage' ? 'Vantagem' : 'Desvantagem'"));
 		assert(http.includes('1ª rolagem: ${result.dice[0]}\\n2ª rolagem: ${result.dice[1]}'));
-		assert(http.includes('`${rolls}${rollName}: 1d20 tirou `'));
+		assert(http.includes('`${helpLine}${talentLines}${rolls}${rollName}: 1d20 tirou `'));
 		assert(http.includes('rollRPGTrainerSkillCheck(character.trainerSheet!'));
 		assert(http.includes('rpgTrainerAttackBonus(character.trainerSheet!'));
 		assert(page.includes("'skill', entry.id, character.id, api"));
 		assert(page.includes("'attack', id, character.id, api"));
 		assert(page.includes('entry.bonus != null'));
-		assert(page.includes("id === 'intimidacao'"));
-		assert(http.includes('RPG_SKILL_ATTRIBUTES[skill!.split(\':\')[0]]?.includes(skillAttribute)'));
+		assert(page.includes("kind === 'skill' && attributeOptions.length > 1"));
+		assert(http.includes('rpgTrainerSkillAttributes(character.trainerSheet!, skill!).includes(skillAttribute)'));
 		assert(style.includes('.trainer-sheet-attribute-popover { position: fixed;'));
 	});
 
@@ -267,9 +310,13 @@ describe('RPG trainer sheet read-only frontend', () => {
 	it('shows complete talent descriptions without overflowing the sheet', () => {
 		assert(page.includes("['Sucess', deathSaveValues.successes]"));
 		assert(page.includes('rules?.classFeatures?.[sheet.classId]'));
-		assert(page.includes('entry.name, entry.text'));
+		assert(page.includes('description: definition?.text'));
 		assert(page.includes("el('button', 'trainer-sheet-talent-row', name)"));
-		assert(page.includes('showTalentPopover(button, name, talentDescriptions.get(name))'));
+		assert(page.includes('showTalentPopover(button, name, description)'));
+		assert(page.includes('renderTrainerDescription(description'));
+		assert(page.includes("new DOMParser().parseFromString(block, 'text/html')"));
+		assert(page.includes('renderTrainerDescription(chosen?.text ||'));
+		assert(style.includes('.trainer-sheet-description-table-wrap { max-width: 100%; overflow-x: auto;'));
 		assert(page.includes("event.key === 'Escape'"));
 		assert(style.includes('.trainer-sheet-talent-popover { position: fixed;'));
 		assert(style.includes('max-height: min(70vh, 560px); overflow-y: auto;'));
@@ -289,9 +336,42 @@ describe('RPG trainer sheet read-only frontend', () => {
 
 	it('rolls initiative from the trainer sheet without changing its stat-card layout', () => {
 		assert(page.includes("section('Iniciativa', 'trainer-sheet-panel trainer-sheet-primary-stat trainer-sheet-initiative')"));
-		assert(page.includes("showRollPopover(roll, 'Iniciativa', 'initiative', '', character.id, api)"));
+		assert(page.includes("showRollPopover(roll, 'Iniciativa', 'initiative', '', character.id, api,"));
 		assert(http.includes("'/api/rpg/trainer/initiative-roll'"));
 		assert(http.includes('rollRPGTrainerInitiative(character.trainerSheet!'));
 		assert(style.includes('.trainer-sheet-initiative-roll { position: absolute; inset: 0;'));
+	});
+
+	it('offers owned situational talents beside roll modes and sends their selection to the server', () => {
+		assert(page.includes('progression.rollTalents'));
+		assert(page.includes("el('div', 'trainer-sheet-roll-talents')"));
+		assert(page.includes("item.setAttribute('aria-pressed', 'true')"));
+		assert(!page.includes("input.type = 'checkbox'"));
+		assert(page.includes('talents: [...selectedTalents]'));
+		assert(http.includes('rpgResolveTrainerRollTalents(character.trainerSheet!'));
+		assert(page.includes('/trainer/ally-roll-talents'));
+		assert(http.includes('rpgTrainerRollBonusTerms('));
+		assert(http.includes("talentEffects.chosen.map(talent => talent.name).join('\\n')"));
+		assert(style.includes('.trainer-sheet-roll-content { display: flex;'));
+		assert(style.includes(".trainer-sheet-roll-talent[aria-pressed='true'] { border-color: #e6ad22;"));
+	});
+	it('offers a server-backed Use action for Second Wind in its talent description', () => {
+		assert(page.includes("['segundo-folego', 'sortudo', 'determinado', 'esforco-heroico'].includes(id)"));
+		assert(page.includes("'/trainer/talents/use'"));
+		assert(page.includes("'Usado neste descanso'"));
+	});
+	it('offers Lucky and Determined rerolls only while the last test remains eligible', () => {
+		assert(page.includes("['segundo-folego', 'sortudo', 'determinado', 'esforco-heroico']"));
+		assert(page.includes('progression.rerollAvailability?.[id]'));
+		assert(page.includes("'/trainer/talents/reroll'"));
+		assert(!page.includes('trainer-sheet-talent-confirm'));
+		assert(!page.includes('failureConfirmed'));
+	});
+	it('prepares shared archives by proficiency slot, Knowledge area and recipient', () => {
+		assert(page.includes("id === 'arqueologo:acervo-compartilhado'"));
+		assert(page.includes("'/trainer/talents/shared-archive'"));
+		assert(page.includes('progression.archiveRecipients'));
+		assert(page.includes("sheet.skills?.trained || []"));
+		assert(page.includes('Referências preparadas'));
 	});
 });

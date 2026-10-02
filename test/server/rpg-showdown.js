@@ -149,10 +149,12 @@ describe('RPG login', () => {
 	});
 	it('creates a Generation 9 starter and the initial RPG storage', () => {
 		const service = createService();
-		const selection = createCharacter(service);
+		const selection = createCharacter(service, { characterGender: 'F' });
 		const session = service.loginPlayer(selection.id, 'senha-rpg');
 		const state = service.getCharacter(session.token);
 		const starter = state.team[0];
+		assert.equal(state.characterGender, 'F');
+		assert.throws(() => createCharacter(service, { characterGender: 'N' }), /Invalid RPG character gender/);
 
 		assert.equal(starter.species, 'Squirtle');
 		assert.equal(starter.name, 'Tarta');

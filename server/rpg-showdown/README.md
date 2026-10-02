@@ -66,6 +66,7 @@ Ela nao revela dinheiro, equipe, Bag, Box ou credenciais.
 ```ts
 {
   characterName: string;
+  characterGender?: "M" | "F";
   playerName: string;
   avatar: string;
   password: string;
@@ -78,6 +79,8 @@ Ela nao revela dinheiro, equipe, Bag, Box ou credenciais.
   };
 }
 ```
+
+O formulário atual exige a escolha de masculino ou feminino para o personagem e o Pokémon inicial. `characterGender` permanece opcional na API apenas para compatibilidade com chamadas anteriores; personagens antigos continuam carregando sem esse campo.
 
 No fluxo da versão 2, a criação do personagem não pede outra senha: a conta autenticada se torna sua proprietária dentro da mesa ativa. A credencial interna gerada pelo servidor existe apenas para compatibilidade com serviços antigos e não é exibida ao usuário.
 

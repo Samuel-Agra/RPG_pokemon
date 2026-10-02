@@ -4,6 +4,7 @@ const assert = require('assert').strict;
 const {
 	RPGLoginService, RPGMemoryCharacterRepository, RPG_TRAINER_LEVEL_XP,
 	RPG_CONTEST_PODIUM_XP, RPG_BADGE_XP, awardRPGTrainerXP,
+	advanceRPGTrainerLevel, lowerRPGTrainerLevel, chooseRPGTrainerTalent,
 	createRPGPendingTrainerSheet, completeRPGTrainerSheet, rpgTrainerLevelForXP,
 	rpgTrainerXPToNextLevel, rpgContestPodiumXP, rpgBadgeXP,
 } = require('../../dist/server/rpg-showdown');
@@ -51,30 +52,30 @@ describe('RPG trainer progression and rewards', () => {
 		assert.throws(() => rpgBadgeXP(8));
 	});
 
-	it('records each origin once, raises multiple levels and never heals existing wounds', () => {
+	it('records each origin once while XP alone does not update level or PV', () => {
 		let sheet = completeSheet();
 		sheet.hitPoints.current = 5;
 		const first = awardRPGTrainerXP(sheet, reward('master', 'mission-1', 3_000_000));
 		assert.equal(first.awarded, true);
 		assert.equal(first.levelsGained, 2);
-		assert.equal(first.sheet.level, 3);
-		assert.equal(first.sheet.hitPoints.maximum, 31);
+		assert.equal(first.sheet.level, 1);
+		assert.equal(first.sheet.hitPoints.maximum, 19);
 		assert.equal(first.sheet.hitPoints.current, 5);
-		assert.deepEqual(first.sheet.pendingChoices, { general: 1, class: 1, apex: 0 });
+		assert.equal(first.sheet.pendingChoices, undefined);
 		assert.equal(sheet.experience, 0);
 		const duplicate = awardRPGTrainerXP(first.sheet, reward('master', 'mission-1', 3_000_000));
 		assert.equal(duplicate.awarded, false);
 		assert.equal(duplicate.sheet.experience, 3_000_000);
 		assert.throws(() => awardRPGTrainerXP(first.sheet, reward('master', 'mission-1', 4_000_000)));
 		sheet = awardRPGTrainerXP(first.sheet, reward('badge', 'kanto:boulder', 197_000_000)).sheet;
-		assert.equal(sheet.level, 10);
-		assert.deepEqual(sheet.pendingChoices, { general: 5, class: 4, apex: 1 });
+		assert.equal(sheet.level, 1);
+		assert.equal(sheet.pendingChoices, undefined);
 		assert.equal(sheet.hitPoints.current, 5);
 	});
 
 	it('preserves pre-creation XP and calculates full PV after class choice', () => {
 		const pending = awardRPGTrainerXP(createRPGPendingTrainerSheet(), reward('battle', 'b1', 937500)).sheet;
-		assert.equal(pending.level, 2);
+		assert.equal(pending.level, 1);
 		assert.equal(pending.hitPoints.maximum, null);
 		const ready = completeRPGTrainerSheet(pending, {
 			classId: 'arqueologo',
@@ -83,8 +84,43 @@ describe('RPG trainer progression and rewards', () => {
 			gearChoices: { arma: 'faca' },
 		}, 'standard');
 		assert.equal(ready.experience, 937500);
-		assert.equal(ready.hitPoints.maximum, 25);
-		assert.deepEqual(ready.pendingChoices, { general: 1, class: 0, apex: 0 });
+		assert.equal(ready.hitPoints.maximum, 19);
+		assert.equal(ready.pendingChoices, undefined);
+	});
+
+	it('requires eight campaign hours before a player updates one level and reverses its chosen talent', () => {
+		let sheet = awardRPGTrainerXP(completeSheet(), reward('master', 'mission-level', 1_000_000)).sheet;
+		assert.throws(() => advanceRPGTrainerLevel(sheet), /descanso longo/);
+		sheet.levelUpReady = 2;
+		sheet.hitPoints.current = 5;
+		sheet = advanceRPGTrainerLevel(sheet);
+		assert.equal(sheet.level, 2);
+		assert.equal(sheet.hitPoints.maximum, 25);
+		assert.equal(sheet.hitPoints.current, 5);
+		assert.deepEqual(sheet.pendingChoices, { general: 1, class: 0, apex: 0 });
+		sheet = chooseRPGTrainerTalent(sheet, { id: 'treinamento-adicional', skill: 'medicina' });
+		assert(sheet.skills.trained.includes('medicina'));
+		sheet = lowerRPGTrainerLevel(sheet);
+		assert.equal(sheet.level, 1);
+		assert.equal(sheet.hitPoints.maximum, 19);
+		assert.equal(sheet.hitPoints.current, 5);
+		assert(!sheet.skills.trained.includes('medicina'));
+		assert.equal(sheet.talents.general.length, 0);
+		assert(sheet.experience < RPG_TRAINER_LEVEL_XP[1]);
+	});
+
+	it('reverses a level from an older sheet without a level snapshot using recorded talent choices', () => {
+		let legacy = completeSheet();
+		legacy.level = 2; legacy.experience = 1_000_000;
+		legacy.hitPoints.maximum = 25; legacy.hitPoints.current = 7;
+		legacy = chooseRPGTrainerTalent(legacy, { id: 'treinamento-adicional', skill: 'medicina' });
+		assert.equal(legacy.levelSnapshots, undefined);
+		const lowered = lowerRPGTrainerLevel(legacy);
+		assert.equal(lowered.level, 1);
+		assert.equal(lowered.hitPoints.maximum, 19);
+		assert.equal(lowered.hitPoints.current, 7);
+		assert(!lowered.skills.trained.includes('medicina'));
+		assert.equal(lowered.talents.general.length, 0);
 	});
 
 	it('awards battle XP only from Pokemon belonging to each player and once per battle', () => {
@@ -132,5 +168,74 @@ describe('RPG trainer progression and rewards', () => {
 		service.persistBattleProfile(battle, outcome);
 		assert.equal(repository.get('ana').state.trainerSheet.experience, 113000);
 		assert.equal(repository.get('ana').state.trainerSheet.rewards.length, 3);
+	});
+
+	it('unlocks player advancement on the eight-hour campaign control and lets the Master adjust levels', () => {
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({ masterCode: 'teste', repository });
+		character(service, 'Ana');
+		const player = service.loginPlayer('ana', 'senha-rpg');
+		const master = service.loginMaster('teste');
+		service.chooseTrainerAttributeMethod(player.token, 'standard');
+		service.completeTrainerCreation(player.token, { classId: 'arqueologo', attributes: {
+			strength: 15, dexterity: 14, constitution: 13, intelligence: 12, wisdom: 10, charisma: 8,
+		}, optionalSkills: ['percepcao', 'pilotagem:automoveis', 'sobrevivencia'], gearChoices: { arma: 'faca' } });
+		service.grantMasterTrainerXP(master.token, 'ana', 1_000_000, 'Missão', 'mission-level-2');
+		assert.equal(service.getTrainerProgression(player.token).sheet.level, 1);
+		assert.equal(service.getTrainerProgression(player.token).canLevelUp, false);
+		assert.throws(() => service.previewOwnTrainerLevel(player.token), /descanso longo/);
+		service.advanceCampaignTime(master.token, 1);
+		assert.equal(service.getTrainerProgression(player.token).canLevelUp, false);
+		service.advanceCampaignTime(master.token, 8);
+		assert.equal(service.getTrainerProgression(player.token).canLevelUp, true);
+		assert(service.previewOwnTrainerLevel(player.token).talents.some(entry =>
+			entry.id === 'treinamento-adicional' && entry.available));
+		assert.throws(() => service.advanceOwnTrainerLevel(player.token, []), /Escolha os talentos/);
+		assert.equal(service.getTrainerProgression(player.token).sheet.level, 1);
+		assert.equal(service.advanceOwnTrainerLevel(player.token,
+			[{ id: 'treinamento-adicional', skill: 'medicina' }]).level, 2);
+		assert.equal(service.getTrainerProgression(player.token).canLevelUp, false);
+		assert(service.getTrainerProgression(player.token).sheet.skills.trained.includes('medicina'));
+		assert.equal(service.adjustMasterTrainerLevel(master.token, 'ana', 'down', 'level-down-ana').level, 1);
+		assert(!service.getTrainerProgression(player.token).sheet.skills.trained.includes('medicina'));
+		assert.equal(service.adjustMasterTrainerLevel(master.token, 'ana', 'up', 'level-up-ana').level, 1);
+		assert.equal(service.adjustMasterTrainerLevel(master.token, 'ana', 'up', 'level-up-ana').level, 1);
+		assert.equal(service.getTrainerProgression(player.token).canLevelUp, false);
+		service.advanceCampaignTime(master.token, 8);
+		assert.equal(service.getTrainerProgression(player.token).canLevelUp, true);
+	});
+
+	it('counts eight separate one-hour advances toward the same long-rest gate', () => {
+		const service = new RPGLoginService({ masterCode: 'teste', repository: new RPGMemoryCharacterRepository() });
+		character(service, 'Ana');
+		const player = service.loginPlayer('ana', 'senha-rpg');
+		const master = service.loginMaster('teste');
+		service.chooseTrainerAttributeMethod(player.token, 'standard');
+		service.completeTrainerCreation(player.token, { classId: 'arqueologo', attributes: {
+			strength: 15, dexterity: 14, constitution: 13, intelligence: 12, wisdom: 10, charisma: 8,
+		}, optionalSkills: ['percepcao', 'pilotagem:automoveis', 'sobrevivencia'], gearChoices: { arma: 'faca' } });
+		service.grantMasterTrainerXP(master.token, 'ana', 1_000_000, 'Missão', 'mission-long-rest');
+		for (let hour = 1; hour <= 8; hour++) {
+			service.advanceCampaignTime(master.token, 1);
+			assert.equal(service.getTrainerProgression(player.token).canLevelUp, hour === 8);
+		}
+	});
+
+	it('requires another eight campaign hours before a second pending level', () => {
+		const service = new RPGLoginService({ masterCode: 'teste', repository: new RPGMemoryCharacterRepository() });
+		character(service, 'Ana');
+		const player = service.loginPlayer('ana', 'senha-rpg');
+		const master = service.loginMaster('teste');
+		service.chooseTrainerAttributeMethod(player.token, 'standard');
+		service.completeTrainerCreation(player.token, { classId: 'arqueologo', attributes: {
+			strength: 15, dexterity: 14, constitution: 13, intelligence: 12, wisdom: 10, charisma: 8,
+		}, optionalSkills: ['percepcao', 'pilotagem:automoveis', 'sobrevivencia'], gearChoices: { arma: 'faca' } });
+		service.grantMasterTrainerXP(master.token, 'ana', 3_000_000, 'Missão', 'mission-level-3');
+		service.advanceCampaignTime(master.token, 8);
+		service.advanceOwnTrainerLevel(player.token, [{ id: 'treinamento-adicional', skill: 'medicina' }]);
+		assert.equal(service.getTrainerProgression(player.token).sheet.level, 2);
+		assert.equal(service.getTrainerProgression(player.token).canLevelUp, false);
+		service.advanceCampaignTime(master.token, 8);
+		assert.equal(service.getTrainerProgression(player.token).canLevelUp, true);
 	});
 });

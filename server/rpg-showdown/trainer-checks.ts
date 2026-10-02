@@ -1,6 +1,6 @@
 import { rpgTrainerModifier } from './trainer-creation';
 import type { RPGTrainerAttributes, RPGTrainerSheet } from './trainer-sheet';
-import { rpgTrainerSurvivalEffects } from './trainer-survival';
+import { rpgTrainerSurvival, rpgTrainerSurvivalEffects } from './trainer-survival';
 
 export type RPGTrainerAttribute = keyof RPGTrainerAttributes;
 export type RPGTrainerResistance = 'fortitude' | 'reflexes' | 'will';
@@ -38,6 +38,10 @@ const RESISTANCE_ATTRIBUTE: Readonly<Record<RPGTrainerResistance, RPGTrainerAttr
 };
 const TRAINED_ONLY = new Set(['ladinagem', 'pilotagem', 'oficio', 'adestramento-pokemon', 'montaria-pokemon']);
 
+function hasTalent(sheet: RPGTrainerSheet, id: string): boolean {
+	return sheet.talents.general.includes(id) || sheet.talents.class.includes(id) || sheet.talents.apex === id;
+}
+
 function validInteger(value: number, label: string, minimum: number, maximum: number): number {
 	if (!Number.isSafeInteger(value) || value < minimum || value > maximum) throw new Error(`${label} inválido`);
 	return value;
@@ -65,6 +69,17 @@ function validateSkill(skill: string): string {
 	return family;
 }
 
+/** A escolha de Competência Prática amplia apenas o atributo de sua perícia registrada. */
+export function rpgTrainerSkillAttributes(sheet: RPGTrainerSheet, skill: string): RPGTrainerAttribute[] {
+	const family = validateSkill(skill);
+	const standard = RPG_SKILL_ATTRIBUTES[family];
+	const selected = sheet.talents.general.includes('competencia-pratica') ?
+		(sheet.talentSelections || []).filter(choice => choice.id === 'competencia-pratica' && choice.skill === skill)
+			.map(choice => choice.variant as RPGTrainerAttribute).filter(attribute =>
+				['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma'].includes(attribute)) : [];
+	return [...new Set([...standard, ...selected])];
+}
+
 export function rpgTrainerProficiency(level: number): number {
 	validInteger(level, 'Nível do treinador', 1, 10);
 	return level <= 4 ? 2 : level <= 8 ? 3 : 4;
@@ -77,18 +92,33 @@ export function rpgTrainerAttributeBonus(sheet: RPGTrainerSheet, attribute: RPGT
 }
 
 export function rpgTrainerSkillBonus(sheet: RPGTrainerSheet, skill: string,
-	attribute?: RPGTrainerAttribute, trainedOnly = false): number {
+	attribute?: RPGTrainerAttribute, trainedOnly = false, temporarilyTrained = false): number {
 	completeSheet(sheet);
 	const family = validateSkill(skill);
 	const trained = sheet.skills.trained.includes(skill);
-	if ((trainedOnly || TRAINED_ONLY.has(family) || skill === 'conhecimento:organizacoes') && !trained) {
+	if ((trainedOnly || TRAINED_ONLY.has(family) || skill === 'conhecimento:organizacoes') &&
+		!trained && !temporarilyTrained) {
 		throw new Error('Esta utilização da perícia exige treinamento');
 	}
 	if (sheet.skills.focused.includes(skill) && !trained) throw new Error('Foco exige treinamento na perícia');
 	const selectedAttribute = attribute || RPG_SKILL_ATTRIBUTES[family][0];
-	// O Mestre pode escolher outro atributo quando a abordagem justificar.
+	if (!rpgTrainerSkillAttributes(sheet, skill).includes(selectedAttribute)) {
+		throw new Error('Atributo não permitido para esta perícia');
+	}
 	const modifier = rpgTrainerAttributeBonus(sheet, selectedAttribute);
-	return modifier + (sheet.skills.focused.includes(skill) ? 2 : trained ? 1 : 0) * rpgTrainerProficiency(sheet.level) -
+	const conductorBonus = family === 'pilotagem' && hasTalent(sheet, 'condutor-versatil') &&
+		sheet.talentSelections?.some(selection =>
+			selection.id === 'condutor-versatil' && selection.variant === skill) ? 2 : 0;
+	const scientistBonus = family === 'conhecimento' &&
+		sheet.talentSelections?.some(selection =>
+			selection.id === 'cientista:especializacao-cientifica' && selection.variant === skill) ? 2 : 0;
+	const diverseKnowledgeBonus = family === 'conhecimento' && !trained && !temporarilyTrained &&
+		hasTalent(sheet, 'conhecimento-diversificado') && sheet.talentSelections?.some(selection =>
+		selection.id === 'conhecimento-diversificado' &&
+		(selection.skill === skill || selection.variant === skill)) ?
+		Math.floor(rpgTrainerProficiency(sheet.level) / 2) : 0;
+	return modifier + (sheet.skills.focused.includes(skill) ? 2 : trained ? 1 : 0) * rpgTrainerProficiency(sheet.level) +
+		conductorBonus + scientistBonus + diverseKnowledgeBonus -
 		rpgTrainerSurvivalEffects(sheet).checkPenalty;
 }
 
@@ -137,6 +167,8 @@ export function rpgBestHelpBonus(totals: readonly number[]): number {
 export interface RPGTrainerCheckOptions extends RPGD20Options {
 	dc: number;
 	bonus?: number;
+	/** Uma capacidade selecionada libera somente esta rolagem de uma perícia não treinada. */
+	temporarilyTrained?: boolean;
 	helpResults?: readonly { skill: string, total: number }[];
 }
 
@@ -160,7 +192,7 @@ export function rollRPGTrainerAttributeCheck(sheet: RPGTrainerSheet, attribute: 
 
 export function rollRPGTrainerSkillCheck(sheet: RPGTrainerSheet, skill: string, attribute: RPGTrainerAttribute | undefined,
 	options: RPGTrainerCheckOptions, random: () => number = Math.random) {
-	return check(rpgTrainerSkillBonus(sheet, skill, attribute), options, random, skill);
+	return check(rpgTrainerSkillBonus(sheet, skill, attribute, false, options.temporarilyTrained), options, random, skill);
 }
 
 export function rollRPGTrainerResistance(sheet: RPGTrainerSheet, resistance: RPGTrainerResistance,
@@ -236,25 +268,36 @@ export function rpgTrainerDerivedStatistics(sheet: RPGTrainerSheet, options: RPG
 	const defenseBase = martialDefense ?? (protection === 'heavy' ? 16 :
 		(protection === 'medium' ? 14 + Math.min(2, dexterity) :
 		(protection === 'light' ? 12 : protection === 'protective-clothing' ? 11 : 10) + dexterity));
-	const encumbrance = carriedKg > strength * 7.5 ? 'over-capacity' :
-		carriedKg > strength * 5 ? 'heavily-encumbered' :
-		carriedKg > strength * 2.5 ? 'encumbered' : 'normal';
+	const carryingBonus = 1 + Number(hasTalent(sheet, 'carregador')) * 0.5 +
+		Number(hasTalent(sheet, 'atleta:carregador-experiente')) * 0.5;
+	const encumbrance = carriedKg > strength * 7.5 * carryingBonus ? 'over-capacity' :
+		carriedKg > strength * 5 * carryingBonus ? 'heavily-encumbered' :
+		carriedKg > strength * 2.5 * carryingBonus ? 'encumbered' : 'normal';
 	const movementPenalty = encumbrance === 'heavily-encumbered' ? 6 : encumbrance === 'encumbered' ? 3 : 0;
 	const movementBonus = options.movementBonusMeters ?? 0;
 	if (!Number.isFinite(movementBonus) || movementBonus < -20 || movementBonus > 100 || movementBonus * 2 % 1 !== 0) {
 		throw new Error('Bônus de deslocamento inválido');
 	}
 	const survival = rpgTrainerSurvivalEffects(sheet);
-	const movement = Math.max(0, (sheet.classId === 'atleta' ? 10.5 : 9) + movementBonus -
+	const talentMovement = Number(hasTalent(sheet, 'corredor')) * 3 +
+		Number(hasTalent(sheet, 'atleta:atleta-completo')) * 1.5 +
+		Number(hasTalent(sheet, 'artista-marcial:passos-leves') && protection === 'ordinary' &&
+			encumbrance !== 'over-capacity') * 3 +
+			Number(hasTalent(sheet, 'artista-marcial:corpo-aperfeicoado') && protection === 'ordinary' &&
+				!options.shield && rpgTrainerSurvival(sheet).lifeState === 'conscious') * 3;
+	const movement = Math.max(0, (sheet.classId === 'atleta' ? 10.5 : 9) + movementBonus + talentMovement -
 		movementPenalty - survival.movementPenaltyMeters) * survival.movementMultiplier;
+	const initiativeTalentBonus = Number(hasTalent(sheet, 'iniciativa-aprimorada')) * 3 +
+		Number(hasTalent(sheet, 'artista-marcial:vigilancia-corporal')) * 2;
 	return {
 		defense: defenseBase + (options.shield ? 2 : 0) + validInteger(options.defenseBonus ?? 0, 'Bônus de Defesa', -100, 100),
-		initiativeBonus: dexterity,
+		initiativeBonus: dexterity + initiativeTalentBonus,
 		movementMeters: encumbrance === 'over-capacity' ? 0 : movement,
 		passivePerception: rpgPassiveScore(rpgTrainerSkillBonus(sheet, 'percepcao'), options.passivePerception),
 		encumbrance, physicalDisadvantage: encumbrance === 'heavily-encumbered',
-		carrying: { normalKg: strength * 2.5, encumberedKg: strength * 5,
-			maximumKg: strength * 7.5, pushPullLiftKg: strength * 15 },
+		carrying: { normalKg: strength * 2.5 * carryingBonus, encumberedKg: strength * 5 * carryingBonus,
+			maximumKg: strength * 7.5 * carryingBonus, pushPullLiftKg: strength * 15 *
+				(1 + Number(hasTalent(sheet, 'atleta:carregador-experiente'))) },
 		humanResistance: 8 + 3 * sheet.level + constitution +
 			validInteger(options.humanResistanceBonus ?? 0, 'Bônus de resistência humana', -100, 100),
 	};
@@ -264,7 +307,9 @@ export function rollRPGTrainerInitiative(sheet: RPGTrainerSheet, random: () => n
 	options: RPGD20Options = {}) {
 	const roll = rollRPGD20(random, options);
 	const dexterityBonus = rpgTrainerAttributeBonus(sheet, 'dexterity');
-	return { ...roll, dexterityBonus, total: roll.natural + dexterityBonus -
+	const talentBonus = Number(hasTalent(sheet, 'iniciativa-aprimorada')) * 3 +
+		Number(hasTalent(sheet, 'artista-marcial:vigilancia-corporal')) * 2;
+	return { ...roll, dexterityBonus, talentBonus, total: roll.natural + dexterityBonus + talentBonus -
 		rpgTrainerSurvivalEffects(sheet).checkPenalty };
 }
 

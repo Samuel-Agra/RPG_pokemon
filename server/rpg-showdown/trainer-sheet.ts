@@ -8,6 +8,22 @@ export interface RPGTrainerAttributes {
 	charisma: number;
 }
 
+/** Referência confiável à última mensagem de teste que pode ser repetida. */
+export interface RPGTrainerChatRoll {
+	messageId: string;
+	authorAccountId: string;
+	message: string;
+	label: string;
+	bonusTerms: string;
+	kind: 'attribute' | 'skill' | 'resistance';
+	mode: 'normal' | 'advantage' | 'disadvantage';
+	diceCount: number;
+	bonus: number;
+	campaignTime: string;
+	createdAt: number;
+	rerolled?: boolean;
+}
+
 export interface RPGTrainerSheet {
 	version: 1;
 	/** Fichas antigas permanecem pendentes até o treinador fazer suas escolhas. */
@@ -26,6 +42,13 @@ export interface RPGTrainerSheet {
 	talentApprovals?: { key: string, reason: string, approvedBy: string, approvedAt: number }[];
 	/** Contadores próprios do treinador, identificados pela regra que os concede. */
 	resources: Record<string, { current: number, maximum: number }>;
+	/** Avanços de 8 horas liberam novamente talentos de uso limitado. */
+	talentRestCycle?: number;
+	/** Ciclo em que cada talento ativo foi utilizado; persistido com a ficha. */
+	talentUses?: Record<string, number>;
+	lastChatRolls?: { any?: RPGTrainerChatRoll, resistance?: RPGTrainerChatRoll, skill?: RPGTrainerChatRoll };
+	/** Cada espaço preparado pertence a um destinatário e a uma área treinada de Conhecimento. */
+	sharedArchives?: { slot: number, topic: string, knowledge: string, recipientCharacterId: string }[];
 	/** A primeira série elegível fica vinculada ao personagem antes da distribuição. */
 	creation?: { method: 'standard' | 'rolled', rolls: number[] | null, dice?: number[][],
 		rollProgress?: { dice: number[][], values: number[] }, };
@@ -35,6 +58,20 @@ export interface RPGTrainerSheet {
 	/** Registro da origem impede repetição por atualização, reinício ou nova requisição. */
 	rewards?: import('./trainer-progression').RPGTrainerXPReward[];
 	pendingChoices?: { general: number, class: number, apex: number };
+	/** Um avanço de oito horas habilita, mas não aplica, níveis cobertos pela XP. */
+	levelUpReady?: number;
+	/** Início da espera para descanso, no relógio da campanha. */
+	levelUpWaitingSince?: number;
+	/** Ajustes diretos do Mestre guardam a origem para impedir duplo clique ou retry duplicado. */
+	levelAdjustments?: { requestId: string, direction: 'up' | 'down', from: number,
+		to: number, at: number, by: string, }[];
+	/** Retratos apenas da progressão, usados para desfazer exatamente um nível sem reverter ferimentos. */
+	levelSnapshots?: {
+		level: number, attributes: RPGTrainerAttributes, hitPointsMaximum: number,
+		skills: RPGTrainerSheet['skills'], resistances: string[], talents: RPGTrainerSheet['talents'],
+		talentSelections?: RPGTrainerSheet['talentSelections'], proficiencies?: string[],
+		resources: RPGTrainerSheet['resources'], pendingChoices?: RPGTrainerSheet['pendingChoices'],
+	}[];
 	/** Estado exclusivamente humano; nunca é usado pelo simulador de Pokémon. */
 	survival?: import('./trainer-survival').RPGTrainerSurvival;
 	/** Rolagens arbitradas: a chave impede repetir dados após retry ou concorrência. */

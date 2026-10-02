@@ -4,6 +4,27 @@
 .trainer-sheet-choice.active { background: #dce9f8; border-color: #577eb5; }
 .trainer-sheet-master-summary { padding: 12px 18px; background: #fff; border: 1px solid #c4cfdf;
 	border-radius: 9px; }
+.dashboard-heading:has(.trainer-sheet-level-button) { position: relative; padding-bottom: 54px; }
+.trainer-sheet-level-button { position: absolute; left: 50%; bottom: 8px; transform: translateX(-50%);
+	border: 1px solid #18723d; border-radius: 8px; background: #249451; color: #fff;
+	font: 700 15px Arial, sans-serif; padding: 9px 18px; cursor: pointer; box-shadow: 0 3px 9px #173a2355; }
+.trainer-sheet-level-button:hover { background: #187b42; }
+.trainer-sheet-level-button:disabled { opacity: .7; cursor: wait; }
+.trainer-sheet-progression-controls, .trainer-sheet-choice-panel { display: grid; gap: 10px; }
+.trainer-sheet-level-overlay { position: fixed; inset: 0; z-index: 1000; display: grid;
+	place-items: center; padding: 20px; background: #101c32a8; }
+.trainer-sheet-level-dialog { width: min(640px, 100%); max-height: calc(100vh - 40px);
+	overflow-y: auto; display: grid; gap: 12px; }
+.trainer-sheet-level-choice { display: grid; gap: 8px; padding: 10px;
+	border: 1px solid #c4cfdf; border-radius: 8px; }
+.trainer-sheet-level-choice > select { width: 100%; padding: 8px; }
+.trainer-sheet-progression-line { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.trainer-sheet-progression-line select, .trainer-sheet-progression-input, .trainer-sheet-choice-panel > select {
+	min-width: 155px; max-width: 100%; padding: 8px; border: 1px solid #aabbd1; border-radius: 6px;
+	font: 14px Arial, sans-serif; background: #fff; color: #263753; }
+.trainer-sheet-progression-feedback { margin: 0; color: #a12626; min-height: 1em; }
+.trainer-sheet-choice-description { max-height: 260px; overflow-y: auto; margin: 0; }
+.trainer-sheet-danger { background: #ba3030; color: #fff; }
 .trainer-sheet-content { display: grid; gap: 16px; min-width: 0; container-type: inline-size; }
 .trainer-sheet-panel { min-width: 0; padding: 16px; background: #fff;
 	border: 1px solid #c4cfdf; border-radius: 11px; box-shadow: 0 4px 16px #243d6117; }
@@ -55,9 +76,47 @@ button.trainer-sheet-talent-row:hover, button.trainer-sheet-talent-row[aria-expa
 .trainer-sheet-talent-popover { position: fixed; z-index: 10000; width: min(440px, calc(100vw - 24px));
 	max-height: min(70vh, 560px); overflow-y: auto; padding: 14px; background: #fff;
 	border: 1px solid #bdcce0; border-radius: 9px; box-shadow: 0 8px 24px #1e33533d; }
+.trainer-sheet-talent-popover--archive { width: min(760px, calc(100vw - 24px)); }
+.trainer-sheet-archive-editor { display: grid; gap: 9px; margin-top: 12px; padding-top: 11px;
+	border-top: 1px solid #d6e0ec; }
+.trainer-sheet-archive-editor > strong { color: #263e66; font-size: 13px; }
+.trainer-sheet-archive-row { display: grid; grid-template-columns: minmax(0, 1.2fr) minmax(0, 1fr) minmax(0, 1fr) auto;
+	align-items: center; gap: 7px; padding: 8px; background: #f2f5fa; border: 1px solid #d5dfed;
+	border-radius: 7px; }
+.trainer-sheet-archive-row input, .trainer-sheet-archive-row select { min-width: 0; width: 100%;
+	padding: 7px 8px; border: 1px solid #b8c8dc; border-radius: 5px; background: #fff; color: #263e66; }
+.trainer-sheet-archive-controls { display: flex; gap: 5px; align-items: center; }
+.trainer-sheet-archive-controls .trainer-sheet-talent-use { margin: 0; }
+.trainer-sheet-archive-remove { padding: 7px 9px; border: 1px solid #cc9c9c; border-radius: 7px;
+	background: #fff4f4; color: #8c3636; font: inherit; font-size: 12px; cursor: pointer; }
+.trainer-sheet-archive-row .trainer-sheet-roll-error { grid-column: 1 / -1; }
+@media (max-width: 680px) {
+	.trainer-sheet-archive-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+	.trainer-sheet-archive-controls { grid-column: 1 / -1; }
+}
 .trainer-sheet-talent-popover-title { display: block; margin-bottom: 9px; color: #263e66; font-size: 16px; }
-.trainer-sheet-talent-description { color: #34445f; font-size: 13px; line-height: 1.5;
-	white-space: pre-wrap; overflow-wrap: break-word; }
+.trainer-sheet-talent-use { margin-top: 10px; padding: 7px 14px; border: 1px solid #518359;
+	border-radius: 7px; background: #e6f5e7; color: #24502b; font-family: inherit;
+	font-size: 13px; font-weight: 700; cursor: pointer; }
+.trainer-sheet-talent-use:disabled { border-color: #b8c5ba; background: #eef0ee; color: #6f7b70;
+	cursor: default; }
+.trainer-sheet-talent-unavailable { margin: 10px 0 3px; color: #6b7989; font-size: 12px; }
+.trainer-sheet-talent-description, .trainer-sheet-choice-description { color: #34445f;
+	font-size: 13px; line-height: 1.5; overflow-wrap: break-word; }
+.trainer-sheet-talent-description p, .trainer-sheet-choice-description p { margin: 0 0 8px; }
+.trainer-sheet-talent-description h3, .trainer-sheet-choice-description h3,
+.trainer-sheet-talent-description h4, .trainer-sheet-choice-description h4 {
+	margin: 12px 0 5px; color: #263e66; font-size: 14px; }
+.trainer-sheet-talent-description ul, .trainer-sheet-choice-description ul,
+.trainer-sheet-talent-description ol, .trainer-sheet-choice-description ol { margin: 3px 0 10px; padding-left: 21px; }
+.trainer-sheet-talent-description pre, .trainer-sheet-choice-description pre {
+	margin: 5px 0 10px; padding: 8px 10px; overflow-x: auto; white-space: pre-wrap;
+	background: #eef3fa; border-radius: 6px; }
+.trainer-sheet-description-table-wrap { max-width: 100%; overflow-x: auto; margin: 7px 0 11px; }
+.trainer-sheet-description-table { border-collapse: collapse; width: 100%; min-width: max-content; }
+.trainer-sheet-description-table th, .trainer-sheet-description-table td {
+	padding: 5px 8px; border: 1px solid #c6d3e5; text-align: left; vertical-align: top; }
+.trainer-sheet-description-table th { background: #e7effa; color: #263e66; }
 .trainer-sheet-skills-panel { min-width: 0; }
 .trainer-sheet-attributes { display: grid; grid-template-columns: max-content; gap: 6px; }
 .trainer-sheet-attribute { display: grid; justify-items: center; gap: 0; padding: 6px 10px 5px;
@@ -69,6 +128,25 @@ button.trainer-sheet-attribute:hover, button.trainer-sheet-attribute[aria-expand
 	min-width: 170px; padding: 10px; background: #fff; border: 1px solid #bdcce0;
 	border-radius: 8px; box-shadow: 0 8px 24px #1e33533d; }
 .trainer-sheet-attribute-popover > strong { padding: 2px 4px 6px; color: #263e66; }
+.trainer-sheet-roll-content { display: flex; gap: 12px; align-items: start; max-width: min(560px, calc(100vw - 44px)); }
+.trainer-sheet-roll-modes { display: grid; gap: 5px; min-width: 150px; }
+.trainer-sheet-roll-talents { display: grid; gap: 6px; width: min(310px, 52vw); max-height: 260px;
+	overflow-y: auto; border-left: 1px solid #d8e1ef; padding-left: 10px; }
+.trainer-sheet-roll-talents > strong { font-size: 12px; color: #405b84; }
+.trainer-sheet-roll-talent { display: block; width: 100%; padding: 8px 10px;
+	border: 2px solid #d8e1ef; border-radius: 7px; background: #f7f9fd;
+	font: inherit; text-align: left; cursor: pointer; transition: border-color .15s, background-color .15s, box-shadow .15s; }
+.trainer-sheet-roll-talent:hover { background: #eef3fb; border-color: #a9bdd9; }
+.trainer-sheet-roll-talent[aria-pressed='true'] { border-color: #e6ad22; background: #fff9e8;
+	box-shadow: 0 0 0 2px #f5d98166; }
+.trainer-sheet-roll-talent:focus-visible { outline: 2px solid #4169a6; outline-offset: 2px; }
+.trainer-sheet-roll-talent:disabled { opacity: .65; cursor: wait; }
+.trainer-sheet-roll-talent span { display: grid; gap: 2px; }
+.trainer-sheet-roll-talent b { font-size: 12px; color: #263e66; }
+.trainer-sheet-roll-talent small { font-size: 11px; color: #5b6d87; line-height: 1.3; }
+@media (max-width: 540px) { .trainer-sheet-roll-content { flex-direction: column; }
+	.trainer-sheet-roll-talents { width: 100%; border-left: 0; border-top: 1px solid #d8e1ef;
+		padding: 8px 0 0; } }
 .trainer-sheet-roll-choice { padding: 7px 10px; border: 1px solid #cbd7e7; border-radius: 6px;
 	background: #edf2f9; color: #263e66; font: inherit; text-align: left; cursor: pointer; }
 .trainer-sheet-roll-choice:hover { background: #dfeafb; }
@@ -143,7 +221,10 @@ button.trainer-sheet-attribute:hover, button.trainer-sheet-attribute[aria-expand
 .trainer-sheet-skills { gap: 3px; }
 .trainer-sheet-skills .trainer-sheet-list-row { align-items: center; padding: 5px 8px; min-height: 30px; }
 .trainer-sheet-skills .trainer-sheet-list-row.trained { background: #e4edf9; }
-.trainer-sheet-skills .trainer-sheet-list-row.focused { background: #d2e3f8; }
+.trainer-sheet-skills .trainer-sheet-list-row.half-proficiency,
+.trainer-sheet-skill-popover .trainer-sheet-list-row.half-proficiency {
+	background: linear-gradient(to right, #f1f4f9 50%, #e4edf9 50%); }
+.trainer-sheet-skills .trainer-sheet-list-row.focused { background: #a8c9f4; }
 .trainer-sheet-skill-group { width: 100%; border: 0; color: inherit; font: inherit; text-align: left; cursor: pointer; }
 .trainer-sheet-skill-group:hover, .trainer-sheet-skill-group[aria-expanded='true'] { background: #dfe9f7; }
 .trainer-sheet-skill-chevron { margin-left: auto; color: #586e91; font-size: 12px; }
@@ -153,7 +234,7 @@ button.trainer-sheet-attribute:hover, button.trainer-sheet-attribute[aria-expand
 .trainer-sheet-skill-popover-title { display: block; padding: 2px 3px 7px; color: #263e66; }
 .trainer-sheet-skill-popover .trainer-sheet-list-row { align-items: center; padding: 5px 8px; margin-top: 3px; }
 .trainer-sheet-skill-popover .trainer-sheet-list-row.trained { background: #e4edf9; }
-.trainer-sheet-skill-popover .trainer-sheet-list-row.focused { background: #d2e3f8; }
+.trainer-sheet-skill-popover .trainer-sheet-list-row.focused { background: #a8c9f4; }
 .trainer-sheet-list { display: grid; gap: 5px; max-height: 290px; overflow-y: auto; }
 .trainer-sheet-list.trainer-sheet-skills, .trainer-sheet-list.trainer-sheet-resistances {
 	max-height: none; overflow: visible; }

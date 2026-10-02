@@ -345,6 +345,23 @@ describe('RPG version 2 account authentication frontend', () => {
 		assert(script.includes("buttonElement.disabled = false; buttonElement.textContent = 'Entrar'"));
 	});
 
+	it('pairs trainer and starter choices before the class sheet with only two gender options', () => {
+		const creation = html.slice(html.indexOf('<form class="panel form-grid" id="create-form">'),
+			html.indexOf('</form>', html.indexOf('<form class="panel form-grid" id="create-form">')));
+		assert.equal((creation.match(/class="create-identity-column"/g) || []).length, 2);
+		for (const id of ['character-name', 'avatar-picker-toggle', 'character-gender',
+			'starter-name', 'starter-picker-toggle', 'starter-gender']) {
+			assert(creation.includes(`id="${id}"`), `missing ${id}`);
+		}
+		assert(creation.indexOf('id="character-name"') < creation.indexOf('id="avatar-picker-toggle"'));
+		assert(creation.indexOf('id="avatar-picker-toggle"') < creation.indexOf('id="character-gender"'));
+		assert(creation.indexOf('id="starter-name"') < creation.indexOf('id="starter-picker-toggle"'));
+		assert(creation.indexOf('id="starter-picker-toggle"') < creation.indexOf('id="starter-gender"'));
+		assert(!creation.includes('<option value="N">'));
+		assert(style.includes('.create-identity-grid { display: grid; grid-template-columns: repeat(2'));
+		assert(script.includes("characterGender: String(data.get('characterGender') || '')"));
+	});
+
 	it('confirms leaving and preserves or transfers characters during member removal', () => {
 		assert(script.includes('openLeaveTableConfirmation(entry)'));
 		assert(script.includes('Seus personagens permanecer\\u00e3o armazenados nela.'));
