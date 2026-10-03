@@ -494,16 +494,23 @@ export class RPGHttpServer {
 			const rolls = offered.result.dice.length === 1 ? '' :
 				`${offered.result.mode === 'advantage' ? 'Vantagem' : 'Desvantagem'}\n` +
 				`1ª rolagem: ${offered.result.dice[0]}\n2ª rolagem: ${offered.result.dice[1]}\n`;
-			const terms = rpgTrainerRollBonusTerms(offered.result.total - offered.result.natural -
+			const terms = rpgTrainerRollBonusTerms(offered.result.total - offered.result.effectiveNatural -
 				offered.talents.reduce((total, talent) => total + talent.bonus, 0), offered.talents);
+			const eraVoice = offered.talents.some(talent => talent.id === 'arqueologo:voz-das-eras');
+			const naturalFloor = eraVoice ? 10 : skill === 'conhecimento:arqueologia-fosseis' &&
+				character.trainerSheet?.talents.class.includes('arqueologo:memoria-academica') ? 8 : 0;
+			const floorLine = offered.result.effectiveNatural > offered.result.natural ?
+				`${eraVoice ? 'Voz das Eras' : 'Memória Acadêmica'}: ` +
+				`${offered.result.natural} no dado vale ${offered.result.effectiveNatural}.\n` : '';
 			const message = `${character.characterName} ajudou com ${label}.\n` +
-				`${talentLines ? `${talentLines}\n` : ''}${rolls}${label}: 1d20 tirou ` +
-				`${offered.result.natural} ${terms} = ${offered.result.total}.\n` +
+				`${talentLines ? `${talentLines}\n` : ''}${floorLine}${rolls}${label}: 1d20 tirou ` +
+				`${offered.result.effectiveNatural} ${terms} = ${offered.result.total}.\n` +
 				`Bônus de ajuda +${offered.bonus}`;
 			const posted = await this.login.mysqlPersistence.createTableChatMessage(
 				session.platformTableId, session.platformAccountId, message);
 			this.login.recordTrainerChatRoll(token, 'skill', label, terms, posted, { ...offered.result,
-				mode: offered.result.mode as 'normal' | 'advantage' | 'disadvantage' });
+				mode: offered.result.mode as 'normal' | 'advantage' | 'disadvantage' },
+			naturalFloor);
 			this.json(res, 201, { result: offered.result, helpBonus: offered.bonus, message: posted });
 			return;
 		}
@@ -557,6 +564,7 @@ export class RPGHttpServer {
 			const helpBonus = help?.bonus || 0;
 			const options = {
 				dc: 0, bonus: talentEffects.bonus + helpBonus,
+				naturalFloor: skillRoll ? talentEffects.naturalFloor : undefined,
 				temporarilyTrained: observedSkill,
 				advantages: (mode === 'advantage' ? 1 : 0) + talentEffects.advantages,
 				disadvantages: mode === 'disadvantage' ? 1 : 0,
@@ -576,7 +584,9 @@ export class RPGHttpServer {
 			const names: Record<string, string> = { strength: 'Força', dexterity: 'Destreza',
 				constitution: 'Constituição', intelligence: 'Inteligência', wisdom: 'Sabedoria', charisma: 'Carisma',
 				fortitude: 'Fortitude', reflexes: 'Reflexos', will: 'Vontade' };
-			const baseBonus = result.total - result.natural - talentEffects.bonus - helpBonus;
+			const effectiveNatural = 'effectiveNatural' in result &&
+				typeof result.effectiveNatural === 'number' ? result.effectiveNatural : result.natural;
+			const baseBonus = result.total - effectiveNatural - talentEffects.bonus - helpBonus;
 			const bonus = help ? [baseBonus, helpBonus, ...talentEffects.chosen
 				.filter(talent => talent.bonus !== 0).map(talent => talent.bonus)]
 				.map(value => value < 0 ? `- ${Math.abs(value)}` : `+ ${value}`).join(' ') :
@@ -591,13 +601,20 @@ export class RPGHttpServer {
 			const talentLines = talentEffects.chosen.length ?
 				`${talentEffects.chosen.map(talent => talent.name).join('\n')}\n` : '';
 			const helpLine = help ? `Ajuda de ${help.helperName}\n` : '';
-			const message = `${helpLine}${talentLines}${rolls}${rollName}: 1d20 tirou ` +
-				`${result.natural} ${bonus} = ${result.total}`;
+			const eraVoice = talentEffects.chosen.some(talent => talent.id === 'arqueologo:voz-das-eras');
+			const naturalFloor = eraVoice ? 10 : skillRoll && skill === 'conhecimento:arqueologia-fosseis' &&
+				character.trainerSheet?.talents.class.includes('arqueologo:memoria-academica') ? 8 : 0;
+			const floorLine = skillRoll && effectiveNatural > result.natural ?
+				`${eraVoice ? 'Voz das Eras' : 'Memória Acadêmica'}: ` +
+				`${result.natural} no dado vale ${effectiveNatural}.\n` : '';
+			const message = `${helpLine}${talentLines}${floorLine}${rolls}${rollName}: 1d20 tirou ` +
+				`${effectiveNatural} ${bonus} = ${result.total}`;
 			const posted = await persistence.createTableChatMessage(
 				session.platformTableId, session.platformAccountId, message);
 			if (kind === 'attribute' || kind === 'skill' || kind === 'resistance') {
 				this.login.recordTrainerChatRoll(token, kind, rollName, bonus, posted, { ...result,
-					mode: result.mode as 'normal' | 'advantage' | 'disadvantage' });
+					mode: result.mode as 'normal' | 'advantage' | 'disadvantage' },
+				naturalFloor);
 			}
 			this.json(res, 201, { result, message: posted });
 			return;
@@ -1483,7 +1500,8 @@ export class RPGHttpServer {
 			this.json(res, 200, { bag: this.login.discardBagItem(
 				this.token(req), typeof body.characterId === 'string' ? body.characterId : undefined,
 				this.string(body.itemId), Number(body.quantity), Number(body.expectedRevision),
-				typeof body.linkedEggId === 'string' ? body.linkedEggId : undefined
+				typeof body.linkedEggId === 'string' ? body.linkedEggId : undefined,
+				typeof body.quality === 'string' ? body.quality as import('./fossil-lab').RPGFossilQuality : undefined
 			) });
 			return;
 		}
@@ -1493,7 +1511,8 @@ export class RPGHttpServer {
 				this.token(req), typeof body.characterId === 'string' ? body.characterId : undefined,
 				this.string(body.targetCharacterId), this.string(body.itemId), Number(body.quantity),
 				Number(body.expectedSenderRevision), Number(body.expectedTargetRevision),
-				typeof body.linkedEggId === 'string' ? body.linkedEggId : undefined
+				typeof body.linkedEggId === 'string' ? body.linkedEggId : undefined,
+				typeof body.quality === 'string' ? body.quality as import('./fossil-lab').RPGFossilQuality : undefined
 			));
 			return;
 		}
@@ -1562,6 +1581,11 @@ export class RPGHttpServer {
 					boxIndex,
 				}),
 			});
+			return;
+		}
+		if (method === 'GET' && url.pathname === '/api/rpg/bag/fossil-identification') {
+			this.json(res, 200, this.login.identifyBagFossil(this.token(req),
+				url.searchParams.get('characterId') || undefined, url.searchParams.get('itemId') || ''));
 			return;
 		}
 		if (method === 'POST' && url.pathname === '/api/rpg/team-presets') {

@@ -19,6 +19,8 @@ export interface RPGTrainerChatRoll {
 	mode: 'normal' | 'advantage' | 'disadvantage';
 	diceCount: number;
 	bonus: number;
+	/** Piso do d20 em novos lançamentos desta mesma perícia (ex.: Sortudo). */
+	naturalFloor?: number;
 	campaignTime: string;
 	createdAt: number;
 	rerolled?: boolean;
@@ -36,6 +38,10 @@ export interface RPGTrainerSheet {
 	skills: { trained: string[], focused: string[] };
 	resistances: string[];
 	talents: { general: string[], class: string[], apex: string | null };
+	/** Marca a correção do bônus de Inteligência para fichas que já possuíam Memória Acadêmica. */
+	academicMemoryApplied?: boolean;
+	/** Marca a correção do bônus de Destreza para fichas que já possuíam Resgate de Relíquia. */
+	relicRescueApplied?: boolean;
 	/** Escolhas parametrizadas preservam a variante e o nível de aquisição. */
 	talentSelections?: (import('./trainer-talents').RPGTrainerTalentChoice & { acquiredAtLevel: number })[];
 	/** Condições narrativas ou licenças verificadas pelo Mestre, sem confiar em sinalização do cliente. */

@@ -135,6 +135,18 @@ export class RPGFossilLab {
 		if (!fossil) return null;
 		return this.takeRandomFromSample(this.ensure(character, random).samples[fossil.itemId], quantity, random);
 	}
+	static takeKnownQuality(character: RPGCharacterState, itemId: string, quality: RPGFossilQuality,
+		quantity: number, random: () => number): Record<RPGFossilQuality, number> {
+		const fossil = RPG_FOSSILS.find(entry => entry.itemId === toID(itemId));
+		if (!fossil || !FOSSIL_QUALITIES.includes(quality) || !Number.isSafeInteger(quantity) || quantity < 1) {
+			throw new Error('Grau ou quantidade de fóssil inválidos');
+		}
+		const sample = this.ensure(character, random).samples[fossil.itemId];
+		if (sample.quantities[quality] < quantity) throw new Error('Amostras insuficientes deste grau');
+		sample.quantities[quality] -= quantity;
+		sample.trackedQuantity -= quantity;
+		return { ...this.emptyQuantities(), [quality]: quantity };
+	}
 	static addKnownQualities(character: RPGCharacterState, itemId: string,
 		quantities: Record<RPGFossilQuality, number>, random: () => number): void {
 		const fossil = RPG_FOSSILS.find(entry => entry.itemId === toID(itemId));
@@ -143,6 +155,22 @@ export class RPGFossilLab {
 		let added = 0;
 		for (const q of FOSSIL_QUALITIES) { const n = Math.max(0, Math.floor(quantities[q] || 0)); sample.quantities[q] += n; added += n; }
 		sample.trackedQuantity += added; sample.found += added;
+	}
+	/** Sorteia cada amostra recém-entregue antes de aplicar o avanço de Achado Excepcional. */
+	static addRandomQualities(character: RPGCharacterState, itemId: string, quantity: number,
+		random: () => number, improve: boolean): void {
+		const fossil = RPG_FOSSILS.find(entry => entry.itemId === toID(itemId));
+		if (!fossil || !Number.isSafeInteger(quantity) || quantity < 1) {
+			throw new Error('Quantidade de fósseis inválida');
+		}
+		const sample = this.ensure(character, random).samples[fossil.itemId];
+		for (let index = 0; index < quantity; index++) {
+			const rolled = this.rollQuality(random);
+			const quality = !improve ? rolled : rolled === 'fragmented' ? 'preserved' : 'exceptional';
+			sample.quantities[quality]++;
+		}
+		sample.trackedQuantity += quantity;
+		sample.found += quantity;
 	}
 	static view(character: RPGCharacterState, now: number, random: () => number) {
 		const lab = this.ensure(character, random);

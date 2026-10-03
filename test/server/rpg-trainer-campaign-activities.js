@@ -7,6 +7,7 @@ const {
 	prepareRPGCamp, watchRPGCamp, resolveRPGSocialScene, assessRPGPokemonCooperation,
 	useRPGPokemonMoveOutsideBattle, approachRPGWildPokemon, forageRPGExpedition,
 	prepareRPGEmergencyShelter, planRPGCraft, createRPGWorkOrder, completeRPGWorkOrder,
+	resolveRPGMasterExcavation,
 } = require('../../dist/server/rpg-showdown');
 
 function trainer(classId = 'explorador') {
@@ -18,6 +19,29 @@ function trainer(classId = 'explorador') {
 const leg = { destination: { q: 1, r: 0 }, mode: 'foot', route: 'road', weather: 'normal', pace: 'normal' };
 
 describe('RPG trainer campaign activities', () => {
+	it('protects an ally’s find on a narrow excavation failure and stabilizes successful finds', () => {
+		const coordinator = trainer('arqueologo');
+		coordinator.talents.apex = 'arqueologo:mestre-da-escavacao';
+		const worker = trainer();
+		worker.skills.trained.push('investigacao');
+		const narrow = resolveRPGMasterExcavation(worker, coordinator,
+			{ skill: 'investigacao', dc: 13 }, () => 0);
+		assert.equal(narrow.check.total, 9);
+		assert.equal(narrow.protectedFind, true);
+		assert.equal(narrow.stabilizedForTransport, false);
+		const selfNarrow = resolveRPGMasterExcavation(coordinator, coordinator,
+			{ skill: 'investigacao', dc: 9 }, () => 0);
+		assert.equal(selfNarrow.check.success, false);
+		assert.equal(selfNarrow.protectedFind, true);
+		const severe = resolveRPGMasterExcavation(worker, coordinator,
+			{ skill: 'investigacao', dc: 14 }, () => 0);
+		assert.equal(severe.protectedFind, false);
+		const success = resolveRPGMasterExcavation(worker, coordinator,
+			{ skill: 'investigacao', dc: 9 }, () => 0);
+		assert.equal(success.stabilizedForTransport, true);
+		assert.throws(() => resolveRPGMasterExcavation(worker, trainer('arqueologo'),
+			{ skill: 'investigacao', dc: 5 }), /não possui/);
+	});
 	it('crosses adjacent 6 km hexes with partial progress and continuous vehicle energy', () => {
 		const state = createRPGTravelState({ q: 0, r: 0 });
 		let result = advanceRPGTravel(state, trainer(), leg, 1);

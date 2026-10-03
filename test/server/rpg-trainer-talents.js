@@ -79,6 +79,37 @@ describe('RPG trainer classes and talents', () => {
 		const apex = chooseRPGTrainerTalent(ready('arqueologo', 10), { id: 'arqueologo:grande-descobridor' });
 		assert.equal(apex.talents.apex, 'arqueologo:grande-descobridor');
 	});
+	it('allows Master of Excavation without Conservador de Campo', () => {
+		const sheet = ready('arqueologo', 10, { talents: { general: [],
+			class: ['arqueologo:especialista-em-fosseis', 'arqueologo:leitura-estratigrafica'], apex: null } });
+		const option = rpgTrainerTalentCatalog(sheet).find(entry => entry.id === 'arqueologo:mestre-da-escavacao');
+		assert.equal(option.available, true);
+		assert.equal(chooseRPGTrainerTalent(sheet,
+			{ id: 'arqueologo:mestre-da-escavacao' }).talents.apex, 'arqueologo:mestre-da-escavacao');
+	});
+	it('grants Academic Memory intelligence automatically up to 20', () => {
+		const base = ready('arqueologo', 5, { attributes: {
+			...ready('arqueologo', 5).attributes, intelligence: 13,
+		} });
+		const chosen = chooseRPGTrainerTalent(base, { id: 'arqueologo:memoria-academica' });
+		assert.equal(chosen.attributes.intelligence, 14);
+		assert.equal(rpgTrainerSkillBonus(chosen, 'conhecimento:arqueologia-fosseis'),
+			rpgTrainerSkillBonus(base, 'conhecimento:arqueologia-fosseis') + 1);
+		const capped = chooseRPGTrainerTalent(ready('arqueologo', 5, { attributes: {
+			...base.attributes, intelligence: 20,
+		} }), { id: 'arqueologo:memoria-academica' });
+		assert.equal(capped.attributes.intelligence, 20);
+	});
+	it('grants Relic Rescue dexterity automatically up to 20', () => {
+		const original = ready('arqueologo', 3);
+		const chosen = chooseRPGTrainerTalent(original, { id: 'arqueologo:resgate-de-reliquia' });
+		assert.equal(chosen.attributes.dexterity, 15);
+		assert.equal(chosen.relicRescueApplied, true);
+		const capped = chooseRPGTrainerTalent(ready('arqueologo', 3, { attributes: {
+			...original.attributes, dexterity: 20,
+		} }), { id: 'arqueologo:resgate-de-reliquia' });
+		assert.equal(capped.attributes.dexterity, 20);
+	});
 
 	it('applies general training, focus, resistance and domain without duplicate benefits', () => {
 		let sheet = ready('arqueologo', 10);

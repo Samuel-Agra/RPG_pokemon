@@ -15,8 +15,15 @@ describe('RPG Bag frontend', () => {
 	it('offers random and explicit fossil grades when the Master adds an item', () => {
 		assert.match(bagUi, /\['', 'Aleatório'\].*\['fragmented', 'Frag\.'\].*\['preserved', 'Pres\.'\].*\['exceptional', 'Excep\.'\]/);
 		assert.match(bagUi, /\.\.\.\(selectedQuality \? \{ quality: selectedQuality \} : \{\}\)/);
-		assert.match(bagUi, /if \(!options\.isMaster \|\| !item\.fossilQualities\) return \[item\]/);
-		assert.match(bagUi, /fossilDisplayOnly: true, actions: \[\]/);
+		assert.match(bagUi, /if \(!item\.fossilQualities\) return \[item\]/);
+		assert.match(bagUi, /fossilQuality: quality/);
+		assert.match(bagUi, /action === 'give' \|\| action === 'discard'/);
+		assert.doesNotMatch(bagUi, /name: 'Gerenciar ' \+ item\.name/);
+	});
+	it('shows ally fossil identification without permanently separating the Player Bag', () => {
+		assert.match(bagUi, /bagData\.fossilAppraiser/);
+		assert.match(bagUi, /\/bag\/fossil-identification\?/);
+		assert.doesNotMatch(bagUi, /Esta identificação não separa os fósseis na sua Bag/);
 	});
 	it('loads the dedicated Bag module before the main RPG interface', () => {
 		assert.match(html, /bag-ui\.js/);

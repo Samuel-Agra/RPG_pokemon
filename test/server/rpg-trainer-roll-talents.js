@@ -4,7 +4,7 @@ const assert = require('assert').strict;
 const { createRPGPendingTrainerSheet, chooseRPGTrainerTalent } = require('../../dist/server/rpg-showdown');
 const { rollRPGTrainerSkillCheck, rpgTrainerProficiency } = require('../../dist/server/rpg-showdown');
 const { rpgTrainerRollTalentOptions, rpgResolveTrainerRollTalents, rpgTrainerRollBonusTerms,
-	rpgEncouragingPresenceOption, rpgSetSharedArchive, rpgSharedArchiveOptions } =
+	rpgEncouragingPresenceOption, rpgExcavationMasterOption, rpgSetSharedArchive, rpgSharedArchiveOptions } =
 	require('../../dist/server/rpg-showdown/trainer-roll-talents');
 
 function sheet() {
@@ -15,6 +15,43 @@ function sheet() {
 }
 
 describe('RPG trainer situational roll talents', () => {
+	it('offers Voice of Ages only to its owner on Knowledge rolls', () => {
+		const owner = { ...sheet(), talents: { general: [], class: [], apex: 'arqueologo:voz-das-eras' } };
+		const option = rpgTrainerRollTalentOptions(owner, 'skill', 'conhecimento:regioes')[0];
+		assert.equal(option.naturalFloor, 10);
+		assert.equal(rpgResolveTrainerRollTalents(owner, 'skill', 'conhecimento:regioes',
+			[option.key]).naturalFloor, 10);
+		assert.deepEqual(rpgTrainerRollTalentOptions(owner, 'skill', 'investigacao'), []);
+		assert.throws(() => rpgResolveTrainerRollTalents(sheet(), 'skill', 'conhecimento:regioes',
+			[option.key]), /indisponível/);
+	});
+	it('offers Master of Excavation to its owner and allies without stacking Stratigraphic Reading', () => {
+		const master = { ...sheet(), talents: { general: [],
+			class: ['arqueologo:leitura-estratigrafica'], apex: 'arqueologo:mestre-da-escavacao' } };
+		const ally = sheet();
+		const option = rpgExcavationMasterOption('archaeologist', 'Ana', master);
+		assert.equal(option.bonus, 4);
+		assert.equal(rpgTrainerRollTalentOptions(master, 'skill', 'investigacao')
+			.find(talent => talent.id === option.id).bonus, 4);
+		assert.equal(rpgResolveTrainerRollTalents(ally, 'skill', 'investigacao', [option.key], [option]).bonus, 4);
+		assert.throws(() => rpgResolveTrainerRollTalents(master, 'skill', 'investigacao',
+			['arqueologo:mestre-da-escavacao', 'arqueologo:leitura-estratigrafica']), /substitui/);
+		assert.equal(rpgExcavationMasterOption('other', 'Bruno', ally), null);
+		assert.throws(() => rpgResolveTrainerRollTalents(ally, 'skill', 'investigacao', [option.key]),
+			/indisponível/);
+	});
+	it('offers Relic Rescue +2 only on selected human checks, not attacks', () => {
+		const owned = { ...sheet(), talents: { general: [],
+			class: ['arqueologo:resgate-de-reliquia'], apex: null } };
+		for (const [kind, id] of [['attribute', 'dexterity'], ['skill', 'percepcao'],
+			['skill', 'investigacao'], ['resistance', 'reflexes']]) {
+			assert.equal(rpgTrainerRollTalentOptions(owned, kind, id)[0].bonus, 2);
+			assert.equal(rpgResolveTrainerRollTalents(owned, kind, id,
+				['arqueologo:resgate-de-reliquia']).bonus, 2);
+		}
+		assert.deepEqual(rpgTrainerRollTalentOptions(owned, 'attack', 'melee'), []);
+		assert.equal(rpgResolveTrainerRollTalents(owned, 'skill', 'percepcao', []).bonus, 0);
+	});
 	it('prepares one archive per proficiency slot and grants the bonus only to its recipient', () => {
 		const author = { ...sheet(), level: 2,
 			talents: { general: [], class: ['arqueologo:acervo-compartilhado'], apex: null },
@@ -43,6 +80,22 @@ describe('RPG trainer situational roll talents', () => {
 		assert.deepEqual(rpgSharedArchiveOptions('autor', 'Arqueólogo', {
 			...second, skills: { trained: [], focused: [] } }, 'aliado'), []);
 		assert.equal(rpgSetSharedArchive(second, 0, null).sharedArchives.length, 1);
+	});
+	it('never stacks two shared archives from one author on the same roll', () => {
+		const author = { ...sheet(), level: 2,
+			talents: { general: [], class: ['arqueologo:acervo-compartilhado'], apex: null },
+			skills: { trained: ['conhecimento:arqueologia-fosseis'], focused: [] } };
+		const first = rpgSetSharedArchive(author, 0, { topic: 'Camadas de solo',
+			knowledge: 'conhecimento:arqueologia-fosseis', recipientCharacterId: 'aliado' });
+		const second = rpgSetSharedArchive(first, 1, { topic: 'Escavação segura',
+			knowledge: 'conhecimento:arqueologia-fosseis', recipientCharacterId: 'aliado' });
+		const options = rpgSharedArchiveOptions('autor', 'Arqueólogo', second, 'aliado');
+		assert.equal(options.length, 2);
+		assert.equal(rpgResolveTrainerRollTalents(sheet(), 'skill', 'conhecimento:arqueologia-fosseis',
+			[options[0].key], options).bonus, 2);
+		assert.throws(() => rpgResolveTrainerRollTalents(sheet(), 'skill',
+			'conhecimento:arqueologia-fosseis', options.map(option => option.key), options),
+		/Apenas um Acervo Compartilhado/);
 	});
 	it('offers Documentation in Order for Deception and Persuasion, but not Investigation', () => {
 		const owned = chooseRPGTrainerTalent(sheet(), { id: 'documentacao-em-ordem' });

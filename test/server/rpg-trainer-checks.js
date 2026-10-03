@@ -26,6 +26,36 @@ function sequence(...values) {
 }
 
 describe('RPG trainer checks engine', () => {
+	it('automatically treats low Archaeology rolls as 8 with Academic Memory', () => {
+		const sheet = trainer();
+		sheet.talents.class.push('arqueologo:memoria-academica');
+		const low = rollRPGTrainerSkillCheck(sheet, 'conhecimento:arqueologia-fosseis', undefined,
+			{ dc: 12 }, sequence(3));
+		assert.equal(low.natural, 3);
+		assert.equal(low.effectiveNatural, 8);
+		assert.equal(low.total, 8 + low.bonus);
+		assert.equal(low.success, low.total >= 12);
+		const high = rollRPGTrainerSkillCheck(sheet, 'conhecimento:arqueologia-fosseis', undefined,
+			{ dc: 12 }, sequence(14));
+		assert.equal(high.effectiveNatural, 14);
+		const unrelated = rollRPGTrainerSkillCheck(sheet, 'percepcao', undefined,
+			{ dc: 12 }, sequence(3));
+		assert.equal(unrelated.effectiveNatural, 3);
+	});
+	it('treats a selected Voice of Ages inscription roll below 10 as 10 without changing other checks', () => {
+		const sheet = trainer();
+		sheet.talents.apex = 'arqueologo:voz-das-eras';
+		sheet.talents.class.push('arqueologo:memoria-academica');
+		const inscription = rollRPGTrainerSkillCheck(sheet, 'conhecimento:arqueologia-fosseis', undefined,
+			{ dc: 15, naturalFloor: 10 }, sequence(3));
+		assert.equal(inscription.natural, 3);
+		assert.equal(inscription.effectiveNatural, 10);
+		assert.equal(inscription.total, 10 + inscription.bonus);
+		assert.equal(rollRPGTrainerSkillCheck(sheet, 'conhecimento:arqueologia-fosseis', undefined,
+			{ dc: 15 }, sequence(3)).effectiveNatural, 8);
+		assert.equal(rollRPGTrainerSkillCheck(sheet, 'conhecimento:regioes', undefined,
+			{ dc: 15 }, sequence(3)).effectiveNatural, 3);
+	});
 	it('calculates modifiers, proficiency, focus and separate skill branches', () => {
 		const sheet = trainer();
 		assert.deepEqual([1, 4, 5, 8, 9, 10].map(rpgTrainerProficiency), [2, 2, 3, 3, 4, 4]);

@@ -38,6 +38,7 @@
 	function closeDialogGroup() {
 		if (!activeDialogGroup) return;
 		document.removeEventListener('pointerdown', activeDialogGroup.outsideHandler);
+		document.removeEventListener('keydown', activeDialogGroup.escapeHandler, true);
 		window.removeEventListener('resize', activeDialogGroup.positionAll);
 		activeDialogGroup.layer.remove();
 		activeDialogGroup = null;
@@ -82,16 +83,22 @@
 			closeDialogGroup();
 			const layer = el('div', 'bag-ui-window-layer');
 			const group = {
-				layer, dialogs: [], outsideHandler: null,
+				layer, dialogs: [], outsideHandler: null, escapeHandler: null,
 				positionAll: () => group.dialogs.forEach(positionDialog),
 			};
 			group.outsideHandler = event => {
 				if (group.dialogs.some(dialog => dialog.card.contains(event.target))) return;
 				closeDialogGroup();
 			};
+			group.escapeHandler = event => {
+				if (event.key !== 'Escape') return;
+				event.preventDefault(); event.stopImmediatePropagation();
+				closeDialogFrom(group.dialogs.at(-1));
+			};
 			activeDialogGroup = group;
 			document.body.append(layer);
 			window.addEventListener('resize', group.positionAll);
+			document.addEventListener('keydown', group.escapeHandler, true);
 			window.setTimeout(() => {
 				if (activeDialogGroup === group) document.addEventListener('pointerdown', group.outsideHandler);
 			}, 0);
@@ -211,6 +218,7 @@
 		let activeCategory = null;
 		let search = '';
 		let loading = false;
+		let lastSignature = '';
 
 		async function load() {
 			if (loading) return;
@@ -218,12 +226,15 @@
 			if (!bagData) root.replaceChildren(el('div', 'panel loading-block', 'Abrindo a Bag...'));
 			try {
 				const data = await options.api('/bag?characterId=' + encodeURIComponent(options.characterId));
+				const signature = JSON.stringify(data.bag);
+				if (bagData && signature === lastSignature) return;
+				lastSignature = signature;
 				closeDialogGroup();
 				bagData = data.bag;
 				if (!activeCategory && !search && bagData.categories.length) activeCategory = bagData.categories[0].id;
 				renderShell();
 			} catch (error) {
-				root.replaceChildren(el('div', 'panel empty-state', error.message));
+				if (!bagData) root.replaceChildren(el('div', 'panel empty-state', error.message));
 				options.toast(error.message, true);
 			} finally {
 				loading = false;
@@ -284,11 +295,15 @@
 			heading.append(el('h2', '', search ? 'Resultados da pesquisa' : category?.name || 'Itens'));
 			content.append(heading);
 			const items = visibleItems().flatMap(item => {
-				if (!options.isMaster || !item.fossilQualities) return [item];
-				return [['fragmented', 'Frag.'], ['preserved', 'Pres.'], ['exceptional', 'Excep.']]
+				if (!item.fossilQualities) return [item];
+				const graded = [['fragmented', 'Frag.'], ['preserved', 'Pres.'], ['exceptional', 'Excep.']]
 					.filter(([quality]) => item.fossilQualities[quality] > 0)
 					.map(([quality, label]) => ({ ...item, name: item.name + ' (' + label + ')',
-						quantity: item.fossilQualities[quality], fossilDisplayOnly: true, actions: [] }));
+						quantity: item.fossilQualities[quality], fossilQuality: quality,
+						fossilDisplayOnly: options.isMaster,
+						actions: options.isMaster ? [] : (item.actions || []).filter(action =>
+							action === 'give' || action === 'discard') }));
+				return graded;
 			});
 			if (!items.length) {
 				content.append(el('p', 'empty-state bag-ui-empty', 'Nenhum item encontrado.'));
@@ -299,6 +314,7 @@
 				const card = makeButton('', 'bag-ui-item');
 				const name = el('span', 'bag-ui-item-name');
 				name.append(el('strong', '', item.name));
+				if (item.category === 'talent-items') name.append(el('small', '', item.description));
 				card.append(itemIcon(item), name, el('b', 'bag-ui-quantity', '×' + item.quantity));
 				if (item.favorite) card.append(el('span', 'bag-ui-favorite-mark', '★'));
 				card.addEventListener('click', () => showItemDetails(item, card));
@@ -444,8 +460,10 @@
 			identity.append(el('strong', '', item.name), el('small', '', item.registryCategory));
 			summary.append(itemIcon(item, 'large'), identity, el('b', '', '×' + item.quantity));
 			dialog.card.append(summary, el('p', 'bag-ui-description', item.description));
+			if (item.category === 'talent-items') dialog.card.append(el('p', 'bag-ui-description',
+				'Peso: 0 kg · Espaços na Bag: 0'));
 			if (item.fossilDisplayOnly) dialog.card.append(el('p', 'bag-ui-description',
-				'Esta qualidade é exibida separadamente para o Mestre. Use as ferramentas da Bag para alterar a quantidade total.'));
+				'Grau identificado. A Bag continua armazenando as amostras deste fóssil em conjunto.'));
 			if (item.mission && item.missionNote) {
 				const annotation = el('div', 'bag-ui-mission-note');
 				annotation.append(el('strong', '', 'Anotação'), el('p', '', item.missionNote));
@@ -458,6 +476,11 @@
 				dialog.card.append(equipped);
 			}
 			const actions = el('div', 'bag-ui-detail-actions');
+			if (item.category === 'fossils' && !item.fossilQualities && bagData.fossilAppraiser) {
+				const identify = makeButton('Identificar com ' + bagData.fossilAppraiser.name, 'button primary');
+				identify.addEventListener('click', () => void showFossilIdentification(item, dialog));
+				actions.append(identify);
+			}
 			for (const action of item.actions || []) {
 				const actionButton = makeButton(actionLabel(action, item), action === 'use' || action === 'equip' || action === 'teach' ? 'button primary' : 'button');
 				actionButton.addEventListener('click', () => {
@@ -514,6 +537,25 @@
 			cancel.addEventListener('click', close);
 			actions.append(cancel);
 			dialog.card.append(actions);
+		}
+
+		async function showFossilIdentification(item, parentDialog) {
+			const dialog = createDialog('bag-ui-item-dialog', parentDialog);
+			dialogHeading(dialog.card, 'Identificação do fóssil', () => dialog.overlay.remove());
+			const result = el('div', 'bag-ui-description', 'Examinando as amostras...');
+			dialog.card.append(result);
+			try {
+				const query = new URLSearchParams({ characterId: options.characterId, itemId: item.id });
+				const data = await options.api('/bag/fossil-identification?' + query);
+				if (!dialog.card.isConnected) return;
+				const labels = { fragmented: 'Fragmentado', preserved: 'Preservado', exceptional: 'Excepcional' };
+				result.replaceChildren(el('strong', '', data.appraiser + ' identificou:'));
+				for (const [quality, name] of Object.entries(labels)) {
+					if (data.qualities[quality]) result.append(el('p', '', `${name}: ${data.qualities[quality]}`));
+				}
+			} catch (error) {
+				if (dialog.card.isConnected) result.textContent = error.message || 'Não foi possível identificar o fóssil.';
+			}
 		}
 
 		function showEditMissionNote(item, parentDialog) {
@@ -801,6 +843,7 @@
 						method: 'POST', body: {
 							characterId: options.characterId, itemId: item.id,
 							quantity: Number(quantity.value), expectedRevision: bagData.revision,
+							...(item.fossilQuality ? { quality: item.fossilQuality } : {}),
 							...(item.linkedEggId ? { linkedEggId: item.linkedEggId } : {}),
 						},
 					});
@@ -857,6 +900,7 @@
 									itemId: item.id, quantity: Number(quantity.value),
 									expectedSenderRevision: transfer.senderRevision,
 									expectedTargetRevision: target.revision,
+									...(item.fossilQuality ? { quality: item.fossilQuality } : {}),
 									...(item.linkedEggId ? { linkedEggId: item.linkedEggId } : {}),
 								},
 							});
@@ -1069,6 +1113,15 @@
 		}
 
 		await load();
+		const synchronize = () => {
+			if (!root.isConnected) {
+				window.removeEventListener('rpg:realtime-sync', synchronize);
+				return;
+			}
+			if (document.hidden || root.contains(document.activeElement)) return;
+			void load();
+		};
+		window.addEventListener('rpg:realtime-sync', synchronize);
 		return root;
 	}
 

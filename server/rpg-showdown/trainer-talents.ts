@@ -137,6 +137,8 @@ function validSkill(skill: string): boolean {
 }
 
 function allowedAttributeChoices(talent: RPGTrainerTalentDefinition): (keyof RPGTrainerAttributes)[] {
+	// Memória Acadêmica concede Inteligência automaticamente, sem pedir uma escolha ao jogador.
+	if (talent.id === 'arqueologo:memoria-academica') return [];
 	if (talent.id === 'aprimoramento-de-atributo') return Object.values(ATTRIBUTE_NAMES);
 	const line = (/Aumente (?:também )?em 1[^\n]*/i.exec(talent.text))?.[0];
 	if (!line) return [];
@@ -271,6 +273,14 @@ function applyTalentEffect(sheet: RPGTrainerSheet, talent: RPGTrainerTalentDefin
 		}
 	} else if (choice.attribute !== undefined) {
 		throw new Error('Este talento não concede aumento de atributo');
+	}
+	if (talent.id === 'arqueologo:memoria-academica') {
+		attributes.intelligence = Math.min(20, attributes.intelligence + 1);
+		next.academicMemoryApplied = true;
+	}
+	if (talent.id === 'arqueologo:resgate-de-reliquia') {
+		attributes.dexterity = Math.min(20, attributes.dexterity + 1);
+		next.relicRescueApplied = true;
 	}
 	if (talent.id === 'resiliente') {
 		if (!choice.resistance || !Object.values(RESISTANCE_NAMES).includes(choice.resistance) ||

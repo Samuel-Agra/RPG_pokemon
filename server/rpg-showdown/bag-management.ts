@@ -24,7 +24,7 @@ export const RPG_BAG_MANAGEMENT_VERSION = 1;
 export type RPGManagedBagContext = 'world' | 'battle';
 export type RPGManagedBagCategory = 'pokeballs' | 'medicines' | 'held-items' |
 	'evolution-items' | 'tms' | 'fossils' | 'treasures' | 'favorites' | 'mission-items' |
-	'mega-stones' | 'key-items' | 'battle-items';
+	'mega-stones' | 'key-items' | 'battle-items' | 'talent-items';
 export type RPGManagedBagAction = 'use' | 'equip' | 'remove' | 'teach' | 'favorite' | 'unfavorite' |
 	'move-to-mission' | 'remove-from-mission' | 'edit-mission-note' | 'discard' | 'give';
 
@@ -65,6 +65,9 @@ export interface RPGManagedBagItemView {
 	mission: boolean;
 	missionNote?: string;
 	loaded?: boolean;
+	/** Projeção de talento: não ocupa peso ou espaço e não pode ser transferida. */
+	weightKg?: number;
+	slots?: number;
 	linkedEggId?: string;
 	actions: RPGManagedBagAction[];
 	equippedIn: RPGManagedBagEquippedPokemon[];
@@ -85,6 +88,7 @@ export interface RPGManagedBagView {
 	capacity: ReturnType<typeof RPGBagSystem.getCapacity>;
 	categories: RPGManagedBagCategoryView[];
 	items: RPGManagedBagItemView[];
+	fossilAppraiser?: { characterId: string, name: string };
 	search: string;
 	selectedCategory?: RPGManagedBagCategory;
 	itemUseLocked: boolean;
@@ -128,6 +132,7 @@ const WORLD_CATEGORIES: readonly { id: RPGManagedBagCategory, name: string }[] =
 	{ id: 'mega-stones', name: 'Mega Pedras' },
 	{ id: 'key-items', name: 'Itens-chave' },
 	{ id: 'mission-items', name: 'Itens de Missão' },
+	{ id: 'talent-items', name: 'Itens de talentos' },
 ];
 const BATTLE_CATEGORIES: readonly { id: RPGManagedBagCategory, name: string }[] = [
 	{ id: 'pokeballs', name: 'Poké Balls' },

@@ -41,6 +41,28 @@ function update(service, token, itemId, quantity, operation = 'add') {
 }
 
 describe('RPG Bag management backend', () => {
+	it('projects shared archives as weightless, non-transferable talent items outside battle', () => {
+		const service = createService();
+		createCharacter(service);
+		const master = service.loginMaster('14081998');
+		service.sharedArchiveOptions = () => [{ key: 'acervo-compartilhado@autor:0',
+			condition: 'Referência de Arqueóloga: Escavar fósseis.' }];
+		const before = service.getBag(master.token, 'samuel').capacity;
+		const bag = service.getBag(master.token, 'samuel', { category: 'talent-items' });
+		assert.equal(bag.categories.find(category => category.id === 'talent-items').quantity, 1);
+		assert.equal(bag.items.length, 1);
+		assert.equal(bag.items[0].name, 'Acervo Compartilhado');
+		assert.match(bag.items[0].description, /Escavar fósseis/);
+		assert.deepEqual(bag.items[0].actions, []);
+		assert.equal(bag.items[0].weightKg, 0);
+		assert.equal(bag.items[0].slots, 0);
+		assert.deepEqual(bag.capacity, before);
+		assert.equal(service.getBag(master.token, 'samuel', { context: 'battle' }).items
+			.some(item => item.category === 'talent-items'), false);
+		service.sharedArchiveOptions = () => [];
+		assert.equal(service.getBag(master.token, 'samuel', { category: 'talent-items' }).items.length, 0);
+	});
+
 	it('migrates old Bags to the expanded tiers and persists their organization', () => {
 		const migrated = RPGBagSystem.migrate({
 			version: 1, ownerId: 'samuel', revision: 3, maxSlots: 10,
@@ -81,7 +103,7 @@ describe('RPG Bag management backend', () => {
 		const world = service.getBag(master.token, 'samuel');
 		assert.deepEqual(world.categories.map(category => category.id), [
 			'favorites', 'pokeballs', 'medicines', 'held-items', 'evolution-items',
-			'tms', 'fossils', 'treasures', 'mega-stones', 'key-items', 'mission-items',
+			'tms', 'fossils', 'treasures', 'mega-stones', 'key-items', 'mission-items', 'talent-items',
 		]);
 		assert.equal(world.money, 3250);
 		assert.equal(world.items.find(item => item.id === 'charizarditey').category, 'mega-stones');
@@ -447,7 +469,7 @@ describe('RPG Bag management backend', () => {
 		const bagScript = fs.readFileSync('server/static/rpg/bag-ui.js', 'utf8');
 		assert(bagScript.includes("action === 'discard'"));
 		assert(bagScript.includes("action === 'give'"));
-		assert.equal(bagScript.includes("el('small', '', item.description)"), false);
+		assert(bagScript.includes("item.category === 'talent-items'"));
 		assert(bagScript.includes("operation.value === 'remove'"));
 		assert(bagScript.includes("bag-ui-master-catalog-item"));
 	});

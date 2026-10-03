@@ -58,6 +58,23 @@ describe('RPG active trainer talents', () => {
 		assert(result.message.includes('Vontade: 1d20 tirou 4 + 3 = 7\n---\nSortudo\nVantagem\n'));
 		assert(result.message.endsWith('Vontade: 1d20 tirou 11 + 3 = 14'));
 	});
+	it('keeps Academic Memory automatic on a rerolled Archaeology check', () => {
+		const roll = { mode: 'normal', diceCount: 1, bonus: 4, label: 'Conhecimento — Arqueologia e Fósseis',
+			bonusTerms: '+ 4', naturalFloor: 8 };
+		const result = rpgTrainerRerollMessage('teste original', roll, 'sortudo', () => 0.1);
+		assert.equal(result.natural, 3);
+		assert.equal(result.total, 12);
+		assert.match(result.message, /Memória Acadêmica: 3 no dado vale 8/);
+		assert.match(result.message, /1d20 tirou 8 \+ 4 = 12/);
+	});
+	it('keeps Voice of Ages minimum on a rerolled inscription check', () => {
+		const roll = { mode: 'normal', diceCount: 1, bonus: 4, label: 'Conhecimento — História',
+			bonusTerms: '+ 4', naturalFloor: 10 };
+		const result = rpgTrainerRerollMessage('teste original', roll, 'sortudo', () => 0.1);
+		assert.equal(result.natural, 3);
+		assert.equal(result.total, 14);
+		assert.match(result.message, /Voz das Eras: 3 no dado vale 10/);
+	});
 	it('converts only the latest eligible skill failure without rolling another die', () => {
 		const skill = { messageId: 'skill-1', authorAccountId: 'account-1',
 			message: 'Atuação: 1d20 tirou 4 + 2 = 6', label: 'Atuação', bonusTerms: '+ 2',

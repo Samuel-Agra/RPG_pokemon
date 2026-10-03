@@ -195,7 +195,9 @@
 			item.type = 'button'; item.setAttribute('aria-pressed', 'false');
 			item.addEventListener('click', () => {
 				if (!selectedTalents.has(talent.key)) {
-					for (const other of availableTalents.filter(entry => entry.id === talent.id && entry.key !== talent.key)) {
+					const stratigraphy = ['arqueologo:leitura-estratigrafica', 'arqueologo:mestre-da-escavacao'];
+					for (const other of availableTalents.filter(entry => entry.key !== talent.key &&
+						(entry.id === talent.id || stratigraphy.includes(entry.id) && stratigraphy.includes(talent.id)))) {
 						selectedTalents.delete(other.key);
 						const otherButton = talentButtons.get(other.key);
 						if (otherButton) otherButton.setAttribute('aria-pressed', 'false');
@@ -208,7 +210,8 @@
 				}
 			});
 			const detail = el('span');
-			detail.append(el('b', '', `${talent.name} · ${talent.advantage ? 'vantagem' :
+			detail.append(el('b', '', `${talent.name} · ${talent.naturalFloor ?
+				`mín. ${talent.naturalFloor} no d20` : talent.advantage ? 'vantagem' :
 				`+${talent.bonus}`}`), el('small', '', talent.condition));
 			item.append(detail); talentChoices.append(item); talentButtons.set(talent.key, item);
 		}
@@ -268,16 +271,17 @@
 			panel.remove(); button.setAttribute('aria-expanded', 'false');
 			document.removeEventListener('pointerdown', outside);
 			document.removeEventListener('keydown', escape);
-			window.removeEventListener('scroll', close, true);
+			window.removeEventListener('scroll', scroll, true);
 			window.removeEventListener('resize', close);
 			if (closeAttributePopover === close) closeAttributePopover = null;
 		}
 		function outside(event) { if (!panel.contains(event.target) && !button.contains(event.target)) close(); }
+		function scroll(event) { if (!panel.contains(event.target)) close(); }
 		function escape(event) { if (event.key === 'Escape') { event.stopPropagation(); close(); button.focus(); } }
 		closeAttributePopover = close;
 		document.addEventListener('pointerdown', outside);
 		document.addEventListener('keydown', escape);
-		window.addEventListener('scroll', close, true);
+		window.addEventListener('scroll', scroll, true);
 		window.addEventListener('resize', close);
 	}
 	/** Renderiza apenas os formatos usados nas regras; nunca insere HTML do catálogo diretamente. */

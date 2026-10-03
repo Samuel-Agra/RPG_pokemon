@@ -167,6 +167,8 @@ export function rpgBestHelpBonus(totals: readonly number[]): number {
 export interface RPGTrainerCheckOptions extends RPGD20Options {
 	dc: number;
 	bonus?: number;
+	/** Mínimo situacional do d20, autorizado após validar o talento escolhido. */
+	naturalFloor?: number;
 	/** Uma capacidade selecionada libera somente esta rolagem de uma perícia não treinada. */
 	temporarilyTrained?: boolean;
 	helpResults?: readonly { skill: string, total: number }[];
@@ -192,7 +194,16 @@ export function rollRPGTrainerAttributeCheck(sheet: RPGTrainerSheet, attribute: 
 
 export function rollRPGTrainerSkillCheck(sheet: RPGTrainerSheet, skill: string, attribute: RPGTrainerAttribute | undefined,
 	options: RPGTrainerCheckOptions, random: () => number = Math.random) {
-	return check(rpgTrainerSkillBonus(sheet, skill, attribute, false, options.temporarilyTrained), options, random, skill);
+	const selectedFloor = validInteger(options.naturalFloor ?? 0, 'Mínimo natural', 0, 20);
+	const result = check(rpgTrainerSkillBonus(sheet, skill, attribute, false, options.temporarilyTrained),
+		options, random, skill);
+	const floor = Math.max(selectedFloor, skill === 'conhecimento:arqueologia-fosseis' &&
+		sheet.talents.class.includes('arqueologo:memoria-academica') ? 8 : 0);
+	const effectiveNatural = Math.max(result.natural, floor);
+	if (effectiveNatural === result.natural) return { ...result, effectiveNatural };
+	const total = result.total + effectiveNatural - result.natural;
+	return { ...result, effectiveNatural, total, success: total >= result.dc,
+		degree: rpgCheckDegree(total, result.dc) };
 }
 
 export function rollRPGTrainerResistance(sheet: RPGTrainerSheet, resistance: RPGTrainerResistance,

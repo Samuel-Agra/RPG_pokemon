@@ -48,6 +48,58 @@ describe('RPG fossil restoration laboratory', () => {
 		), /Qualidade de fóssil inválida/);
 		assert.equal(service.getBag(master.token, 'samuel').revision, bag.revision);
 	});
+	it('raises only random Master-awarded fossils for a trainer with Exceptional Find', () => {
+		const { service, master, player, setRoll } = setup();
+		service.chooseTrainerAttributeMethod(player.token, 'standard');
+		service.completeTrainerCreation(player.token, {
+			classId: 'arqueologo',
+			attributes: { strength: 15, dexterity: 14, constitution: 13,
+				intelligence: 12, wisdom: 10, charisma: 8 },
+			optionalSkills: ['percepcao', 'sobrevivencia', 'pilotagem:automoveis'],
+			gearChoices: { arma: 'faca' },
+		});
+		const record = service.repository.get('samuel');
+		record.state.trainerSheet.talents.class.push('arqueologo:achado-excepcional');
+		service.repository.set(record);
+		let bag = service.getBag(master.token, 'samuel');
+		for (const roll of [0.1, 0.7, 0.99]) {
+			setRoll(roll);
+			bag = service.masterSetBagItemQuantity(master.token, 'samuel', 'oldamber', 1,
+				bag.revision, 'add');
+		}
+		assert.deepEqual(service.getBag(master.token, 'samuel').items.find(item => item.id === 'oldamber').fossilQualities,
+			{ fragmented: 0, preserved: 1, exceptional: 2 });
+		setRoll(0.1);
+		bag = service.masterSetBagItemQuantity(master.token, 'samuel', 'oldamber', 1,
+			bag.revision, 'add', 'fragmented');
+		assert.deepEqual(service.getBag(master.token, 'samuel').items.find(item => item.id === 'oldamber').fossilQualities,
+			{ fragmented: 1, preserved: 1, exceptional: 2 });
+	});
+	it('shows fossil grades in the Bag only to the trainer with Field Paleontology Assessment', () => {
+		const { service, master, player } = setup();
+		const record = service.repository.get('samuel');
+		record.state.trainerSheet = { status: 'complete', talents: {
+			general: [], class: ['arqueologo:avaliacao-paleontologica-de-campo'], apex: null } };
+		service.repository.set(record);
+		const fossils = service.getBag(player.token).items.find(item => item.id === 'helixfossil');
+		assert.deepEqual(fossils.fossilQualities, { fragmented: 0, preserved: 12, exceptional: 0 });
+		assert.deepEqual(service.getBag(master.token, 'samuel').items.find(item => item.id === 'helixfossil')
+			.fossilQualities, fossils.fossilQualities);
+	});
+	it('lets an ally identify a fossil for one response without revealing grades in the Bag', () => {
+		const { service, player } = setup();
+		assert.throws(() => service.identifyBagFossil(player.token, undefined, 'helixfossil'), /aliado/);
+		service.fossilAppraiser = () => ({ characterId: 'arqueologa', name: 'Arqueóloga' });
+		const before = service.getBag(player.token).items.find(item => item.id === 'helixfossil');
+		assert.equal(before.fossilQualities, undefined);
+		assert.equal(service.getBag(player.token).fossilAppraiser.name, 'Arqueóloga');
+		const result = service.identifyBagFossil(player.token, undefined, 'helixfossil');
+		assert.equal(result.appraiser, 'Arqueóloga');
+		assert.deepEqual(result.qualities, { fragmented: 0, preserved: 12, exceptional: 0 });
+		assert.equal(service.getBag(player.token).items.find(item => item.id === 'helixfossil')
+			.fossilQualities, undefined);
+		assert.throws(() => service.identifyBagFossil(player.token, undefined, 'potion'), /não está na sua Bag/);
+	});
 	it('analyzes a fossil and persists a standard restoration project', () => {
 		const { service, player } = setup();
 		let lab = service.getFossilLab(player.token);
@@ -235,5 +287,38 @@ describe('RPG fossil restoration laboratory', () => {
 		character = service.setCharacterPageAccess(master.token, 'samuel', 'fossils', true);
 		assert.equal(character.pageAccess.fossils, true);
 		assert.equal(service.getFossilLab(player.token).fossils.length > 0, true);
+	});
+	it('lets the appraiser give or discard only the selected fossil grade', () => {
+		const { service, master, player } = setup();
+		service.createCharacter({
+			characterName: 'Marina', playerName: 'Marina', avatar: 'rosa', password: 'senha-rpg',
+			initialMoney: 0, starter: { species: 'Bulbasaur', gender: 'F' },
+		});
+		const record = service.repository.get('samuel');
+		record.state.trainerSheet = { status: 'complete', talents: {
+			general: [], class: ['arqueologo:avaliacao-paleontologica-de-campo'], apex: null } };
+		service.repository.set(record);
+		let sender = service.getBag(player.token);
+		sender = service.masterSetBagItemQuantity(master.token, 'samuel', 'helixfossil', 2,
+			sender.revision, 'add', 'fragmented');
+		const target = service.getBag(master.token, 'marina');
+		assert.throws(() => service.transferBagItem(player.token, undefined, 'marina', 'helixfossil', 3,
+			sender.revision, target.revision, undefined, 'fragmented'), /Amostras insuficientes/);
+		assert.equal(service.getBag(player.token).revision, sender.revision);
+		service.transferBagItem(player.token, undefined, 'marina', 'helixfossil', 1,
+			sender.revision, target.revision, undefined, 'fragmented');
+		assert.deepEqual(service.getBag(master.token, 'marina').items.find(item => item.id === 'helixfossil')
+			.fossilQualities, { fragmented: 1, preserved: 0, exceptional: 0 });
+		sender = service.getBag(player.token);
+		service.discardBagItem(player.token, undefined, 'helixfossil', 1, sender.revision, undefined, 'preserved');
+		assert.deepEqual(service.getBag(player.token).items.find(item => item.id === 'helixfossil')
+			.fossilQualities, { fragmented: 1, preserved: 11, exceptional: 0 });
+	});
+	it('rejects a chosen fossil grade without the appraiser talent', () => {
+		const { service, player } = setup();
+		const bag = service.getBag(player.token);
+		assert.throws(() => service.discardBagItem(player.token, undefined, 'helixfossil', 1,
+			bag.revision, undefined, 'preserved'), /não pode selecionar o grau/);
+		assert.equal(service.getBag(player.token).revision, bag.revision);
 	});
 });

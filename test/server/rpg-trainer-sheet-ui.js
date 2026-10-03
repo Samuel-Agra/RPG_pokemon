@@ -288,7 +288,7 @@ describe('RPG trainer sheet read-only frontend', () => {
 		assert(http.includes('persistence.createTableChatMessage('));
 		assert(http.includes("mode === 'advantage' ? 'Vantagem' : 'Desvantagem'"));
 		assert(http.includes('1ª rolagem: ${result.dice[0]}\\n2ª rolagem: ${result.dice[1]}'));
-		assert(http.includes('`${helpLine}${talentLines}${rolls}${rollName}: 1d20 tirou `'));
+		assert(http.includes('`${helpLine}${talentLines}${floorLine}${rolls}${rollName}: 1d20 tirou `'));
 		assert(http.includes('rollRPGTrainerSkillCheck(character.trainerSheet!'));
 		assert(http.includes('rpgTrainerAttackBonus(character.trainerSheet!'));
 		assert(page.includes("'skill', entry.id, character.id, api"));
@@ -354,6 +354,12 @@ describe('RPG trainer sheet read-only frontend', () => {
 		assert(http.includes("talentEffects.chosen.map(talent => talent.name).join('\\n')"));
 		assert(style.includes('.trainer-sheet-roll-content { display: flex;'));
 		assert(style.includes(".trainer-sheet-roll-talent[aria-pressed='true'] { border-color: #e6ad22;"));
+	});
+	it('keeps the roll panel open while scrolling its situational talents', () => {
+		assert(page.includes("function scroll(event) { if (!panel.contains(event.target)) close(); }"));
+		assert(page.includes("window.addEventListener('scroll', scroll, true)"));
+		assert(page.includes("window.removeEventListener('scroll', scroll, true)"));
+		assert(style.includes('overflow-y: auto; overscroll-behavior: contain;'));
 	});
 	it('offers a server-backed Use action for Second Wind in its talent description', () => {
 		assert(page.includes("['segundo-folego', 'sortudo', 'determinado', 'esforco-heroico'].includes(id)"));

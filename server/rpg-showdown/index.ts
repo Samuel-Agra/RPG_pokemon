@@ -76,7 +76,7 @@ import {
 	rollRPGTrainerAttributeCheck, rollRPGTrainerResistance, rollRPGTrainerSkillCheck, rpgHelpBonus,
 	type RPGTrainerAttribute, type RPGTrainerCheckOptions, type RPGTrainerResistance,
 } from './trainer-checks';
-import { rpgEncouragingPresenceOption, rpgResolveTrainerRollTalents, rpgSetSharedArchive,
+import { rpgEncouragingPresenceOption, rpgExcavationMasterOption, rpgResolveTrainerRollTalents, rpgSetSharedArchive,
 	rpgSharedArchiveOptions, rpgTrainerRollTalents } from './trainer-roll-talents';
 import { rpgTrainerHeroicMessage, rpgTrainerRerollCandidate, rpgTrainerRerollMessage,
 	rpgUseTrainerSheetTalent } from './trainer-active-talents';
@@ -88,6 +88,7 @@ import {
 } from './trainer-survival';
 import { RPG_TRAINER_CLASS_FEATURES } from './trainer-class-features';
 import { resolveRPGExposure, prepareRPGCamp, type RPGExposure } from './trainer-exploration';
+import { resolveRPGMasterExcavation } from './trainer-excavation';
 import { advanceRPGTravel, createRPGTravelState, resolveRPGForcedMarch,
 	type RPGHex, type RPGTravelLeg } from './trainer-travel';
 import { planRPGCraft, RPG_CRAFT_RECIPES } from './trainer-campaign-work';
@@ -185,6 +186,7 @@ export * from './fossil-lab';
 export * from './shop-management';
 export * from './account-management';
 export * from './trainer-sheet';
+export * from './trainer-excavation';
 export * from './trainer-creation';
 export * from './trainer-checks';
 export * from './trainer-conflicts';
@@ -2342,7 +2344,8 @@ export class RPGLoginService {
 	recordTrainerChatRoll(token: string, kind: 'attribute' | 'skill' | 'resistance', label: string,
 		bonusTerms: string,
 		posted: { id: string, message: string, createdAt: number },
-		result: { natural: number, total: number, dice: number[], mode: 'normal' | 'advantage' | 'disadvantage' }) {
+		result: { natural: number, effectiveNatural?: number, total: number, dice: number[],
+			mode: 'normal' | 'advantage' | 'disadvantage', }, naturalFloor = 0) {
 		const session = this.getSession(token);
 		const characterId = session.role === 'master' ? session.viewAsCharacterId : session.characterId;
 		if (!characterId || !session.platformAccountId) throw new Error('Treinador da rolagem indisponível');
@@ -2351,7 +2354,8 @@ export class RPGLoginService {
 		if (!sheet || sheet.status !== 'complete') throw new Error('Ficha não concluída');
 		const roll: RPGTrainerChatRoll = { messageId: posted.id, message: posted.message, label, bonusTerms,
 			authorAccountId: session.platformAccountId, kind, mode: result.mode,
-			diceCount: result.dice.length, bonus: result.total - result.natural,
+			diceCount: result.dice.length, bonus: result.total - (result.effectiveNatural ?? result.natural),
+			...(naturalFloor ? { naturalFloor } : {}),
 			campaignTime: this.campaignSettings.currentDateTime, createdAt: posted.createdAt };
 		sheet.lastChatRolls = { ...sheet.lastChatRolls, any: roll,
 			...(kind === 'resistance' ? { resistance: roll } : {}),
@@ -2426,6 +2430,7 @@ export class RPGLoginService {
 	/** Exibe apenas treinadores de contas ativas da mesa atual; a mesma busca valida a rolagem. */
 	getTrainerAllyRollTalents(token: string, characterId: string) {
 		return [...this.encouragingPresenceOptions(token, characterId),
+			...this.excavationMasterOptions(token, characterId),
 			...this.sharedArchiveOptions(token, characterId)];
 	}
 
@@ -2484,6 +2489,19 @@ export class RPGLoginService {
 			});
 	}
 
+	private excavationMasterOptions(token: string, characterId: string) {
+		const session = this.getSession(token);
+		if (!session.platformTableId) return [];
+		return this.repository.list().filter(record => record.state.id !== characterId &&
+			record.tableId === session.platformTableId && record.accountId &&
+			this.accounts.repository.getMembership(session.platformTableId!, record.accountId)?.status === 'active')
+			.flatMap(record => {
+				const option = record.state.trainerSheet && rpgExcavationMasterOption(record.state.id,
+					record.state.characterName, record.state.trainerSheet);
+				return option ? [option] : [];
+			});
+	}
+
 	/** Catálogo público da mesa; a consulta ainda exige sessão válida na mesa selecionada. */
 	getTrainerRules(token: string) {
 		this.getSession(token);
@@ -2513,7 +2531,9 @@ export class RPGLoginService {
 				{ type: 'travel-reset', hex: RPGHex } |
 				{ type: 'travel-advance', leg: RPGTravelLeg, hoursBudget: number } |
 				{ type: 'craft-start', recipeId: string } |
-				{ type: 'craft-complete', craftId: string, facility?: string },
+				{ type: 'craft-complete', craftId: string, facility?: string } |
+				{ type: 'excavation', coordinatorCharacterId: string, skill: string,
+					attribute?: RPGTrainerAttribute, dc: number, },
 	}) {
 		this.requireMasterMode(token);
 		this.requirePlatformTablePermission(token, 'characters.manage');
@@ -2536,6 +2556,22 @@ export class RPGLoginService {
 		if (!Number.isSafeInteger(now)) throw new Error('Tempo da campanha inválido');
 		let result: Record<string, unknown>;
 		switch (action.type) {
+			case 'excavation': {
+				const session = this.getSession(token);
+				if (!session.platformTableId || original.tableId !== session.platformTableId ||
+					typeof action.coordinatorCharacterId !== 'string') {
+					throw new Error('Escavação fora da mesa atual');
+				}
+				const coordinator = this.requireCharacter(toID(action.coordinatorCharacterId));
+				if (coordinator.tableId !== original.tableId || !coordinator.accountId ||
+					this.accounts.repository.getMembership(original.tableId!, coordinator.accountId)?.status !== 'active') {
+					throw new Error('Coordenador indisponível nesta mesa');
+				}
+				result = { ...resolveRPGMasterExcavation(sheet,
+					coordinator.state.trainerSheet || createRPGPendingTrainerSheet(), action, this.random),
+				coordinatorCharacterId: coordinator.state.id };
+				break;
+			}
 			case 'exposure': {
 				if (!action.exposure || typeof action.exposure !== 'object') throw new Error('Exposição inválida');
 				const kind = action.exposure.kind;
@@ -2656,6 +2692,7 @@ export class RPGLoginService {
 		const observedSkill = talents.chosen.some(talent => talent.id === 'aprendizado-por-observacao');
 		const result = rollRPGTrainerSkillCheck(sheet, skill, attribute, {
 			dc: 0, bonus: talents.bonus,
+			naturalFloor: talents.naturalFloor,
 			temporarilyTrained: observedSkill,
 			advantages: (mode === 'advantage' ? 1 : 0) + talents.advantages,
 			disadvantages: mode === 'disadvantage' ? 1 : 0,
@@ -3799,7 +3836,33 @@ export class RPGLoginService {
 		const view = this.managedBagView(record, {
 			...query, itemUseLocked: !!itemUseLockReason, itemUseLockReason,
 		});
-		if (this.getSession(token).role === 'master' && view.context === 'world' &&
+		if (view.context === 'world') {
+			const talentItems = this.sharedArchiveOptions(token, record.state.id).map(option => ({
+				id: option.key, name: 'Acervo Compartilhado', quantity: 1,
+				category: 'talent-items' as const, registryCategory: 'key' as const,
+				description: option.condition, favorite: false, mission: false,
+				actions: [], equippedIn: [], icon: './assets/item-icons/acervo-compartilhado.png',
+				sprite: null, tags: ['trainer-talent'], weightKg: 0, slots: 0,
+			}));
+			const category = view.categories.find(entry => entry.id === 'talent-items');
+			if (category) {
+				category.itemTypes = talentItems.length;
+				category.quantity = talentItems.length;
+			}
+			const search = toID(query.search || '');
+			if (!query.category || query.category === 'talent-items') {
+				view.items.push(...talentItems.filter(item => !search ||
+					toID(item.name + ' ' + item.description).includes(search)));
+			}
+		}
+		const session = this.getSession(token);
+		const knowsFossilQuality = session.role === 'master' ||
+			record.state.trainerSheet?.talents.class.includes('arqueologo:avaliacao-paleontologica-de-campo');
+		if (!knowsFossilQuality && session.role === 'player' && view.context === 'world') {
+			const appraiser = this.fossilAppraiser(token, record.state.id);
+			if (appraiser) view.fossilAppraiser = appraiser;
+		}
+		if (knowsFossilQuality && view.context === 'world' &&
 			view.items.some(item => RPG_FOSSILS.some(fossil => fossil.itemId === item.id))) {
 			const before = JSON.stringify(record.state.fossilLab || null);
 			const lab = RPGFossilLab.ensure(record.state, this.random);
@@ -3953,6 +4016,15 @@ export class RPGLoginService {
 				throw new Error('Remova ou descarte os Eggs das incubadoras carregadas primeiro');
 			}
 		}
+		if (operation === 'add' && RPG_FOSSILS.some(fossil => fossil.itemId === toID(itemId)) &&
+			record.state.trainerSheet?.talents.class.includes('arqueologo:achado-excepcional')) {
+			const working = structuredClone(record.state);
+			RPGFossilLab.addRandomQualities(working, itemId, quantity, this.random, true);
+			RPGBagManagement.updateQuantity(working, itemId, quantity, expectedRevision, operation);
+			record.state = working;
+			this.persistBoxRecord(record);
+			return this.managedBagView(record);
+		}
 		RPGBagManagement.updateQuantity(record.state, itemId, quantity, expectedRevision, operation);
 		this.persistBoxRecord(record);
 		return this.managedBagView(record);
@@ -4021,10 +4093,11 @@ export class RPGLoginService {
 
 	discardBagItem(
 		token: string, characterId: string | undefined, itemId: string,
-		quantity: number, expectedRevision: number, linkedEggId?: string
+		quantity: number, expectedRevision: number, linkedEggId?: string, quality?: RPGFossilQuality
 	): RPGManagedBagView {
 		const record = this.requireBagRecord(token, characterId, 'bag:edit');
 		const item = this.requireTransferableBagItem(record, itemId);
+		this.requireManagedFossilQuality(token, record, item.id, quality);
 		record.state.inventory = RPGInventorySystem.migrate(record.state.inventory);
 		const loaded = item.id === 'portableincubator' && !!linkedEggId;
 		if (loaded && quantity !== 1) throw new Error('A incubadora carregada deve ser descartada individualmente');
@@ -4040,9 +4113,9 @@ export class RPGLoginService {
 		} else if (quantity > regular) {
 			throw new Error('A quantidade excede os itens fora de Itens de Missão');
 		}
-		record.state.inventory.bag = RPGBagSystem.remove(
-			record.state.inventory.bag, item.id, quantity, expectedRevision
-		).bag;
+		const removed = RPGBagSystem.remove(record.state.inventory.bag, item.id, quantity, expectedRevision);
+		if (quality) RPGFossilLab.takeKnownQuality(record.state, item.id, quality, quantity, this.random);
+		record.state.inventory.bag = removed.bag;
 		if (loaded) this.removePortableEggProject(record, linkedEggId);
 		this.persistBoxRecord(record);
 		return this.managedBagView(record);
@@ -4051,10 +4124,11 @@ export class RPGLoginService {
 	transferBagItem(
 		token: string, characterId: string | undefined, targetCharacterId: string,
 		itemId: string, quantity: number, expectedSenderRevision: number, expectedTargetRevision: number,
-		linkedEggId?: string
+		linkedEggId?: string, quality?: RPGFossilQuality
 	): { sender: RPGManagedBagView, targetCharacterId: string } {
 		const sender = this.requireBagRecord(token, characterId, 'bag:edit');
 		const item = this.requireTransferableBagItem(sender, itemId);
+		this.requireManagedFossilQuality(token, sender, item.id, quality);
 		const target = this.requireCharacter(targetCharacterId);
 		if (target.state.id === sender.state.id) throw new Error('Escolha outro Player para receber o item');
 		if (target.state.pageAccess?.bag === false) throw new Error('A Bag do Player escolhido está bloqueada');
@@ -4085,23 +4159,24 @@ export class RPGLoginService {
 		}
 		const originalSender = structuredClone(sender);
 		const originalTarget = structuredClone(target);
-		const fossilQualities = RPGFossilLab.takeRandomQualities(sender.state, item.id, quantity, this.random);
-		if (fossilQualities) RPGFossilLab.addKnownQualities(target.state, item.id, fossilQualities, this.random);
-		const removed = RPGBagSystem.remove(senderInventory.bag, item.id, quantity, expectedSenderRevision);
-		const added = RPGBagSystem.add(targetInventory.bag, item.id, quantity, expectedTargetRevision);
-		sender.state.inventory = { ...senderInventory, bag: removed.bag };
-		target.state.inventory = { ...targetInventory, bag: added.bag };
-		if (sender.state.trainerSheet?.status === 'complete') this.validateTrainerInventory(sender);
-		if (target.state.trainerSheet?.status === 'complete') this.validateTrainerInventory(target);
-		if (eggProject?.egg) {
-			this.removePortableEggProject(sender, eggProject.egg.id);
-			eggProject.egg.ownerId = target.state.id;
-			eggProject.eggOwnerId = target.state.id;
-			eggProject.egg.portableIncubatorId = target.state.id + ':portable:' + eggProject.egg.id;
-			delete eggProject.egg.portableIncubatorMission;
-			this.ensureNursery(target).projects.push(eggProject);
-		}
 		try {
+			const removed = RPGBagSystem.remove(senderInventory.bag, item.id, quantity, expectedSenderRevision);
+			const added = RPGBagSystem.add(targetInventory.bag, item.id, quantity, expectedTargetRevision);
+			const fossilQualities = quality ? RPGFossilLab.takeKnownQuality(sender.state, item.id, quality,
+				quantity, this.random) : RPGFossilLab.takeRandomQualities(sender.state, item.id, quantity, this.random);
+			if (fossilQualities) RPGFossilLab.addKnownQualities(target.state, item.id, fossilQualities, this.random);
+			sender.state.inventory = { ...senderInventory, bag: removed.bag };
+			target.state.inventory = { ...targetInventory, bag: added.bag };
+			if (sender.state.trainerSheet?.status === 'complete') this.validateTrainerInventory(sender);
+			if (target.state.trainerSheet?.status === 'complete') this.validateTrainerInventory(target);
+			if (eggProject?.egg) {
+				this.removePortableEggProject(sender, eggProject.egg.id);
+				eggProject.egg.ownerId = target.state.id;
+				eggProject.eggOwnerId = target.state.id;
+				eggProject.egg.portableIncubatorId = target.state.id + ':portable:' + eggProject.egg.id;
+				delete eggProject.egg.portableIncubatorMission;
+				this.ensureNursery(target).projects.push(eggProject);
+			}
 			this.persistAtomically(() => {
 				this.persistBoxRecord(sender);
 				this.persistBoxRecord(target);
@@ -5527,6 +5602,40 @@ export class RPGLoginService {
 		return view;
 	}
 
+	/** Um aliado precisa estar vinculado e ativo na mesma mesa; a identificação não concede seu talento. */
+	private fossilAppraiser(token: string, characterId: string) {
+		const session = this.getSession(token);
+		if (!session.platformTableId) return null;
+		const ally = this.repository.list().filter(record => record.state.id !== characterId &&
+			record.tableId === session.platformTableId && record.accountId &&
+			this.accounts.repository.getMembership(session.platformTableId!, record.accountId)?.status === 'active' &&
+			record.state.trainerSheet?.status === 'complete' &&
+			record.state.trainerSheet.talents.class.includes('arqueologo:avaliacao-paleontologica-de-campo'))
+			.sort((left, right) => left.state.characterName.localeCompare(right.state.characterName))[0];
+		return ally ? { characterId: ally.state.id, name: ally.state.characterName } : null;
+	}
+
+	/** Revela os graus apenas nesta resposta; não reorganiza nem anota a Bag do solicitante. */
+	identifyBagFossil(token: string, characterId: string | undefined, itemId: string) {
+		const record = this.requireBagRecord(token, characterId, 'bag:read');
+		const session = this.getSession(token);
+		if (session.role !== 'player' || record.state.id !== session.characterId) {
+			throw new Error('A identificação por aliado está disponível somente na sua própria Bag');
+		}
+		const appraiser = this.fossilAppraiser(token, record.state.id);
+		if (!appraiser) throw new Error('Não há um aliado com Avaliação Paleontológica de Campo nesta mesa');
+		const fossil = RPG_FOSSILS.find(entry => entry.itemId === toID(itemId));
+		if (!fossil || RPGBagSystem.getQuantity(RPGInventorySystem.migrate(record.state.inventory).bag,
+			fossil.itemId) < 1) throw new Error('Este fóssil não está na sua Bag');
+		const before = JSON.stringify(record.state.fossilLab || null);
+		const sample = RPGFossilLab.ensure(record.state, this.random).samples[fossil.itemId];
+		if (JSON.stringify(record.state.fossilLab || null) !== before) {
+			record.state.updatedAt = this.now();
+			this.repository.set(record);
+		}
+		return { itemId: fossil.itemId, qualities: { ...sample.quantities }, appraiser: appraiser.name };
+	}
+
 	private createTrainerProfile(starterSpecies = ''): RPGTrainerProfile {
 		const starter = toID(starterSpecies);
 		return {
@@ -6187,6 +6296,20 @@ export class RPGLoginService {
 		RPGFossilLab.ensure(record.state, this.random);
 		record.state.updatedAt = this.now();
 		this.repository.set(record);
+	}
+
+	/** Só o dono da Bag com o talento pode escolher o grau em uma transferência ou descarte. */
+	private requireManagedFossilQuality(
+		token: string, record: RPGStoredCharacter, itemId: string, quality?: RPGFossilQuality
+	): void {
+		if (quality === undefined) return;
+		const session = this.getSession(token);
+		if (session.role !== 'player' || session.characterId !== record.state.id ||
+			!record.state.trainerSheet?.talents.class.includes('arqueologo:avaliacao-paleontologica-de-campo') ||
+			!RPG_FOSSILS.some(fossil => fossil.itemId === itemId) ||
+			!['fragmented', 'preserved', 'exceptional'].includes(quality)) {
+			throw new Error('Você não pode selecionar o grau deste fóssil');
+		}
 	}
 
 	private requireTransferableBagItem(record: RPGStoredCharacter, itemId: string): RPGItemDefinition {
@@ -7088,9 +7211,29 @@ function migrateCharacterProfiles(service: RPGLoginService): void {
 /** Adiciona somente a ficha ausente; nunca substitui escolhas ou dados já registrados. */
 function migrateCharacterTrainerSheets(service: RPGLoginService): void {
 	for (const record of service.repository.list()) {
-		if (record.state.trainerSheet != null) continue;
-		record.state.trainerSheet = createRPGPendingTrainerSheet();
-		service.repository.set(record);
+		if (record.state.trainerSheet == null) {
+			record.state.trainerSheet = createRPGPendingTrainerSheet();
+			service.repository.set(record);
+			continue;
+		}
+		const sheet = record.state.trainerSheet;
+		let corrected = false;
+		if (!sheet.academicMemoryApplied && sheet.attributes &&
+			sheet.talents.class.includes('arqueologo:memoria-academica')) {
+			sheet.attributes.intelligence = Math.min(20, sheet.attributes.intelligence + 1);
+			sheet.academicMemoryApplied = true;
+			corrected = true;
+		}
+		if (!sheet.relicRescueApplied && sheet.attributes &&
+			sheet.talents.class.includes('arqueologo:resgate-de-reliquia')) {
+			sheet.attributes.dexterity = Math.min(20, sheet.attributes.dexterity + 1);
+			sheet.relicRescueApplied = true;
+			corrected = true;
+		}
+		if (corrected) {
+			record.state.updatedAt = Date.now();
+			service.repository.set(record);
+		}
 	}
 }
 function migrateCharacterBags(service: RPGLoginService): void {

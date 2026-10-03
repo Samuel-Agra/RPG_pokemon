@@ -10,10 +10,11 @@ export interface RPGTrainerRollTalent {
 	condition: string;
 	bonus: number;
 	advantage: boolean;
+	naturalFloor?: number;
 	targets: readonly string[];
 }
 type Rule = { targets: readonly string[], bonus?: number, advantage?: boolean, condition: string,
-	perVariant?: boolean, };
+	perVariant?: boolean, naturalFloor?: number, };
 
 /** Só efeitos que alteram diretamente uma rolagem do próprio treinador entram neste catálogo.
  * Requisitos narrativos são confirmados pelo jogador; posse, alvo e magnitude são validados no servidor. */
@@ -26,10 +27,14 @@ const RULES: Readonly<Record<string, Rule>> = {
 		condition: 'Reconhecer ou evitar perigos estruturais em ruínas.' },
 	'arqueologo:leitura-estratigrafica': { targets: ['skill:conhecimento:*', 'skill:investigacao', 'skill:oficio:*'], bonus: 2,
 		condition: 'Primeira busca ou escavação no ponto previamente examinado.' },
+	'arqueologo:mestre-da-escavacao': { targets: ['skill:conhecimento:*', 'skill:investigacao', 'skill:oficio:*'], bonus: 4,
+		condition: 'Escavação coordenada pelo Arqueólogo presente; substitui o +2 de Leitura Estratigráfica.' },
+	'arqueologo:voz-das-eras': { targets: ['skill:conhecimento:*'], naturalFloor: 10,
+		condition: 'Interpretar detalhes de uma inscrição histórica estudada por dez minutos.' },
 	'arqueologo:olho-para-falsificacoes': { targets: ['skill:conhecimento:*', 'skill:investigacao', 'skill:percepcao'], bonus: 2,
 		condition: 'Reconhecer falsificações ou alterações em objeto histórico.' },
-	'arqueologo:memoria-academica': { targets: ['skill:conhecimento:arqueologia-fosseis'], bonus: 2,
-		condition: 'Recordar informação histórica sem consulta a material.' },
+	'arqueologo:resgate-de-reliquia': { targets: ['attribute:*', 'skill:*', 'resistance:*'], bonus: 2,
+		condition: 'Proteger ou recuperar objeto histórico, documento, fóssil ou artefato ameaçado por dano, perda ou roubo.' },
 	'artista:presenca-magnetica': { targets: ['skill:persuasao', 'skill:enganacao', 'skill:intimidacao'], bonus: 2,
 		condition: 'Primeiro teste contra quem ouviu sua apresentação na cena.' },
 	'artista:tecnica-assinatura': { targets: ['skill:atuacao'], bonus: 2, perVariant: true,
@@ -197,7 +202,7 @@ export function rpgTrainerRollTalents(sheet: RPGTrainerSheet): RPGTrainerRollTal
 			name: variant ? `${definition.name} (${variant.replace(/[-:]/g, ' ')})` : definition.name,
 			condition: rule.condition, bonus: id === 'aprendizado-por-observacao' ?
 				rpgTrainerProficiency(sheet.level) : rule.bonus || 0, advantage: !!rule.advantage,
-			targets: rule.targets }));
+			...(rule.naturalFloor ? { naturalFloor: rule.naturalFloor } : {}), targets: rule.targets }));
 	});
 }
 
@@ -214,6 +219,16 @@ export function rpgEncouragingPresenceOption(allyId: string, allyName: string, a
 		name: `Presença Encorajadora de ${allyName}`, bonus: 2, advantage: false,
 		condition: 'Primeiro teste de Vontade contra medo na cena, após ouvir o aliado por pelo menos um minuto.',
 		targets: ['resistance:will'] };
+}
+
+/** O ápice pode beneficiar outro participante da mesma escavação, sem conceder o talento ao aliado. */
+export function rpgExcavationMasterOption(allyId: string, allyName: string,
+	ally: RPGTrainerSheet): RPGTrainerRollTalent | null {
+	if (ally.status !== 'complete' || ally.talents.apex !== 'arqueologo:mestre-da-escavacao') return null;
+	return { key: `arqueologo:mestre-da-escavacao@${allyId}`, id: 'arqueologo:mestre-da-escavacao',
+		name: `Mestre da Escavação de ${allyName}`, bonus: 4, advantage: false,
+		condition: 'Escavação coordenada pelo aliado presente; substitui o +2 de Leitura Estratigráfica.',
+		targets: ['skill:conhecimento:*', 'skill:investigacao', 'skill:oficio:*'] };
 }
 
 /** A referência beneficia o destinatário, nunca automaticamente o autor do talento. */
@@ -266,10 +281,19 @@ export function rpgResolveTrainerRollTalents(sheet: RPGTrainerSheet, kind: RPGTr
 		return talent;
 	});
 	if (new Set(chosen.map(talent => talent.id)).size !== chosen.length) {
+		if (chosen.filter(talent => talent.id === 'arqueologo:acervo-compartilhado').length > 1) {
+			throw new Error('Apenas um Acervo Compartilhado pode beneficiar a mesma rolagem');
+		}
 		throw new Error('Variantes do mesmo talento não se acumulam na rolagem');
 	}
+	if (chosen.some(talent => talent.id === 'arqueologo:mestre-da-escavacao') &&
+		chosen.some(talent => talent.id === 'arqueologo:leitura-estratigrafica')) {
+		throw new Error('Mestre da Escavação substitui o bônus de Leitura Estratigráfica');
+	}
+	const naturalFloor = Math.max(0, ...chosen.map(talent => talent.naturalFloor || 0));
 	return { chosen, bonus: chosen.reduce((total, talent) => total + talent.bonus, 0),
-		advantages: chosen.filter(talent => talent.advantage).length };
+		advantages: chosen.filter(talent => talent.advantage).length,
+		...(naturalFloor ? { naturalFloor } : {}) };
 }
 
 /** Mantém cada parcela visível no chat, sem somar talentos novamente ao resultado já calculado. */
