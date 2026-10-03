@@ -1,5 +1,5 @@
 import { RPG_TRAINER_TALENTS } from './trainer-talents-catalog';
-import { rpgTrainerProficiency } from './trainer-checks';
+import { rpgTrainerProficiency, rpgTrainerSkillAttributes, type RPGTrainerAttribute } from './trainer-checks';
 import type { RPGTrainerSheet } from './trainer-sheet';
 
 export type RPGTrainerRollKind = 'attribute' | 'skill' | 'resistance' | 'attack' | 'initiative';
@@ -11,10 +11,11 @@ export interface RPGTrainerRollTalent {
 	bonus: number;
 	advantage: boolean;
 	naturalFloor?: number;
+	requiredAttribute?: RPGTrainerAttribute;
 	targets: readonly string[];
 }
 type Rule = { targets: readonly string[], bonus?: number, advantage?: boolean, condition: string,
-	perVariant?: boolean, naturalFloor?: number, };
+	perVariant?: boolean, naturalFloor?: number, requiredAttribute?: RPGTrainerAttribute, };
 
 /** Só efeitos que alteram diretamente uma rolagem do próprio treinador entram neste catálogo.
  * Requisitos narrativos são confirmados pelo jogador; posse, alvo e magnitude são validados no servidor. */
@@ -39,13 +40,13 @@ const RULES: Readonly<Record<string, Rule>> = {
 		condition: 'Primeiro teste contra quem ouviu sua apresentação na cena.' },
 	'artista:tecnica-assinatura': { targets: ['skill:atuacao'], bonus: 2, perVariant: true,
 		condition: 'Modalidade artística escolhida é o elemento principal.' },
+	'artista:artista-versatil': { targets: ['skill:atuacao'], bonus: 2, perVariant: true,
+		condition: 'Modalidade artística escolhida é o elemento principal.' },
 	'artista:composicao-marcante': { targets: ['skill:atuacao'], bonus: 2,
 		condition: 'Um teste da apresentação com composição preparada.' },
 	'artista:inspiracao-artistica': { targets: ['skill:*'], bonus: 2,
 		condition: 'Primeiro teste após receber Inspiração Artística válida; só marque se você foi o beneficiado.' },
-	'artista:arte-reconfortante': { targets: ['resistance:will'], bonus: 2,
-		condition: 'Próximo teste contra medo após participar da atividade artística no descanso.' },
-	'artista:mil-faces': { targets: ['skill:atuacao', 'skill:enganacao'], bonus: 2,
+	'artista:mil-faces': { targets: ['skill:*'], bonus: 2, requiredAttribute: 'charisma',
 		condition: 'Sustentar imitação com aparência e voz.' },
 	'artista-marcial:chave-de-contencao': { targets: ['skill:atletismo'], bonus: 2,
 		condition: 'Agarrar ou manter uma criatura agarrada.' },
@@ -189,7 +190,7 @@ function matches(targets: readonly string[], kind: RPGTrainerRollKind, id: strin
 export function rpgTrainerRollTalents(sheet: RPGTrainerSheet): RPGTrainerRollTalent[] {
 	const owned = [...new Set([...sheet.talents.general, ...sheet.talents.class,
 		...(sheet.talents.apex ? [sheet.talents.apex] : [])])];
-	return owned.flatMap(id => {
+	const options = owned.flatMap(id => {
 		const rule = RULES[id];
 		const definition = RPG_TRAINER_TALENTS.find(talent => talent.id === id);
 		if (!rule || !definition || id === 'artista-marcial:reflexos-treinados' &&
@@ -197,17 +198,32 @@ export function rpgTrainerRollTalents(sheet: RPGTrainerSheet): RPGTrainerRollTal
 			return [];
 		}
 		const variants = rule.perVariant ? (sheet.talentSelections || [])
-			.filter(selection => selection.id === id && selection.variant).map(selection => selection.variant!) : [null];
+			.filter(selection => selection.id === id)
+			.flatMap(selection => id === 'artista:artista-versatil' ?
+				[selection.variant, selection.secondVariant].filter((value): value is string => !!value) :
+				selection.variant ? [selection.variant] : []) : [null];
 		return variants.map(variant => ({ key: variant ? `${id}@${variant}` : id, id,
 			name: variant ? `${definition.name} (${variant.replace(/[-:]/g, ' ')})` : definition.name,
 			condition: rule.condition, bonus: id === 'aprendizado-por-observacao' ?
 				rpgTrainerProficiency(sheet.level) : rule.bonus || 0, advantage: !!rule.advantage,
-			...(rule.naturalFloor ? { naturalFloor: rule.naturalFloor } : {}), targets: rule.targets }));
+			...(rule.naturalFloor ? { naturalFloor: rule.naturalFloor } : {}),
+			...(rule.requiredAttribute ? { requiredAttribute: rule.requiredAttribute } : {}),
+			targets: rule.targets }));
 	});
+	if (sheet.comfortingArt && sheet.comfortingArt.restCycle === (sheet.talentRestCycle || 0)) {
+		options.push({ key: `artista:arte-reconfortante@${sheet.comfortingArt.sourceCharacterId}`,
+			id: 'artista:arte-reconfortante', name: `Arte Reconfortante de ${sheet.comfortingArt.sourceName}`,
+			condition: 'Próximo teste de Vontade contra medo antes do próximo descanso longo.',
+			bonus: 2, advantage: false, targets: ['resistance:will'] });
+	}
+	return options;
 }
 
-export function rpgTrainerRollTalentOptions(sheet: RPGTrainerSheet, kind: RPGTrainerRollKind, id: string) {
+export function rpgTrainerRollTalentOptions(sheet: RPGTrainerSheet, kind: RPGTrainerRollKind, id: string,
+	attribute?: RPGTrainerAttribute) {
+	const usedAttribute = kind === 'skill' ? attribute || rpgTrainerSkillAttributes(sheet, id)[0] : undefined;
 	return rpgTrainerRollTalents(sheet).filter(talent => matches(talent.targets, kind, id) &&
+		(!talent.requiredAttribute || usedAttribute === talent.requiredAttribute) &&
 		(talent.id !== 'aprendizado-por-observacao' || kind === 'skill' &&
 		id !== 'conhecimento' && id !== 'oficio' && !sheet.skills.trained.includes(id)));
 }
@@ -219,6 +235,28 @@ export function rpgEncouragingPresenceOption(allyId: string, allyName: string, a
 		name: `Presença Encorajadora de ${allyName}`, bonus: 2, advantage: false,
 		condition: 'Primeiro teste de Vontade contra medo na cena, após ouvir o aliado por pelo menos um minuto.',
 		targets: ['resistance:will'] };
+}
+
+/** A inspiração de outro Artista pode ser marcada pelo beneficiado no primeiro teste da perícia combinada. */
+export function rpgArtisticInspirationOption(allyId: string, allyName: string,
+	ally: RPGTrainerSheet): RPGTrainerRollTalent | null {
+	if (ally.status !== 'complete' || !ally.talents.class.includes('artista:inspiracao-artistica')) return null;
+	return { key: `artista:inspiracao-artistica@${allyId}`, id: 'artista:inspiracao-artistica',
+		name: `Inspiração Artística de ${allyName}`, bonus: 2, advantage: false,
+		condition: 'Primeiro teste da perícia escolhida após um minuto de encorajamento artístico do aliado; ' +
+			'a inspiração deve ser compreendida e relacionada ao desafio.',
+		targets: ['skill:*'] };
+}
+
+/** Até dois aliados designados podem aproveitar a distração nas perícias indicadas. */
+export function rpgCaptivatingDistractionOption(allyId: string, allyName: string,
+	ally: RPGTrainerSheet): RPGTrainerRollTalent | null {
+	if (ally.status !== 'complete' || !ally.talents.class.includes('artista:distracao-cativante')) return null;
+	return { key: `artista:distracao-cativante@${allyId}`, id: 'artista:distracao-cativante',
+		name: `Distração Cativante de ${allyName}`, bonus: 2, advantage: false,
+		condition: 'O Artista passou no teste de Atuação e mantém os observadores distraídos; ' +
+			'você deve ser um dos dois aliados escolhidos e agir contra esses observadores.',
+		targets: ['skill:furtividade', 'skill:ladinagem'] };
 }
 
 /** O ápice pode beneficiar outro participante da mesma escavação, sem conceder o talento ao aliado. */
@@ -268,12 +306,13 @@ export function rpgSetSharedArchive(sheet: RPGTrainerSheet, slot: number,
 }
 
 export function rpgResolveTrainerRollTalents(sheet: RPGTrainerSheet, kind: RPGTrainerRollKind,
-	id: string, selected: readonly string[], allies: readonly RPGTrainerRollTalent[] = []) {
+	id: string, selected: readonly string[], allies: readonly RPGTrainerRollTalent[] = [],
+	attribute?: RPGTrainerAttribute) {
 	if (!Array.isArray(selected) || selected.length > 20 ||
 		selected.some(key => typeof key !== 'string') || new Set(selected).size !== selected.length) {
 		throw new Error('Talentos da rolagem inválidos');
 	}
-	const available = [...rpgTrainerRollTalentOptions(sheet, kind, id),
+	const available = [...rpgTrainerRollTalentOptions(sheet, kind, id, attribute),
 		...allies.filter(talent => matches(talent.targets, kind, id))];
 	const chosen = selected.map(key => {
 		const talent = available.find(option => option.key === key);
@@ -289,6 +328,10 @@ export function rpgResolveTrainerRollTalents(sheet: RPGTrainerSheet, kind: RPGTr
 	if (chosen.some(talent => talent.id === 'arqueologo:mestre-da-escavacao') &&
 		chosen.some(talent => talent.id === 'arqueologo:leitura-estratigrafica')) {
 		throw new Error('Mestre da Escavação substitui o bônus de Leitura Estratigráfica');
+	}
+	if (chosen.some(talent => talent.id === 'artista:tecnica-assinatura') &&
+		chosen.some(talent => talent.id === 'artista:artista-versatil')) {
+		throw new Error('Técnica Assinatura e Artista Versátil não se acumulam na mesma apresentação');
 	}
 	const naturalFloor = Math.max(0, ...chosen.map(talent => talent.naturalFloor || 0));
 	return { chosen, bonus: chosen.reduce((total, talent) => total + talent.bonus, 0),

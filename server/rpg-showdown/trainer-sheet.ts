@@ -21,6 +21,8 @@ export interface RPGTrainerChatRoll {
 	bonus: number;
 	/** Piso do d20 em novos lançamentos desta mesma perícia (ex.: Sortudo). */
 	naturalFloor?: number;
+	/** Identifica o talento que alterou o d20 em uma repetição posterior. */
+	naturalFloorSource?: string;
 	campaignTime: string;
 	createdAt: number;
 	rerolled?: boolean;
@@ -55,6 +57,10 @@ export interface RPGTrainerSheet {
 	lastChatRolls?: { any?: RPGTrainerChatRoll, resistance?: RPGTrainerChatRoll, skill?: RPGTrainerChatRoll };
 	/** Cada espaço preparado pertence a um destinatário e a uma área treinada de Conhecimento. */
 	sharedArchives?: { slot: number, topic: string, knowledge: string, recipientCharacterId: string }[];
+	/** Benefício de Arte Reconfortante aguardando o primeiro teste de Vontade contra medo. */
+	comfortingArt?: { sourceCharacterId: string, sourceName: string, restCycle: number };
+	/** Destinatários já atendidos durante o descanso curto atual do Artista. */
+	comfortingArtSession?: { restStartedAt: number, recipientCharacterIds: string[] };
 	/** A primeira série elegível fica vinculada ao personagem antes da distribuição. */
 	creation?: { method: 'standard' | 'rolled', rolls: number[] | null, dice?: number[][],
 		rollProgress?: { dice: number[][], values: number[] }, };

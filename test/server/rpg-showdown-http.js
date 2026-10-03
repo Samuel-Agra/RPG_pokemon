@@ -54,6 +54,9 @@ describe('RPG HTTP frontend API', () => {
 		assert.equal(handler.isAdministrativeRPGMutation('PUT', '/api/rpg/campaign/settings'), true);
 		assert.equal(handler.isPublicValidationError('nome de exibição inválido'), true);
 		assert.equal(handler.isPublicValidationError('Cor da mesa inválida'), true);
+		assert.equal(handler.isPublicValidationError('Escolha modalidades artísticas diferentes das já selecionadas'), true);
+		assert.equal(handler.isPublicValidationError('Escolha de talento inválida'), true);
+		assert.equal(handler.isPublicValidationError('O participante não possui Exaustão para reduzir'), true);
 		assert.equal(handler.isPublicValidationError('O segredo interno não pode aparecer'), false);
 		assert.equal(handler.isPublicValidationError('RPG table scope is not initialized'), false);
 		assert.equal(handler.isPersistenceError({ code: 'ERR_INVALID_ARG_TYPE' }), false);

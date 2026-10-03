@@ -4,6 +4,7 @@ const assert = require('assert').strict;
 const {
 	createRPGPendingTrainerSheet, rpgTrainerTakeDamage, rpgTrainerHeal,
 	rpgTrainerDeathSave, rpgTrainerStabilize, rpgTrainerAddExhaustion,
+	rpgTrainerReduceExhaustion,
 	rpgTrainerApplyCondition, rpgTrainerConditionTick, rpgTrainerRemoveCondition,
 	rpgTrainerAddWound, rpgTrainerTreatWound, rpgTrainerRest,
 	rpgTrainerStartRest,
@@ -21,6 +22,13 @@ function ready() {
 }
 
 describe('RPG trainer survival', () => {
+	it('reduces one level of exhaustion for a valid Comforting Art recipient', () => {
+		const exhausted = rpgTrainerAddExhaustion(ready(), 2);
+		const recovered = rpgTrainerReduceExhaustion(exhausted);
+		assert.equal(recovered.survival.exhaustion, 1);
+		assert.equal(exhausted.survival.exhaustion, 2);
+		assert.throws(() => rpgTrainerReduceExhaustion(ready()), /não possui Exaustão/);
+	});
 	it('keeps human HP, temporary HP, nonlethal damage and instant death separate', () => {
 		const base = ready();
 		base.hitPoints.temporary = 4;

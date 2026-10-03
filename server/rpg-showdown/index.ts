@@ -76,14 +76,17 @@ import {
 	rollRPGTrainerAttributeCheck, rollRPGTrainerResistance, rollRPGTrainerSkillCheck, rpgHelpBonus,
 	type RPGTrainerAttribute, type RPGTrainerCheckOptions, type RPGTrainerResistance,
 } from './trainer-checks';
-import { rpgEncouragingPresenceOption, rpgExcavationMasterOption, rpgResolveTrainerRollTalents, rpgSetSharedArchive,
+import { rpgArtisticInspirationOption, rpgCaptivatingDistractionOption, rpgEncouragingPresenceOption,
+	rpgExcavationMasterOption,
+	rpgResolveTrainerRollTalents, rpgSetSharedArchive,
 	rpgSharedArchiveOptions, rpgTrainerRollTalents } from './trainer-roll-talents';
 import { rpgTrainerHeroicMessage, rpgTrainerRerollCandidate, rpgTrainerRerollMessage,
 	rpgUseTrainerSheetTalent } from './trainer-active-talents';
 import {
 	rpgTrainerAddExhaustion, rpgTrainerAddWound, rpgTrainerApplyCondition, rpgTrainerConditionTick,
-	rpgTrainerDeathSave, rpgTrainerHeal, rpgTrainerRemoveCondition, rpgTrainerRest,
+	rpgTrainerDeathSave, rpgTrainerHeal, rpgTrainerReduceExhaustion, rpgTrainerRemoveCondition, rpgTrainerRest,
 	rpgTrainerStabilize, rpgTrainerStartRest, rpgTrainerTakeDamage, rpgTrainerTreatWound,
+	rpgTrainerSurvival,
 	type RPGTrainerSurvivalAction,
 } from './trainer-survival';
 import { RPG_TRAINER_CLASS_FEATURES } from './trainer-class-features';
@@ -2320,6 +2323,8 @@ export class RPGLoginService {
 			archiveRecipients: sheet.talents.class.includes('arqueologo:acervo-compartilhado') ?
 				this.trainerArchiveRecipients(token) : [],
 			activeTalentUses: { restCycle: sheet.talentRestCycle || 0, used: sheet.talentUses || {} },
+			comfortingArtRecipients: sheet.talents.class.includes('artista:arte-reconfortante') ?
+				this.trainerArchiveRecipients(token) : [],
 			rerollAvailability: this.getTrainerRerollAvailability(token, state.id) };
 	}
 
@@ -2340,12 +2345,79 @@ export class RPGLoginService {
 		return { sheet: structuredClone(outcome.sheet), die: outcome.die, recovered: outcome.recovered };
 	}
 
+	/** O Artista distribui o benefício; cada descanso curto renova o limite de participantes. */
+	useTrainerComfortingArt(token: string, recipientCharacterId: string, effect: 'will' | 'exhaustion') {
+		const session = this.getSession(token);
+		if (session.mode !== 'player' || !session.platformTableId) throw new Error('Entre como jogador em uma mesa');
+		const actorId = session.role === 'master' ? session.viewAsCharacterId : session.characterId;
+		if (!actorId) throw new Error('Nenhum personagem selecionado');
+		const actor = this.requireCharacter(toID(actorId));
+		const source = actor.state.trainerSheet;
+		if (!source || source.status !== 'complete' || !source.talents.class.includes('artista:arte-reconfortante')) {
+			throw new Error('Este treinador não possui Arte Reconfortante');
+		}
+		if (effect !== 'will' && effect !== 'exhaustion') throw new Error('Benefício de Arte Reconfortante inválido');
+		const restStartedAt = rpgTrainerSurvival(source).lastShortRest?.completedAt ?? -1;
+		const target = this.requireCharacter(toID(recipientCharacterId));
+		if (target.tableId !== session.platformTableId || !target.accountId ||
+			this.accounts.repository.getMembership(session.platformTableId, target.accountId)?.status !== 'active' ||
+			target.state.trainerSheet?.status !== 'complete') {
+			throw new Error('Participante indisponível nesta mesa');
+		}
+		const previous = source.comfortingArtSession;
+		const recipients = previous?.restStartedAt === restStartedAt ? previous.recipientCharacterIds : [];
+		if (recipients.includes(target.state.id)) throw new Error('Participante já recebeu Arte Reconfortante neste descanso');
+		if (recipients.length >= rpgTrainerProficiency(source.level)) {
+			throw new Error('Limite de participantes de Arte Reconfortante atingido');
+		}
+		const originalActor = structuredClone(actor);
+		const originalTarget = target === actor ? null : structuredClone(target);
+		const nextActor = structuredClone(source);
+		nextActor.comfortingArtSession = { restStartedAt,
+			recipientCharacterIds: [...recipients, target.state.id] };
+		let nextTarget = target === actor ? nextActor : structuredClone(target.state.trainerSheet!);
+		if (effect === 'exhaustion') nextTarget = rpgTrainerReduceExhaustion(nextTarget);
+		else nextTarget.comfortingArt = { sourceCharacterId: actor.state.id,
+			sourceName: actor.state.characterName, restCycle: nextTarget.talentRestCycle || 0 };
+		actor.state.trainerSheet = target === actor ? nextTarget : nextActor;
+		actor.state.updatedAt = this.now();
+		if (target !== actor) {
+			target.state.trainerSheet = nextTarget;
+			target.state.updatedAt = this.now();
+		}
+		try {
+			this.persistAtomically(() => {
+				this.repository.set(actor);
+				if (target !== actor) this.repository.set(target);
+			});
+		} catch (error) {
+			this.repository.set(originalActor);
+			if (originalTarget) this.repository.set(originalTarget);
+			throw error;
+		}
+		return { effect, recipientCharacterId: target.state.id, sheet: structuredClone(nextTarget) };
+	}
+
+	/** Remove o bônus preparado somente após a mensagem da resistência ter sido gravada. */
+	consumeTrainerComfortingArt(token: string, characterId: string) {
+		const record = this.requireCharacter(toID(characterId));
+		const sheet = record.state.trainerSheet;
+		if (!sheet?.comfortingArt) return;
+		const original = structuredClone(record);
+		delete sheet.comfortingArt;
+		record.state.updatedAt = this.now();
+		try { this.persistAtomically(() => this.repository.set(record)); } catch (error) {
+			this.repository.set(original); throw error;
+		}
+	}
+
 	/** Guarda a referência da rolagem real do chat; texto enviado pelo usuário não entra neste registro. */
 	recordTrainerChatRoll(token: string, kind: 'attribute' | 'skill' | 'resistance', label: string,
 		bonusTerms: string,
 		posted: { id: string, message: string, createdAt: number },
 		result: { natural: number, effectiveNatural?: number, total: number, dice: number[],
-			mode: 'normal' | 'advantage' | 'disadvantage', }, naturalFloor = 0) {
+			mode: 'normal' | 'advantage' | 'disadvantage', }, naturalFloor = 0,
+		naturalFloorSource?: string) {
 		const session = this.getSession(token);
 		const characterId = session.role === 'master' ? session.viewAsCharacterId : session.characterId;
 		if (!characterId || !session.platformAccountId) throw new Error('Treinador da rolagem indisponível');
@@ -2356,6 +2428,7 @@ export class RPGLoginService {
 			authorAccountId: session.platformAccountId, kind, mode: result.mode,
 			diceCount: result.dice.length, bonus: result.total - (result.effectiveNatural ?? result.natural),
 			...(naturalFloor ? { naturalFloor } : {}),
+			...(naturalFloorSource ? { naturalFloorSource } : {}),
 			campaignTime: this.campaignSettings.currentDateTime, createdAt: posted.createdAt };
 		sheet.lastChatRolls = { ...sheet.lastChatRolls, any: roll,
 			...(kind === 'resistance' ? { resistance: roll } : {}),
@@ -2430,6 +2503,8 @@ export class RPGLoginService {
 	/** Exibe apenas treinadores de contas ativas da mesa atual; a mesma busca valida a rolagem. */
 	getTrainerAllyRollTalents(token: string, characterId: string) {
 		return [...this.encouragingPresenceOptions(token, characterId),
+			...this.artisticInspirationOptions(token, characterId),
+			...this.captivatingDistractionOptions(token, characterId),
 			...this.excavationMasterOptions(token, characterId),
 			...this.sharedArchiveOptions(token, characterId)];
 	}
@@ -2484,6 +2559,32 @@ export class RPGLoginService {
 			this.accounts.repository.getMembership(session.platformTableId!, record.accountId)?.status === 'active')
 			.flatMap(record => {
 				const option = record.state.trainerSheet && rpgEncouragingPresenceOption(record.state.id,
+					record.state.characterName, record.state.trainerSheet);
+				return option ? [option] : [];
+			});
+	}
+
+	private artisticInspirationOptions(token: string, characterId: string) {
+		const session = this.getSession(token);
+		if (!session.platformTableId) return [];
+		return this.repository.list().filter(record => record.state.id !== characterId &&
+			record.tableId === session.platformTableId && record.accountId &&
+			this.accounts.repository.getMembership(session.platformTableId!, record.accountId)?.status === 'active')
+			.flatMap(record => {
+				const option = record.state.trainerSheet && rpgArtisticInspirationOption(record.state.id,
+					record.state.characterName, record.state.trainerSheet);
+				return option ? [option] : [];
+			});
+	}
+
+	private captivatingDistractionOptions(token: string, characterId: string) {
+		const session = this.getSession(token);
+		if (!session.platformTableId) return [];
+		return this.repository.list().filter(record => record.state.id !== characterId &&
+			record.tableId === session.platformTableId && record.accountId &&
+			this.accounts.repository.getMembership(session.platformTableId!, record.accountId)?.status === 'active')
+			.flatMap(record => {
+				const option = record.state.trainerSheet && rpgCaptivatingDistractionOption(record.state.id,
 					record.state.characterName, record.state.trainerSheet);
 				return option ? [option] : [];
 			});
@@ -2688,7 +2789,7 @@ export class RPGLoginService {
 			throw new Error('Você já ofereceu ajuda para essa perícia neste período');
 		}
 		const talents = rpgResolveTrainerRollTalents(sheet, 'skill', skill, selectedTalents,
-			this.getTrainerAllyRollTalents(token, character.id));
+			this.getTrainerAllyRollTalents(token, character.id), attribute);
 		const observedSkill = talents.chosen.some(talent => talent.id === 'aprendizado-por-observacao');
 		const result = rollRPGTrainerSkillCheck(sheet, skill, attribute, {
 			dc: 0, bonus: talents.bonus,

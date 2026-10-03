@@ -11,6 +11,18 @@ describe('RPG trainer sheet read-only frontend', () => {
 	const page = fs.readFileSync(path.join(root, 'trainer-sheet-ui.js'), 'utf8');
 	const style = fs.readFileSync(path.join(root, 'trainer-sheet.css'), 'utf8');
 	const http = fs.readFileSync(path.resolve(root, '../../rpg-showdown/http.ts'), 'utf8');
+	it('offers Mil Faces only with the selected Charisma skill attribute', () => {
+		assert(page.includes('attributeOptions.includes(talent.requiredAttribute)'));
+		assert(page.includes('talent.requiredAttribute === selectedAttribute'));
+		assert(http.includes('skillAttribute);'));
+	});
+	it('keeps Comforting Art activation visible and renews it after short rests', () => {
+		assert(page.includes("!readOnly && id === 'artista:arte-reconfortante'"));
+		assert(page.includes("'/trainer/talents/comforting-art'"));
+		const service = fs.readFileSync(path.resolve(root, '../../rpg-showdown/index.ts'), 'utf8');
+		assert(service.includes('rpgTrainerSurvival(source).lastShortRest?.completedAt ?? -1'));
+		assert(!service.includes('Arte Reconfortante exige um descanso curto de uma hora no relógio da campanha'));
+	});
 	it('offers two Knowledge choices and marks half-proficiency on the right half of each skill', () => {
 		assert(page.includes("chosen.id === 'conhecimento-diversificado'"));
 		assert(page.includes("entry.halfProficiency ? ' half-proficiency'"));
@@ -96,6 +108,11 @@ describe('RPG trainer sheet read-only frontend', () => {
 		assert(page.includes("'trainer-sheet-level-button', 'Atualizar'"));
 		assert(page.includes('!progression?.canLevelUp'));
 		assert(!page.includes('preview.remainingHours'));
+	});
+
+	it('keeps the skill attribute selector in the roll-mode column beside situational talents', () => {
+		assert(page.includes('choices.append(attributeChoice)'));
+		assert(!page.includes('panel.append(attributeChoice)'));
 	});
 
 	it('renders separate cards for each trainer statistic group', () => {

@@ -4,7 +4,9 @@ const assert = require('assert').strict;
 const { createRPGPendingTrainerSheet, chooseRPGTrainerTalent } = require('../../dist/server/rpg-showdown');
 const { rollRPGTrainerSkillCheck, rpgTrainerProficiency } = require('../../dist/server/rpg-showdown');
 const { rpgTrainerRollTalentOptions, rpgResolveTrainerRollTalents, rpgTrainerRollBonusTerms,
-	rpgEncouragingPresenceOption, rpgExcavationMasterOption, rpgSetSharedArchive, rpgSharedArchiveOptions } =
+	rpgArtisticInspirationOption, rpgCaptivatingDistractionOption, rpgEncouragingPresenceOption,
+	rpgExcavationMasterOption,
+	rpgSetSharedArchive, rpgSharedArchiveOptions } =
 	require('../../dist/server/rpg-showdown/trainer-roll-talents');
 
 function sheet() {
@@ -15,6 +17,79 @@ function sheet() {
 }
 
 describe('RPG trainer situational roll talents', () => {
+	it('offers Thousand Faces only when the skill roll actually uses Charisma', () => {
+		const artist = { ...sheet(), classId: 'artista', talents: { general: [],
+			class: ['artista:corpo-de-cena'], apex: 'artista:mil-faces' } };
+		const option = rpgTrainerRollTalentOptions(artist, 'skill', 'persuasao')[0];
+		assert.equal(option.id, 'artista:mil-faces');
+		assert.equal(option.bonus, 2);
+		assert.equal(option.requiredAttribute, 'charisma');
+		assert.equal(rpgResolveTrainerRollTalents(artist, 'skill', 'intimidacao',
+			[option.key], [], 'charisma').bonus, 2);
+		assert.throws(() => rpgResolveTrainerRollTalents(artist, 'skill', 'intimidacao',
+			[option.key], [], 'strength'), /indisponível/);
+		assert.equal(rpgResolveTrainerRollTalents(artist, 'skill', 'atuacao',
+			[option.key], [], 'charisma').bonus, 2);
+		assert.throws(() => rpgResolveTrainerRollTalents(artist, 'skill', 'atuacao',
+			[option.key], [], 'dexterity'), /indisponível/);
+		assert.deepEqual(rpgTrainerRollTalentOptions(artist, 'skill', 'percepcao'), []);
+	});
+	it('offers Captivating Distraction to allies only for Stealth and Sleight of Hand', () => {
+		const artist = { ...sheet(), classId: 'artista', talents: { general: [],
+			class: ['artista:distracao-cativante'], apex: null } };
+		const option = rpgCaptivatingDistractionOption('artista', 'Lia', artist);
+		assert.equal(option.name, 'Distração Cativante de Lia');
+		assert.deepEqual(option.targets, ['skill:furtividade', 'skill:ladinagem']);
+		for (const skill of ['furtividade', 'ladinagem']) {
+			assert.equal(rpgResolveTrainerRollTalents(sheet(), 'skill', skill, [option.key], [option]).bonus, 2);
+		}
+		assert.throws(() => rpgResolveTrainerRollTalents(sheet(), 'skill', 'atuacao',
+			[option.key], [option]), /indisponível/);
+		assert.equal(rpgCaptivatingDistractionOption('outro', 'Rui', sheet()), null);
+	});
+	it('offers Comforting Art only while its prepared Will bonus remains unspent', () => {
+		const prepared = { ...sheet(), comfortingArt: {
+			sourceCharacterId: 'artista', sourceName: 'Lia', restCycle: 2 }, talentRestCycle: 2 };
+		const option = rpgTrainerRollTalentOptions(prepared, 'resistance', 'will')[0];
+		assert.equal(option.name, 'Arte Reconfortante de Lia');
+		assert.equal(rpgResolveTrainerRollTalents(prepared, 'resistance', 'will', [option.key]).bonus, 2);
+		assert.deepEqual(rpgTrainerRollTalentOptions(prepared, 'resistance', 'reflexes'), []);
+		assert.deepEqual(rpgTrainerRollTalentOptions({ ...prepared, talentRestCycle: 3 }, 'resistance', 'will'), []);
+	});
+	it('lets an ally select Artistic Inspiration for one skill roll without stacking inspirations', () => {
+		const artist = { ...sheet(), classId: 'artista', talents: { general: [],
+			class: ['artista:inspiracao-artistica'], apex: null } };
+		const option = rpgArtisticInspirationOption('artista', 'Lia', artist);
+		assert.equal(option.name, 'Inspiração Artística de Lia');
+		assert.equal(option.bonus, 2);
+		assert.deepEqual(option.targets, ['skill:*']);
+		assert.equal(rpgResolveTrainerRollTalents(sheet(), 'skill', 'investigacao',
+			[option.key], [option]).bonus, 2);
+		assert.throws(() => rpgResolveTrainerRollTalents(sheet(), 'attribute', 'wisdom',
+			[option.key], [option]), /indisponível/);
+		const second = rpgArtisticInspirationOption('outro', 'Rui', artist);
+		assert.throws(() => rpgResolveTrainerRollTalents(sheet(), 'skill', 'investigacao',
+			[option.key, second.key], [option, second]), /Variantes do mesmo talento/);
+		assert.equal(rpgArtisticInspirationOption('outro', 'Rui', sheet()), null);
+	});
+	it('offers both Artist Versatile modalities separately without stacking them with Signature Technique', () => {
+		const artist = { ...sheet(), classId: 'artista', talents: { general: [],
+			class: ['artista:tecnica-assinatura', 'artista:artista-versatil'], apex: null },
+		talentSelections: [
+			{ id: 'artista:tecnica-assinatura', variant: 'Canto', acquiredAtLevel: 3 },
+			{ id: 'artista:artista-versatil', variant: 'Dança', secondVariant: 'Poesia',
+				attribute: 'charisma', acquiredAtLevel: 5 },
+		] };
+		const options = rpgTrainerRollTalentOptions(artist, 'skill', 'atuacao');
+		assert.deepEqual(options.map(option => option.name),
+			['Técnica Assinatura (Canto)', 'Artista Versátil (Dança)', 'Artista Versátil (Poesia)']);
+		assert.equal(rpgResolveTrainerRollTalents(artist, 'skill', 'atuacao', [options[1].key]).bonus, 2);
+		assert.equal(rpgResolveTrainerRollTalents(artist, 'skill', 'atuacao', [options[2].key]).bonus, 2);
+		assert.throws(() => rpgResolveTrainerRollTalents(artist, 'skill', 'atuacao',
+			[options[1].key, options[2].key]), /Variantes do mesmo talento/);
+		assert.throws(() => rpgResolveTrainerRollTalents(artist, 'skill', 'atuacao',
+			[options[0].key, options[1].key]), /não se acumulam/);
+	});
 	it('offers Voice of Ages only to its owner on Knowledge rolls', () => {
 		const owner = { ...sheet(), talents: { general: [], class: [], apex: 'arqueologo:voz-das-eras' } };
 		const option = rpgTrainerRollTalentOptions(owner, 'skill', 'conhecimento:regioes')[0];

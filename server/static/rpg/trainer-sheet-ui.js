@@ -89,6 +89,18 @@
 		return node;
 	}
 	function signed(value) { return value >= 0 ? '+' + value : String(value); }
+	function artistModalityError(sheet, choice) {
+		if (!['artista:tecnica-assinatura', 'artista:artista-versatil'].includes(choice.id)) return '';
+		const normalize = value => String(value || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+			.toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim();
+		const selected = [choice.variant, ...(choice.id === 'artista:artista-versatil' ? [choice.secondVariant] : [])]
+			.map(normalize);
+		const existing = (sheet.talentSelections || [])
+			.filter(entry => ['artista:tecnica-assinatura', 'artista:artista-versatil'].includes(entry.id))
+			.flatMap(entry => [entry.variant, entry.secondVariant].map(normalize));
+		return selected.some(value => !value || existing.includes(value)) || new Set(selected).size !== selected.length ?
+			'Escolha modalidades artísticas diferentes das já selecionadas.' : '';
+	}
 	function label(id) {
 		return String(id || '').replace(/[-_]/g, ' ').replace(/\b\p{L}/gu, letter => letter.toUpperCase());
 	}
@@ -151,17 +163,11 @@
 		if (closeTalentPopover) closeTalentPopover();
 		const panel = el('div', 'trainer-sheet-attribute-popover');
 		panel.append(el('strong', '', `Rolar ${name}`));
-		let selectedAttribute;
-		if (kind === 'skill' && attributeOptions.length > 1) {
-			const attributeChoice = select(attributeOptions.map(attribute => [attribute,
-				ATTRIBUTES.find(entry => entry[0] === attribute)?.[1] || label(attribute)]));
-			attributeChoice.className = 'trainer-sheet-roll-attribute';
-			attributeChoice.setAttribute('aria-label', `Atributo para ${name}`);
-			attributeChoice.addEventListener('change', () => { selectedAttribute = attributeChoice.value; });
-			panel.append(attributeChoice);
-		}
+		let selectedAttribute = kind === 'skill' ? attributeOptions[0] : undefined;
 		const availableTalents = rollTalents.filter(talent =>
 			(talent.id !== 'aprendizado-por-observacao' || kind === 'skill' && !trained) &&
+			(!talent.requiredAttribute || kind === 'skill' &&
+			attributeOptions.includes(talent.requiredAttribute)) &&
 			(talent.targets || []).some(target => {
 				const actual = kind === 'initiative' ? 'initiative' : `${kind}:${id}`;
 				return target === actual || target.endsWith('*') && actual.startsWith(target.slice(0, -1));
@@ -186,9 +192,35 @@
 			});
 		}
 		const choices = el('div', 'trainer-sheet-roll-modes');
+		if (kind === 'skill' && attributeOptions.length > 1) {
+			const attributeChoice = select(attributeOptions.map(attribute => [attribute,
+				ATTRIBUTES.find(entry => entry[0] === attribute)?.[1] || label(attribute)]));
+			attributeChoice.className = 'trainer-sheet-roll-attribute';
+			attributeChoice.setAttribute('aria-label', `Atributo para ${name}`);
+			attributeChoice.addEventListener('change', () => {
+				selectedAttribute = attributeChoice.value;
+				updateTalentVisibility();
+			});
+			choices.append(attributeChoice);
+		}
 		const selectedTalents = new Set();
 		const talentChoices = el('div', 'trainer-sheet-roll-talents');
 		const talentButtons = new Map();
+		function updateTalentVisibility() {
+			let visible = 0;
+			for (const talent of availableTalents) {
+				const button = talentButtons.get(talent.key);
+				if (!button) continue;
+				const applicable = !talent.requiredAttribute || talent.requiredAttribute === selectedAttribute;
+				button.classList.toggle('hidden', !applicable);
+				if (applicable) visible++;
+				else {
+					selectedTalents.delete(talent.key);
+					button.setAttribute('aria-pressed', 'false');
+				}
+			}
+			talentChoices.classList.toggle('hidden', visible === 0);
+		}
 		function addTalentButton(talent) {
 			if (!talentChoices.childElementCount) talentChoices.append(el('strong', '', 'Talentos situacionais'));
 			const item = el('button', 'trainer-sheet-roll-talent');
@@ -196,8 +228,10 @@
 			item.addEventListener('click', () => {
 				if (!selectedTalents.has(talent.key)) {
 					const stratigraphy = ['arqueologo:leitura-estratigrafica', 'arqueologo:mestre-da-escavacao'];
+					const artistModes = ['artista:tecnica-assinatura', 'artista:artista-versatil'];
 					for (const other of availableTalents.filter(entry => entry.key !== talent.key &&
-						(entry.id === talent.id || stratigraphy.includes(entry.id) && stratigraphy.includes(talent.id)))) {
+						(entry.id === talent.id || stratigraphy.includes(entry.id) && stratigraphy.includes(talent.id) ||
+							artistModes.includes(entry.id) && artistModes.includes(talent.id)))) {
 						selectedTalents.delete(other.key);
 						const otherButton = talentButtons.get(other.key);
 						if (otherButton) otherButton.setAttribute('aria-pressed', 'false');
@@ -214,6 +248,7 @@
 				`mín. ${talent.naturalFloor} no d20` : talent.advantage ? 'vantagem' :
 				`+${talent.bonus}`}`), el('small', '', talent.condition));
 			item.append(detail); talentChoices.append(item); talentButtons.set(talent.key, item);
+			updateTalentVisibility();
 		}
 		for (const talent of availableTalents) addTalentButton(talent);
 		const error = el('p', 'trainer-sheet-roll-error hidden');
@@ -367,7 +402,37 @@
 		const panel = el('div', 'trainer-sheet-talent-popover');
 		panel.append(el('strong', 'trainer-sheet-talent-popover-title', name),
 			renderTrainerDescription(description, 'trainer-sheet-talent-description'));
-		if (action?.archive) {
+		if (action?.comfortingArt) {
+			const controls = el('div', 'trainer-sheet-archive-editor');
+			const recipient = select([['', 'Participante'], ...action.comfortingArt.map(person =>
+				[person.id, person.name])]);
+			recipient.setAttribute('aria-label', 'Participante da Arte Reconfortante');
+			const effect = select([['will', '+2 no próximo teste de Vontade contra medo'],
+				['exhaustion', 'Reduzir 1 de Exaustão']]);
+			effect.setAttribute('aria-label', 'Benefício da Arte Reconfortante');
+			const use = el('button', 'trainer-sheet-talent-use', 'Aplicar benefício'); use.type = 'button';
+			const feedback = el('p', 'trainer-sheet-roll-error hidden');
+			use.addEventListener('click', async () => {
+				if (!recipient.value) {
+					feedback.textContent = 'Escolha um participante.'; feedback.classList.remove('hidden'); return;
+				}
+				use.disabled = true;
+				try {
+					await action.api('/trainer/talents/comforting-art', { method: 'POST', body: {
+						recipientCharacterId: recipient.value, effect: effect.value,
+					} });
+					feedback.textContent = 'Benefício aplicado ao participante.';
+					feedback.classList.remove('hidden');
+					window.dispatchEvent(new CustomEvent('rpg:realtime-sync',
+						{ detail: { tableId: selectedTable } }));
+					await action.refresh();
+				} catch (error) {
+					feedback.textContent = error.message || 'Não foi possível aplicar Arte Reconfortante.';
+					feedback.classList.remove('hidden'); use.disabled = false;
+				}
+			});
+			controls.append(recipient, effect, use, feedback); panel.append(controls);
+		} else if (action?.archive) {
 			panel.classList.add('trainer-sheet-talent-popover--archive');
 			const archives = action.archive.slots || [];
 			const editor = el('div', 'trainer-sheet-archive-editor');
@@ -1183,11 +1248,18 @@
 								first.addEventListener('change', update); update();
 							}
 						} else {
-							const input = el('input', 'trainer-sheet-progression-input'); input.placeholder = 'Área ou variante';
+							const input = el('input', 'trainer-sheet-progression-input');
+							input.placeholder = chosen.id === 'artista:artista-versatil' ? 'Modalidade artística 1' : 'Área ou variante';
 							input.maxLength = 80; input.addEventListener('input', () => {
 								values.variant = input.value.trim(); resetTalentRequest();
 							}); fields.append(input);
 						}
+					}
+					if (chosen.choiceFields?.secondVariant) {
+						const input = el('input', 'trainer-sheet-progression-input');
+						input.placeholder = 'Modalidade artística 2'; input.maxLength = 80;
+						input.addEventListener('input', () => { values.secondVariant = input.value.trim(); resetTalentRequest(); });
+						fields.append(input);
 					}
 				});
 				confirm.addEventListener('click', async () => {
@@ -1196,6 +1268,8 @@
 						Object.entries(chosen.choiceFields || {}).some(([key, needed]) => needed && !values[key])) {
 						feedback.textContent = 'Complete as escolhas adicionais deste talento.'; return;
 					}
+					const modalityError = artistModalityError(sheet, { id: chosen.id, ...values });
+					if (modalityError) { feedback.textContent = modalityError; return; }
 					confirm.disabled = true;
 					try {
 						await api('/trainer/talents', { method: 'POST', body: { id: chosen.id, ...values,
@@ -1365,6 +1439,9 @@
 			if (selection.id === 'conhecimento-diversificado' && selection.skill && selection.variant) {
 				return `${skillLabel(selection.skill)} e ${skillLabel(selection.variant)}`;
 			}
+			if (selection.id === 'artista:artista-versatil' && selection.variant && selection.secondVariant) {
+				return `${selection.variant} e ${selection.secondVariant}`;
+			}
 			if (selection.id === 'artista-marcial:reflexos-treinados' && selection.variant === 'already-trained') {
 				return 'Bônus +2';
 			}
@@ -1402,7 +1479,9 @@
 					slots: sheet.sharedArchives || [], proficiency: progression.proficiency,
 					knowledge: (sheet.skills?.trained || []).filter(skill => skill.startsWith('conhecimento:')),
 					recipients: progression.archiveRecipients || [],
-				} } : !readOnly && ['segundo-folego', 'sortudo', 'determinado', 'esforco-heroico'].includes(id) ?
+				} } : !readOnly && id === 'artista:arte-reconfortante' ? { id, api, refresh,
+					comfortingArt: progression.comfortingArtRecipients || [] } :
+				!readOnly && ['segundo-folego', 'sortudo', 'determinado', 'esforco-heroico'].includes(id) ?
 					{ id, api, refresh, reroll: id !== 'segundo-folego',
 						available: progression.rerollAvailability?.[id],
 						used: progression.activeTalentUses?.used?.[id] === progression.activeTalentUses?.restCycle } : null));
@@ -1531,10 +1610,17 @@
 							}
 						} else {
 							const input = el('input', 'trainer-sheet-progression-input');
-							input.placeholder = 'Área ou variante'; input.maxLength = 80;
+							input.placeholder = chosen.id === 'artista:artista-versatil' ? 'Modalidade artística 1' : 'Área ou variante';
+							input.maxLength = 80;
 							input.addEventListener('input', () => { values.variant = input.value.trim(); });
 							fields.append(input);
 						}
+					}
+					if (chosen.choiceFields?.secondVariant) {
+						const input = el('input', 'trainer-sheet-progression-input');
+						input.placeholder = 'Modalidade artística 2'; input.maxLength = 80;
+						input.addEventListener('input', () => { values.secondVariant = input.value.trim(); });
+						fields.append(input);
 					}
 				});
 				group.append(picker, description, fields); panel.append(group);
@@ -1544,6 +1630,8 @@
 						Object.entries(chosen.choiceFields || {}).some(([key, needed]) => needed && !values[key])) {
 						throw new Error(`Complete a escolha: ${caption[kind]}.`);
 					}
+					const modalityError = artistModalityError(progressionForChoice.sheet, { id: chosen.id, ...values });
+					if (modalityError) throw new Error(modalityError);
 					return { id: chosen.id, ...values };
 				};
 			});

@@ -47,7 +47,9 @@ export function rpgTrainerRerollMessage(original: string, roll: RPGTrainerChatRo
 	const dice = Array.from({ length: roll.diceCount }, () => Math.floor(random() * 20) + 1);
 	const natural = roll.mode === 'advantage' ? Math.max(...dice) :
 		roll.mode === 'disadvantage' ? Math.min(...dice) : dice[0];
-	const effectiveNatural = Math.max(natural, roll.naturalFloor || 0);
+	const naturalFloor = roll.naturalFloorSource === 'Ápice — Lenda dos Palcos' && roll.label !== 'Atuação' ?
+		0 : roll.naturalFloor || 0;
+	const effectiveNatural = Math.max(natural, naturalFloor);
 	const total = effectiveNatural + roll.bonus;
 	const rollLines = dice.length === 2 ?
 		`${roll.mode === 'advantage' ? 'Vantagem' : 'Desvantagem'}\n` +
@@ -55,7 +57,7 @@ export function rpgTrainerRerollMessage(original: string, roll: RPGTrainerChatRo
 	const label = talentId === 'sortudo' ? 'Sortudo' : 'Determinado';
 	const bonusText = roll.bonusTerms || (roll.bonus < 0 ? `- ${Math.abs(roll.bonus)}` : `+ ${roll.bonus}`);
 	const floorLine = effectiveNatural > natural ?
-		`${roll.naturalFloor === 10 ? 'Voz das Eras' : 'Memória Acadêmica'}: ` +
+		`${roll.naturalFloorSource || (roll.naturalFloor === 10 ? 'Voz das Eras' : 'Memória Acadêmica')}: ` +
 		`${natural} no dado vale ${effectiveNatural}.\n` : '';
 	const message = `${original}\n---\n${label}\n${floorLine}${rollLines}${roll.label}: 1d20 tirou ` +
 		`${effectiveNatural} ${bonusText} = ${total}`;

@@ -449,6 +449,12 @@ export class RPGHttpServer {
 			this.json(res, 200, this.login.useTrainerSheetTalent(this.token(req), this.string(body.talentId)));
 			return;
 		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/comforting-art') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.useTrainerComfortingArt(this.token(req),
+				this.string(body.recipientCharacterId), this.string(body.effect) as 'will' | 'exhaustion'));
+			return;
+		}
 		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/reroll') {
 			const body = await this.body(req);
 			const talentId = this.string(body.talentId);
@@ -496,11 +502,14 @@ export class RPGHttpServer {
 				`1ª rolagem: ${offered.result.dice[0]}\n2ª rolagem: ${offered.result.dice[1]}\n`;
 			const terms = rpgTrainerRollBonusTerms(offered.result.total - offered.result.effectiveNatural -
 				offered.talents.reduce((total, talent) => total + talent.bonus, 0), offered.talents);
+			const stageLegend = skill === 'atuacao' &&
+				character.trainerSheet?.talents.apex === 'artista:lenda-dos-palcos';
 			const eraVoice = offered.talents.some(talent => talent.id === 'arqueologo:voz-das-eras');
-			const naturalFloor = eraVoice ? 10 : skill === 'conhecimento:arqueologia-fosseis' &&
+			const naturalFloor = stageLegend || eraVoice ? 10 : skill === 'conhecimento:arqueologia-fosseis' &&
 				character.trainerSheet?.talents.class.includes('arqueologo:memoria-academica') ? 8 : 0;
+			const floorSource = stageLegend ? 'Ápice — Lenda dos Palcos' : eraVoice ? 'Voz das Eras' : 'Memória Acadêmica';
 			const floorLine = offered.result.effectiveNatural > offered.result.natural ?
-				`${eraVoice ? 'Voz das Eras' : 'Memória Acadêmica'}: ` +
+				`${floorSource}: ` +
 				`${offered.result.natural} no dado vale ${offered.result.effectiveNatural}.\n` : '';
 			const message = `${character.characterName} ajudou com ${label}.\n` +
 				`${talentLines ? `${talentLines}\n` : ''}${floorLine}${rolls}${label}: 1d20 tirou ` +
@@ -510,7 +519,7 @@ export class RPGHttpServer {
 				session.platformTableId, session.platformAccountId, message);
 			this.login.recordTrainerChatRoll(token, 'skill', label, terms, posted, { ...offered.result,
 				mode: offered.result.mode as 'normal' | 'advantage' | 'disadvantage' },
-			naturalFloor);
+			naturalFloor, floorSource);
 			this.json(res, 201, { result: offered.result, helpBonus: offered.bonus, message: posted });
 			return;
 		}
@@ -556,7 +565,8 @@ export class RPGHttpServer {
 			const selectedTalents = body.talents === undefined ? [] : body.talents;
 			const talentEffects = rpgResolveTrainerRollTalents(character.trainerSheet!, kind,
 				rollId, selectedTalents as string[],
-				resistanceRoll || skillRoll ? this.login.getTrainerAllyRollTalents(token, characterId!) : []);
+				resistanceRoll || skillRoll ? this.login.getTrainerAllyRollTalents(token, characterId!) : [],
+				skillAttribute);
 			const observedSkill = skillRoll && talentEffects.chosen.some(talent =>
 				talent.id === 'aprendizado-por-observacao');
 			if (skillRoll) rpgTrainerSkillBonus(character.trainerSheet!, skill!, skillAttribute, false, observedSkill);
@@ -601,20 +611,26 @@ export class RPGHttpServer {
 			const talentLines = talentEffects.chosen.length ?
 				`${talentEffects.chosen.map(talent => talent.name).join('\n')}\n` : '';
 			const helpLine = help ? `Ajuda de ${help.helperName}\n` : '';
+			const stageLegend = skillRoll && skill === 'atuacao' &&
+				character.trainerSheet?.talents.apex === 'artista:lenda-dos-palcos';
 			const eraVoice = talentEffects.chosen.some(talent => talent.id === 'arqueologo:voz-das-eras');
-			const naturalFloor = eraVoice ? 10 : skillRoll && skill === 'conhecimento:arqueologia-fosseis' &&
+			const naturalFloor = stageLegend || eraVoice ? 10 : skillRoll && skill === 'conhecimento:arqueologia-fosseis' &&
 				character.trainerSheet?.talents.class.includes('arqueologo:memoria-academica') ? 8 : 0;
+			const floorSource = stageLegend ? 'Ápice — Lenda dos Palcos' : eraVoice ? 'Voz das Eras' : 'Memória Acadêmica';
 			const floorLine = skillRoll && effectiveNatural > result.natural ?
-				`${eraVoice ? 'Voz das Eras' : 'Memória Acadêmica'}: ` +
+				`${floorSource}: ` +
 				`${result.natural} no dado vale ${effectiveNatural}.\n` : '';
 			const message = `${helpLine}${talentLines}${floorLine}${rolls}${rollName}: 1d20 tirou ` +
 				`${effectiveNatural} ${bonus} = ${result.total}`;
 			const posted = await persistence.createTableChatMessage(
 				session.platformTableId, session.platformAccountId, message);
+			if (talentEffects.chosen.some(talent => talent.id === 'artista:arte-reconfortante')) {
+				this.login.consumeTrainerComfortingArt(token, characterId!);
+			}
 			if (kind === 'attribute' || kind === 'skill' || kind === 'resistance') {
 				this.login.recordTrainerChatRoll(token, kind, rollName, bonus, posted, { ...result,
 					mode: result.mode as 'normal' | 'advantage' | 'disadvantage' },
-				naturalFloor);
+				naturalFloor, skillRoll ? floorSource : undefined);
 			}
 			this.json(res, 201, { result, message: posted });
 			return;
@@ -2638,6 +2654,9 @@ export class RPGHttpServer {
 	private isPublicValidationError(message: string): boolean {
 		if (/persisted|estado persistido|table scope|random source|repository|repositório/i.test(message)) return false;
 		if (/^(?:Identificador de nível |Ajuste de nível )/.test(message)) return true;
+		if (['Escolha de talento inválida', 'Escolha modalidades artísticas diferentes das já selecionadas',
+			'Escolha uma variante nova e válida para este talento'].includes(message)) return true;
+		if (/^(?:Benefício de Arte Reconfortante inválido|Este treinador não possui Arte Reconfortante|Participante indisponível nesta mesa|Participante já recebeu Arte Reconfortante neste descanso|Limite de participantes de Arte Reconfortante atingido|O participante não possui Exaustão para reduzir)$/.test(message)) return true;
 		return /^(?:Atividade |Exposição |Perigo |Viagem |Hexágono |Condição de viagem |O próximo hexágono |Progresso ou tempo de viagem |Jornada |Rota |Pokémon não foi aprovado |Carga da carroça |Carroça |Sobrecarga |Receita |Talento exigido |Perícia exigida |Tempo de fabricação |Instalação adequada |Kit apropriado |Domínio do kit |Cargas do kit |Ingredientes |Fabricação |Identificador de atividade |RPG (?:request|session|password|character|player|master|battle|contest|tournament|Bag|Box|shop|commerce|nursery|team|held|move|starter|temporary|NPC)|Invalid RPG|Incorrect RPG|Unknown RPG|Apenas |Permissão necessária:|Usuário ou senha |Conta (?:indisponível|convidada)|Mesa (?:indisponível|arquivada)|Convite |Código de recuperação |Muitas tentativas |Pokémon |Item |Golpe |Equipe |Batalha |Concurso |Torneio |NPC |Pasta |Documento |Loja |Banco |Pokécoin |Quantidade |Valor |Nível |XP insuficiente |Aguarde um descanso longo |Escolha os talentos pendentes |Conclua a ficha |Histórico insuficiente |Não há histórico suficiente |Formato |Participante |Treinador |Campanha |nome de exibição inválido|descrição inválido|Texto muito longo|Cor da mesa inválida|Visibilidade da mesa inválida|Função (?:de membro|de convite) inválida|Identificador de sessão inválido|Motivo da auditoria muito longo|A senha deve |O usuário deve |O @ deve |Este (?:nome de usuário|convite|Pokémon|held item|@)|Esta (?:conta|loja|procriação)|O (?:Mestre|acesso|valor|usuário|proprietário|limite|item|Pokémon|reembolso|prêmio)|Os documentos |A (?:conta|equipe|aposta|expiração|incubadora|recompensa|procriação|quantidade|sessão|natureza|habilidade|loja|mensagem)|Informe pelo menos um @|Envie convites |Não repita o mesmo @|@[^ ]+ |Nenhum (?:Pokémon|participante|item)|Não (?:é possível|foi possível|há|existe|pode))/.test(message);
 	}
 

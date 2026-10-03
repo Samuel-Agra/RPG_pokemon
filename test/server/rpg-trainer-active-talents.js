@@ -75,6 +75,17 @@ describe('RPG active trainer talents', () => {
 		assert.equal(result.total, 14);
 		assert.match(result.message, /Voz das Eras: 3 no dado vale 10/);
 	});
+	it('names Stage Legend when a rerolled Performance die is raised to 10', () => {
+		const roll = { mode: 'normal', diceCount: 1, bonus: 4, label: 'Atuação',
+			bonusTerms: '+ 4', naturalFloor: 10, naturalFloorSource: 'Ápice — Lenda dos Palcos' };
+		const result = rpgTrainerRerollMessage('teste original', roll, 'sortudo', () => 0.1);
+		assert.equal(result.total, 14);
+		assert.match(result.message, /Ápice — Lenda dos Palcos: 3 no dado vale 10/);
+		const unrelated = rpgTrainerRerollMessage('teste original', { ...roll, label: 'Percepção' },
+			'sortudo', () => 0.1);
+		assert.equal(unrelated.total, 7);
+		assert.doesNotMatch(unrelated.message, /Lenda dos Palcos/);
+	});
 	it('converts only the latest eligible skill failure without rolling another die', () => {
 		const skill = { messageId: 'skill-1', authorAccountId: 'account-1',
 			message: 'Atuação: 1d20 tirou 4 + 2 = 6', label: 'Atuação', bonusTerms: '+ 2',

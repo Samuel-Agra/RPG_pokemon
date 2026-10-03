@@ -32,6 +32,7 @@ export interface RPGTrainerSurvival {
 	shortCareUsed: boolean;
 	lastLongRestAt?: number;
 	lastSpecialistCareAt?: number;
+	lastShortRest?: { startedAt: number, completedAt: number };
 	rest?: { kind: RPGTrainerRestKind, startedAt: number };
 }
 
@@ -176,6 +177,15 @@ export function rpgTrainerAddExhaustion(sheet: RPGTrainerSheet, levels: number):
 	return next;
 }
 
+/** Recuperação limitada de Exaustão, sem alterar ferimentos ou Pontos de Vida. */
+export function rpgTrainerReduceExhaustion(sheet: RPGTrainerSheet): RPGTrainerSheet {
+	const { sheet: next, state } = complete(sheet);
+	if (state.lifeState === 'dead') throw new Error('Treinador já está morto');
+	if (state.exhaustion < 1) throw new Error('O participante não possui Exaustão para reduzir');
+	state.exhaustion--;
+	return next;
+}
+
 export function rpgTrainerApplyCondition(sheet: RPGTrainerSheet, condition: RPGTrainerCondition): RPGTrainerSheet {
 	const { sheet: next, state } = complete(sheet);
 	if (state.lifeState === 'dead') throw new Error('Treinador já está morto');
@@ -307,6 +317,7 @@ export function rpgTrainerRest(sheet: RPGTrainerSheet, kind: RPGTrainerRestKind,
 	const sides = dieSides(next);
 	const constitution = rpgTrainerModifier(next.attributes!.constitution);
 	if (kind === 'short') {
+		state.lastShortRest = { startedAt: state.rest.startedAt, completedAt: campaignTime };
 		if (options.medicalCare) {
 			if (state.shortCareUsed) throw new Error('O atendimento curto já foi recebido antes do descanso longo');
 			if (!Number.isSafeInteger(options.medicalCheckTotal)) throw new Error('Teste de Medicina necessário');

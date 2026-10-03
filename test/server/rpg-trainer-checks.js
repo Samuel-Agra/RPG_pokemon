@@ -26,6 +26,21 @@ function sequence(...values) {
 }
 
 describe('RPG trainer checks engine', () => {
+	it('automatically treats only Stage Legend Performance dice below 10 as 10', () => {
+		const sheet = trainer();
+		sheet.talents.apex = 'artista:lenda-dos-palcos';
+		const low = rollRPGTrainerSkillCheck(sheet, 'atuacao', undefined, { dc: 15 }, sequence(3));
+		assert.equal(low.natural, 3);
+		assert.equal(low.effectiveNatural, 10);
+		assert.equal(low.total, 10 + low.bonus);
+		assert.equal(rollRPGTrainerSkillCheck(sheet, 'atuacao', undefined,
+			{ dc: 15 }, sequence(17)).effectiveNatural, 17);
+		for (const skill of ['percepcao', 'conhecimento:arqueologia-fosseis']) {
+			assert.equal(rollRPGTrainerSkillCheck(sheet, skill, undefined,
+				{ dc: 15 }, sequence(3)).effectiveNatural, 3);
+		}
+		assert.equal(rollRPGTrainerResistance(sheet, 'will', { dc: 15 }, sequence(3)).natural, 3);
+	});
 	it('automatically treats low Archaeology rolls as 8 with Academic Memory', () => {
 		const sheet = trainer();
 		sheet.talents.class.push('arqueologo:memoria-academica');

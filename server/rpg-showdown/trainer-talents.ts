@@ -14,6 +14,7 @@ export interface RPGTrainerTalentChoice {
 	resistance?: RPGTrainerResistance;
 	proficiency?: string;
 	variant?: string;
+	secondVariant?: string;
 }
 
 const ATTRIBUTE_NAMES: Readonly<Record<string, keyof RPGTrainerAttributes>> = {
@@ -137,13 +138,20 @@ function validSkill(skill: string): boolean {
 }
 
 function allowedAttributeChoices(talent: RPGTrainerTalentDefinition): (keyof RPGTrainerAttributes)[] {
-	// Memória Acadêmica concede Inteligência automaticamente, sem pedir uma escolha ao jogador.
-	if (talent.id === 'arqueologo:memoria-academica') return [];
+	// Aumentos fixos pertencem à própria regra e não exigem escolha de atributo.
+	if (['arqueologo:memoria-academica', 'artista:presenca-magnetica',
+		'artista:corpo-de-cena'].includes(talent.id)) return [];
 	if (talent.id === 'aprimoramento-de-atributo') return Object.values(ATTRIBUTE_NAMES);
 	const line = (/Aumente (?:também )?em 1[^\n]*/i.exec(talent.text))?.[0];
 	if (!line) return [];
 	const beforeLimit = normalize(line.split(/respeitando/i)[0]);
 	return Object.entries(ATTRIBUTE_NAMES).filter(([name]) => containsName(beforeLimit, name)).map(([, key]) => key);
+}
+
+function artistModalities(sheet: RPGTrainerSheet): string[] {
+	return (sheet.talentSelections || []).filter(selection =>
+		['artista:tecnica-assinatura', 'artista:artista-versatil'].includes(selection.id))
+		.flatMap(selection => [selection.variant, selection.secondVariant].filter((value): value is string => !!value));
 }
 
 function allowedVariantChoices(sheet: RPGTrainerSheet, talent: RPGTrainerTalentDefinition): string[] | null {
@@ -241,12 +249,13 @@ export function rpgTrainerTalentCatalog(sheet: RPGTrainerSheet) {
 						'conhecimento-diversificado'].includes(talent.id),
 					resistance: talent.id === 'resiliente',
 					proficiency: ['dominio-de-kit', 'dominio-de-arma'].includes(talent.id),
-					variant: talent.id === 'conhecimento-diversificado' || !!REPEATABLE[talent.id] && !['aprimoramento-de-atributo', 'resiliente',
+					variant: ['conhecimento-diversificado', 'artista:artista-versatil'].includes(talent.id) || !!REPEATABLE[talent.id] && !['aprimoramento-de-atributo', 'resiliente',
 						'treinamento-adicional', 'foco-em-pericia',
 						'dominio-de-arma', 'dominio-de-kit', 'cientista:registros-paralelos',
 						'tecnologo:prototipos-paralelos'].includes(talent.id) ||
 						['cientista:publicacao-de-referencia', 'cientista:especializacao-cientifica',
 							'tecnologo:especializacao-tecnica', 'explorador:especialista-de-terreno'].includes(talent.id),
+					secondVariant: talent.id === 'artista:artista-versatil',
 				},
 			};
 		});
@@ -281,6 +290,12 @@ function applyTalentEffect(sheet: RPGTrainerSheet, talent: RPGTrainerTalentDefin
 	if (talent.id === 'arqueologo:resgate-de-reliquia') {
 		attributes.dexterity = Math.min(20, attributes.dexterity + 1);
 		next.relicRescueApplied = true;
+	}
+	if (talent.id === 'artista:presenca-magnetica') {
+		attributes.charisma = Math.min(20, attributes.charisma + 1);
+	}
+	if (talent.id === 'artista:corpo-de-cena') {
+		attributes.dexterity = Math.min(20, attributes.dexterity + 1);
 	}
 	if (talent.id === 'resiliente') {
 		if (!choice.resistance || !Object.values(RESISTANCE_NAMES).includes(choice.resistance) ||
@@ -318,6 +333,17 @@ function applyTalentEffect(sheet: RPGTrainerSheet, talent: RPGTrainerTalentDefin
 	}
 	if (talent.id === 'ajuda-especializada' && choice.skill !== undefined &&
 		!next.skills.trained.includes(choice.skill)) throw new Error('A perícia de ajuda deve ser treinada');
+	if (['artista:tecnica-assinatura', 'artista:artista-versatil'].includes(talent.id)) {
+		const selected = talent.id === 'artista:artista-versatil' ? [choice.variant, choice.secondVariant] : [choice.variant];
+		const normalized = selected.map(value => normalize(value || ''));
+		if (normalized.some(value => !value) || new Set(normalized).size !== normalized.length ||
+			normalized.some(value => artistModalities(next).some(existing => normalize(existing) === value))) {
+			throw new Error('Escolha modalidades artísticas diferentes das já selecionadas');
+		}
+	}
+	if (talent.id !== 'artista:artista-versatil' && choice.secondVariant !== undefined) {
+		throw new Error('Este talento não escolhe uma segunda modalidade');
+	}
 	if (talent.id === 'dominio-de-escudos') {
 		if (next.proficiencies?.includes('escudos')) throw new Error('O treinador já domina escudos');
 		next.proficiencies = [...(next.proficiencies || []), 'escudos'];
@@ -370,12 +396,13 @@ function applyTalentEffect(sheet: RPGTrainerSheet, talent: RPGTrainerTalentDefin
 export function chooseRPGTrainerTalent(sheet: RPGTrainerSheet, choice: RPGTrainerTalentChoice): RPGTrainerSheet {
 	if (!choice || typeof choice !== 'object' || Array.isArray(choice) ||
 		Object.keys(choice).some(key => !['id', 'requestId', 'attribute', 'skill',
-			'resistance', 'proficiency', 'variant'].includes(key)) ||
+			'resistance', 'proficiency', 'variant', 'secondVariant'].includes(key)) ||
 			typeof choice.id !== 'string' ||
-			['attribute', 'skill', 'resistance', 'proficiency', 'variant'].some(key =>
+			['attribute', 'skill', 'resistance', 'proficiency', 'variant', 'secondVariant'].some(key =>
 				choice[key as keyof RPGTrainerTalentChoice] !== undefined &&
 				typeof choice[key as keyof RPGTrainerTalentChoice] !== 'string') ||
-				(choice.variant !== undefined && (!choice.variant.trim() || choice.variant.length > 80))) {
+				(['variant', 'secondVariant'] as const).some(key => choice[key] !== undefined &&
+					(!choice[key]!.trim() || choice[key]!.length > 80))) {
 		throw new Error('Escolha de talento inválida');
 	}
 	if (choice.requestId !== undefined && (typeof choice.requestId !== 'string' ||
@@ -383,7 +410,7 @@ export function chooseRPGTrainerTalent(sheet: RPGTrainerSheet, choice: RPGTraine
 	const previousRequest = choice.requestId && sheet.talentSelections?.find(selection =>
 		selection.requestId === choice.requestId);
 	if (previousRequest) {
-		if (['id', 'attribute', 'skill', 'resistance', 'proficiency', 'variant'].some(key =>
+		if (['id', 'attribute', 'skill', 'resistance', 'proficiency', 'variant', 'secondVariant'].some(key =>
 			previousRequest[key as keyof RPGTrainerTalentChoice] !== choice[key as keyof RPGTrainerTalentChoice] &&
 			!(key === 'variant' && previousRequest.id === 'artista-marcial:reflexos-treinados' &&
 				previousRequest.variant === 'already-trained' && choice.variant === undefined))) {

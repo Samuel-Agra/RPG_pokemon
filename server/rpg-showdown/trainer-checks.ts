@@ -73,11 +73,13 @@ function validateSkill(skill: string): string {
 export function rpgTrainerSkillAttributes(sheet: RPGTrainerSheet, skill: string): RPGTrainerAttribute[] {
 	const family = validateSkill(skill);
 	const standard = RPG_SKILL_ATTRIBUTES[family];
+	const classOptions = family === 'atuacao' && hasTalent(sheet, 'artista:corpo-de-cena') ?
+		(['dexterity'] as RPGTrainerAttribute[]) : [];
 	const selected = sheet.talents.general.includes('competencia-pratica') ?
 		(sheet.talentSelections || []).filter(choice => choice.id === 'competencia-pratica' && choice.skill === skill)
 			.map(choice => choice.variant as RPGTrainerAttribute).filter(attribute =>
 				['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma'].includes(attribute)) : [];
-	return [...new Set([...standard, ...selected])];
+	return [...new Set([...standard, ...classOptions, ...selected])];
 }
 
 export function rpgTrainerProficiency(level: number): number {
@@ -198,7 +200,8 @@ export function rollRPGTrainerSkillCheck(sheet: RPGTrainerSheet, skill: string, 
 	const result = check(rpgTrainerSkillBonus(sheet, skill, attribute, false, options.temporarilyTrained),
 		options, random, skill);
 	const floor = Math.max(selectedFloor, skill === 'conhecimento:arqueologia-fosseis' &&
-		sheet.talents.class.includes('arqueologo:memoria-academica') ? 8 : 0);
+		sheet.talents.class.includes('arqueologo:memoria-academica') ? 8 : 0,
+	skill === 'atuacao' && sheet.talents.apex === 'artista:lenda-dos-palcos' ? 10 : 0);
 	const effectiveNatural = Math.max(result.natural, floor);
 	if (effectiveNatural === result.natural) return { ...result, effectiveNatural };
 	const total = result.total + effectiveNatural - result.natural;

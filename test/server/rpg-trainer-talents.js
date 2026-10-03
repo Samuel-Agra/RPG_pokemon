@@ -26,9 +26,10 @@ describe('RPG trainer classes and talents', () => {
 	it('registers all twenty class bases, innate features and all published talents', () => {
 		assert.equal(Object.keys(RPG_TRAINER_CLASSES).length, 20);
 		assert.equal(Object.keys(RPG_TRAINER_CLASS_FEATURES).length, 20);
-		assert.equal(RPG_TRAINER_TALENTS.length, 457);
+		assert.equal(RPG_TRAINER_TALENTS.length, 456);
 		assert.equal(RPG_TRAINER_TALENTS.filter(talent => talent.kind === 'general').length, 54);
-		assert.equal(new Set(RPG_TRAINER_TALENTS.map(talent => talent.id)).size, 457);
+		assert.equal(new Set(RPG_TRAINER_TALENTS.map(talent => talent.id)).size, 456);
+		assert(!RPG_TRAINER_TALENTS.some(talent => talent.id === 'artista:memoria-de-repertorio'));
 		for (const classId of Object.keys(RPG_TRAINER_CLASSES)) {
 			assert.ok(rpgTrainerClassFeatures(ready(classId)).length >= 2, classId);
 			assert.ok(RPG_TRAINER_TALENTS.some(talent => talent.classId === classId && talent.kind === 'apex'));
@@ -205,10 +206,12 @@ describe('RPG trainer classes and talents', () => {
 
 	it('applies attribute growth, Constitution PV and Robust retroactively without healing', () => {
 		let sheet = ready('artista', 3);
-		sheet = chooseRPGTrainerTalent(sheet, { id: 'artista:presenca-magnetica', attribute: 'charisma' });
+		sheet = chooseRPGTrainerTalent(sheet, { id: 'artista:presenca-magnetica' });
 		assert.equal(sheet.attributes.charisma, 11);
+		assert.deepEqual(rpgTrainerTalentCatalog(ready('artista', 3))
+			.find(talent => talent.id === 'artista:presenca-magnetica').attributeChoices, []);
 		assert.throws(() => chooseRPGTrainerTalent(ready('artista', 3),
-			{ id: 'artista:presenca-magnetica', attribute: 'strength' }), /atributo permitido/);
+			{ id: 'artista:presenca-magnetica', attribute: 'strength' }), /não concede aumento/);
 		let robust = chooseRPGTrainerTalent(ready('artista', 2), { id: 'robusto' });
 		assert.equal(robust.hitPoints.maximum, 22);
 		assert.equal(robust.hitPoints.current, 20);
@@ -223,6 +226,47 @@ describe('RPG trainer classes and talents', () => {
 		assert.equal(con.hitPoints.current, 20);
 		assert.throws(() => chooseRPGTrainerTalent(con,
 			{ id: 'aprimoramento-de-atributo', attribute: 'constitution' }), /já recebeu/);
+	});
+
+	it('automatically grants Body of Scene dexterity and permits it only for Performance checks', () => {
+		const original = ready('artista', 3, { skills: { trained: ['atuacao'], focused: [] } });
+		const catalog = rpgTrainerTalentCatalog(original).find(talent => talent.id === 'artista:corpo-de-cena');
+		assert.deepEqual(catalog.attributeChoices, []);
+		assert.deepEqual(rpgTrainerSkillAttributes(original, 'atuacao'), ['charisma']);
+		assert.throws(() => chooseRPGTrainerTalent(original,
+			{ id: 'artista:corpo-de-cena', attribute: 'dexterity' }), /não concede aumento/);
+		const chosen = chooseRPGTrainerTalent(original, { id: 'artista:corpo-de-cena' });
+		assert.equal(chosen.attributes.dexterity, 15);
+		assert.deepEqual(rpgTrainerSkillAttributes(chosen, 'atuacao'), ['charisma', 'dexterity']);
+		assert.equal(rpgTrainerSkillBonus(chosen, 'atuacao', 'dexterity'),
+			rpgTrainerSkillBonus(chosen, 'atuacao', 'charisma') + 2);
+		assert.deepEqual(rpgTrainerSkillAttributes(chosen, 'persuasao'), ['charisma']);
+		assert.equal(chooseRPGTrainerTalent(ready('artista', 3, {
+			attributes: { strength: 12, dexterity: 20, constitution: 13,
+				intelligence: 14, wisdom: 12, charisma: 10 },
+		}), { id: 'artista:corpo-de-cena' }).attributes.dexterity, 20);
+	});
+
+	it('records both Artist Versatile modalities and prevents repeating Signature Technique modalities', () => {
+		let sheet = ready('artista', 7);
+		const versatile = rpgTrainerTalentCatalog(sheet).find(talent => talent.id === 'artista:artista-versatil');
+		assert.equal(versatile.choiceFields.variant, true);
+		assert.equal(versatile.choiceFields.secondVariant, true);
+		assert.deepEqual(versatile.attributeChoices.sort(), ['charisma', 'dexterity']);
+		sheet = chooseRPGTrainerTalent(sheet, { id: 'artista:tecnica-assinatura', variant: 'Canto' });
+		assert.throws(() => chooseRPGTrainerTalent(sheet, { id: 'artista:artista-versatil',
+			variant: 'canto', secondVariant: 'Dança', attribute: 'charisma' }), /modalidades artísticas diferentes/);
+		assert.throws(() => chooseRPGTrainerTalent(sheet, { id: 'artista:artista-versatil',
+			variant: 'Dança', secondVariant: 'dança', attribute: 'charisma' }), /modalidades artísticas diferentes/);
+		assert.throws(() => chooseRPGTrainerTalent(sheet, { id: 'artista:artista-versatil',
+			variant: 'Dança', attribute: 'charisma' }), /modalidades artísticas diferentes/);
+		sheet = chooseRPGTrainerTalent(sheet, { id: 'artista:artista-versatil',
+			variant: 'Dança', secondVariant: 'Poesia', attribute: 'charisma' });
+		const selection = sheet.talentSelections.find(entry => entry.id === 'artista:artista-versatil');
+		assert.equal(selection.variant, 'Dança');
+		assert.equal(selection.secondVariant, 'Poesia');
+		assert.throws(() => chooseRPGTrainerTalent(sheet, { id: 'artista:tecnica-assinatura', variant: 'poesia' }),
+			/modalidades artísticas diferentes/);
 	});
 
 	it('uses stable request IDs when a class talent may be acquired twice', () => {
