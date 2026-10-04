@@ -119,8 +119,11 @@ export function rpgTrainerSkillBonus(sheet: RPGTrainerSheet, skill: string,
 		selection.id === 'conhecimento-diversificado' &&
 		(selection.skill === skill || selection.variant === skill)) ?
 		Math.floor(rpgTrainerProficiency(sheet.level) / 2) : 0;
+	const precisionThrowBonus = skill === 'captura' && hasTalent(sheet, 'atleta:arremesso-de-precisao') ? 2 : 0;
+	const completeAthleteBonus = (skill === 'atletismo' || skill === 'acrobacia') &&
+		hasTalent(sheet, 'atleta:atleta-completo') ? 2 : 0;
 	return modifier + (sheet.skills.focused.includes(skill) ? 2 : trained ? 1 : 0) * rpgTrainerProficiency(sheet.level) +
-		conductorBonus + scientistBonus + diverseKnowledgeBonus -
+		conductorBonus + scientistBonus + diverseKnowledgeBonus + precisionThrowBonus + completeAthleteBonus -
 		rpgTrainerSurvivalEffects(sheet).checkPenalty;
 }
 
@@ -201,7 +204,9 @@ export function rollRPGTrainerSkillCheck(sheet: RPGTrainerSheet, skill: string, 
 		options, random, skill);
 	const floor = Math.max(selectedFloor, skill === 'conhecimento:arqueologia-fosseis' &&
 		sheet.talents.class.includes('arqueologo:memoria-academica') ? 8 : 0,
-	skill === 'atuacao' && sheet.talents.apex === 'artista:lenda-dos-palcos' ? 10 : 0);
+	skill === 'atuacao' && sheet.talents.apex === 'artista:lenda-dos-palcos' ? 10 : 0,
+	sheet.talents.apex === 'atleta:atleta-completo' && (skill === 'atletismo' || skill === 'acrobacia') ? 10 : 0,
+	sheet.classId === 'atleta' && (skill === 'atletismo' || skill === 'acrobacia') ? 5 : 0);
 	const effectiveNatural = Math.max(result.natural, floor);
 	if (effectiveNatural === result.natural) return { ...result, effectiveNatural };
 	const total = result.total + effectiveNatural - result.natural;
@@ -218,8 +223,12 @@ export function rollRPGTrainerHelp(sheet: RPGTrainerSheet, skill: string, attrib
 	random: () => number = Math.random, options: RPGD20Options = {}) {
 	const bonus = rpgTrainerSkillBonus(sheet, skill, attribute);
 	const roll = rollRPGD20(random, options);
-	const total = roll.natural + bonus;
-	return { ...roll, skill, attribute: attribute || RPG_SKILL_ATTRIBUTES[validateSkill(skill)][0], bonus, total,
+	const athleticFloor = (skill === 'atletismo' || skill === 'acrobacia') ?
+		sheet.talents.apex === 'atleta:atleta-completo' ? 10 : sheet.classId === 'atleta' ? 5 : 0 : 0;
+	const effectiveNatural = Math.max(roll.natural, athleticFloor);
+	const total = effectiveNatural + bonus;
+	return { ...roll, effectiveNatural, skill,
+		attribute: attribute || RPG_SKILL_ATTRIBUTES[validateSkill(skill)][0], bonus, total,
 		helpBonus: rpgHelpBonus(total) };
 }
 

@@ -183,6 +183,9 @@ function lowerLegacyRPGTrainerLevel(sheet: RPGTrainerSheet): RPGTrainerSheet {
 			attributes[attribute] = oldValue;
 		}
 		if (selection.id === 'treinamento-adicional' && selection.skill) remove(next.skills.trained, selection.skill);
+		if (selection.id === 'atleta:montaria-esportiva' && selection.grantedSkill) {
+			remove(next.skills.trained, selection.grantedSkill);
+		}
 		if (selection.id === 'foco-em-pericia' && selection.skill) remove(next.skills.focused, selection.skill);
 		if (selection.id === 'resiliente' && selection.resistance) remove(next.resistances, selection.resistance);
 		if (selection.id === 'artista-marcial:reflexos-treinados' && selection.variant !== 'already-trained') {

@@ -127,6 +127,22 @@ describe('RPG trainer classes and talents', () => {
 		assert.throws(() => chooseRPGTrainerTalent(ready('arqueologo', 2),
 			{ id: 'dominio-de-kit', proficiency: 'kit-medico' }), /perícia correspondente/);
 	});
+	it('grants Mount Pokemon training with Sports Riding without duplicating existing training', () => {
+		const athlete = ready('atleta', 3);
+		assert(!athlete.skills.trained.includes('montaria-pokemon'));
+		assert(rpgTrainerTalentCatalog(athlete).find(talent => talent.id === 'atleta:montaria-esportiva').available);
+		const learned = chooseRPGTrainerTalent(athlete, { id: 'atleta:montaria-esportiva' });
+		assert(learned.skills.trained.includes('montaria-pokemon'));
+		assert.equal(learned.talentSelections.at(-1).grantedSkill, 'montaria-pokemon');
+		assert.equal(rpgTrainerSkillBonus(learned, 'montaria-pokemon'),
+			rpgTrainerSkillBonus(athlete, 'montaria-pokemon', undefined, false, true) + rpgTrainerProficiency(learned.level));
+		const alreadyTrained = ready('atleta', 3, { skills: {
+			trained: [...athlete.skills.trained, 'montaria-pokemon'], focused: [],
+		} });
+		const retained = chooseRPGTrainerTalent(alreadyTrained, { id: 'atleta:montaria-esportiva' });
+		assert.equal(retained.skills.trained.filter(skill => skill === 'montaria-pokemon').length, 1);
+		assert.equal(retained.talentSelections.at(-1).grantedSkill, undefined);
+	});
 
 	it('chooses two distinct untrained Knowledge areas and applies half proficiency without training', () => {
 		const base = ready('arqueologo', 10);
@@ -267,6 +283,31 @@ describe('RPG trainer classes and talents', () => {
 		assert.equal(selection.secondVariant, 'Poesia');
 		assert.throws(() => chooseRPGTrainerTalent(sheet, { id: 'artista:tecnica-assinatura', variant: 'poesia' }),
 			/modalidades artísticas diferentes/);
+	});
+	it('records three Athlete Versatile modalities without repeating Sports Specialties', () => {
+		let sheet = ready('atleta', 7);
+		const versatile = rpgTrainerTalentCatalog(sheet).find(talent => talent.id === 'atleta:atleta-polivalente');
+		assert.equal(versatile.choiceFields.variant, true);
+		assert.equal(versatile.choiceFields.secondVariant, true);
+		assert.equal(versatile.choiceFields.thirdVariant, true);
+		assert.deepEqual(versatile.attributeChoices.sort(), ['constitution', 'dexterity', 'strength']);
+		sheet = chooseRPGTrainerTalent(sheet, { id: 'atleta:especialidade-esportiva', variant: 'Corrida' });
+		assert.throws(() => chooseRPGTrainerTalent(sheet, { id: 'atleta:atleta-polivalente',
+			variant: 'corrida', secondVariant: 'Natação', thirdVariant: 'Escalada', attribute: 'strength' }),
+		/modalidades esportivas diferentes/);
+		assert.throws(() => chooseRPGTrainerTalent(sheet, { id: 'atleta:atleta-polivalente',
+			variant: 'Natação', secondVariant: 'natação', thirdVariant: 'Escalada', attribute: 'strength' }),
+		/modalidades esportivas diferentes/);
+		assert.throws(() => chooseRPGTrainerTalent(sheet, { id: 'atleta:atleta-polivalente',
+			variant: 'Natação', secondVariant: 'Ginástica', attribute: 'strength' }),
+		/modalidades esportivas diferentes/);
+		sheet = chooseRPGTrainerTalent(sheet, { id: 'atleta:atleta-polivalente',
+			variant: 'Natação', secondVariant: 'Ginástica', thirdVariant: 'Escalada', attribute: 'strength' });
+		const selection = sheet.talentSelections.find(entry => entry.id === 'atleta:atleta-polivalente');
+		assert.deepEqual([selection.variant, selection.secondVariant, selection.thirdVariant],
+			['Natação', 'Ginástica', 'Escalada']);
+		assert.throws(() => chooseRPGTrainerTalent(sheet,
+			{ id: 'atleta:especialidade-esportiva', variant: 'escalada' }), /modalidades esportivas diferentes/);
 	});
 
 	it('uses stable request IDs when a class talent may be acquired twice', () => {

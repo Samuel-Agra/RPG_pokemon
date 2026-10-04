@@ -47,7 +47,7 @@ export const RPG_TRAINER_CLASSES: Readonly<Record<string, ClassRule>> = Object.f
 	rule('artista-marcial', 'Artista Marcial', 10, 'fortitude', 'acrobacia atletismo', 2,
 		'enganacao investigacao ladinagem tecnologia', `${EXPLORER} ${LIGHT}`,
 		{ arma: ['espada', 'nunchaku', 'lanca'] }),
-	rule('atleta', 'Atleta', 10, 'fortitude', 'atletismo', 1,
+	rule('atleta', 'Atleta', 10, 'fortitude', 'atletismo acrobacia', 1,
 		'enganacao investigacao ladinagem medicina-pokemon tecnologia', `${LIGHT} ${EXPLORER} equipamento-esportivo`,
 		{ melhoria: ['arnes-escalada', 'colete-flutuacao', 'suporte-corrida'] }),
 	rule('cientista', 'Cientista', 6, 'will', '', 4,

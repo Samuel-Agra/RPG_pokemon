@@ -649,7 +649,7 @@ export class RPGBoxManagement {
 	static trainEVs(
 		character: RPGBoxCharacterData & { money: number }, pokemonId: string,
 		fromStat: RPGTeamBuilderStat, toStat: RPGTeamBuilderStat, amount: number, expectedRevision: number,
-		now = Date.now()
+		now = Date.now(), reducedDuration = false
 	): RPGEVTrainingResult {
 		this.revision(character, expectedRevision);
 		const stats: RPGTeamBuilderStat[] = ['hp', 'atk', 'def', 'spa', 'spd', 'spe'];
@@ -673,7 +673,7 @@ export class RPGBoxManagement {
 		if (!Number.isSafeInteger(character.money) || character.money < cost) {
 			throw new Error('Pokecoins insuficientes para o treinamento');
 		}
-		const durationMs = steps * 30 * 60 * 1000;
+		const durationMs = steps * 30 * 60 * 1000 * (reducedDuration ? 0.75 : 1);
 		const values = { ...entry.pokemon.evs, [fromStat]: source - amount, [toStat]: destination + amount } as
 			Record<RPGTeamBuilderStat, number>;
 		const changes = Object.fromEntries(stats.map(stat => [stat, 0])) as Record<RPGTeamBuilderStat, number>;
@@ -690,7 +690,7 @@ export class RPGBoxManagement {
 
 	static trainEVDistribution(
 		character: RPGBoxCharacterData & { money: number }, pokemonId: string,
-		values: Record<RPGTeamBuilderStat, number>, expectedRevision: number, now = Date.now()
+		values: Record<RPGTeamBuilderStat, number>, expectedRevision: number, now = Date.now(), reducedDuration = false
 	): RPGEVDistributionTrainingResult {
 		this.revision(character, expectedRevision);
 		const stats: RPGTeamBuilderStat[] = ['hp', 'atk', 'def', 'spa', 'spd', 'spe'];
@@ -722,7 +722,7 @@ export class RPGBoxManagement {
 		if (!Number.isSafeInteger(character.money) || character.money < cost) {
 			throw new Error('Pokecoins insuficientes para o treinamento');
 		}
-		const durationMs = steps * 30 * 60 * 1000;
+		const durationMs = steps * 30 * 60 * 1000 * (reducedDuration ? 0.75 : 1);
 		character.money -= cost;
 		entry.metadata = { ...(entry.metadata || {}), training: 'ev', evTraining: {
 			kind: 'redistribution', values: { ...next }, changes: { ...changes }, amount: added, steps, cost,

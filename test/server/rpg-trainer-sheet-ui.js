@@ -23,6 +23,17 @@ describe('RPG trainer sheet read-only frontend', () => {
 		assert(service.includes('rpgTrainerSurvival(source).lastShortRest?.completedAt ?? -1'));
 		assert(!service.includes('Arte Reconfortante exige um descanso curto de uma hora no relógio da campanha'));
 	});
+	it('lets the Athlete prepare Captain bonuses for at most proficiency-many allies', () => {
+		assert(page.includes("id === 'atleta:capitao-de-time'"));
+		assert(page.includes("'/trainer/talents/team-captain'"));
+		assert(page.includes('ids.length > action.captainPlan.proficiency'));
+		assert(page.includes("'trainer-sheet-captain-players'"));
+		assert(page.includes("player.setAttribute('aria-pressed', String(selected.has(person.id)))"));
+		assert(!page.includes("plan.placeholder = 'Atividade física planejada'"));
+		assert(style.includes('grid-template-columns: repeat(2, minmax(0, 1fr))'));
+		assert(style.includes(".trainer-sheet-captain-player[aria-pressed='true']"));
+		assert(http.includes("'/api/rpg/trainer/talents/team-captain'"));
+	});
 	it('offers two Knowledge choices and marks half-proficiency on the right half of each skill', () => {
 		assert(page.includes("chosen.id === 'conhecimento-diversificado'"));
 		assert(page.includes("entry.halfProficiency ? ' half-proficiency'"));

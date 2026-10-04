@@ -45,7 +45,8 @@ export interface RPGTrainerSheet {
 	/** Marca a correção do bônus de Destreza para fichas que já possuíam Resgate de Relíquia. */
 	relicRescueApplied?: boolean;
 	/** Escolhas parametrizadas preservam a variante e o nível de aquisição. */
-	talentSelections?: (import('./trainer-talents').RPGTrainerTalentChoice & { acquiredAtLevel: number })[];
+	talentSelections?: (import('./trainer-talents').RPGTrainerTalentChoice &
+		{ acquiredAtLevel: number, grantedSkill?: string })[];
 	/** Condições narrativas ou licenças verificadas pelo Mestre, sem confiar em sinalização do cliente. */
 	talentApprovals?: { key: string, reason: string, approvedBy: string, approvedAt: number }[];
 	/** Contadores próprios do treinador, identificados pela regra que os concede. */
@@ -61,6 +62,8 @@ export interface RPGTrainerSheet {
 	comfortingArt?: { sourceCharacterId: string, sourceName: string, restCycle: number };
 	/** Destinatários já atendidos durante o descanso curto atual do Artista. */
 	comfortingArtSession?: { restStartedAt: number, recipientCharacterIds: string[] };
+	/** Plano físico preparado pelo Atleta; permanece ativo até ser substituído. */
+	captainPlan?: { description: string, recipientCharacterIds: string[], usedRecipientIds?: string[] };
 	/** A primeira série elegível fica vinculada ao personagem antes da distribuição. */
 	creation?: { method: 'standard' | 'rolled', rolls: number[] | null, dice?: number[][],
 		rollProgress?: { dice: number[][], values: number[] }, };

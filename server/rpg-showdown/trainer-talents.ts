@@ -15,6 +15,7 @@ export interface RPGTrainerTalentChoice {
 	proficiency?: string;
 	variant?: string;
 	secondVariant?: string;
+	thirdVariant?: string;
 }
 
 const ATTRIBUTE_NAMES: Readonly<Record<string, keyof RPGTrainerAttributes>> = {
@@ -25,7 +26,6 @@ const RESISTANCE_NAMES: Readonly<Record<string, RPGTrainerResistance>> = {
 	fortitude: 'fortitude', reflexos: 'reflexes', vontade: 'will',
 };
 const TRAINED_SKILL_PREREQUISITES: Readonly<Record<string, string>> = {
-	'atleta:montaria-esportiva': 'montaria-pokemon',
 	'explorador:guia-de-montaria': 'montaria-pokemon',
 	'medico:medicina-integrada': 'medicina-pokemon',
 	'escalador-treinado': 'atletismo',
@@ -148,10 +148,11 @@ function allowedAttributeChoices(talent: RPGTrainerTalentDefinition): (keyof RPG
 	return Object.entries(ATTRIBUTE_NAMES).filter(([name]) => containsName(beforeLimit, name)).map(([, key]) => key);
 }
 
-function artistModalities(sheet: RPGTrainerSheet): string[] {
+function selectedModalities(sheet: RPGTrainerSheet, ids: readonly string[]): string[] {
 	return (sheet.talentSelections || []).filter(selection =>
-		['artista:tecnica-assinatura', 'artista:artista-versatil'].includes(selection.id))
-		.flatMap(selection => [selection.variant, selection.secondVariant].filter((value): value is string => !!value));
+		ids.includes(selection.id))
+		.flatMap(selection => [selection.variant, selection.secondVariant, selection.thirdVariant]
+			.filter((value): value is string => !!value));
 }
 
 function allowedVariantChoices(sheet: RPGTrainerSheet, talent: RPGTrainerTalentDefinition): string[] | null {
@@ -249,13 +250,15 @@ export function rpgTrainerTalentCatalog(sheet: RPGTrainerSheet) {
 						'conhecimento-diversificado'].includes(talent.id),
 					resistance: talent.id === 'resiliente',
 					proficiency: ['dominio-de-kit', 'dominio-de-arma'].includes(talent.id),
-					variant: ['conhecimento-diversificado', 'artista:artista-versatil'].includes(talent.id) || !!REPEATABLE[talent.id] && !['aprimoramento-de-atributo', 'resiliente',
+					variant: ['conhecimento-diversificado', 'artista:artista-versatil',
+						'atleta:atleta-polivalente'].includes(talent.id) || !!REPEATABLE[talent.id] && !['aprimoramento-de-atributo', 'resiliente',
 						'treinamento-adicional', 'foco-em-pericia',
 						'dominio-de-arma', 'dominio-de-kit', 'cientista:registros-paralelos',
 						'tecnologo:prototipos-paralelos'].includes(talent.id) ||
 						['cientista:publicacao-de-referencia', 'cientista:especializacao-cientifica',
 							'tecnologo:especializacao-tecnica', 'explorador:especialista-de-terreno'].includes(talent.id),
-					secondVariant: talent.id === 'artista:artista-versatil',
+					secondVariant: ['artista:artista-versatil', 'atleta:atleta-polivalente'].includes(talent.id),
+					thirdVariant: talent.id === 'atleta:atleta-polivalente',
 				},
 			};
 		});
@@ -305,6 +308,9 @@ function applyTalentEffect(sheet: RPGTrainerSheet, talent: RPGTrainerTalentDefin
 	if (talent.id === 'artista-marcial:reflexos-treinados' && !next.resistances.includes('reflexes')) {
 		next.resistances.push('reflexes');
 	}
+	if (talent.id === 'atleta:montaria-esportiva' && !next.skills.trained.includes('montaria-pokemon')) {
+		next.skills.trained.push('montaria-pokemon');
+	}
 	if (talent.id === 'treinamento-adicional' || talent.id === 'foco-em-pericia' ||
 		talent.id === 'competencia-pratica') {
 		if (!choice.skill || !validSkill(choice.skill)) throw new Error('Escolha uma perícia válida');
@@ -333,16 +339,26 @@ function applyTalentEffect(sheet: RPGTrainerSheet, talent: RPGTrainerTalentDefin
 	}
 	if (talent.id === 'ajuda-especializada' && choice.skill !== undefined &&
 		!next.skills.trained.includes(choice.skill)) throw new Error('A perícia de ajuda deve ser treinada');
-	if (['artista:tecnica-assinatura', 'artista:artista-versatil'].includes(talent.id)) {
-		const selected = talent.id === 'artista:artista-versatil' ? [choice.variant, choice.secondVariant] : [choice.variant];
+	const artistIds = ['artista:tecnica-assinatura', 'artista:artista-versatil'];
+	const athleteIds = ['atleta:especialidade-esportiva', 'atleta:atleta-polivalente'];
+	if (artistIds.includes(talent.id) || athleteIds.includes(talent.id)) {
+		const ids = artistIds.includes(talent.id) ? artistIds : athleteIds;
+		const selected = talent.id === 'atleta:atleta-polivalente' ?
+			[choice.variant, choice.secondVariant, choice.thirdVariant] :
+			[choice.variant, ...(talent.id === 'artista:artista-versatil' ? [choice.secondVariant] : [])];
 		const normalized = selected.map(value => normalize(value || ''));
 		if (normalized.some(value => !value) || new Set(normalized).size !== normalized.length ||
-			normalized.some(value => artistModalities(next).some(existing => normalize(existing) === value))) {
-			throw new Error('Escolha modalidades artísticas diferentes das já selecionadas');
+			normalized.some(value => selectedModalities(next, ids).some(existing => normalize(existing) === value))) {
+			throw new Error(artistIds.includes(talent.id) ?
+				'Escolha modalidades artísticas diferentes das já selecionadas' :
+				'Escolha modalidades esportivas diferentes das já selecionadas');
 		}
 	}
-	if (talent.id !== 'artista:artista-versatil' && choice.secondVariant !== undefined) {
+	if (!['artista:artista-versatil', 'atleta:atleta-polivalente'].includes(talent.id) && choice.secondVariant !== undefined) {
 		throw new Error('Este talento não escolhe uma segunda modalidade');
+	}
+	if (talent.id !== 'atleta:atleta-polivalente' && choice.thirdVariant !== undefined) {
+		throw new Error('Este talento não escolhe uma terceira modalidade');
 	}
 	if (talent.id === 'dominio-de-escudos') {
 		if (next.proficiencies?.includes('escudos')) throw new Error('O treinador já domina escudos');
@@ -396,12 +412,12 @@ function applyTalentEffect(sheet: RPGTrainerSheet, talent: RPGTrainerTalentDefin
 export function chooseRPGTrainerTalent(sheet: RPGTrainerSheet, choice: RPGTrainerTalentChoice): RPGTrainerSheet {
 	if (!choice || typeof choice !== 'object' || Array.isArray(choice) ||
 		Object.keys(choice).some(key => !['id', 'requestId', 'attribute', 'skill',
-			'resistance', 'proficiency', 'variant', 'secondVariant'].includes(key)) ||
+			'resistance', 'proficiency', 'variant', 'secondVariant', 'thirdVariant'].includes(key)) ||
 			typeof choice.id !== 'string' ||
-			['attribute', 'skill', 'resistance', 'proficiency', 'variant', 'secondVariant'].some(key =>
+			['attribute', 'skill', 'resistance', 'proficiency', 'variant', 'secondVariant', 'thirdVariant'].some(key =>
 				choice[key as keyof RPGTrainerTalentChoice] !== undefined &&
 				typeof choice[key as keyof RPGTrainerTalentChoice] !== 'string') ||
-				(['variant', 'secondVariant'] as const).some(key => choice[key] !== undefined &&
+				(['variant', 'secondVariant', 'thirdVariant'] as const).some(key => choice[key] !== undefined &&
 					(!choice[key]!.trim() || choice[key]!.length > 80))) {
 		throw new Error('Escolha de talento inválida');
 	}
@@ -410,7 +426,7 @@ export function chooseRPGTrainerTalent(sheet: RPGTrainerSheet, choice: RPGTraine
 	const previousRequest = choice.requestId && sheet.talentSelections?.find(selection =>
 		selection.requestId === choice.requestId);
 	if (previousRequest) {
-		if (['id', 'attribute', 'skill', 'resistance', 'proficiency', 'variant', 'secondVariant'].some(key =>
+		if (['id', 'attribute', 'skill', 'resistance', 'proficiency', 'variant', 'secondVariant', 'thirdVariant'].some(key =>
 			previousRequest[key as keyof RPGTrainerTalentChoice] !== choice[key as keyof RPGTrainerTalentChoice] &&
 			!(key === 'variant' && previousRequest.id === 'artista-marcial:reflexos-treinados' &&
 				previousRequest.variant === 'already-trained' && choice.variant === undefined))) {
@@ -429,7 +445,9 @@ export function chooseRPGTrainerTalent(sheet: RPGTrainerSheet, choice: RPGTraine
 	else if (talent.kind === 'class') next.talents.class.push(talent.id);
 	else next.talents.apex = talent.id;
 	const selection = talent.id === 'artista-marcial:reflexos-treinados' &&
-		sheet.resistances.includes('reflexes') ? { ...choice, variant: 'already-trained' } : choice;
+		sheet.resistances.includes('reflexes') ? { ...choice, variant: 'already-trained' } :
+		talent.id === 'atleta:montaria-esportiva' && !sheet.skills.trained.includes('montaria-pokemon') ?
+			{ ...choice, grantedSkill: 'montaria-pokemon' } : choice;
 	next.talentSelections = [...(next.talentSelections || []), { ...selection, acquiredAtLevel: next.level }];
 	next.pendingChoices = {
 		general: availableSlots(next, 'general'),

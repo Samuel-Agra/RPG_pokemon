@@ -22,6 +22,19 @@ function ready() {
 }
 
 describe('RPG trainer survival', () => {
+	it('rolls Athletic Recovery twice on a long rest and adds medical care separately', () => {
+		const athlete = { ...ready(), classId: 'atleta', talents: {
+			general: [], class: ['atleta:recuperacao-atletica'], apex: null },
+		hitPoints: { current: 1, maximum: 30, temporary: 0 } };
+		const started = rpgTrainerStartRest(athlete, 'long', 0);
+		const natural = rpgTrainerRest(started, 'long', 28_800_000, {}, () => 0);
+		assert.equal(natural.recovered, 4);
+		const treated = rpgTrainerRest(started, 'long', 28_800_000,
+			{ medicalCare: true, medicalCheckTotal: 15 }, () => 0);
+		assert.equal(treated.recovered, 5);
+		assert.equal(rpgTrainerRest(rpgTrainerStartRest({ ...athlete, talents: {
+			general: [], class: [], apex: null } }, 'long', 0), 'long', 28_800_000, {}, () => 0).recovered, 3);
+	});
 	it('reduces one level of exhaustion for a valid Comforting Art recipient', () => {
 		const exhausted = rpgTrainerAddExhaustion(ready(), 2);
 		const recovered = rpgTrainerReduceExhaustion(exhausted);

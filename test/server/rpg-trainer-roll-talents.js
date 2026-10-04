@@ -5,6 +5,8 @@ const { createRPGPendingTrainerSheet, chooseRPGTrainerTalent } = require('../../
 const { rollRPGTrainerSkillCheck, rpgTrainerProficiency } = require('../../dist/server/rpg-showdown');
 const { rpgTrainerRollTalentOptions, rpgResolveTrainerRollTalents, rpgTrainerRollBonusTerms,
 	rpgArtisticInspirationOption, rpgCaptivatingDistractionOption, rpgEncouragingPresenceOption,
+	rpgTeamCaptainOption,
+	rpgExpeditionLeaderOption,
 	rpgExcavationMasterOption,
 	rpgSetSharedArchive, rpgSharedArchiveOptions } =
 	require('../../dist/server/rpg-showdown/trainer-roll-talents');
@@ -17,6 +19,68 @@ function sheet() {
 }
 
 describe('RPG trainer situational roll talents', () => {
+	it('offers Expedition Leader to allies only for physical travel checks', () => {
+		const leader = { ...sheet(), classId: 'atleta', talents: { general: [], class: [],
+			apex: 'atleta:lider-de-expedicao' } };
+		const ally = sheet();
+		const option = rpgExpeditionLeaderOption('leader', 'Lia', leader);
+		assert.equal(option.bonus, 2);
+		for (const [kind, id] of [['skill', 'atletismo'], ['skill', 'acrobacia'],
+			['resistance', 'fortitude']]) {
+			assert.equal(rpgResolveTrainerRollTalents(ally, kind, id, [option.key], [option]).bonus, 2);
+		}
+		assert.throws(() => rpgResolveTrainerRollTalents(ally, 'skill', 'percepcao',
+			[option.key], [option]), /indisponível/);
+		assert.throws(() => rpgResolveTrainerRollTalents(ally, 'skill', 'atletismo',
+			[option.key]), /indisponível/);
+		assert.equal(rpgExpeditionLeaderOption('other', 'Ana', ally), null);
+	});
+	it('keeps the Captain bonus available to designated participants after use', () => {
+		const athlete = { ...sheet(), classId: 'atleta', talents: { general: [],
+			class: ['atleta:capitao-de-time'], apex: null }, captainPlan: {
+			description: 'Travessia da ponte', recipientCharacterIds: ['aliado', 'capitao'], usedRecipientIds: [],
+		} };
+		const option = rpgTeamCaptainOption('capitao', 'Lia', athlete, 'aliado');
+		assert.deepEqual(rpgTrainerRollTalentOptions(athlete, 'skill', 'atletismo'), []);
+		assert.equal(option.bonus, 2);
+		assert.equal(rpgTeamCaptainOption('capitao', 'Lia', athlete, 'capitao').bonus, 2);
+		assert.match(option.condition, /Travessia da ponte/);
+		assert.deepEqual(option.targets, ['skill:atletismo', 'skill:acrobacia']);
+		assert.equal(rpgTeamCaptainOption('capitao', 'Lia', athlete, 'outro'), null);
+		assert.equal(rpgResolveTrainerRollTalents(sheet(), 'skill', 'atletismo',
+			[option.key], [option]).bonus, 2);
+		athlete.captainPlan.usedRecipientIds.push('aliado');
+		assert.equal(rpgTeamCaptainOption('capitao', 'Lia', athlete, 'aliado').bonus, 2);
+		athlete.captainPlan.recipientCharacterIds = ['capitao'];
+		assert.equal(rpgTeamCaptainOption('capitao', 'Lia', athlete, 'aliado'), null);
+	});
+	it('offers Crossing Swimmer +2 only for relevant Athletics rolls', () => {
+		const athlete = { ...sheet(), classId: 'atleta', talents: { general: [],
+			class: ['atleta:nadador-de-travessia'], apex: null } };
+		const options = rpgTrainerRollTalentOptions(athlete, 'skill', 'atletismo');
+		assert.equal(options[0].name, 'Nadador de Travessia');
+		assert.equal(rpgResolveTrainerRollTalents(athlete, 'skill', 'atletismo', [options[0].key]).bonus, 2);
+		assert.deepEqual(rpgTrainerRollTalentOptions(athlete, 'skill', 'acrobacia'), []);
+	});
+	it('offers Sports Riding +2 only for relevant Mount Pokemon checks', () => {
+		const athlete = { ...sheet(), classId: 'atleta', talents: { general: [],
+			class: ['atleta:montaria-esportiva'], apex: null } };
+		const [option] = rpgTrainerRollTalentOptions(athlete, 'skill', 'montaria-pokemon');
+		assert.equal(option.bonus, 2);
+		assert.match(option.condition, /Corrida, salto/);
+		assert.equal(rpgResolveTrainerRollTalents(athlete, 'skill', 'montaria-pokemon',
+			[option.key]).bonus, 2);
+		assert.deepEqual(rpgTrainerRollTalentOptions(athlete, 'skill', 'atletismo'), []);
+	});
+	it('offers Rules Eye as a contextual Athletics alternative without a numeric bonus', () => {
+		const athlete = { ...sheet(), classId: 'atleta', talents: { general: [],
+			class: ['atleta:olho-para-as-regras'], apex: null } };
+		const [option] = rpgTrainerRollTalentOptions(athlete, 'skill', 'atletismo');
+		assert.equal(option.bonus, 0);
+		assert.match(option.condition, /Usar Atletismo para perceber/);
+		assert.equal(rpgResolveTrainerRollTalents(athlete, 'skill', 'atletismo', [option.key]).bonus, 0);
+		assert.deepEqual(rpgTrainerRollTalentOptions(athlete, 'skill', 'captura'), []);
+	});
 	it('offers Thousand Faces only when the skill roll actually uses Charisma', () => {
 		const artist = { ...sheet(), classId: 'artista', talents: { general: [],
 			class: ['artista:corpo-de-cena'], apex: 'artista:mil-faces' } };
@@ -89,6 +153,30 @@ describe('RPG trainer situational roll talents', () => {
 			[options[1].key, options[2].key]), /Variantes do mesmo talento/);
 		assert.throws(() => rpgResolveTrainerRollTalents(artist, 'skill', 'atuacao',
 			[options[0].key, options[1].key]), /não se acumulam/);
+	});
+	it('offers each Athlete Versatile sport separately without stacking Sports Specialty', () => {
+		const athlete = { ...sheet(), classId: 'atleta', talents: { general: [],
+			class: ['atleta:especialidade-esportiva', 'atleta:atleta-polivalente'], apex: null },
+		talentSelections: [
+			{ id: 'atleta:especialidade-esportiva', variant: 'Corrida', acquiredAtLevel: 3 },
+			{ id: 'atleta:atleta-polivalente', variant: 'Natação', secondVariant: 'Ginástica',
+				thirdVariant: 'Escalada', attribute: 'strength', acquiredAtLevel: 5 },
+		] };
+		for (const skill of ['atletismo', 'acrobacia']) {
+			const options = rpgTrainerRollTalentOptions(athlete, 'skill', skill);
+			assert.deepEqual(options.map(option => option.name), [
+				'Especialidade Esportiva (Corrida)', 'Atleta Polivalente (Natação)',
+				'Atleta Polivalente (Ginástica)', 'Atleta Polivalente (Escalada)',
+			]);
+			assert.equal(rpgResolveTrainerRollTalents(athlete, 'skill', skill, [options[2].key]).bonus, 2);
+			assert.throws(() => rpgResolveTrainerRollTalents(athlete, 'skill', skill,
+				[options[1].key, options[2].key]), /Variantes do mesmo talento/);
+			assert.throws(() => rpgResolveTrainerRollTalents(athlete, 'skill', skill,
+				[options[0].key, options[1].key]), /não se acumulam/);
+			athlete.talents.apex = 'atleta:atleta-completo';
+			assert.equal(rpgResolveTrainerRollTalents(athlete, 'skill', skill,
+				[options[0].key]).bonus, 2);
+		}
 	});
 	it('offers Voice of Ages only to its owner on Knowledge rolls', () => {
 		const owner = { ...sheet(), talents: { general: [], class: [], apex: 'arqueologo:voz-das-eras' } };

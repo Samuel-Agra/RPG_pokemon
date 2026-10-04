@@ -122,6 +122,20 @@ describe('RPG trainer progression and rewards', () => {
 		assert(!lowered.skills.trained.includes('medicina'));
 		assert.equal(lowered.talents.general.length, 0);
 	});
+	it('reverses only Mount Pokemon training granted by Sports Riding on a legacy level reduction', () => {
+		let athlete = completeSheet();
+		athlete.classId = 'atleta'; athlete.level = 3; athlete.experience = RPG_TRAINER_LEVEL_XP[2];
+		athlete.hitPoints.maximum += 12;
+		athlete = chooseRPGTrainerTalent(athlete, { id: 'atleta:montaria-esportiva' });
+		assert(athlete.skills.trained.includes('montaria-pokemon'));
+		assert(!lowerRPGTrainerLevel(athlete).skills.trained.includes('montaria-pokemon'));
+		const previouslyTrained = completeSheet();
+		previouslyTrained.classId = 'atleta'; previouslyTrained.level = 3;
+		previouslyTrained.experience = RPG_TRAINER_LEVEL_XP[2]; previouslyTrained.hitPoints.maximum += 12;
+		previouslyTrained.skills.trained.push('montaria-pokemon');
+		const chosen = chooseRPGTrainerTalent(previouslyTrained, { id: 'atleta:montaria-esportiva' });
+		assert(lowerRPGTrainerLevel(chosen).skills.trained.includes('montaria-pokemon'));
+	});
 
 	it('awards battle XP only from Pokemon belonging to each player and once per battle', () => {
 		const repository = new RPGMemoryCharacterRepository();

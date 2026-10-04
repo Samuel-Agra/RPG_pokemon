@@ -5,6 +5,7 @@ const http = require('node:http');
 const {
 	RPGLoginService,
 	RPGMemoryCharacterRepository,
+	completeRPGTrainerSheet, createRPGPendingTrainerSheet,
 } = require('../../dist/server/rpg-showdown');
 const { RPGHttpServer } = require('../../dist/server/rpg-showdown/http');
 const { RPGItems } = require('../../dist/sim/rpg-showdown');
@@ -275,6 +276,51 @@ describe('RPG Team Builder management backend', () => {
 		assert.throws(() => service.trainPokemonEVs(
 			player.token, undefined, pokemonId, 'hp', 'spe', 6, completed.boxRevision
 		), /múltiplo positivo de 4/);
+	});
+	it('reduces only the first active EV training of the Athlete own Pokemon by 25%', () => {
+		const { service } = setup();
+		setTrainingEVs(service);
+		const record = service.repository.get('samuel');
+		const sheet = completeRPGTrainerSheet(createRPGPendingTrainerSheet(), {
+			classId: 'atleta',
+			attributes: { strength: 15, dexterity: 14, constitution: 13,
+				intelligence: 12, wisdom: 10, charisma: 8 },
+			optionalSkills: ['percepcao', 'sobrevivencia'],
+			gearChoices: { melhoria: 'arnes-escalada' },
+		}, 'standard');
+		sheet.level = 5;
+		sheet.talents.class.push('atleta:preparador-fisico-pokemon');
+		record.state.trainerSheet = sheet;
+		record.state.money = 10_000;
+		const second = structuredClone(record.state.box.party[0]);
+		second.pokemonId += '-second';
+		record.state.box.party.push(second);
+		record.state.team.push(structuredClone(record.state.team[0]));
+		service.repository.set(record);
+		const player = service.loginPlayer('samuel', 'senha-rpg');
+		const master = service.loginMaster('14081998');
+		const [firstId, secondId] = service.getBox(player.token).team.map(pokemon => pokemon.pokemonId);
+		assert.equal(service.getPokemonTeamBuilder(player.token, undefined, firstId).evs.training.roleplayDurationPerStepMs,
+			22.5 * 60 * 1000);
+		let revision = service.getBox(player.token).revision;
+		const first = service.trainPokemonEVs(player.token, undefined, firstId, 'hp', 'spe', 4, revision);
+		assert.equal(first.training.roleplayDurationMs, 22.5 * 60 * 1000);
+		revision = first.teamBuilder.boxRevision;
+		assert.equal(service.getPokemonTeamBuilder(player.token, undefined, secondId).evs.training.roleplayDurationPerStepMs,
+			30 * 60 * 1000);
+		const secondTraining = service.trainPokemonEVDistribution(player.token, undefined,
+			secondId, { hp: 248, atk: 252, def: 4, spa: 0, spd: 0, spe: 4 }, revision);
+		assert.equal(secondTraining.training.roleplayDurationMs, 30 * 60 * 1000);
+		assert.equal(service.repository.get('samuel').state.box.party[0].metadata.evTraining.durationMs,
+			22.5 * 60 * 1000);
+		assert.equal(service.repository.get('samuel').state.box.party[1].metadata.evTraining.durationMs,
+			30 * 60 * 1000);
+		service.advanceCampaignTime(master.token, 1);
+		assert.equal(service.getPokemonTeamBuilder(player.token, undefined, firstId).evs.training.roleplayDurationPerStepMs,
+			22.5 * 60 * 1000);
+		revision = service.getBox(player.token).revision;
+		const nextTraining = service.trainPokemonEVs(player.token, undefined, firstId, 'hp', 'spe', 4, revision);
+		assert.equal(nextTraining.training.roleplayDurationMs, 22.5 * 60 * 1000);
 	});
 
 	it('applies a six-field EV redistribution after its campaign duration', () => {

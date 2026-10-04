@@ -455,6 +455,12 @@ export class RPGHttpServer {
 				this.string(body.recipientCharacterId), this.string(body.effect) as 'will' | 'exhaustion'));
 			return;
 		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/team-captain') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.setTrainerCaptainPlan(this.token(req),
+				body.recipientCharacterIds as string[]));
+			return;
+		}
 		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/reroll') {
 			const body = await this.body(req);
 			const talentId = this.string(body.talentId);
@@ -505,9 +511,16 @@ export class RPGHttpServer {
 			const stageLegend = skill === 'atuacao' &&
 				character.trainerSheet?.talents.apex === 'artista:lenda-dos-palcos';
 			const eraVoice = offered.talents.some(talent => talent.id === 'arqueologo:voz-das-eras');
-			const naturalFloor = stageLegend || eraVoice ? 10 : skill === 'conhecimento:arqueologia-fosseis' &&
-				character.trainerSheet?.talents.class.includes('arqueologo:memoria-academica') ? 8 : 0;
-			const floorSource = stageLegend ? 'Ápice — Lenda dos Palcos' : eraVoice ? 'Voz das Eras' : 'Memória Acadêmica';
+			const athleticFundamentals = character.trainerSheet?.classId === 'atleta' &&
+				(skill === 'atletismo' || skill === 'acrobacia');
+			const completeAthlete = athleticFundamentals &&
+				character.trainerSheet?.talents.apex === 'atleta:atleta-completo';
+			const naturalFloor = stageLegend || eraVoice || completeAthlete ? 10 : skill === 'conhecimento:arqueologia-fosseis' &&
+				character.trainerSheet?.talents.class.includes('arqueologo:memoria-academica') ? 8 :
+				athleticFundamentals ? 5 : 0;
+			const floorSource = stageLegend ? 'Ápice — Lenda dos Palcos' : eraVoice ? 'Voz das Eras' :
+				completeAthlete ? 'Ápice — Atleta Completo' :
+				athleticFundamentals ? 'Fundamentos Esportivos' : 'Memória Acadêmica';
 			const floorLine = offered.result.effectiveNatural > offered.result.natural ?
 				`${floorSource}: ` +
 				`${offered.result.natural} no dado vale ${offered.result.effectiveNatural}.\n` : '';
@@ -614,9 +627,16 @@ export class RPGHttpServer {
 			const stageLegend = skillRoll && skill === 'atuacao' &&
 				character.trainerSheet?.talents.apex === 'artista:lenda-dos-palcos';
 			const eraVoice = talentEffects.chosen.some(talent => talent.id === 'arqueologo:voz-das-eras');
-			const naturalFloor = stageLegend || eraVoice ? 10 : skillRoll && skill === 'conhecimento:arqueologia-fosseis' &&
-				character.trainerSheet?.talents.class.includes('arqueologo:memoria-academica') ? 8 : 0;
-			const floorSource = stageLegend ? 'Ápice — Lenda dos Palcos' : eraVoice ? 'Voz das Eras' : 'Memória Acadêmica';
+			const athleticFundamentals = skillRoll && character.trainerSheet?.classId === 'atleta' &&
+				(skill === 'atletismo' || skill === 'acrobacia');
+			const completeAthlete = athleticFundamentals &&
+				character.trainerSheet?.talents.apex === 'atleta:atleta-completo';
+			const naturalFloor = stageLegend || eraVoice || completeAthlete ? 10 : skillRoll && skill === 'conhecimento:arqueologia-fosseis' &&
+				character.trainerSheet?.talents.class.includes('arqueologo:memoria-academica') ? 8 :
+				athleticFundamentals ? 5 : 0;
+			const floorSource = stageLegend ? 'Ápice — Lenda dos Palcos' : eraVoice ? 'Voz das Eras' :
+				completeAthlete ? 'Ápice — Atleta Completo' :
+				athleticFundamentals ? 'Fundamentos Esportivos' : 'Memória Acadêmica';
 			const floorLine = skillRoll && effectiveNatural > result.natural ?
 				`${floorSource}: ` +
 				`${result.natural} no dado vale ${effectiveNatural}.\n` : '';

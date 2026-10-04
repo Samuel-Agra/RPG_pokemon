@@ -77,7 +77,7 @@ import {
 	type RPGTrainerAttribute, type RPGTrainerCheckOptions, type RPGTrainerResistance,
 } from './trainer-checks';
 import { rpgArtisticInspirationOption, rpgCaptivatingDistractionOption, rpgEncouragingPresenceOption,
-	rpgExcavationMasterOption,
+	rpgExcavationMasterOption, rpgExpeditionLeaderOption, rpgTeamCaptainOption,
 	rpgResolveTrainerRollTalents, rpgSetSharedArchive,
 	rpgSharedArchiveOptions, rpgTrainerRollTalents } from './trainer-roll-talents';
 import { rpgTrainerHeroicMessage, rpgTrainerRerollCandidate, rpgTrainerRerollMessage,
@@ -141,6 +141,7 @@ import { getRPGItemIconPath } from './item-icons';
 import {
 	RPGTeamBuilderManagement,
 	RPG_IV_VITAMINS,
+	rpgCanUseAthleteEVTraining,
 	type RPGTeamBuilderManagementView,
 } from './team-builder-management';
 import { getRPGMoveMetadata, type RPGMoveMetadata } from './battle-move-analysis';
@@ -2325,6 +2326,10 @@ export class RPGLoginService {
 			activeTalentUses: { restCycle: sheet.talentRestCycle || 0, used: sheet.talentUses || {} },
 			comfortingArtRecipients: sheet.talents.class.includes('artista:arte-reconfortante') ?
 				this.trainerArchiveRecipients(token) : [],
+			captainPlan: sheet.talents.class.includes('atleta:capitao-de-time') ? {
+				plan: sheet.captainPlan || null,
+				recipients: this.trainerArchiveRecipients(token),
+			} : null,
 			rerollAvailability: this.getTrainerRerollAvailability(token, state.id) };
 	}
 
@@ -2409,6 +2414,37 @@ export class RPGLoginService {
 		try { this.persistAtomically(() => this.repository.set(record)); } catch (error) {
 			this.repository.set(original); throw error;
 		}
+	}
+
+	setTrainerCaptainPlan(token: string, recipientCharacterIds: string[]) {
+		const session = this.getSession(token);
+		if (session.mode !== 'player' || !session.platformTableId) throw new Error('Entre como jogador em uma mesa');
+		const actorId = session.role === 'master' ? session.viewAsCharacterId : session.characterId;
+		if (!actorId) throw new Error('Nenhum personagem selecionado');
+		const record = this.requireCharacter(toID(actorId));
+		const sheet = record.state.trainerSheet;
+		if (!sheet || sheet.status !== 'complete' || !sheet.talents.class.includes('atleta:capitao-de-time')) {
+			throw new Error('Este treinador não possui Capitão de Time');
+		}
+		if (!Array.isArray(recipientCharacterIds) ||
+			recipientCharacterIds.some(id => typeof id !== 'string') ||
+			new Set(recipientCharacterIds).size !== recipientCharacterIds.length ||
+				recipientCharacterIds.length > rpgTrainerProficiency(sheet.level)) {
+			throw new Error('Escolha até seu bônus de proficiência em aliados diferentes');
+		}
+		const valid = new Set(this.trainerArchiveRecipients(token)
+			.map(person => person.id));
+		if (recipientCharacterIds.some(id => !valid.has(id))) throw new Error('Aliado indisponível nesta mesa');
+		const original = structuredClone(record);
+		if (recipientCharacterIds.length) sheet.captainPlan = {
+			description: 'Atividade física em equipe', recipientCharacterIds,
+		};
+		else throw new Error('Escolha ao menos um participante para o plano');
+		record.state.updatedAt = this.now();
+		try { this.persistAtomically(() => this.repository.set(record)); } catch (error) {
+			this.repository.set(original); throw error;
+		}
+		return { plan: structuredClone(sheet.captainPlan || null) };
 	}
 
 	/** Guarda a referência da rolagem real do chat; texto enviado pelo usuário não entra neste registro. */
@@ -2503,10 +2539,38 @@ export class RPGLoginService {
 	/** Exibe apenas treinadores de contas ativas da mesa atual; a mesma busca valida a rolagem. */
 	getTrainerAllyRollTalents(token: string, characterId: string) {
 		return [...this.encouragingPresenceOptions(token, characterId),
+			...this.teamCaptainOptions(token, characterId),
+			...this.expeditionLeaderOptions(token, characterId),
 			...this.artisticInspirationOptions(token, characterId),
 			...this.captivatingDistractionOptions(token, characterId),
 			...this.excavationMasterOptions(token, characterId),
 			...this.sharedArchiveOptions(token, characterId)];
+	}
+
+	private teamCaptainOptions(token: string, characterId: string) {
+		const session = this.getSession(token);
+		if (!session.platformTableId) return [];
+		return this.repository.list().filter(record =>
+			record.tableId === session.platformTableId && record.accountId &&
+			this.accounts.repository.getMembership(session.platformTableId!, record.accountId)?.status === 'active')
+			.flatMap(record => {
+				const option = record.state.trainerSheet && rpgTeamCaptainOption(record.state.id,
+					record.state.characterName, record.state.trainerSheet, characterId);
+				return option ? [option] : [];
+			});
+	}
+
+	private expeditionLeaderOptions(token: string, characterId: string) {
+		const session = this.getSession(token);
+		if (!session.platformTableId) return [];
+		return this.repository.list().filter(record => record.state.id !== characterId &&
+			record.tableId === session.platformTableId && record.accountId &&
+			this.accounts.repository.getMembership(session.platformTableId!, record.accountId)?.status === 'active')
+			.flatMap(record => {
+				const option = record.state.trainerSheet && rpgExpeditionLeaderOption(record.state.id,
+					record.state.characterName, record.state.trainerSheet);
+				return option ? [option] : [];
+			});
 	}
 
 	private trainerArchiveRecipients(token: string) {
@@ -2800,7 +2864,10 @@ export class RPGLoginService {
 		}, this.random);
 		const specialized = sheet.talents.general.includes('ajuda-especializada') &&
 			sheet.skills.trained.includes(skill);
-		const bonus = Math.max(rpgHelpBonus(result.total), specialized && result.total >= 10 ? 2 : 0);
+		const teamwork = sheet.talents.class.includes('atleta:trabalho-em-equipe') &&
+			(skill === 'atletismo' || skill === 'acrobacia');
+		const bonus = Math.max(rpgHelpBonus(result.total),
+			(specialized && result.total >= 10 || teamwork) ? 2 : 0);
 		this.persistAtomically(() => {
 			this.campaignSettings.trainerHelp.push({ characterId: character.id, skill, total: result.total, bonus });
 			this.campaignSettings.trainerHelp = this.campaignSettings.trainerHelp.slice(-100);
@@ -3937,6 +4004,7 @@ export class RPGLoginService {
 		const view = this.managedBagView(record, {
 			...query, itemUseLocked: !!itemUseLockReason, itemUseLockReason,
 		});
+		const session = this.getSession(token);
 		if (view.context === 'world') {
 			const talentItems = this.sharedArchiveOptions(token, record.state.id).map(option => ({
 				id: option.key, name: 'Acervo Compartilhado', quantity: 1,
@@ -3945,6 +4013,23 @@ export class RPGLoginService {
 				actions: [], equippedIn: [], icon: './assets/item-icons/acervo-compartilhado.png',
 				sprite: null, tags: ['trainer-talent'], weightKg: 0, slots: 0,
 			}));
+			if (session.platformTableId) {
+				for (const source of this.repository.list()) {
+					const plan = source.state.trainerSheet?.captainPlan;
+					if (source.tableId !== session.platformTableId || !source.accountId || !plan ||
+						!plan.recipientCharacterIds.includes(record.state.id) ||
+						this.accounts.repository.getMembership(session.platformTableId, source.accountId)?.status !== 'active') continue;
+					talentItems.push({
+						id: `atleta:capitao-de-time@${source.state.id}`, name: 'Plano do Capitão', quantity: 1,
+						category: 'talent-items', registryCategory: 'key',
+						description: `Plano preparado por ${source.state.characterName}. ` +
+							'+2 em testes de Atletismo ou Acrobacia ligados ao plano, até ser substituído.',
+						favorite: false, mission: false, actions: [], equippedIn: [],
+						icon: './assets/item-icons/plano-do-capitao.png', sprite: null,
+						tags: ['trainer-talent'], weightKg: 0, slots: 0,
+					});
+				}
+			}
 			const category = view.categories.find(entry => entry.id === 'talent-items');
 			if (category) {
 				category.itemTypes = talentItems.length;
@@ -3956,7 +4041,6 @@ export class RPGLoginService {
 					toID(item.name + ' ' + item.description).includes(search)));
 			}
 		}
-		const session = this.getSession(token);
 		const knowsFossilQuality = session.role === 'master' ||
 			record.state.trainerSheet?.talents.class.includes('arqueologo:avaliacao-paleontologica-de-campo');
 		if (!knowsFossilQuality && session.role === 'player' && view.context === 'world') {
@@ -4837,8 +4921,9 @@ export class RPGLoginService {
 		this.requireTrainingPageAccess(token, record);
 		this.requirePermission(token, 'team:edit', record.state.id);
 		this.requireWorldBagItemUse(token, record.state.id);
+		const reducedDuration = rpgCanUseAthleteEVTraining(record.state);
 		const training = RPGBoxManagement.trainEVs(
-			record.state, pokemonId, fromStat, toStat, amount, expectedRevision, this.now()
+			record.state, pokemonId, fromStat, toStat, amount, expectedRevision, this.now(), reducedDuration
 		);
 		this.persistBoxRecord(record);
 		const session = this.getSession(token);
@@ -4861,8 +4946,9 @@ export class RPGLoginService {
 		this.requireTrainingPageAccess(token, record);
 		this.requirePermission(token, 'team:edit', record.state.id);
 		this.requireWorldBagItemUse(token, record.state.id);
+		const reducedDuration = rpgCanUseAthleteEVTraining(record.state);
 		const training = RPGBoxManagement.trainEVDistribution(
-			record.state, pokemonId, evs, expectedRevision, this.now()
+			record.state, pokemonId, evs, expectedRevision, this.now(), reducedDuration
 		);
 		this.persistBoxRecord(record);
 		const session = this.getSession(token);
@@ -7319,6 +7405,11 @@ function migrateCharacterTrainerSheets(service: RPGLoginService): void {
 		}
 		const sheet = record.state.trainerSheet;
 		let corrected = false;
+		if (sheet.status === 'complete' && sheet.classId === 'atleta' &&
+			!sheet.skills.trained.includes('acrobacia')) {
+			sheet.skills.trained.push('acrobacia');
+			corrected = true;
+		}
 		if (!sheet.academicMemoryApplied && sheet.attributes &&
 			sheet.talents.class.includes('arqueologo:memoria-academica')) {
 			sheet.attributes.intelligence = Math.min(20, sheet.attributes.intelligence + 1);

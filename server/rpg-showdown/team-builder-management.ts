@@ -20,6 +20,7 @@ import { getRPGAbilityDescriptionPTBR } from './ability-descriptions-pt-br';
 import { RPGBagManagement } from './bag-management';
 import { getRPGMoveMetadata, type RPGMoveMetadata } from './battle-move-analysis';
 import { getRPGContestPerformance } from './contest-progression';
+import type { RPGTrainerSheet } from './trainer-sheet';
 import {
 	RPGBoxManagement,
 	type RPGBoxCharacterData,
@@ -44,7 +45,14 @@ export const RPG_IV_VITAMINS: Readonly<Record<string, RPGTeamBuilderStat>> = Obj
 export interface RPGTeamBuilderCharacterData extends RPGBoxCharacterData {
 	money: number;
 	inventory: RPGInventoryState;
+	trainerSheet?: RPGTrainerSheet;
 	pageAccess?: { bag: boolean, box: boolean, training: boolean };
+}
+
+/** O Atleta acompanha apenas um treinamento de EV próprio por vez. */
+export function rpgCanUseAthleteEVTraining(character: RPGTeamBuilderCharacterData): boolean {
+	return !!character.trainerSheet?.talents.class.includes('atleta:preparador-fisico-pokemon') &&
+		!character.box.party.some(entry => entry?.metadata?.evTraining);
 }
 
 export interface RPGTeamBuilderMoveChoice extends RPGMoveMetadata {
@@ -294,7 +302,8 @@ export class RPGTeamBuilderManagement {
 				training: {
 					costPerStep: RPG_EV_TRAINING_COST,
 					evStep: RPG_EV_TRAINING_AMOUNT,
-					roleplayDurationPerStepMs: RPG_EV_TRAINING_DURATION_MS,
+					roleplayDurationPerStepMs: RPG_EV_TRAINING_DURATION_MS *
+						(rpgCanUseAthleteEVTraining(character) ? 0.75 : 1),
 					timed: true, cumulative: true, partyOnly: true,
 					eligible: trainingAllowed && pokemon.location.destination === 'party' && !pokemon.fainted,
 				},

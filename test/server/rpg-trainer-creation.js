@@ -11,6 +11,20 @@ const {
 const distributed = { strength: 15, dexterity: 14, constitution: 13, intelligence: 12, wisdom: 10, charisma: 8 };
 
 describe('RPG trainer creation', () => {
+	it('grants Athletics and Acrobatics to Athletes at level 1', () => {
+		const sheet = completeRPGTrainerSheet(createRPGPendingTrainerSheet(), {
+			classId: 'atleta', attributes: distributed,
+			optionalSkills: ['percepcao', 'sobrevivencia'],
+			gearChoices: { melhoria: 'arnes-escalada' },
+		}, 'standard');
+		assert.deepEqual(sheet.skills.trained,
+			['atletismo', 'acrobacia', 'percepcao', 'sobrevivencia']);
+		assert.throws(() => completeRPGTrainerSheet(createRPGPendingTrainerSheet(), {
+			classId: 'atleta', attributes: distributed,
+			optionalSkills: ['acrobacia', 'sobrevivencia'],
+			gearChoices: { melhoria: 'arnes-escalada' },
+		}, 'standard'), /Perícia repetida/);
+	});
 	it('keeps only the first eligible 4d6-drop-lowest series', () => {
 		let calls = 0;
 		const values = rollRPGTrainerAttributes(() => {

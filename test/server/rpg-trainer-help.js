@@ -88,4 +88,17 @@ describe('RPG trainer help in a campaign', () => {
 		service.random = () => 0.95;
 		assert.equal(service.offerTrainerHelp(helper.token, 'sobrevivencia', undefined, 'normal').bonus, 3);
 	});
+	it('guarantees Teamwork at least +2 when helping with Athletics or Acrobatics', () => {
+		const { service, helper, principal } = setup();
+		const record = service.repository.get('auxiliar');
+		record.state.trainerSheet.classId = 'atleta';
+		record.state.trainerSheet.talents.class.push('atleta:trabalho-em-equipe');
+		service.repository.set(record);
+		service.random = () => 0;
+		assert.equal(service.offerTrainerHelp(helper.token, 'atletismo', undefined, 'normal').bonus, 2);
+		assert.deepEqual(service.consumeTrainerHelp(principal.token, 'atletismo'),
+			{ bonus: 2, helperName: 'Auxiliar' });
+		assert.equal(service.offerTrainerHelp(helper.token, 'acrobacia', undefined, 'normal').bonus, 2);
+		assert.equal(service.offerTrainerHelp(helper.token, 'percepcao', undefined, 'normal').bonus, 0);
+	});
 });

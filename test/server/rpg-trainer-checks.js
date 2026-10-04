@@ -26,6 +26,42 @@ function sequence(...values) {
 }
 
 describe('RPG trainer checks engine', () => {
+	it('automatically adds Precision Throw only to the Capture skill and its repeated rolls', () => {
+		const athlete = trainer();
+		const baseCapture = rpgTrainerSkillBonus(athlete, 'captura');
+		const basePerception = rpgTrainerSkillBonus(athlete, 'percepcao');
+		athlete.talents.class.push('atleta:arremesso-de-precisao');
+		assert.equal(rpgTrainerSkillBonus(athlete, 'captura'), baseCapture + 2);
+		assert.equal(rpgTrainerSkillBonus(athlete, 'percepcao'), basePerception);
+		for (const natural of [6, 14]) {
+			const roll = rollRPGTrainerSkillCheck(athlete, 'captura', undefined,
+				{ dc: 15 }, sequence(natural));
+			assert.equal(roll.total, natural + baseCapture + 2);
+		}
+	});
+	it('applies Athletic Fundamentals to every Athletics and Acrobatics check', () => {
+		const athlete = completeRPGTrainerSheet(createRPGPendingTrainerSheet(), {
+			classId: 'atleta',
+			attributes: { strength: 15, dexterity: 14, constitution: 13, intelligence: 12, wisdom: 10, charisma: 8 },
+			optionalSkills: ['percepcao', 'sobrevivencia'],
+			gearChoices: { melhoria: 'arnes-escalada' },
+		}, 'standard');
+		for (const skill of ['atletismo', 'acrobacia']) {
+			const low = rollRPGTrainerSkillCheck(athlete, skill, undefined, { dc: 20 }, sequence(1));
+			assert.equal(low.natural, 1);
+			assert.equal(low.effectiveNatural, 5);
+			assert.equal(low.total, low.bonus + 5);
+			assert.equal(low.success, false);
+			const high = rollRPGTrainerSkillCheck(athlete, skill, undefined, { dc: 20 }, sequence(14));
+			assert.equal(high.effectiveNatural, 14);
+			assert.equal(rollRPGTrainerSkillCheck(athlete, skill, undefined,
+				{ dc: 20, disadvantages: 1 }, sequence(2, 12)).effectiveNatural, 5);
+		}
+		assert.equal(rollRPGTrainerSkillCheck(athlete, 'percepcao', undefined,
+			{ dc: 20 }, sequence(1)).effectiveNatural, 1);
+		assert.equal(rollRPGTrainerSkillCheck(trainer(), 'atletismo', undefined,
+			{ dc: 20 }, sequence(1)).effectiveNatural, 1);
+	});
 	it('automatically treats only Stage Legend Performance dice below 10 as 10', () => {
 		const sheet = trainer();
 		sheet.talents.apex = 'artista:lenda-dos-palcos';
@@ -40,6 +76,22 @@ describe('RPG trainer checks engine', () => {
 				{ dc: 15 }, sequence(3)).effectiveNatural, 3);
 		}
 		assert.equal(rollRPGTrainerResistance(sheet, 'will', { dc: 15 }, sequence(3)).natural, 3);
+	});
+	it('stacks Complete Athlete with sport specialties and treats low athletic rolls as 10', () => {
+		const sheet = trainer();
+		sheet.classId = 'atleta';
+		const baseline = rpgTrainerSkillBonus(sheet, 'atletismo');
+		sheet.talents.apex = 'atleta:atleta-completo';
+		assert.equal(rpgTrainerSkillBonus(sheet, 'atletismo'), baseline + 2);
+		assert.equal(rpgTrainerSkillBonus(sheet, 'acrobacia'),
+			baseline + 2);
+		for (const skill of ['atletismo', 'acrobacia']) {
+			const low = rollRPGTrainerSkillCheck(sheet, skill, undefined, { dc: 15 }, sequence(3));
+			assert.equal(low.effectiveNatural, 10);
+			assert.equal(low.total, 10 + low.bonus);
+		}
+		assert.equal(rollRPGTrainerSkillCheck(sheet, 'percepcao', undefined,
+			{ dc: 15 }, sequence(3)).effectiveNatural, 3);
 	});
 	it('automatically treats low Archaeology rolls as 8 with Academic Memory', () => {
 		const sheet = trainer();
@@ -153,6 +205,16 @@ describe('RPG trainer checks engine', () => {
 		assert.equal(loaded.movementMeters, 4.5);
 		assert.equal(loaded.physicalDisadvantage, true);
 		assert.equal(rpgTrainerDerivedStatistics(sheet, { carriedKg: 120 }).movementMeters, 0);
+	});
+	it('increases Athlete carrying weight by half and doubles push-pull capacity', () => {
+		const sheet = trainer();
+		sheet.classId = 'atleta';
+		sheet.talents.class.push('atleta:carregador-experiente');
+		const derived = rpgTrainerDerivedStatistics(sheet);
+		assert.deepEqual(derived.carrying, { normalKg: 56.25, encumberedKg: 112.5,
+			maximumKg: 168.75, pushPullLiftKg: 450 });
+		assert.equal(rpgTrainerDerivedStatistics(sheet, { carriedKg: 160 }).encumbrance, 'heavily-encumbered');
+		assert.equal(rpgTrainerDerivedStatistics(sheet, { carriedKg: 170 }).encumbrance, 'over-capacity');
 	});
 
 	it('reserves automatic criticals for human attacks and doubles damage dice only', () => {

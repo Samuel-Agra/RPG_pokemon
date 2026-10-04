@@ -344,7 +344,8 @@ export function rpgTrainerRest(sheet: RPGTrainerSheet, kind: RPGTrainerRestKind,
 			if (options.medicalCare && !Number.isSafeInteger(options.medicalCheckTotal)) {
 				throw new Error('Teste de Medicina necessário');
 			}
-			const dice = options.medicalCare && options.medicalCheckTotal! >= 15 ? 2 : 1;
+			const dice = 1 + Number(next.talents.class.includes('atleta:recuperacao-atletica')) +
+				Number(!!options.medicalCare && options.medicalCheckTotal! >= 15);
 			let rolled = 0;
 			for (let index = 0; index < dice; index++) rolled += randomDie(sides, random);
 			healMutable(next, state, Math.max(1, rolled + constitution));

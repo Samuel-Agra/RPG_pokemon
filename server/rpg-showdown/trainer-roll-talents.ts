@@ -60,12 +60,18 @@ const RULES: Readonly<Record<string, Rule>> = {
 		condition: 'Resistir a fumaça, gases, sufocamento ou esforço prolongado.' },
 	'atleta:especialidade-esportiva': { targets: ['skill:atletismo', 'skill:acrobacia'], bonus: 2, perVariant: true,
 		condition: 'Teste diretamente ligado à modalidade escolhida.' },
+	'atleta:atleta-polivalente': { targets: ['skill:atletismo', 'skill:acrobacia'], bonus: 2, perVariant: true,
+		condition: 'Teste diretamente ligado a uma das três modalidades escolhidas.' },
+	'atleta:nadador-de-travessia': { targets: ['skill:atletismo'], bonus: 2,
+		condition: 'Nadar, rebocar alguém ou permanecer na superfície em águas turbulentas.' },
 	'atleta:escalador-tecnico': { targets: ['skill:atletismo'], bonus: 2,
 		condition: 'Escalada que realmente exija teste.' },
+	'atleta:montaria-esportiva': { targets: ['skill:montaria-pokemon'], bonus: 2,
+		condition: 'Corrida, salto, prova de obstáculos ou viagem prolongada com sua montaria.' },
+	'atleta:olho-para-as-regras': { targets: ['skill:atletismo'],
+		condition: 'Usar Atletismo para perceber infração, equipamento irregular, pontuação inconsistente ou estratégia de uma prova observada.' },
 	'atleta:adaptacao-climatica': { targets: ['resistance:fortitude'], bonus: 2,
 		condition: 'Contra calor, frio, chuva, vento ou altitude, após preparação.' },
-	'atleta:capitao-de-time': { targets: ['skill:atletismo', 'skill:acrobacia'], bonus: 2,
-		condition: 'Primeiro teste físico de atividade planejada com o grupo.' },
 	'atleta:lider-de-expedicao': { targets: ['skill:atletismo', 'skill:acrobacia', 'resistance:fortitude'], bonus: 2,
 		condition: 'Teste físico de deslocamento sob liderança de expedição.' },
 	'cientista:diagnostico-comparativo': { targets: ['skill:conhecimento:*'], bonus: 2,
@@ -199,9 +205,11 @@ export function rpgTrainerRollTalents(sheet: RPGTrainerSheet): RPGTrainerRollTal
 		}
 		const variants = rule.perVariant ? (sheet.talentSelections || [])
 			.filter(selection => selection.id === id)
-			.flatMap(selection => id === 'artista:artista-versatil' ?
-				[selection.variant, selection.secondVariant].filter((value): value is string => !!value) :
-				selection.variant ? [selection.variant] : []) : [null];
+			.flatMap(selection => id === 'atleta:atleta-polivalente' ?
+				[selection.variant, selection.secondVariant, selection.thirdVariant]
+					.filter((value): value is string => !!value) : id === 'artista:artista-versatil' ?
+					[selection.variant, selection.secondVariant].filter((value): value is string => !!value) :
+					selection.variant ? [selection.variant] : []) : [null];
 		return variants.map(variant => ({ key: variant ? `${id}@${variant}` : id, id,
 			name: variant ? `${definition.name} (${variant.replace(/[-:]/g, ' ')})` : definition.name,
 			condition: rule.condition, bonus: id === 'aprendizado-por-observacao' ?
@@ -246,6 +254,28 @@ export function rpgArtisticInspirationOption(allyId: string, allyName: string,
 		condition: 'Primeiro teste da perícia escolhida após um minuto de encorajamento artístico do aliado; ' +
 			'a inspiração deve ser compreendida e relacionada ao desafio.',
 		targets: ['skill:*'] };
+}
+
+export function rpgTeamCaptainOption(allyId: string, allyName: string,
+	ally: RPGTrainerSheet, recipientId: string): RPGTrainerRollTalent | null {
+	const plan = ally.captainPlan;
+	if (ally.status !== 'complete' || !ally.talents.class.includes('atleta:capitao-de-time') ||
+		!plan?.recipientCharacterIds.includes(recipientId)) return null;
+	return { key: `atleta:capitao-de-time@${allyId}`, id: 'atleta:capitao-de-time',
+		name: `Capitão de Time de ${allyName}`, bonus: 2, advantage: false,
+		condition: `Teste físico diretamente ligado ao plano: ${plan.description}.`,
+		targets: ['skill:atletismo', 'skill:acrobacia'] };
+}
+
+/** O líder presente pode orientar os deslocamentos físicos dos demais participantes da expedição. */
+export function rpgExpeditionLeaderOption(allyId: string, allyName: string,
+	ally: RPGTrainerSheet): RPGTrainerRollTalent | null {
+	if (ally.status !== 'complete' || ally.talents.apex !== 'atleta:lider-de-expedicao') return null;
+	return { key: `atleta:lider-de-expedicao@${allyId}`, id: 'atleta:lider-de-expedicao',
+		name: `Líder de Expedição de ${allyName}`, bonus: 2, advantage: false,
+		condition: 'Teste físico de deslocamento durante travessia, prova coletiva ou fuga prolongada ' +
+			'sob instruções do líder presente.',
+		targets: ['skill:atletismo', 'skill:acrobacia', 'resistance:fortitude'] };
 }
 
 /** Até dois aliados designados podem aproveitar a distração nas perícias indicadas. */
@@ -332,6 +362,10 @@ export function rpgResolveTrainerRollTalents(sheet: RPGTrainerSheet, kind: RPGTr
 	if (chosen.some(talent => talent.id === 'artista:tecnica-assinatura') &&
 		chosen.some(talent => talent.id === 'artista:artista-versatil')) {
 		throw new Error('Técnica Assinatura e Artista Versátil não se acumulam na mesma apresentação');
+	}
+	if (chosen.some(talent => talent.id === 'atleta:especialidade-esportiva') &&
+		chosen.some(talent => talent.id === 'atleta:atleta-polivalente')) {
+		throw new Error('Especialidade Esportiva e Atleta Polivalente não se acumulam na mesma modalidade');
 	}
 	const naturalFloor = Math.max(0, ...chosen.map(talent => talent.naturalFloor || 0));
 	return { chosen, bonus: chosen.reduce((total, talent) => total + talent.bonus, 0),
