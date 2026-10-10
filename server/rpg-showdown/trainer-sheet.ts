@@ -58,6 +58,11 @@ export interface RPGTrainerSheet {
 	lastChatRolls?: { any?: RPGTrainerChatRoll, resistance?: RPGTrainerChatRoll, skill?: RPGTrainerChatRoll };
 	/** Cada espaço preparado pertence a um destinatário e a uma área treinada de Conhecimento. */
 	sharedArchives?: { slot: number, topic: string, knowledge: string, recipientCharacterId: string }[];
+	/** Cada fórmula escrita ocupa um espaço ativo e acompanha somente seu destinatário. */
+	scientistRecords?: { slot: number, formulaId: string, recipientCharacterId: string }[];
+	/** Uma falha prepara o bônus; a rolagem aguarda seu resultado antes de outra falha. Campos antigos são opcionais para compatibilidade. */
+	persistentHypothesis?: { failures: number, awaitingOutcome?: boolean, topic?: string,
+		lastEvidence?: string, preparedEvidence?: string, };
 	/** Benefício de Arte Reconfortante aguardando o primeiro teste de Vontade contra medo. */
 	comfortingArt?: { sourceCharacterId: string, sourceName: string, restCycle: number };
 	/** Destinatários já atendidos durante o descanso curto atual do Artista. */
@@ -93,9 +98,11 @@ export interface RPGTrainerSheet {
 	checks?: { requestId: string, fingerprint: string, result: Record<string, unknown> }[];
 	/** Atividades humanas são mantidas na ficha da mesa e jamais no estado de combate Pokémon. */
 	activities?: {
+		recordCrafts?: { id: string, sourceCharacterId: string, slot: number, formulaId: string,
+			startedAt: number, completedAt?: number, cancelledAt?: number, }[],
 		travel?: import('./trainer-travel').RPGTravelState,
 		exposureTests?: Record<string, number>,
-		crafts?: { id: string, recipeId: string, startedAt: number, completedAt?: number,
+		crafts?: { id: string, recipeId: string, startedAt: number, facility?: string, completedAt?: number,
 			result?: Record<string, unknown>, }[],
 		receipts?: { id: string, fingerprint: string, result: Record<string, unknown> }[],
 	};

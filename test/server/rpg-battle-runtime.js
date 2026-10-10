@@ -1073,6 +1073,8 @@ describe('RPG private battle runtime', () => {
 		assert.equal(event.ball.id, 'masterball');
 		assert.equal(event.success, true);
 		assert.equal(event.shakes, 4);
+		assert.equal(event.throwRoll.dc, 17);
+		assert.equal(event.throwRoll.total, 20);
 	});
 
 	it('heals a reserve Pokemon without playing a field animation', () => {
@@ -1315,6 +1317,9 @@ describe('RPG residual damage animations', () => {
 		assert.equal(state.lastAction.reason, 'reflect-blocked');
 		assert.equal(state.lastAction.success, false);
 		assert.equal(state.status, 'active');
+		const event = state.animations.find(entry => entry.type === 'capture');
+		assert.equal(event.feedback, 'blocked');
+		assert.equal(event.throwRoll, undefined);
 	});
 
 	it('requires a throw check before even a Master Ball can activate', () => {
@@ -1335,7 +1340,31 @@ describe('RPG residual damage animations', () => {
 		const state = manager.action(session.id, { master: true }, { type: 'move', move: 1 });
 		assert.equal(state.lastAction.reason, 'throw-missed');
 		assert.equal(state.lastAction.shakes, 0);
-		assert.equal(state.animations.find(event => event.type === 'capture').feedback, 'miss');
+		const event = state.animations.find(entry => entry.type === 'capture');
+		assert.equal(event.feedback, 'miss');
+		assert.deepEqual(event.throwRoll, { dice: [1], natural: 1, total: 1, dc: 17 });
+	});
+
+	it('never lets a Master Ball hit a mythical Pokemon even with a perfect throw', () => {
+		const { session, launch, character } = setup();
+		session.id = 'runtime-mythical-throw';
+		launch.sessionId = session.id;
+		session.participants[1].pokemon[0].set = { ...pokemon('Mew', ['Tackle']), ability: 'Synchronize' };
+		character.inventory = RPGInventorySystem.create(RPGBagSystem.createForTier('hero', 'starter', [
+			{ itemId: 'masterball', quantity: 1 },
+		]));
+		const manager = new RPGBattleRuntimeManager();
+		manager.start(session, launch, () => character);
+		manager.runtimes.get('runtimemythicalthrow').battle.random = () => 0xffffff;
+		manager.ready(session.id, { master: false, characterId: 'hero' });
+		manager.ready(session.id, { master: true });
+		manager.action(session.id, { master: false, characterId: 'hero' }, {
+			type: 'turn', choices: [{ type: 'capture', ball: 'masterball', target: 0, actionId: 'mythical-throw' }],
+		});
+		const state = manager.action(session.id, { master: true }, { type: 'move', move: 1 });
+		assert.equal(state.lastAction.reason, 'legendary-throw-blocked');
+		assert.equal(state.lastAction.success, false);
+		assert.equal(state.animations.find(entry => entry.type === 'capture').feedback, 'immune');
 	});
 
 	it('reveals conditional Poké Ball benefits only to the trainer with Escolha Adequada', () => {

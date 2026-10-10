@@ -25,6 +25,7 @@ describe('RPG official Showdown animation vendor', () => {
 		assert.equal(typeof context.RPGShowdownAnimations.summon, 'function');
 		assert.equal(typeof context.RPGShowdownAnimations.wildAppear, 'function');
 		assert.equal(typeof context.RPGShowdownAnimations.capture, 'function');
+		assert.equal(typeof context.RPGShowdownAnimations.captureMiss, 'function');
 		assert.equal(context.RPGShowdownAnimations.hasMove('Flame Thrower'), true);
 		assert.equal(context.RPGShowdownAnimations.hasMove('golpe-inexistente'), false);
 		assert.notEqual(context.BattleMoveAnims.flamethrower.anim, context.BattleMoveAnims.tackle.anim);
@@ -97,6 +98,16 @@ describe('RPG official Showdown animation vendor', () => {
 		assert(!source.includes('switchBall(scene, options.ball || options)'));
 		assert(source.includes('new RPGShowdownScene(field, actorElement, [targetElement])'));
 		assert(source.includes('window.BattleOtherAnims.shiny.anim(scene, [scene.defender])'));
+	});
+	it('animates a missed or Reflect-blocked throw without absorbing the wild Pokémon', () => {
+		const adapter = fs.readFileSync(path.resolve(__dirname, '../../server/static/rpg/showdown-animation-adapter.js'), 'utf8');
+		const room = fs.readFileSync(path.resolve(__dirname, '../../server/static/rpg/battle-room.js'), 'utf8');
+		const miss = adapter.slice(adapter.indexOf('async function captureMiss'), adapter.indexOf('async function capture('));
+		assert(miss.includes('const ball = switchBall(scene, options);'));
+		assert(miss.includes('options.blocked === true'));
+		assert(!miss.includes('target.sprite.animate'));
+		assert(room.includes('await window.RPGShowdownAnimations?.captureMiss?.(field, attacker, target'));
+		assert(room.includes('throwRoll.dice.join'));
 	});
 	it('shows a terminal result even when flee ends the battle without move animations', () => {
 		const source = fs.readFileSync(path.resolve(__dirname, '../../server/static/rpg/battle-room.js'), 'utf8');

@@ -857,6 +857,12 @@ export const RPG_DEFAULT_ITEM_PRICES: Readonly<Record<string, RPGItemPrice>> = O
 export const RPG_DEFAULT_ITEMS: readonly RPGItemDefinition[] = Object.freeze([
 	...pokeballs,
 	...recoveryItems,
+	...recoveryItems.filter(item => ['potion', 'antidote', 'awakening', 'burnheal',
+		'iceheal', 'paralyzeheal', 'superpotion', 'hyperpotion', 'fullheal',
+		'maxpotion', 'fullrestore'].includes(item.id)).map(item => ({ ...item,
+		id: `player${item.id}`, name: `${item.name} de player`,
+		price: RPG_DEFAULT_ITEM_PRICES[item.id] || item.price,
+		tags: [...(item.tags || []), 'player-crafted'] })),
 	...ivVitaminItems,
 	...evolutionItems,
 	...heldItems,

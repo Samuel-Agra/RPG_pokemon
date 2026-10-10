@@ -28,6 +28,10 @@ const RPG_TM_ICON_TYPES = new Set([
 
 export function getRPGItemIconPath(item: string): string | null {
 	const id = toID(item);
+	if (RPGItems.get(id)?.tags?.includes('playercrafted')) {
+		const originalId = RPGItems.get(id)?.effect?.originalItemId;
+		return getRPGItemIconPath(typeof originalId === 'string' ? originalId : id.slice('player'.length));
+	}
 	if (ORIGINAL_RPG_ITEM_ICONS.has(id)) return `./assets/item-icons/${id}.png?v=${RPG_ITEM_ICON_VERSION}`;
 	const definition = RPGItems.get(id);
 	if (definition?.tags?.includes('contestterastalization')) {

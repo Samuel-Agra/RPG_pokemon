@@ -101,4 +101,17 @@ describe('RPG trainer help in a campaign', () => {
 		assert.equal(service.offerTrainerHelp(helper.token, 'acrobacia', undefined, 'normal').bonus, 2);
 		assert.equal(service.offerTrainerHelp(helper.token, 'percepcao', undefined, 'normal').bonus, 0);
 	});
+	it('guarantees Collaborative Research at least +2 only for its listed skills', () => {
+		const { service, helper, principal } = setup();
+		const record = service.repository.get('auxiliar');
+		record.state.trainerSheet.classId = 'cientista';
+		record.state.trainerSheet.talents.class.push('cientista:pesquisa-colaborativa');
+		service.repository.set(record);
+		service.random = () => 0;
+		assert.equal(service.offerTrainerHelp(helper.token, 'conhecimento:biologia', undefined, 'normal').bonus, 2);
+		assert.deepEqual(service.consumeTrainerHelp(principal.token, 'conhecimento:biologia'),
+			{ bonus: 2, helperName: 'Auxiliar' });
+		assert.equal(service.offerTrainerHelp(helper.token, 'medicina', undefined, 'normal').bonus, 2);
+		assert.equal(service.offerTrainerHelp(helper.token, 'percepcao', undefined, 'normal').bonus, 0);
+	});
 });

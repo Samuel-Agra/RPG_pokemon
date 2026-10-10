@@ -11,6 +11,43 @@ describe('RPG trainer sheet read-only frontend', () => {
 	const page = fs.readFileSync(path.join(root, 'trainer-sheet-ui.js'), 'utf8');
 	const style = fs.readFileSync(path.join(root, 'trainer-sheet.css'), 'utf8');
 	const http = fs.readFileSync(path.resolve(root, '../../rpg-showdown/http.ts'), 'utf8');
+	it('keeps talent and record windows open while their contents scroll', () => {
+		const popover = page.split('function showTalentPopover(')[1].split('function section(')[0];
+		assert(popover.includes("document.addEventListener('pointerdown', outside)"));
+		assert(popover.includes("document.addEventListener('keydown', escape)"));
+		assert(!popover.includes("addEventListener('scroll'"));
+		assert(popover.includes('if (event.target === overlay) closePicker()'));
+	});
+	it('offers Pokémon pharmacy production from the Scientist talent with local errors', () => {
+		assert(page.includes("id === 'cientista:producao-farmaceutica-pokemon'"));
+		assert(page.includes("id === 'cientista:farmacologia-avancada'"));
+		assert(page.includes("action: { type: 'craft-start', recipeId: `pharmacy:${item.value}`"));
+		assert(page.includes("action: { type: 'craft-complete', craftId: craft.id }"));
+		assert(page.includes('close.preserveOnRefresh = !!(action?.pokemonPharmacy || action?.advancedPharmacy ||'));
+		assert(!page.includes('Instalação higiênica disponível'));
+		assert(page.includes("message(error.message || 'Não foi possível iniciar a produção.')"));
+	});
+	it('offers both apex formulas without Master approval controls', () => {
+		assert(page.includes("id === 'cientista:mestre-de-formulacao'"));
+		assert(page.includes('masterPharmacy: character.id'));
+		assert(!page.includes('formulaApproval'));
+		assert(page.includes("maxpotion: ['Max Potion', 1]"));
+		assert(page.includes("fullrestore: ['Full Restore', 1]"));
+	});
+	it('lets a Scientist submit reference articles and shows the accepted count', () => {
+		assert(page.includes("id === 'cientista:publicacao-de-referencia'"));
+		assert(page.includes("action.api('/trainer/publications'"));
+		assert(page.includes('Publicações aceitas:'));
+		assert(page.includes('trainer-sheet-publication-count'));
+	});
+	it('lets a Scientist register or end Persistent Hypothesis without typing details', () => {
+		assert(page.includes("id === 'cientista:hipotese-persistente'"));
+		assert(page.includes("action.api('/trainer/persistent-hypothesis'"));
+		assert(page.includes("[['failure', 'Registrar']]"));
+		assert(page.includes("['reset', 'Encerrar']"));
+		assert(!page.includes('Problema estudado'));
+		assert(http.includes("url.pathname === '/api/rpg/trainer/persistent-hypothesis'"));
+	});
 	it('offers Mil Faces only with the selected Charisma skill attribute', () => {
 		assert(page.includes('attributeOptions.includes(talent.requiredAttribute)'));
 		assert(page.includes('talent.requiredAttribute === selectedAttribute'));
@@ -119,6 +156,10 @@ describe('RPG trainer sheet read-only frontend', () => {
 		assert(page.includes("'trainer-sheet-level-button', 'Atualizar'"));
 		assert(page.includes('!progression?.canLevelUp'));
 		assert(!page.includes('preview.remainingHours'));
+	});
+	it('never leaves a player level-up button in Master headings or other pages', () => {
+		assert(page.includes("if (master || state.session?.role === 'master' || state.tableReadOnly ||"));
+		assert(app.includes("$('.dashboard-heading .trainer-sheet-level-button')?.remove();"));
 	});
 
 	it('keeps the skill attribute selector in the roll-mode column beside situational talents', () => {

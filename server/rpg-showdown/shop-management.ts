@@ -158,15 +158,26 @@ function normalizePrice(value: number | undefined, label: string): number | unde
 
 function normalizeOffer(input: RPGCommerceOffer, shopType: RPGShopType): RPGCommerceOffer {
 	const item = RPGItems.require(input.itemId);
+	const scientistProduct = SCIENTIST_PRODUCT_ORDER.has(item.id);
 	const group = itemGroup(item);
 	if (group.shopType !== shopType) throw new Error('Este item não pertence a este tipo de loja');
 	if (!Number.isSafeInteger(input.stock) || input.stock < 0) throw new Error('Estoque inválido');
 	if (!['available', 'hidden', 'locked'].includes(input.buyMode)) throw new Error('Disponibilidade de compra inválida');
 	const buyPrice = normalizePrice(input.buyPrice, 'Buy price');
-	const sellPrice = normalizePrice(input.sellPrice, 'Sell price');
+	const oldScientistSellPrices: Readonly<Record<string, number>> = {
+		playerpotion: 50, playerantidote: 50, playerawakening: 50,
+		playerburnheal: 50, playericeheal: 50, playerparalyzeheal: 50,
+		playersuperpotion: 300, playerhyperpotion: 600, playerfullheal: 200,
+		playermaxpotion: 1800, playerfullrestore: 2400,
+	};
+	const originalItem = scientistProduct ? RPGItems.get(item.id.slice('player'.length)) : undefined;
+	const oldDefault = oldScientistSellPrices[item.id];
+	const sellPrice = normalizePrice(originalItem?.price?.sell !== undefined &&
+		(input.sellPrice === oldDefault || oldDefault === 50 && input.sellPrice === 100) ?
+		originalItem.price.sell : input.sellPrice, 'Sell price');
 	return {
-		itemId: item.id, stock: input.stock, buyMode: input.buyMode,
-		buyEnabled: input.buyEnabled ?? (input.buyMode === 'available' && buyPrice !== undefined),
+		itemId: item.id, stock: input.stock, buyMode: scientistProduct ? 'hidden' : input.buyMode,
+		buyEnabled: scientistProduct ? false : input.buyEnabled ?? (input.buyMode === 'available' && buyPrice !== undefined),
 		sellEnabled: input.sellEnabled ?? sellPrice !== undefined,
 		...(buyPrice === undefined ? {} : { buyPrice }),
 		...(sellPrice === undefined ? {} : { sellPrice }),
@@ -236,6 +247,17 @@ const EVOLUTION_SECTION_ORDER = ['evolution-items', 'terastalization'] as const;
 const THRIFT_SECTION_ORDER = ['fossils', 'treasures', 'other'] as const;
 const RPG_ITEM_CATALOG_ORDER = new Map(RPGItems.list().map((item, index) => [item.id, index]));
 const POKE_MART_PROGRESSION = new Map<string, number>(POKE_MART_ITEM_ORDER.map((id, index) => [id, index]));
+const SCIENTIST_PRODUCTS = ['potion', 'antidote', 'awakening', 'burnheal', 'iceheal', 'paralyzeheal',
+	'superpotion', 'hyperpotion', 'fullheal', 'maxpotion', 'fullrestore'] as const;
+const SCIENTIST_PRODUCT_ORDER = new Map<string, number>(SCIENTIST_PRODUCTS.map((id, index) => [`player${id}`, index]));
+
+function scientistProductTemplate(item: RPGItemDefinition): string | undefined {
+	const originalId = item.effect?.originalItemId;
+	if (item.source !== 'custom' || !item.tags?.includes('playercrafted') ||
+		typeof originalId !== 'string' || !SCIENTIST_PRODUCTS.some(id => id === originalId) ||
+		!item.id.startsWith(`player${originalId}creator`)) return;
+	return `player${originalId}`;
+}
 
 function rankIn(order: readonly string[], value: string): number {
 	const rank = order.indexOf(value);
@@ -274,6 +296,15 @@ function sectionRank(item: RPGItemDefinition, shopType: RPGShopType): number {
 
 function compareCommerceItems(left: RPGItemDefinition, right: RPGItemDefinition, shopType: RPGShopType): number {
 	if (shopType === 'poke-mart') {
+		const leftTemplate = scientistProductTemplate(left) || left.id;
+		const rightTemplate = scientistProductTemplate(right) || right.id;
+		const leftCrafted = SCIENTIST_PRODUCT_ORDER.has(leftTemplate);
+		const rightCrafted = SCIENTIST_PRODUCT_ORDER.has(rightTemplate);
+		if (leftCrafted !== rightCrafted) return leftCrafted ? 1 : -1;
+		if (leftCrafted && rightCrafted) {
+			return SCIENTIST_PRODUCT_ORDER.get(leftTemplate)! - SCIENTIST_PRODUCT_ORDER.get(rightTemplate)! ||
+				left.name.localeCompare(right.name, 'pt-BR');
+		}
 		const bySection = sectionRank(left, shopType) - sectionRank(right, shopType);
 		if (bySection) return bySection;
 		const leftRank = POKE_MART_PROGRESSION.get(left.id) ?? POKE_MART_ITEM_ORDER.length;
@@ -375,7 +406,7 @@ export class RPGCommerceManagement {
 			itemId: candidate.id, stock: 0, buyMode: 'hidden' as const,
 			buyEnabled: false, sellEnabled: false,
 			buyPrice: candidate.recommendedBuyPrice, sellPrice: candidate.recommendedSellPrice,
-		}) : shop.offers).sort((left, right) =>
+		}) : [...shop.offers, ...this.craftedPlayerOffers(shop, inventory)]).sort((left, right) =>
 			compareCommerceItems(RPGItems.require(left.itemId), RPGItems.require(right.itemId), shop.type)
 		);
 		const offers = sourceOffers.map(offer => this.offerView(shop, offer, inventory)).filter(offer =>
@@ -439,7 +470,8 @@ export class RPGCommerceManagement {
 		shop.offers = this.materializeOffers(shop).map(offer => {
 			const item = RPGItems.require(offer.itemId);
 			const base = basePrices(item);
-			if (input.action === 'enable-buy') return { ...offer, buyEnabled: true, buyMode: 'available' as const };
+			if (input.action === 'enable-buy') return SCIENTIST_PRODUCT_ORDER.has(item.id) ? offer :
+				{ ...offer, buyEnabled: true, buyMode: 'available' as const };
 			if (input.action === 'disable-buy') return { ...offer, buyEnabled: false, buyMode: 'hidden' as const };
 			if (input.action === 'enable-sell') return { ...offer, sellEnabled: true };
 			if (input.action === 'disable-sell') return { ...offer, sellEnabled: false };
@@ -478,7 +510,7 @@ export class RPGCommerceManagement {
 				transactions: character.shopTransactions || [],
 			}
 		);
-		let catalog = this.catalog(shop);
+		let catalog = this.catalog(shop, account.bag);
 		const transactions: RPGShopTransaction[] = [];
 		for (let index = 0; index < request.lines.length; index++) {
 			const line = request.lines[index];
@@ -505,6 +537,14 @@ export class RPGCommerceManagement {
 			const offer = nextShop.offers.find(entry => entry.itemId === catalogOffer.itemId);
 			if (offer && catalogOffer.stock !== undefined) offer.stock = catalogOffer.stock;
 		}
+		if (request.type === 'sell') {
+			for (const transaction of transactions) {
+				const item = RPGItems.get(transaction.itemId);
+				const templateId = item && scientistProductTemplate(item);
+				const template = nextShop.offers.find(offer => offer.itemId === templateId);
+				if (template) template.stock += transaction.quantity;
+			}
+		}
 		nextShop.revision = catalog.revision;
 		return {
 			character: {
@@ -520,8 +560,8 @@ export class RPGCommerceManagement {
 		this.repository.set(shop);
 	}
 
-	private catalog(shop: RPGCommerceShopState) {
-		const offers = shop.offers.flatMap(offer => {
+	private catalog(shop: RPGCommerceShopState, bag?: ReturnType<typeof RPGInventorySystem.migrate>['bag']) {
+		const offers = [...shop.offers, ...this.craftedPlayerOffers(shop, bag)].flatMap(offer => {
 			const buyPrice = offer.buyEnabled && offer.buyMode === 'available' ? offer.buyPrice : undefined;
 			const sellPrice = offer.sellEnabled ? offer.sellPrice : undefined;
 			if (buyPrice === undefined && sellPrice === undefined) return [];
@@ -561,6 +601,7 @@ export class RPGCommerceManagement {
 
 	private shopItems(shop: RPGCommerceShopState) {
 		return RPGItems.list().flatMap(item => {
+			if (scientistProductTemplate(item)) return [];
 			const group = itemGroup(item);
 			if (group.shopType !== shop.type) return [];
 			const base = basePrices(item);
@@ -574,6 +615,20 @@ export class RPGCommerceManagement {
 		}).sort((left, right) =>
 			compareCommerceItems(RPGItems.require(left.id), RPGItems.require(right.id), shop.type)
 		);
+	}
+
+	private craftedPlayerOffers(shop: RPGCommerceShopState,
+		inventory?: ReturnType<typeof RPGInventorySystem.migrate> | ReturnType<typeof RPGInventorySystem.migrate>['bag']) {
+		if (shop.type !== 'poke-mart' || !inventory) return [];
+		const bag = 'bag' in inventory ? inventory.bag : inventory;
+		return bag.items.flatMap(entry => {
+			const item = RPGItems.get(entry.itemId);
+			const templateId = item && scientistProductTemplate(item);
+			const template = shop.offers.find(offer => offer.itemId === templateId);
+			if (!template?.sellEnabled || template.sellPrice === undefined) return [];
+			return [{ itemId: entry.itemId, stock: 0, buyMode: 'hidden' as const,
+				buyEnabled: false, sellEnabled: true, sellPrice: template.sellPrice }];
+		});
 	}
 
 	private materializeOffers(shop: RPGCommerceShopState): RPGCommerceOffer[] {

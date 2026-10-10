@@ -5,6 +5,7 @@ import {
 	RPGItemRegistry,
 	type RPGItemDefinition,
 } from '../../sim/rpg-showdown';
+import { RPG_DEFAULT_ITEM_PRICES } from '../../sim/rpg-showdown/data/items';
 
 export interface RPGCustomItemRepository {
 	list(): RPGItemDefinition[];
@@ -84,6 +85,13 @@ function validateCustomItem(definition: RPGItemDefinition): RPGItemDefinition {
 	if (!definition || typeof definition !== 'object' || definition.source !== 'custom') {
 		throw new Error('RPG custom item requires source custom');
 	}
-	const registry = new RPGItemRegistry([definition]);
+	const originalId = definition.effect?.originalItemId;
+	const originalSell = typeof originalId === 'string' ? RPG_DEFAULT_ITEM_PRICES[originalId]?.sell : undefined;
+	const craftedMedicine = typeof originalId === 'string' &&
+		definition.id.startsWith(`player${originalId}creator`) &&
+		definition.tags?.includes('player-crafted') && definition.price && originalSell !== undefined;
+	const normalized = craftedMedicine ? { ...definition,
+		price: { ...definition.price!, sell: originalSell } } : definition;
+	const registry = new RPGItemRegistry([normalized]);
 	return registry.require(definition.id);
 }

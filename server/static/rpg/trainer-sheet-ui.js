@@ -405,9 +405,224 @@
 		if (closeSkillPopover) closeSkillPopover();
 		if (closeAttributePopover) closeAttributePopover();
 		const panel = el('div', 'trainer-sheet-talent-popover');
+		if (action?.pokemonPharmacy || action?.advancedPharmacy || action?.masterPharmacy ||
+			action?.persistentHypothesis !== undefined) {
+			panel.dataset.preserveOnRefresh = 'true';
+		}
+		let recordPicker = null;
 		panel.append(el('strong', 'trainer-sheet-talent-popover-title', name),
 			renderTrainerDescription(description, 'trainer-sheet-talent-description'));
-		if (action?.captainPlan) {
+		if (action?.persistentHypothesis !== undefined) {
+			const editor = el('div', 'trainer-sheet-archive-editor');
+			const status = el('p');
+			const controls = el('div', 'trainer-sheet-archive-actions');
+			const feedback = el('p', 'trainer-sheet-roll-error hidden');
+			let hypothesis = action.persistentHypothesis;
+			const draw = () => {
+				status.textContent = !hypothesis ? 'Nenhuma hipótese registrada.' : hypothesis.awaitingOutcome ?
+					'Se a tentativa falhou, registre a falha; se teve sucesso, encerre a hipótese.' :
+					`Próximo teste de Conhecimento: +${Math.min(2, hypothesis.failures)}.`;
+				controls.replaceChildren();
+				const actions = !hypothesis || hypothesis.awaitingOutcome ? [['failure', 'Registrar']] : [];
+				if (hypothesis) actions.push(['reset', 'Encerrar']);
+				for (const [operation, caption] of actions) {
+					const control = el('button', 'trainer-sheet-talent-use', caption);
+					control.type = 'button';
+					control.addEventListener('click', async () => {
+						control.disabled = true;
+						try {
+							const response = await action.api('/trainer/persistent-hypothesis',
+								{ method: 'POST', body: { action: operation } });
+							hypothesis = response.hypothesis;
+							feedback.classList.add('hidden');
+							draw();
+							window.dispatchEvent(new CustomEvent('rpg:realtime-sync',
+								{ detail: { tableId: selectedTable } }));
+						} catch (failure) {
+							feedback.textContent = failure.message || 'Não foi possível registrar a pesquisa.';
+							feedback.classList.remove('hidden'); control.disabled = false;
+						}
+					});
+					controls.append(control);
+				}
+			};
+			draw(); editor.append(status, controls, feedback); panel.append(editor);
+		} else if (action?.publication) {
+			const editor = el('div', 'trainer-sheet-archive-editor');
+			editor.append(el('strong', '', `Publicações aceitas: ${action.publication.accepted}`));
+			if (action.publication.pending) editor.append(el('p', '', 'Artigo aguardando avaliação do Mestre.'));
+			else {
+				const title = document.createElement('input');
+				title.type = 'text'; title.maxLength = 120; title.placeholder = 'Título do artigo';
+				title.setAttribute('aria-label', 'Título do artigo');
+				const summary = document.createElement('textarea');
+				summary.maxLength = 3000; summary.placeholder = 'Resumo da pesquisa';
+				summary.setAttribute('aria-label', 'Resumo da pesquisa');
+				const create = el('button', 'trainer-sheet-talent-use', 'Criar artigo');
+				create.type = 'button';
+				const feedback = el('p', 'trainer-sheet-roll-error hidden');
+				create.addEventListener('click', async () => {
+					create.disabled = true;
+					try {
+						await action.api('/trainer/publications', { method: 'POST', body: {
+							requestId: crypto.randomUUID(), title: title.value, summary: summary.value,
+						} });
+						feedback.textContent = 'Artigo enviado para avaliação do Mestre.';
+						feedback.classList.remove('hidden');
+						create.remove(); title.remove(); summary.remove();
+						window.dispatchEvent(new CustomEvent('rpg:realtime-sync',
+							{ detail: { tableId: selectedTable } }));
+					} catch (error) {
+						feedback.textContent = error.message || 'Não foi possível criar o artigo.';
+						feedback.classList.remove('hidden'); create.disabled = false;
+					}
+				});
+				editor.append(title, summary, create, feedback);
+			}
+			panel.append(editor);
+		} else if (action?.scientistRecord) {
+			panel.classList.add('trainer-sheet-talent-popover--archive');
+			const editor = el('div', 'trainer-sheet-archive-editor');
+			editor.append(el('strong', '', `Registros ativos (${action.scientistRecord.slots.length}/${action.scientistRecord.limit})`));
+			for (let slot = 0; slot < action.scientistRecord.limit; slot++) {
+				const prepared = action.scientistRecord.slots.find(entry => entry.slot === slot);
+				let selectedFormula = prepared?.formulaId || '';
+				const row = el('div', 'trainer-sheet-scientist-row');
+				const formula = el('button', 'trainer-sheet-scientist-choose',
+					action.scientistRecord.formulas.find(entry => entry.id === selectedFormula)?.name || 'Escolher registro');
+				formula.type = 'button'; formula.setAttribute('aria-haspopup', 'dialog');
+				const recipient = select([['', 'Destinatário'], ...action.scientistRecord.recipients.map(person =>
+					[person.id, person.name])]);
+				recipient.value = prepared?.recipientCharacterId || '';
+				recipient.setAttribute('aria-label', `Destinatário do registro ${slot + 1}`);
+				const selected = el('p', 'trainer-sheet-scientist-effect');
+				const showSelection = () => {
+					const entry = action.scientistRecord.formulas.find(option => option.id === selectedFormula);
+					formula.textContent = entry?.name || 'Escolher registro';
+					selected.textContent = entry?.effect || 'Escolha uma fórmula para preparar.';
+				};
+				showSelection();
+				formula.addEventListener('click', () => {
+					const overlay = el('div', 'trainer-sheet-record-overlay');
+					const dialog = el('div', 'trainer-sheet-record-dialog');
+					dialog.setAttribute('role', 'dialog');
+					dialog.setAttribute('aria-label', 'Escolher Registro Reprodutível');
+					dialog.append(el('h2', '', 'Escolher registro'));
+					const list = el('div', 'trainer-sheet-record-list');
+					const closePicker = () => { overlay.remove(); recordPicker = null; formula.focus(); };
+					for (const entry of action.scientistRecord.formulas) {
+						const choice = el('button', 'trainer-sheet-record-choice'); choice.type = 'button';
+						choice.append(el('strong', '', entry.name), el('span', '', entry.effect));
+						choice.addEventListener('click', () => {
+							selectedFormula = entry.id; showSelection(); closePicker();
+						});
+						list.append(choice);
+					}
+					dialog.append(list);
+					overlay.append(dialog);
+					overlay.addEventListener('pointerdown', event => {
+						if (event.target === overlay) closePicker();
+					});
+					document.body.append(overlay);
+					recordPicker = { overlay, close: closePicker };
+				});
+				const save = el('button', 'trainer-sheet-talent-use', prepared ? 'Atualizar' : 'Preparar');
+				save.type = 'button';
+				const remove = el('button', 'trainer-sheet-archive-remove', 'Remover');
+				remove.type = 'button'; remove.classList.toggle('hidden', !prepared);
+				const feedback = el('p', 'trainer-sheet-roll-error hidden');
+				async function submit(clear) {
+					if (!clear && (!selectedFormula || !recipient.value)) {
+						feedback.textContent = 'Escolha uma fórmula e um destinatário.';
+						feedback.classList.remove('hidden'); return;
+					}
+					save.disabled = true; remove.disabled = true;
+					try {
+						await action.api('/trainer/talents/scientist-record', { method: 'POST', body: {
+							slot, ...(clear ? { clear: true } : { formulaId: selectedFormula,
+								recipientCharacterId: recipient.value }),
+						} });
+						close();
+						window.dispatchEvent(new CustomEvent('rpg:realtime-sync',
+							{ detail: { tableId: selectedTable } }));
+						await action.refresh();
+					} catch (error) {
+						feedback.textContent = error.message || 'Não foi possível preparar o registro.';
+						feedback.classList.remove('hidden'); save.disabled = false; remove.disabled = false;
+					}
+				}
+				save.addEventListener('click', () => submit(false));
+				remove.addEventListener('click', () => submit(true));
+				row.append(formula, recipient, selected, save, remove, feedback);
+				editor.append(row);
+			}
+			panel.insertBefore(editor, panel.children[1]);
+		} else if (action?.pokemonPharmacy || action?.advancedPharmacy || action?.masterPharmacy) {
+			const advanced = !!action.advancedPharmacy;
+			const master = !!action.masterPharmacy;
+			const characterId = action.pokemonPharmacy || action.advancedPharmacy || action.masterPharmacy;
+			const editor = el('div', 'trainer-sheet-archive-editor');
+			const recipes = master ? {
+				maxpotion: ['Max Potion', 1], fullrestore: ['Full Restore', 1],
+			} : advanced ? {
+				superpotion: ['Super Potion', 2], hyperpotion: ['Hyper Potion', 2], fullheal: ['Full Heal', 3],
+			} : { potion: ['Potion', 3], antidote: ['Antidote', 3], awakening: ['Awakening', 3],
+				burnheal: ['Burn Heal', 3], iceheal: ['Ice Heal', 3], paralyzeheal: ['Paralyze Heal', 3] };
+			const item = select([['', 'Escolha o item'],
+				...Object.entries(recipes).map(([id, [name]]) => [id, name])]);
+			item.setAttribute('aria-label', master ? 'Item de Mestre de Formulação' : advanced ? 'Item da Farmacologia Avançada' :
+				'Item da Produção Farmacêutica Pokémon');
+			const feedback = el('p', 'trainer-sheet-roll-error hidden');
+			const create = el('button', 'trainer-sheet-talent-use', 'Iniciar produção');
+			create.type = 'button';
+			const pending = el('div', 'trainer-sheet-pharmacy-pending');
+			const message = value => { feedback.textContent = value; feedback.classList.remove('hidden'); };
+			async function showPending() {
+				const data = await action.api('/trainer/activities');
+				pending.replaceChildren();
+				for (const craft of data.activities?.crafts || []) {
+					const id = craft.recipeId?.split(':')[1];
+					if (craft.completedAt !== undefined || !recipes[id]) continue;
+					const row = el('div', 'trainer-sheet-pharmacy-row');
+					row.append(el('span', '', `${recipes[id][0]} · ${recipes[id][1]} unidades`));
+					const finish = el('button', 'trainer-sheet-talent-use', 'Concluir produção');
+					finish.type = 'button';
+					finish.addEventListener('click', async () => {
+						finish.disabled = true;
+						try {
+							await action.api('/trainer/activities', { method: 'POST', body: {
+								characterId, requestId: crypto.randomUUID(),
+								action: { type: 'craft-complete', craftId: craft.id },
+							} });
+							message(`Produção concluída: ${recipes[id][1]} ${recipes[id][0]}.`);
+							await showPending();
+							window.dispatchEvent(new CustomEvent('rpg:realtime-sync',
+								{ detail: { tableId: selectedTable } }));
+						} catch (error) {
+							message(error.message || 'Não foi possível concluir a produção.');
+						} finally { finish.disabled = false; }
+					});
+					row.append(finish); pending.append(row);
+				}
+			}
+			create.addEventListener('click', async () => {
+				if (!item.value) { message('Escolha o item para produzir.'); return; }
+				create.disabled = true;
+				try {
+					await action.api('/trainer/activities', { method: 'POST', body: {
+						characterId, requestId: crypto.randomUUID(),
+						action: { type: 'craft-start', recipeId: `pharmacy:${item.value}` },
+					} });
+					message(`Produção iniciada. Após ${master ? '8 horas' : advanced ? '1 hora' : '30 minutos'} no relógio da campanha, conclua o lote abaixo.`);
+					await showPending();
+				} catch (error) {
+					message(error.message || 'Não foi possível iniciar a produção.');
+				} finally { create.disabled = false; }
+			});
+			editor.append(item, create, pending, feedback);
+			panel.append(editor);
+			void showPending().catch(error => message(error.message || 'Não foi possível carregar as produções.'));
+		} else if (action?.captainPlan) {
 			const controls = el('div', 'trainer-sheet-archive-editor trainer-sheet-captain-editor');
 			controls.append(el('strong', '', `Participantes, incluindo você (até ${action.captainPlan.proficiency})`));
 			const selected = new Set(action.captainPlan.plan?.recipientCharacterIds || []);
@@ -567,20 +782,30 @@
 		panel.style.top = `${Math.max(12, Math.min(rect.bottom + 6, window.innerHeight - panel.offsetHeight - 12))}px`;
 		button.setAttribute('aria-expanded', 'true');
 		function close() {
+			if (recordPicker) recordPicker.close();
 			panel.remove(); button.setAttribute('aria-expanded', 'false');
 			document.removeEventListener('pointerdown', outside);
 			document.removeEventListener('keydown', escape);
-			window.removeEventListener('scroll', scroll, true);
 			window.removeEventListener('resize', close);
 			if (closeTalentPopover === close) closeTalentPopover = null;
 		}
-		function outside(event) { if (!panel.contains(event.target) && !button.contains(event.target)) close(); }
-		function escape(event) { if (event.key === 'Escape') { event.stopPropagation(); close(); button.focus(); } }
-		function scroll(event) { if (!panel.contains(event.target)) close(); }
+		close.preserveOnRefresh = !!(action?.pokemonPharmacy || action?.advancedPharmacy || action?.masterPharmacy ||
+			action?.persistentHypothesis !== undefined);
+		close.preserveCharacterId = action?.pokemonPharmacy || action?.advancedPharmacy || action?.masterPharmacy ||
+			action?.persistentHypothesisCharacterId || null;
+		function outside(event) {
+			if (recordPicker?.overlay.contains(event.target)) return;
+			if (!panel.contains(event.target) && !button.contains(event.target)) close();
+		}
+		function escape(event) {
+			if (event.key !== 'Escape') return;
+			event.stopPropagation();
+			if (recordPicker) recordPicker.close();
+			else { close(); button.focus(); }
+		}
 		closeTalentPopover = close;
 		document.addEventListener('pointerdown', outside);
 		document.addEventListener('keydown', escape);
-		window.addEventListener('scroll', scroll, true);
 		window.addEventListener('resize', close);
 	}
 	function section(title, className = '') {
@@ -1183,7 +1408,8 @@
 	function renderSheet(root, character, sheet, progression, talents, rules, api, readOnly, refresh, masterControls = false) {
 		if (closeSkillPopover) closeSkillPopover();
 		if (closeAttributePopover) closeAttributePopover();
-		if (closeTalentPopover) closeTalentPopover();
+		if (closeTalentPopover && (!closeTalentPopover.preserveOnRefresh ||
+			closeTalentPopover.preserveCharacterId !== character.id || readOnly)) closeTalentPopover();
 		root.replaceChildren();
 		if (!sheet || sheet.status !== 'complete') {
 			root.append(empty(`${character.characterName || 'Este treinador'} ainda não concluiu a criação da ficha.`));
@@ -1308,17 +1534,25 @@
 						}
 					}
 					if (chosen.choiceFields?.secondVariant) {
-						const input = el('input', 'trainer-sheet-progression-input');
-						input.placeholder = chosen.id === 'atleta:atleta-polivalente' ?
-							'Modalidade esportiva 2' : 'Modalidade artística 2'; input.maxLength = 80;
-						input.addEventListener('input', () => { values.secondVariant = input.value.trim(); resetTalentRequest(); });
-						fields.append(input);
+						if (chosen.id === 'cientista:autoridade-cientifica') {
+							field('secondVariant', chosen.variantChoices.map(id => [id, skillLabel(id)]));
+						} else {
+							const input = el('input', 'trainer-sheet-progression-input');
+							input.placeholder = chosen.id === 'atleta:atleta-polivalente' ?
+								'Modalidade esportiva 2' : 'Modalidade artística 2'; input.maxLength = 80;
+							input.addEventListener('input', () => { values.secondVariant = input.value.trim(); resetTalentRequest(); });
+							fields.append(input);
+						}
 					}
 					if (chosen.choiceFields?.thirdVariant) {
-						const input = el('input', 'trainer-sheet-progression-input');
-						input.placeholder = 'Modalidade esportiva 3'; input.maxLength = 80;
-						input.addEventListener('input', () => { values.thirdVariant = input.value.trim(); resetTalentRequest(); });
-						fields.append(input);
+						if (chosen.id === 'cientista:autoridade-cientifica') {
+							field('thirdVariant', chosen.variantChoices.map(id => [id, skillLabel(id)]));
+						} else {
+							const input = el('input', 'trainer-sheet-progression-input');
+							input.placeholder = 'Modalidade esportiva 3'; input.maxLength = 80;
+							input.addEventListener('input', () => { values.thirdVariant = input.value.trim(); resetTalentRequest(); });
+							fields.append(input);
+						}
 					}
 				});
 				confirm.addEventListener('click', async () => {
@@ -1527,7 +1761,9 @@
 			left.name.localeCompare(right.name, 'pt-BR', { sensitivity: 'base' }));
 		const classTalents = sortTalents([
 			...(rules?.classFeatures?.[sheet.classId] || []).map(feature =>
-				({ name: feature.name, description: feature.text })),
+				({ id: sheet.classId === 'cientista' && feature.name === 'Registro Reprodutível' ?
+					'cientista:registro-reprodutivel' : undefined,
+				name: feature.name, description: feature.text })),
 			...acquired(sheet.talents?.class),
 		]);
 		const apexTalents = acquired(sheet.talents?.apex ? [sheet.talents.apex] : []);
@@ -1535,21 +1771,38 @@
 		const talentList = el('div', 'trainer-sheet-talent-list');
 		for (const { id, name, description } of [...classTalents, ...apexTalents, ...generalTalents]) {
 			const button = el('button', 'trainer-sheet-talent-row', name);
+			if (id === 'cientista:publicacao-de-referencia' && progression.publication?.accepted) {
+				button.append(el('span', 'trainer-sheet-publication-count',
+					`${progression.publication.accepted} publicação(ões)`));
+			}
 			button.type = 'button'; button.setAttribute('aria-haspopup', 'dialog');
 			button.setAttribute('aria-expanded', 'false');
 			button.addEventListener('click', () => showTalentPopover(button, name, description,
-				!readOnly && id === 'arqueologo:acervo-compartilhado' ? { id, api, refresh, archive: {
-					slots: sheet.sharedArchives || [], proficiency: progression.proficiency,
-					knowledge: (sheet.skills?.trained || []).filter(skill => skill.startsWith('conhecimento:')),
-					recipients: progression.archiveRecipients || [],
-				} } : !readOnly && id === 'atleta:capitao-de-time' ? { id, api, refresh,
-					captainPlan: { ...(progression.captainPlan || {}), proficiency: progression.proficiency } } :
-				!readOnly && id === 'artista:arte-reconfortante' ? { id, api, refresh,
-					comfortingArt: progression.comfortingArtRecipients || [] } :
-				!readOnly && ['segundo-folego', 'sortudo', 'determinado', 'esforco-heroico'].includes(id) ?
-					{ id, api, refresh, reroll: id !== 'segundo-folego',
-						available: progression.rerollAvailability?.[id],
-						used: progression.activeTalentUses?.used?.[id] === progression.activeTalentUses?.restCycle } : null));
+				!readOnly && id === 'cientista:registro-reprodutivel' ? { id, api, refresh,
+					scientistRecord: progression.scientistRecord } :
+				!readOnly && id === 'cientista:hipotese-persistente' ?
+					{ id, api, refresh, persistentHypothesis: progression.persistentHypothesis,
+						persistentHypothesisCharacterId: character.id } :
+					!readOnly && id === 'cientista:publicacao-de-referencia' ?
+						{ id, api, refresh, publication: progression.publication } :
+						!readOnly && id === 'cientista:producao-farmaceutica-pokemon' ?
+							{ id, api, refresh, pokemonPharmacy: character.id } :
+							!readOnly && id === 'cientista:farmacologia-avancada' ?
+								{ id, api, refresh, advancedPharmacy: character.id } :
+								!readOnly && id === 'cientista:mestre-de-formulacao' ?
+									{ id, api, refresh, masterPharmacy: character.id } :
+									!readOnly && id === 'arqueologo:acervo-compartilhado' ? { id, api, refresh, archive: {
+										slots: sheet.sharedArchives || [], proficiency: progression.proficiency,
+										knowledge: (sheet.skills?.trained || []).filter(skill => skill.startsWith('conhecimento:')),
+										recipients: progression.archiveRecipients || [],
+									} } : !readOnly && id === 'atleta:capitao-de-time' ? { id, api, refresh,
+										captainPlan: { ...(progression.captainPlan || {}), proficiency: progression.proficiency } } :
+									!readOnly && id === 'artista:arte-reconfortante' ? { id, api, refresh,
+										comfortingArt: progression.comfortingArtRecipients || [] } :
+									!readOnly && ['segundo-folego', 'sortudo', 'determinado', 'esforco-heroico'].includes(id) ?
+										{ id, api, refresh, reroll: id !== 'segundo-folego',
+											available: progression.rerollAvailability?.[id],
+											used: progression.activeTalentUses?.used?.[id] === progression.activeTalentUses?.restCycle } : null));
 			talentList.append(button);
 		}
 		talentSection.append(talentList);
@@ -1588,7 +1841,10 @@
 
 	async function render({ api, state, master, characters = [], character }) {
 		const tableId = state.accountSession?.activeTableId || null;
-		if (selectedTable !== tableId) { selectedTable = tableId; selectedCharacter = null; }
+		if (selectedTable !== tableId) {
+			if (closeTalentPopover) closeTalentPopover();
+			selectedTable = tableId; selectedCharacter = null;
+		}
 		const root = el('div', 'trainer-sheet-page');
 		const allowed = master ? characters : [character];
 		let masterSummary = null;
@@ -1683,17 +1939,25 @@
 						}
 					}
 					if (chosen.choiceFields?.secondVariant) {
-						const input = el('input', 'trainer-sheet-progression-input');
-						input.placeholder = chosen.id === 'atleta:atleta-polivalente' ?
-							'Modalidade esportiva 2' : 'Modalidade artística 2'; input.maxLength = 80;
-						input.addEventListener('input', () => { values.secondVariant = input.value.trim(); });
-						fields.append(input);
+						if (chosen.id === 'cientista:autoridade-cientifica') {
+							field('secondVariant', chosen.variantChoices.map(id => [id, skillLabel(id)]));
+						} else {
+							const input = el('input', 'trainer-sheet-progression-input');
+							input.placeholder = chosen.id === 'atleta:atleta-polivalente' ?
+								'Modalidade esportiva 2' : 'Modalidade artística 2'; input.maxLength = 80;
+							input.addEventListener('input', () => { values.secondVariant = input.value.trim(); });
+							fields.append(input);
+						}
 					}
 					if (chosen.choiceFields?.thirdVariant) {
-						const input = el('input', 'trainer-sheet-progression-input');
-						input.placeholder = 'Modalidade esportiva 3'; input.maxLength = 80;
-						input.addEventListener('input', () => { values.thirdVariant = input.value.trim(); });
-						fields.append(input);
+						if (chosen.id === 'cientista:autoridade-cientifica') {
+							field('thirdVariant', chosen.variantChoices.map(id => [id, skillLabel(id)]));
+						} else {
+							const input = el('input', 'trainer-sheet-progression-input');
+							input.placeholder = 'Modalidade esportiva 3'; input.maxLength = 80;
+							input.addEventListener('input', () => { values.thirdVariant = input.value.trim(); });
+							fields.append(input);
+						}
 					}
 				});
 				group.append(picker, description, fields); panel.append(group);
@@ -1734,7 +1998,8 @@
 			progressionForChoice = progression;
 			const host = master ? masterSummary : document.getElementById('dashboard-title')?.closest('.dashboard-heading');
 			host?.querySelector('.trainer-sheet-level-button')?.remove();
-			if (master || state.tableReadOnly || !progression?.canLevelUp || !host) return;
+			if (master || state.session?.role === 'master' || state.tableReadOnly ||
+				!progression?.canLevelUp || !host) return;
 			const button = el('button', 'trainer-sheet-level-button', 'Atualizar');
 			button.type = 'button';
 			button.addEventListener('click', async () => {

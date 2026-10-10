@@ -10,7 +10,7 @@ const {
 	RPGMemoryCommerceRepository,
 	RPGFileCommerceRepository,
 } = require('../../dist/server/rpg-showdown');
-const { RPGItems } = require('../../dist/sim/rpg-showdown');
+const { RPGItems, RPGBagSystem } = require('../../dist/sim/rpg-showdown');
 
 function createCharacter(service, name) {
 	service.createCharacter({
@@ -34,6 +34,54 @@ function tradeRequest(view, type, lines, actionId) {
 }
 
 describe('RPG shared commerce management', () => {
+	it('lists eleven Scientist products last and buys creator-named medicine at component cost', () => {
+		const service = new RPGLoginService({ masterCode: '14081998',
+			repository: new RPGMemoryCharacterRepository(), commerceRepository: new RPGMemoryCommerceRepository() });
+		const master = service.loginMaster('14081998');
+		const player = createCharacter(service, 'CientistaLoja');
+		let mart = service.getCommerceShop(master.token, 'poke-mart-central');
+		const products = ['potion', 'antidote', 'awakening', 'burnheal', 'iceheal', 'paralyzeheal',
+			'superpotion', 'hyperpotion', 'fullheal', 'maxpotion', 'fullrestore'];
+		assert.deepEqual(mart.candidates.slice(-11).map(item => item.id), products.map(id => `player${id}`));
+		assert.deepEqual(mart.offers.slice(-11).map(offer => offer.baseSellPrice),
+			products.map(id => RPGItems.require(id).price.sell));
+		assert(mart.offers.slice(-11).every(offer => !offer.buyEnabled));
+		for (const id of ['superpotion', 'hyperpotion', 'fullheal', 'maxpotion', 'fullrestore']) {
+			service.configureCommerceOffer(master.token, 'poke-mart-central', {
+				itemId: `player${id}`, sellEnabled: true, expectedRevision: mart.shop.revision,
+			});
+			mart = service.getCommerceShop(master.token, 'poke-mart-central');
+			const offer = mart.offers.find(entry => entry.itemId === `player${id}`);
+			assert.equal(offer.sellPrice, RPGItems.require(id).price.sell);
+			assert.equal(offer.buyEnabled, false);
+		}
+		service.configureCommerceOffer(master.token, 'poke-mart-central', {
+			itemId: 'playerpotion', buyEnabled: true, sellEnabled: true, sellPrice: 100,
+			expectedRevision: mart.shop.revision,
+		});
+		mart = service.getCommerceShop(master.token, 'poke-mart-central');
+		assert.equal(mart.offers.find(offer => offer.itemId === 'playerpotion').buyEnabled, false);
+		assert.equal(mart.offers.find(offer => offer.itemId === 'playerpotion').sellPrice, 50);
+		const oldId = 'playerpotioncreatorshoptest';
+		const original = RPGItems.require('potion');
+		RPGItems.register({ ...original, id: oldId, name: 'Potion de @cientista', source: 'custom',
+			price: { ...original.price, sell: 50 },
+			effect: { ...original.effect, originalItemId: 'potion' }, tags: ['player-crafted'] });
+		try {
+			const record = service.repository.get('cientistaloja');
+			record.state.inventory.bag = RPGBagSystem.add(record.state.inventory.bag, oldId, 2).bag;
+			service.repository.set(record);
+			mart = service.getCommerceShop(player.token, 'poke-mart-central');
+			const offer = mart.offers.find(entry => entry.itemId === oldId);
+			assert.equal(offer.name, 'Potion de @cientista');
+			assert.equal(offer.sellPrice, 50);
+			const sale = service.tradeCommerceShop(player.token, 'poke-mart-central',
+				tradeRequest(mart, 'sell', [{ itemId: oldId, quantity: 2 }], 'scientist-shop-sale'));
+			assert.equal(sale.view.money, record.state.money + 100);
+			assert.equal(service.getCommerceShop(master.token, 'poke-mart-central').offers
+				.find(entry => entry.itemId === 'playerpotion').stock, 2);
+		} finally { RPGItems.unregister(oldId); }
+	});
 	it('persists a character and shared shop stock in one MySQL transaction', () => {
 		const batches = [];
 		let activeBatch = null;
@@ -263,7 +311,7 @@ describe('RPG shared commerce management', () => {
 		view = service.configureCommerceBulk(master.token, 'poke-mart-central', {
 			action: 'enable-buy', expectedRevision: view.shop.revision,
 		});
-		assert(view.offers.every(item => item.buyEnabled));
+		assert(view.offers.every(item => item.itemId.startsWith('player') ? !item.buyEnabled : item.buyEnabled));
 		assert.deepEqual(view.offers.map(item => item.itemId), order);
 		const potionBase = view.offers.find(item => item.itemId === 'potion').buyPrice;
 		view = service.configureCommerceBulk(master.token, 'poke-mart-central', {

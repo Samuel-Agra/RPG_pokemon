@@ -156,9 +156,11 @@ describe('RPG trainer API', () => {
 		const finished = repository.get('treinador');
 		assert.equal(finished.state.trainerInventory.items.find(item => item.id === 'kit_teste_01').charges, 4);
 		const bag = finished.state.inventory.bag;
-		assert.equal(bag.items.find(item => item.itemId === 'potion').quantity, 3);
+		const craftedItemId = result.data.result.produced.itemId;
+		assert.equal(bag.items.find(item => item.itemId === craftedItemId).quantity, 3);
 		assert.equal((await request('/api/rpg/trainer/activities', master.token, complete)).data.repeated, true);
-		assert.equal(repository.get('treinador').state.inventory.bag.items.find(item => item.itemId === 'potion').quantity, 3);
+		assert.equal(repository.get('treinador').state.inventory.bag.items
+			.find(item => item.itemId === craftedItemId).quantity, 3);
 	});
 
 	it('reloads activity receipts from character persistence without leaking to another character', () => {

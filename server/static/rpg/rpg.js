@@ -2148,11 +2148,51 @@ function renderMasterAreaPresence(container, players) {
 	}
 }
 
-function renderMasterCampaignEvents(container, events) {
+function renderMasterCampaignEvents(container, events, publications = []) {
 	container.replaceChildren();
-	if (!events.length) {
+	const pendingPublications = publications.filter(entry => entry.status === 'pending');
+	if (!events.length && !pendingPublications.length) {
 		container.append(createElement('p', 'master-campaign-events-empty', 'Nenhum evento pendente.'));
 		return;
+	}
+	for (const publication of [...pendingPublications].reverse()) {
+		const card = createElement('article', 'master-campaign-event event-publication');
+		const heading = createElement('div', 'master-campaign-event-heading');
+		heading.append(createElement('small', '', 'Artigo científico'),
+			createElement('strong', '', publication.title));
+		const payment = document.createElement('input');
+		payment.type = 'number'; payment.min = '0'; payment.max = '1000000'; payment.step = '1';
+		payment.placeholder = 'Pagamento em Pokécoins';
+		payment.setAttribute('aria-label', `Pagamento pelo artigo ${publication.title}`);
+		const accept = button('Aceitar', 'button primary');
+		const reject = button('Recusar', 'button');
+		const feedback = createElement('p', 'master-campaign-publication-error');
+		const decide = async accepted => {
+			const amount = accepted ? Number(payment.value) : 0;
+			if (accepted && (payment.value === '' || !Number.isSafeInteger(amount) || amount < 0)) {
+				feedback.textContent = 'Informe um pagamento válido em Pokécoins.'; return;
+			}
+			accept.disabled = true; reject.disabled = true;
+			try {
+				await api('/trainer/publications/decide', { method: 'POST', body: {
+					id: publication.id, accepted, payment: amount,
+				} });
+				publication.status = accepted ? 'accepted' : 'rejected';
+				renderMasterCampaignEvents(container, events, publications);
+			} catch (error) {
+				feedback.textContent = error.message || 'Não foi possível avaliar o artigo.';
+				accept.disabled = false; reject.disabled = false;
+			}
+		};
+		accept.addEventListener('click', () => decide(true));
+		reject.addEventListener('click', () => decide(false));
+		const actions = createElement('div', 'master-campaign-publication-actions');
+		const buttons = createElement('div', 'master-campaign-publication-buttons');
+		buttons.append(accept, reject);
+		actions.append(payment, buttons);
+		card.append(heading, createElement('p', '', publication.summary),
+			createElement('span', 'master-campaign-event-owner', publication.characterName), actions, feedback);
+		container.append(card);
 	}
 	const labels = { training: 'Treinamento', fossil: 'Paleontologia', breeding: 'Berçário', incubation: 'Incubação' };
 	for (const event of [...events].reverse()) {
@@ -2174,7 +2214,7 @@ function renderMasterCampaignEvents(container, events) {
 				await api('/campaign/events', { method: 'DELETE', body: { eventId: event.id } });
 				const index = events.findIndex(entry => entry.id === event.id);
 				if (index >= 0) events.splice(index, 1);
-				renderMasterCampaignEvents(container, events);
+				renderMasterCampaignEvents(container, events, publications);
 			} catch (error) { close.disabled = false; showToast(error.message, true); }
 		});
 		container.append(card);
@@ -5332,7 +5372,7 @@ async function renderMasterBody(characters) {
 				if (time.events?.length) {
 					campaign.events.push(...time.events);
 					const eventsGrid = root.querySelector('[data-master-campaign-events]');
-					if (eventsGrid) renderMasterCampaignEvents(eventsGrid, campaign.events);
+					if (eventsGrid) renderMasterCampaignEvents(eventsGrid, campaign.events, campaign.publications);
 				}
 				orbit.classList.remove('is-advancing');
 				updateCampaignClock();
@@ -5637,6 +5677,16 @@ async function renderMasterBody(characters) {
 				]);
 				sceneGrid.updateSceneNPCs(settings.settings?.sceneNpcIds || [], library.library || {},
 					settings.settings?.sceneNpcRevealed || {});
+				const refreshedEvents = root.querySelector('[data-master-campaign-events]');
+				if (refreshedEvents) {
+					const nextSignature = JSON.stringify([settings.settings?.events || [],
+						settings.settings?.publications || []]);
+					if (refreshedEvents.dataset.signature !== nextSignature) {
+						refreshedEvents.dataset.signature = nextSignature;
+						renderMasterCampaignEvents(refreshedEvents, settings.settings?.events || [],
+							settings.settings?.publications || []);
+					}
+				}
 			} catch {}
 		};
 		window.addEventListener('rpg:realtime-sync', synchronizeScene);
@@ -5652,7 +5702,8 @@ async function renderMasterBody(characters) {
 		events.panel.classList.add('master-campaign-events-panel');
 		const eventsGrid = createElement('div', 'master-campaign-events-grid');
 		eventsGrid.dataset.masterCampaignEvents = '';
-		renderMasterCampaignEvents(eventsGrid, campaign.events || []);
+		eventsGrid.dataset.signature = JSON.stringify([campaign.events || [], campaign.publications || []]);
+		renderMasterCampaignEvents(eventsGrid, campaign.events || [], campaign.publications || []);
 		events.body.append(eventsGrid);
 		root.append(presence.panel, scene.panel, notes.panel, events.panel);
 		return root;
@@ -7915,6 +7966,7 @@ async function confirmCharacterDeletion(event) {
 }
 
 async function renderDashboard() {
+	$('.dashboard-heading .trainer-sheet-level-button')?.remove();
 	if (platformPlayerNeedsCharacter()) {
 		openCharacterCreation();
 		return;

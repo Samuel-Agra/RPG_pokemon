@@ -23,6 +23,28 @@ function ready(classId, level = 1, overrides = {}) {
 }
 
 describe('RPG trainer classes and talents', () => {
+	it('requires three distinct trained Knowledge areas for Scientific Authority', () => {
+		const scientist = ready('cientista', 10, { skills: { trained: [
+			'conhecimento:ciencias', 'conhecimento:pokemon', 'conhecimento:regioes',
+		], focused: [] } });
+		const choice = { id: 'cientista:autoridade-cientifica', variant: 'conhecimento:ciencias',
+			secondVariant: 'conhecimento:pokemon', thirdVariant: 'conhecimento:regioes' };
+		assert.throws(() => chooseRPGTrainerTalent(scientist,
+			{ ...choice, thirdVariant: choice.variant }), /três áreas diferentes/);
+		assert.throws(() => chooseRPGTrainerTalent(scientist,
+			{ ...choice, thirdVariant: 'conhecimento:arqueologia-fosseis' }), /três áreas diferentes/);
+		const chosen = chooseRPGTrainerTalent(scientist, choice);
+		assert.equal(chosen.talents.apex, choice.id);
+		assert.equal(chosen.talentSelections.at(-1).thirdVariant, choice.thirdVariant);
+	});
+	it('applies the fixed Intelligence increase from Persistent Hypothesis without an attribute choice', () => {
+		const scientist = ready('cientista', 3);
+		const chosen = chooseRPGTrainerTalent(scientist, { id: 'cientista:hipotese-persistente' });
+		assert.equal(chosen.attributes.intelligence, 15);
+		assert(chosen.talents.class.includes('cientista:hipotese-persistente'));
+		assert.equal(rpgTrainerTalentCatalog(scientist).find(entry =>
+			entry.id === 'cientista:hipotese-persistente').attributeChoices.length, 0);
+	});
 	it('registers all twenty class bases, innate features and all published talents', () => {
 		assert.equal(Object.keys(RPG_TRAINER_CLASSES).length, 20);
 		assert.equal(Object.keys(RPG_TRAINER_CLASS_FEATURES).length, 20);
@@ -341,7 +363,9 @@ describe('RPG trainer classes and talents', () => {
 		scientist = chooseRPGTrainerTalent(scientist,
 			{ id: 'cientista:especializacao-cientifica', variant: 'conhecimento:arqueologia-fosseis' });
 		assert.throws(() => chooseRPGTrainerTalent(scientist,
-			{ id: 'cientista:publicacao-de-referencia', variant: 'conhecimento:quimica' }), /mesma área/);
+			{ id: 'cientista:publicacao-de-referencia', variant: 'conhecimento:quimica' }), /Foco em Perícia/);
+		scientist.skills.focused.push('conhecimento:arqueologia-fosseis');
+		scientist.talents.general.push('foco-em-pericia');
 		scientist = chooseRPGTrainerTalent(scientist,
 			{ id: 'cientista:publicacao-de-referencia', variant: 'conhecimento:arqueologia-fosseis' });
 		assert.equal(scientist.talents.class.length, 2);

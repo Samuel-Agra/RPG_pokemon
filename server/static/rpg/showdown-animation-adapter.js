@@ -521,6 +521,41 @@ if (!window.$) {
 		}
 	}
 
+	async function captureMiss(field, actorElement, targetElement, options = {}) {
+		if (!actorElement || !targetElement) return;
+		const scene = new RPGShowdownScene(field, actorElement, [targetElement]);
+		const actor = switchAnchor(field, actorElement);
+		const target = switchAnchor(field, targetElement);
+		const ball = switchBall(scene, options);
+		const blocked = options.blocked === true;
+		const impactX = blocked ? actor.x + (target.x - actor.x) * 0.72 : target.x + 32;
+		const impactY = blocked ? target.y - 30 : target.y + 12;
+		try {
+			options.onThrow?.();
+			const flight = ball.animate([
+				{ left: `${actor.x - 12}px`, top: `${actor.y - 22}px`, opacity: 0,
+					transform: 'rotate(-30deg) scale(.8)' },
+				{ left: `${(actor.x + impactX) / 2 - 12}px`,
+					top: `${Math.min(actor.y, impactY) - 105}px`, opacity: 1,
+					transform: 'rotate(380deg) scale(1.1)', offset: 0.56 },
+				{ left: `${impactX - 12}px`, top: `${impactY - 12}px`, opacity: 1,
+					transform: 'rotate(690deg) scale(1)' },
+			], { duration: duration(700), easing: easing('ballistic2'), fill: 'forwards' });
+			await flight.finished.catch(() => undefined);
+			options.onFailure?.();
+			const fall = ball.animate([
+				{ left: `${impactX - 12}px`, top: `${impactY - 12}px`, opacity: 1,
+					transform: 'rotate(690deg) scale(1)' },
+				{ left: `${impactX + (blocked ? -46 : 26) - 12}px`, top: `${impactY + 30 - 12}px`,
+					opacity: 0, transform: 'rotate(990deg) scale(.75)' },
+			], { duration: duration(390), easing: 'ease-out', fill: 'forwards' });
+			await fall.finished.catch(() => undefined);
+		} finally {
+			ball.remove();
+			scene.cleanup();
+		}
+	}
+
 	async function capture(field, actorElement, targetElement, options = {}) {
 		if (!actorElement || !targetElement) return;
 		const scene = new RPGShowdownScene(field, actorElement, [targetElement]);
@@ -597,7 +632,7 @@ if (!window.$) {
 		scene.cleanup();
 	}
 	window.RPGShowdownAnimations = {
-		summon, recall, wildAppear, megaEvolve, residual, capture,
+		summon, recall, wildAppear, megaEvolve, residual, capture, captureMiss,
 		hasMove(moveId) {
 			return !!window.BattleMoveAnims?.[String(moveId || '').toLowerCase().replace(/[^a-z0-9]+/g, '')]?.anim;
 		},

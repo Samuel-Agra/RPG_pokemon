@@ -6,9 +6,12 @@ const { rollRPGTrainerSkillCheck, rpgTrainerProficiency } = require('../../dist/
 const { rpgTrainerRollTalentOptions, rpgResolveTrainerRollTalents, rpgTrainerRollBonusTerms,
 	rpgArtisticInspirationOption, rpgCaptivatingDistractionOption, rpgEncouragingPresenceOption,
 	rpgTeamCaptainOption,
+	rpgTechnicalOpinionOption,
 	rpgExpeditionLeaderOption,
 	rpgExcavationMasterOption,
 	rpgSetSharedArchive, rpgSharedArchiveOptions } =
+	require('../../dist/server/rpg-showdown/trainer-roll-talents');
+const { rpgUpdatePersistentHypothesis } =
 	require('../../dist/server/rpg-showdown/trainer-roll-talents');
 
 function sheet() {
@@ -19,6 +22,50 @@ function sheet() {
 }
 
 describe('RPG trainer situational roll talents', () => {
+	it('offers Scientific Authority only for its three selected Knowledge areas', () => {
+		const scientist = { ...sheet(), classId: 'cientista', talents: { general: [], class: [],
+			apex: 'cientista:autoridade-cientifica' }, talentSelections: [{
+			id: 'cientista:autoridade-cientifica', variant: 'conhecimento:ciencias',
+			secondVariant: 'conhecimento:pokemon', thirdVariant: 'conhecimento:arqueologia-fosseis',
+		}] };
+		const offered = rpgTrainerRollTalentOptions(scientist, 'skill', 'conhecimento:ciencias');
+		assert.equal(offered.length, 1);
+		assert.equal(offered[0].naturalFloor, 10);
+		assert.equal(rpgResolveTrainerRollTalents(scientist, 'skill', 'conhecimento:ciencias', []).naturalFloor, undefined);
+		assert.equal(rpgResolveTrainerRollTalents(scientist, 'skill', 'conhecimento:ciencias',
+			[offered[0].key]).naturalFloor, 10);
+		assert.deepEqual(rpgTrainerRollTalentOptions(scientist, 'skill', 'conhecimento:regioes'), []);
+	});
+	it('offers Persistent Hypothesis after registering a failure, at most once per attempt', () => {
+		let scientist = { ...sheet(), classId: 'cientista', talents: { general: [],
+			class: ['cientista:hipotese-persistente'], apex: null } };
+		assert.deepEqual(rpgTrainerRollTalentOptions(scientist, 'skill', 'conhecimento:biologia'), []);
+		scientist = rpgUpdatePersistentHypothesis(scientist, { action: 'failure' });
+		assert.throws(() => rpgUpdatePersistentHypothesis(scientist,
+			{ action: 'failure' }), /Realize a tentativa/);
+		let [option] = rpgTrainerRollTalentOptions(scientist, 'skill', 'conhecimento:biologia');
+		assert.equal(option.bonus, 1);
+		assert.equal(rpgResolveTrainerRollTalents(scientist, 'skill', 'conhecimento:biologia', [option.key]).bonus, 1);
+		assert.deepEqual(rpgTrainerRollTalentOptions(scientist, 'skill', 'percepcao'), []);
+		scientist.persistentHypothesis.awaitingOutcome = true;
+		assert.deepEqual(rpgTrainerRollTalentOptions(scientist, 'skill', 'conhecimento:biologia'), []);
+		scientist = rpgUpdatePersistentHypothesis(scientist, { action: 'failure' });
+		[option] = rpgTrainerRollTalentOptions(scientist, 'skill', 'conhecimento:biologia');
+		assert.equal(option.bonus, 2);
+		scientist = rpgUpdatePersistentHypothesis(scientist, { action: 'reset' });
+		assert.equal(scientist.persistentHypothesis, undefined);
+		assert.deepEqual(rpgTrainerRollTalentOptions(scientist, 'skill', 'conhecimento:biologia'), []);
+	});
+	it('offers Technical Opinion to allies for a related practical skill check', () => {
+		const scientist = { ...sheet(), classId: 'cientista', talents: { general: [],
+			class: ['cientista:parecer-tecnico'], apex: null } };
+		const option = rpgTechnicalOpinionOption('cientista', 'Lia', scientist);
+		assert.equal(option.bonus, 2);
+		assert.equal(rpgResolveTrainerRollTalents(sheet(), 'skill', 'medicina', [option.key], [option]).bonus, 2);
+		assert.throws(() => rpgResolveTrainerRollTalents(sheet(), 'attribute', 'intelligence',
+			[option.key], [option]), /indisponível/);
+		assert.equal(rpgTechnicalOpinionOption('outro', 'Rui', sheet()), null);
+	});
 	it('offers Expedition Leader to allies only for physical travel checks', () => {
 		const leader = { ...sheet(), classId: 'atleta', talents: { general: [], class: [],
 			apex: 'atleta:lider-de-expedicao' } };

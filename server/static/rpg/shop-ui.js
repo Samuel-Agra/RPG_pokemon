@@ -433,13 +433,15 @@
 			}
 		}
 		for (const offer of view.offers) {
+			const scientistOnly = /^player(?:potion|antidote|awakening|burnheal|iceheal|paralyzeheal|superpotion|hyperpotion|fullheal|maxpotion|fullrestore)$/.test(offer.itemId);
 			const row = el('article', 'shop-stock-row');
 			const description = el('div', 'shop-stock-description');
 			description.append(el('strong', '', offer.name), el('p', '', offer.description || 'Sem descrição.'));
 			const stock = el('input', 'shop-stock-number');
 			stock.type = 'number'; stock.min = '0'; stock.value = String(offer.stock);
 			stock.setAttribute('aria-label', 'Quantidade disponível de ' + offer.name);
-			const sellToPlayer = el('input'); sellToPlayer.type = 'checkbox'; sellToPlayer.checked = !!offer.buyEnabled;
+			const sellToPlayer = el('input'); sellToPlayer.type = 'checkbox'; sellToPlayer.checked =
+				!scientistOnly && !!offer.buyEnabled;
 			const buyFromPlayer = el('input'); buyFromPlayer.type = 'checkbox'; buyFromPlayer.checked = !!offer.sellEnabled;
 			const sellPrice = el('input', 'shop-price-input'); sellPrice.type = 'number'; sellPrice.min = '0';
 			sellPrice.value = String(offer.buyPrice || 0);
@@ -468,13 +470,21 @@
 				syncToggle(buyFromPlayer, buyState, 'Comprar');
 				void saveOffer(offer, controls);
 			});
-			for (const control of [stock, sellPrice, buyPrice]) {
+			for (const control of scientistOnly ? [buyPrice] : [stock, sellPrice, buyPrice]) {
 				control.addEventListener('change', () => void saveOffer(offer, controls));
 			}
 			reset.addEventListener('click', () => void saveOffer(offer, controls, true));
 			const stockWrap = el('label', 'shop-stock-quantity');
 			stockWrap.append(el('span', '', 'Qtd.'), stock);
-			row.append(itemIcon(offer), description, stockWrap, sellControl, buyControl, reset);
+			row.append(itemIcon(offer), description);
+			if (scientistOnly) {
+				const stockSpace = el('span', 'shop-stock-quantity shop-stock-placeholder');
+				const sellSpace = el('span', 'shop-stock-toggle shop-stock-placeholder');
+				stockSpace.setAttribute('aria-hidden', 'true');
+				sellSpace.setAttribute('aria-hidden', 'true');
+				row.append(stockSpace, sellSpace);
+			} else row.append(stockWrap, sellControl);
+			row.append(buyControl, reset);
 			list.append(row);
 		}
 		return panel;

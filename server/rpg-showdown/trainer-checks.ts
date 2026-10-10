@@ -114,6 +114,9 @@ export function rpgTrainerSkillBonus(sheet: RPGTrainerSheet, skill: string,
 	const scientistBonus = family === 'conhecimento' &&
 		sheet.talentSelections?.some(selection =>
 			selection.id === 'cientista:especializacao-cientifica' && selection.variant === skill) ? 2 : 0;
+	const publicationBonus = family === 'conhecimento' && hasTalent(sheet, 'cientista:publicacao-de-referencia') &&
+		sheet.talentSelections?.some(selection =>
+			selection.id === 'cientista:publicacao-de-referencia' && selection.variant === skill) ? 2 : 0;
 	const diverseKnowledgeBonus = family === 'conhecimento' && !trained && !temporarilyTrained &&
 		hasTalent(sheet, 'conhecimento-diversificado') && sheet.talentSelections?.some(selection =>
 		selection.id === 'conhecimento-diversificado' &&
@@ -123,7 +126,7 @@ export function rpgTrainerSkillBonus(sheet: RPGTrainerSheet, skill: string,
 	const completeAthleteBonus = (skill === 'atletismo' || skill === 'acrobacia') &&
 		hasTalent(sheet, 'atleta:atleta-completo') ? 2 : 0;
 	return modifier + (sheet.skills.focused.includes(skill) ? 2 : trained ? 1 : 0) * rpgTrainerProficiency(sheet.level) +
-		conductorBonus + scientistBonus + diverseKnowledgeBonus + precisionThrowBonus + completeAthleteBonus -
+		conductorBonus + scientistBonus + publicationBonus + diverseKnowledgeBonus + precisionThrowBonus + completeAthleteBonus -
 		rpgTrainerSurvivalEffects(sheet).checkPenalty;
 }
 

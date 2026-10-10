@@ -43,6 +43,7 @@ import {
 import { getRPGAbilityDescriptionPTBR } from './ability-descriptions-pt-br';
 import { getRPGStatusPresentation, type RPGStatusPresentation } from './status-descriptions-pt-br';
 import { rollRPGD20, rollRPGTrainerSkillCheck } from './trainer-checks';
+import { rpgCaptureThrowDifficulty } from './capture-throw-difficulty';
 
 export type RPGBattleRuntimeStatus = 'active' | 'ended';
 export type RPGBattleRuntimeSlotAction =
@@ -181,6 +182,7 @@ export interface RPGRuntimeCaptureAnimationEvent {
 	targets: RPGRuntimeBattleRef[];
 	updates: RPGRuntimeVisualUpdate[];
 	feedback?: 'blocked' | 'miss' | 'immune';
+	throwRoll?: { dice: number[], natural: number, total: number, dc: number };
 	ball: { id: string, name: string, sprite: number | null };
 	success: boolean;
 	shakes: number;
@@ -1110,22 +1112,29 @@ export class RPGBattleRuntimeManager {
 		]) : new Set<string>();
 		const reflectBlocked = !!target.side.getSideCondition('reflect') &&
 			!talents.has('mestre-pokemon:arremesso-angulado');
+		const throwDifficulty = rpgCaptureThrowDifficulty(target.species.name);
+		const legendaryBlocked = throwDifficulty.dc === null;
 		const throwRandom = () => runtime.battle.random(0x1000000) / 0x1000000;
-		const throwCheck = reflectBlocked ? null : sheet?.status === 'complete' ?
+		const throwCheck = reflectBlocked || legendaryBlocked ? null : sheet?.status === 'complete' ?
 			rollRPGTrainerSkillCheck(sheet, 'captura', undefined, {
-				dc: 15,
+				dc: throwDifficulty.dc!,
 				advantages: talents.has('mestre-pokemon:pontaria-paciente') ? 1 : 0,
 			}, throwRandom) : (() => {
 				const roll = rollRPGD20(throwRandom);
-				return { ...roll, total: roll.natural, success: roll.natural >= 15 };
+				return { ...roll, total: roll.natural, success: roll.natural >= throwDifficulty.dc! };
 			})();
-		if (reflectBlocked || !throwCheck?.success) {
+		const throwRoll = throwCheck ? {
+			dice: [...throwCheck.dice], natural: throwCheck.natural,
+			total: throwCheck.total, dc: throwDifficulty.dc!,
+		} : undefined;
+		if (reflectBlocked || legendaryBlocked || !throwCheck?.success) {
 			if (talents.has('mestre-pokemon:captura-sem-risco')) {
 				runtime.recoverableBalls.push({ characterId: character.id, ball: item.id });
 			}
 			const miss: RPGCaptureResult = {
 				allowed: true, success: false, continued: true,
-				reason: reflectBlocked ? 'reflect-blocked' : 'throw-missed',
+				reason: legendaryBlocked ? 'legendary-throw-blocked' :
+				reflectBlocked ? 'reflect-blocked' : 'throw-missed',
 				ball: item.id, catchRate: target.rpg.captureRate!, ballModifier: 1,
 				statusModifier: 1, modifiedCatchRate: 0, shakeThreshold: 0, shakes: 0,
 				probability: 0, target: { side: target.side.id, position: target.position },
@@ -1138,7 +1147,8 @@ export class RPGBattleRuntimeManager {
 			runtime.customAnimations.push({
 				sequence: runtime.battle.log.length - 0.5, type: 'capture', actor: this.pokemonRef(actor),
 				targets: [this.pokemonRef(target)], ball: this.itemPresentation(item.id, item.name),
-				feedback: reflectBlocked ? 'blocked' : 'miss', success: false, shakes: 0,
+				feedback: legendaryBlocked ? 'immune' : reflectBlocked ? 'blocked' : 'miss',
+				throwRoll, success: false, shakes: 0,
 				updates: [],
 			});
 			return;
@@ -1167,7 +1177,7 @@ export class RPGBattleRuntimeManager {
 		runtime.customAnimations.push({
 			sequence: runtime.battle.log.length - 0.5, type: 'capture', actor: this.pokemonRef(actor),
 			targets: [this.pokemonRef(target)], ball: this.itemPresentation(item.id, item.name),
-			success: capture.success, shakes: capture.shakes,
+			throwRoll, success: capture.success, shakes: capture.shakes,
 			updates: capture.success ? [{ target: this.pokemonRef(target), active: false }] : [],
 		});
 	}

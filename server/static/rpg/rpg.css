@@ -1082,6 +1082,12 @@ input, select {
 .master-campaign-event.event-fossil { border-left-color: #9a7747; }
 .master-campaign-event.event-breeding { border-left-color: #bd6f8c; }
 .master-campaign-event.event-incubation { border-left-color: #568ca8; }
+.master-campaign-event.event-publication { border-left-color: #7360ad; }
+.master-campaign-publication-actions { grid-column: 1 / -1; display: grid; gap: 8px; min-width: 0; }
+.master-campaign-publication-actions input { box-sizing: border-box; width: 100%; min-width: 0; padding: 6px 8px; }
+.master-campaign-publication-buttons { display: flex; gap: 8px; }
+.master-campaign-publication-buttons .button { flex: 1; min-width: 0; padding: 6px 10px; }
+.master-campaign-publication-error:empty { display: none; }
 .master-campaign-event-heading { grid-column: 1 / -1; display: grid; gap: 2px; }
 .master-campaign-event-heading small { color: #74859a; font-size: 10px; font-weight: bold; letter-spacing: .06em; text-transform: uppercase; }
 .master-campaign-event-heading strong { color: #2b425f; font-size: 15px; }

@@ -1853,15 +1853,28 @@ async function rpgBattleRoom(session, character, characters = [], isMaster = fal
 		if (event.type === 'capture') {
 			const target = (event.targets || []).map(runtimePokemonElement).find(Boolean);
 			if (!target) return;
-			if (event.feedback === 'blocked' || event.feedback === 'miss') {
-				window.RPGBattleAudio?.playEffect('captureThrow');
+			const throwRoll = event.throwRoll;
+			if (throwRoll) {
+				const modifier = throwRoll.total - throwRoll.natural;
+				engine.textContent = 'Arremesso: ' + throwRoll.dice.join(' / ') +
+					(modifier ? ' ' + (modifier > 0 ? '+' : '−') + ' ' + Math.abs(modifier) : '') +
+					' = ' + throwRoll.total + ' · CD ' + throwRoll.dc;
+			}
+			if (event.feedback === 'blocked' || event.feedback === 'miss' || event.feedback === 'immune') {
+				await window.RPGShowdownAnimations?.captureMiss?.(field, attacker, target, {
+					ball: event.ball.id, ballSprite: event.ball.sprite,
+					blocked: event.feedback === 'blocked',
+					onThrow: () => window.RPGBattleAudio?.playEffect('captureThrow'),
+					onFailure: () => window.RPGBattleAudio?.playEffect('captureFailure'),
+				});
 				engine.textContent = event.feedback === 'blocked' ?
 					'Reflect desviou a Poké Bola antes que ela fosse ativada!' :
+					event.feedback === 'immune' ? 'A Poké Bola não alcançou o Pokémon lendário ou mítico.' :
 					'A Poké Bola não acertou o Pokémon selvagem.';
-				await wait(650);
+				await wait(350);
 				return;
 			}
-			engine.textContent = event.actor.name + ' lançou ' + event.ball.name;
+			if (!throwRoll) engine.textContent = event.actor.name + ' lançou ' + event.ball.name;
 			await window.RPGShowdownAnimations?.capture?.(field, attacker, target, {
 				ball: event.ball.id, ballSprite: event.ball.sprite, success: event.success, shakes: event.shakes,
 				onThrow: () => window.RPGBattleAudio?.playEffect('captureThrow'),

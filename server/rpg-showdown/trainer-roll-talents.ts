@@ -32,6 +32,8 @@ const RULES: Readonly<Record<string, Rule>> = {
 		condition: 'Escavação coordenada pelo Arqueólogo presente; substitui o +2 de Leitura Estratigráfica.' },
 	'arqueologo:voz-das-eras': { targets: ['skill:conhecimento:*'], naturalFloor: 10,
 		condition: 'Interpretar detalhes de uma inscrição histórica estudada por dez minutos.' },
+	'cientista:autoridade-cientifica': { targets: ['skill:conhecimento:*'], naturalFloor: 10,
+		condition: 'Ter tempo e meios adequados para examinar o problema em uma das três áreas escolhidas.' },
 	'arqueologo:olho-para-falsificacoes': { targets: ['skill:conhecimento:*', 'skill:investigacao', 'skill:percepcao'], bonus: 2,
 		condition: 'Reconhecer falsificações ou alterações em objeto histórico.' },
 	'arqueologo:resgate-de-reliquia': { targets: ['attribute:*', 'skill:*', 'resistance:*'], bonus: 2,
@@ -80,8 +82,6 @@ const RULES: Readonly<Record<string, Rule>> = {
 		condition: 'Consultar amostra identificada do arquivo.' },
 	'cientista:publicacao-de-referencia': { targets: ['skill:conhecimento:*'], bonus: 2,
 		condition: 'Consultar obra publicada por dez minutos para um teste sobre o assunto.' },
-	'cientista:hipotese-persistente': { targets: ['skill:conhecimento:*'], bonus: 1,
-		condition: 'Nova tentativa com nova evidência após falha documentada; pode chegar a +2.' },
 	'cozinheiro:paladar-resistente': { targets: ['resistance:fortitude'], bonus: 2,
 		condition: 'Contra alimentos, bebidas ou odores nocivos.' },
 	'coreografo:movimento-espelhado': { targets: ['skill:atuacao', 'skill:acrobacia'], bonus: 2,
@@ -203,7 +203,10 @@ export function rpgTrainerRollTalents(sheet: RPGTrainerSheet): RPGTrainerRollTal
 			!sheet.talentSelections?.some(selection => selection.id === id && selection.variant === 'already-trained')) {
 			return [];
 		}
-		const variants = rule.perVariant ? (sheet.talentSelections || [])
+		const variants = id === 'cientista:autoridade-cientifica' ? (sheet.talentSelections || [])
+			.filter(selection => selection.id === id)
+			.flatMap(selection => [selection.variant, selection.secondVariant, selection.thirdVariant]
+				.filter((value): value is string => !!value)) : rule.perVariant ? (sheet.talentSelections || [])
 			.filter(selection => selection.id === id)
 			.flatMap(selection => id === 'atleta:atleta-polivalente' ?
 				[selection.variant, selection.secondVariant, selection.thirdVariant]
@@ -216,7 +219,7 @@ export function rpgTrainerRollTalents(sheet: RPGTrainerSheet): RPGTrainerRollTal
 				rpgTrainerProficiency(sheet.level) : rule.bonus || 0, advantage: !!rule.advantage,
 			...(rule.naturalFloor ? { naturalFloor: rule.naturalFloor } : {}),
 			...(rule.requiredAttribute ? { requiredAttribute: rule.requiredAttribute } : {}),
-			targets: rule.targets }));
+			targets: id === 'cientista:autoridade-cientifica' && variant ? [`skill:${variant}`] : rule.targets }));
 	});
 	if (sheet.comfortingArt && sheet.comfortingArt.restCycle === (sheet.talentRestCycle || 0)) {
 		options.push({ key: `artista:arte-reconfortante@${sheet.comfortingArt.sourceCharacterId}`,
@@ -224,7 +227,38 @@ export function rpgTrainerRollTalents(sheet: RPGTrainerSheet): RPGTrainerRollTal
 			condition: 'Próximo teste de Vontade contra medo antes do próximo descanso longo.',
 			bonus: 2, advantage: false, targets: ['resistance:will'] });
 	}
+	const hypothesis = sheet.persistentHypothesis;
+	if (sheet.talents.class.includes('cientista:hipotese-persistente') && hypothesis &&
+		!hypothesis.awaitingOutcome && hypothesis.failures > 0) {
+		options.push({ key: 'cientista:hipotese-persistente', id: 'cientista:hipotese-persistente',
+			name: 'Hipótese Persistente', bonus: Math.min(2, hypothesis.failures), advantage: false,
+			condition: 'Nova tentativa após uma falha registrada.',
+			targets: ['skill:conhecimento:*'] });
+	}
 	return options;
+}
+
+/** Uma falha registrada prepara o bônus; outra só pode ser registrada após a tentativa seguinte. */
+export function rpgUpdatePersistentHypothesis(sheet: RPGTrainerSheet,
+	input: { action: 'failure' | 'reset' }): RPGTrainerSheet {
+	if (sheet.status !== 'complete' || !sheet.talents.class.includes('cientista:hipotese-persistente')) {
+		throw new Error('Este treinador não possui Hipótese Persistente');
+	}
+	if (!input || typeof input !== 'object' ||
+		!['failure', 'reset'].includes(input.action)) {
+		throw new Error('Ação de pesquisa inválida');
+	}
+	const next = structuredClone(sheet);
+	if (input.action === 'reset') {
+		next.persistentHypothesis = undefined;
+		return next;
+	}
+	const current = next.persistentHypothesis;
+	if (current && !current.awaitingOutcome) {
+		throw new Error('Realize a tentativa preparada ou encerre esta hipótese');
+	}
+	next.persistentHypothesis = { failures: Math.min(2, (current?.failures || 0) + 1) };
+	return next;
 }
 
 export function rpgTrainerRollTalentOptions(sheet: RPGTrainerSheet, kind: RPGTrainerRollKind, id: string,
@@ -253,6 +287,17 @@ export function rpgArtisticInspirationOption(allyId: string, allyName: string,
 		name: `Inspiração Artística de ${allyName}`, bonus: 2, advantage: false,
 		condition: 'Primeiro teste da perícia escolhida após um minuto de encorajamento artístico do aliado; ' +
 			'a inspiração deve ser compreendida e relacionada ao desafio.',
+		targets: ['skill:*'] };
+}
+
+/** A orientação do Cientista beneficia um teste prático do aliado após uma análise concluída. */
+export function rpgTechnicalOpinionOption(allyId: string, allyName: string,
+	ally: RPGTrainerSheet): RPGTrainerRollTalent | null {
+	if (ally.status !== 'complete' || !ally.talents.class.includes('cientista:parecer-tecnico')) return null;
+	return { key: `cientista:parecer-tecnico@${allyId}`, id: 'cientista:parecer-tecnico',
+		name: `Parecer Técnico de ${allyName}`, bonus: 2, advantage: false,
+		condition: 'Um único teste diretamente relacionado a uma análise concluída com Método Científico; ' +
+			'você deve seguir a orientação específica do Cientista antes que as condições mudem.',
 		targets: ['skill:*'] };
 }
 

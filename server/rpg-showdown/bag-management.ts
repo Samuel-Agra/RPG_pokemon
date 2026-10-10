@@ -26,7 +26,8 @@ export type RPGManagedBagCategory = 'pokeballs' | 'medicines' | 'held-items' |
 	'evolution-items' | 'tms' | 'fossils' | 'treasures' | 'favorites' | 'mission-items' |
 	'mega-stones' | 'key-items' | 'battle-items' | 'talent-items';
 export type RPGManagedBagAction = 'use' | 'equip' | 'remove' | 'teach' | 'favorite' | 'unfavorite' |
-	'move-to-mission' | 'remove-from-mission' | 'edit-mission-note' | 'discard' | 'give';
+	'move-to-mission' | 'remove-from-mission' | 'edit-mission-note' | 'discard' | 'give' |
+	'produce-record' | 'finish-record' | 'cancel-record';
 
 export interface RPGManagedBagQuery {
 	context?: RPGManagedBagContext;
@@ -68,6 +69,7 @@ export interface RPGManagedBagItemView {
 	/** Projeção de talento: não ocupa peso ou espaço e não pode ser transferida. */
 	weightKg?: number;
 	slots?: number;
+	recordCraftId?: string;
 	linkedEggId?: string;
 	actions: RPGManagedBagAction[];
 	equippedIn: RPGManagedBagEquippedPokemon[];
@@ -181,7 +183,8 @@ export class RPGBagManagement {
 						missionNote: inventory.bag.missionNotes[definition.id],
 					} : {}),
 					actions: this.actions(definition, context, favorite, mission, equippedIn.length > 0, itemUseLocked),
-					equippedIn, icon: definition.source === 'custom' ? null : getRPGItemIconPath(definition.id),
+					equippedIn, icon: definition.source === 'custom' && !definition.tags?.includes('playercrafted') ?
+						null : getRPGItemIconPath(definition.id),
 					sprite: definition.source === 'custom' ? null : this.sprite(definition.id),
 					...(definition.price ? { price: structuredClone(definition.price) } : {}),
 					...(definition.effect ? { effect: structuredClone(definition.effect) } : {}),

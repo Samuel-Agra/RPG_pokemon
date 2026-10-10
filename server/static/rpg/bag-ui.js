@@ -174,6 +174,9 @@
 		if (action === 'equip') return 'Equipar';
 		if (action === 'remove') return 'Remover';
 		if (action === 'teach') return 'Ensinar';
+		if (action === 'produce-record') return 'Iniciar produção';
+		if (action === 'finish-record') return 'Concluir produção';
+		if (action === 'cancel-record') return 'Cancelar produção';
 		if (action === 'use' && item.registryCategory === 'evolution') return 'Usar';
 		return action === 'use' ? 'Usar' : action;
 	}
@@ -476,15 +479,41 @@
 				dialog.card.append(equipped);
 			}
 			const actions = el('div', 'bag-ui-detail-actions');
+			const recordFeedback = el('p', 'bag-ui-description');
+			dialog.card.append(recordFeedback);
 			if (item.category === 'fossils' && !item.fossilQualities && bagData.fossilAppraiser) {
 				const identify = makeButton('Identificar com ' + bagData.fossilAppraiser.name, 'button primary');
 				identify.addEventListener('click', () => void showFossilIdentification(item, dialog));
 				actions.append(identify);
 			}
 			for (const action of item.actions || []) {
-				const actionButton = makeButton(actionLabel(action, item), action === 'use' || action === 'equip' || action === 'teach' ? 'button primary' : 'button');
+				const actionButton = makeButton(actionLabel(action, item), action === 'use' || action === 'equip' ||
+					action === 'teach' || action === 'produce-record' || action === 'finish-record' ? 'button primary' : 'button');
 				actionButton.addEventListener('click', () => {
-					if (action === 'favorite' || action === 'unfavorite') {
+					if (['produce-record', 'finish-record', 'cancel-record'].includes(action)) {
+						const match = /^cientista:registro-reprodutivel@([^:]+):(\d+)$/.exec(item.id);
+						if (!match) { recordFeedback.textContent = 'Registro inválido.'; return; }
+						actionButton.disabled = true;
+						const type = action === 'produce-record' ? 'record-start' :
+							action === 'finish-record' ? 'record-complete' : 'record-cancel';
+						void options.api('/trainer/activities', { method: 'POST', body: {
+							characterId: options.characterId, requestId: window.crypto.randomUUID(),
+							action: type === 'record-start' ? { type, sourceCharacterId: match[1], slot: Number(match[2]) } :
+							{ type, craftId: item.recordCraftId },
+						} }).then(response => {
+							close();
+							const result = response.result;
+							options.toast(type === 'record-start' ?
+								`Produção de ${result.formulaName} iniciada. Aguarde ${result.minutes} minuto(s) no relógio da campanha.` :
+								type === 'record-complete' ?
+									`${result.formulaName} produzido: ${result.effect} (${result.chargesConsumed} carga(s) usadas).` :
+									'Produção cancelada.');
+							void load();
+						}).catch(error => {
+							recordFeedback.textContent = error.message || 'Não foi possível produzir o registro.';
+							actionButton.disabled = false;
+						});
+					} else if (action === 'favorite' || action === 'unfavorite') {
 						close();
 						void toggleFavorite(item);
 					} else if (action === 'move-to-mission') {

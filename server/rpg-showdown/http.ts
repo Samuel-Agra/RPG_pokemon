@@ -444,6 +444,30 @@ export class RPGHttpServer {
 			this.json(res, 200, this.login.setTrainerSharedArchive(this.token(req), slot, entry));
 			return;
 		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/scientist-record') {
+			const body = await this.body(req);
+			if (!Number.isInteger(body.slot)) throw new Error('Espaço de registro inválido');
+			const entry = body.clear === true ? null : {
+				formulaId: this.string(body.formulaId),
+				recipientCharacterId: this.string(body.recipientCharacterId),
+			};
+			this.json(res, 200, this.login.setTrainerScientistRecord(this.token(req), Number(body.slot), entry));
+			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/publications') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.createScientificPublication(this.token(req), {
+				requestId: this.string(body.requestId), title: this.string(body.title),
+				summary: this.string(body.summary),
+			}));
+			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/publications/decide') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.decideScientificPublication(this.token(req),
+				this.string(body.id), body.accepted as boolean, body.payment as number));
+			return;
+		}
 		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/use') {
 			const body = await this.body(req);
 			this.json(res, 200, this.login.useTrainerSheetTalent(this.token(req), this.string(body.talentId)));
@@ -485,6 +509,12 @@ export class RPGHttpServer {
 				body as unknown as Parameters<RPGLoginService['rollTrainerCheck']>[1]));
 			return;
 		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/persistent-hypothesis') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.updateTrainerPersistentHypothesis(this.token(req),
+				body as Parameters<RPGLoginService['updateTrainerPersistentHypothesis']>[1]));
+			return;
+		}
 		if (method === 'POST' && url.pathname === '/api/rpg/trainer/help-roll') {
 			const token = this.token(req);
 			const session = this.login.getSession(token);
@@ -511,14 +541,16 @@ export class RPGHttpServer {
 			const stageLegend = skill === 'atuacao' &&
 				character.trainerSheet?.talents.apex === 'artista:lenda-dos-palcos';
 			const eraVoice = offered.talents.some(talent => talent.id === 'arqueologo:voz-das-eras');
+			const scientificAuthority = offered.talents.some(talent => talent.id === 'cientista:autoridade-cientifica');
 			const athleticFundamentals = character.trainerSheet?.classId === 'atleta' &&
 				(skill === 'atletismo' || skill === 'acrobacia');
 			const completeAthlete = athleticFundamentals &&
 				character.trainerSheet?.talents.apex === 'atleta:atleta-completo';
-			const naturalFloor = stageLegend || eraVoice || completeAthlete ? 10 : skill === 'conhecimento:arqueologia-fosseis' &&
+			const naturalFloor = stageLegend || eraVoice || scientificAuthority || completeAthlete ? 10 : skill === 'conhecimento:arqueologia-fosseis' &&
 				character.trainerSheet?.talents.class.includes('arqueologo:memoria-academica') ? 8 :
 				athleticFundamentals ? 5 : 0;
 			const floorSource = stageLegend ? 'Ápice — Lenda dos Palcos' : eraVoice ? 'Voz das Eras' :
+				scientificAuthority ? 'Ápice — Autoridade Científica' :
 				completeAthlete ? 'Ápice — Atleta Completo' :
 				athleticFundamentals ? 'Fundamentos Esportivos' : 'Memória Acadêmica';
 			const floorLine = offered.result.effectiveNatural > offered.result.natural ?
@@ -627,14 +659,16 @@ export class RPGHttpServer {
 			const stageLegend = skillRoll && skill === 'atuacao' &&
 				character.trainerSheet?.talents.apex === 'artista:lenda-dos-palcos';
 			const eraVoice = talentEffects.chosen.some(talent => talent.id === 'arqueologo:voz-das-eras');
+			const scientificAuthority = talentEffects.chosen.some(talent => talent.id === 'cientista:autoridade-cientifica');
 			const athleticFundamentals = skillRoll && character.trainerSheet?.classId === 'atleta' &&
 				(skill === 'atletismo' || skill === 'acrobacia');
 			const completeAthlete = athleticFundamentals &&
 				character.trainerSheet?.talents.apex === 'atleta:atleta-completo';
-			const naturalFloor = stageLegend || eraVoice || completeAthlete ? 10 : skillRoll && skill === 'conhecimento:arqueologia-fosseis' &&
+			const naturalFloor = stageLegend || eraVoice || scientificAuthority || completeAthlete ? 10 : skillRoll && skill === 'conhecimento:arqueologia-fosseis' &&
 				character.trainerSheet?.talents.class.includes('arqueologo:memoria-academica') ? 8 :
 				athleticFundamentals ? 5 : 0;
 			const floorSource = stageLegend ? 'Ápice — Lenda dos Palcos' : eraVoice ? 'Voz das Eras' :
+				scientificAuthority ? 'Ápice — Autoridade Científica' :
 				completeAthlete ? 'Ápice — Atleta Completo' :
 				athleticFundamentals ? 'Fundamentos Esportivos' : 'Memória Acadêmica';
 			const floorLine = skillRoll && effectiveNatural > result.natural ?
@@ -646,6 +680,9 @@ export class RPGHttpServer {
 				session.platformTableId, session.platformAccountId, message);
 			if (talentEffects.chosen.some(talent => talent.id === 'artista:arte-reconfortante')) {
 				this.login.consumeTrainerComfortingArt(token, characterId!);
+			}
+			if (talentEffects.chosen.some(talent => talent.id === 'cientista:hipotese-persistente')) {
+				this.login.consumeTrainerPersistentHypothesis(token, characterId!);
 			}
 			if (kind === 'attribute' || kind === 'skill' || kind === 'resistance') {
 				this.login.recordTrainerChatRoll(token, kind, rollName, bonus, posted, { ...result,
@@ -2673,6 +2710,7 @@ export class RPGHttpServer {
 	/** Only established domain validation messages may cross the HTTP boundary. */
 	private isPublicValidationError(message: string): boolean {
 		if (/persisted|estado persistido|table scope|random source|repository|repositório/i.test(message)) return false;
+		if (/^(?:Publicação de Referência não está disponível|Identificador do artigo inválido|Informe título e resumo do artigo|Já existe um artigo aguardando avaliação|Artigo não está pendente|Decisão ou pagamento inválido|Pagamento ultrapassa o limite de Pokécoins|Entre como jogador em uma mesa para criar o artigo|Nenhum personagem selecionado|Personagem fora da mesa atual)/.test(message)) return true;
 		if (/^(?:Identificador de nível |Ajuste de nível )/.test(message)) return true;
 		if (['Escolha de talento inválida', 'Escolha modalidades artísticas diferentes das já selecionadas',
 			'Escolha uma variante nova e válida para este talento'].includes(message)) return true;

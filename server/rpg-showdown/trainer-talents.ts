@@ -139,7 +139,7 @@ function validSkill(skill: string): boolean {
 
 function allowedAttributeChoices(talent: RPGTrainerTalentDefinition): (keyof RPGTrainerAttributes)[] {
 	// Aumentos fixos pertencem à própria regra e não exigem escolha de atributo.
-	if (['arqueologo:memoria-academica', 'artista:presenca-magnetica',
+	if (['arqueologo:memoria-academica', 'cientista:hipotese-persistente', 'artista:presenca-magnetica',
 		'artista:corpo-de-cena'].includes(talent.id)) return [];
 	if (talent.id === 'aprimoramento-de-atributo') return Object.values(ATTRIBUTE_NAMES);
 	const line = (/Aumente (?:também )?em 1[^\n]*/i.exec(talent.text))?.[0];
@@ -165,9 +165,10 @@ function allowedVariantChoices(sheet: RPGTrainerSheet, talent: RPGTrainerTalentD
 		return sheet.skills.trained.filter(skill => skill.startsWith('conhecimento:'));
 	}
 	if (id === 'cientista:publicacao-de-referencia') {
-		return (sheet.talentSelections || []).filter(selection =>
-			selection.id === 'cientista:especializacao-cientifica' && selection.variant)
-			.map(selection => selection.variant!);
+		return sheet.skills.focused.filter(skill => skill.startsWith('conhecimento:'));
+	}
+	if (id === 'cientista:autoridade-cientifica') {
+		return sheet.skills.trained.filter(skill => skill.startsWith('conhecimento:'));
 	}
 	if (id === 'tecnologo:especializacao-tecnica') return [...TECH_AREAS];
 	if (id === 'explorador:especialista-de-terreno') return [...EXPLORER_TERRAINS];
@@ -215,9 +216,8 @@ function prerequisiteError(sheet: RPGTrainerSheet, talent: RPGTrainerTalentDefin
 		return 'É necessário conhecimento científico treinado';
 	}
 	if (talent.id === 'cientista:publicacao-de-referencia' &&
-		!sheet.talentSelections?.some(selection => selection.id === 'cientista:especializacao-cientifica' &&
-			selection.variant === choice.variant)) {
-		return 'A publicação exige especialização científica na mesma área';
+		!sheet.skills.focused.some(skill => skill.startsWith('conhecimento:'))) {
+		return 'A publicação exige Foco em Perícia em uma área de Conhecimento';
 	}
 	if (talent.id === 'condutor-versatil' &&
 		!sheet.skills.trained.some(skill => skill.startsWith('pilotagem:'))) {
@@ -251,14 +251,15 @@ export function rpgTrainerTalentCatalog(sheet: RPGTrainerSheet) {
 					resistance: talent.id === 'resiliente',
 					proficiency: ['dominio-de-kit', 'dominio-de-arma'].includes(talent.id),
 					variant: ['conhecimento-diversificado', 'artista:artista-versatil',
-						'atleta:atleta-polivalente'].includes(talent.id) || !!REPEATABLE[talent.id] && !['aprimoramento-de-atributo', 'resiliente',
+						'atleta:atleta-polivalente', 'cientista:autoridade-cientifica'].includes(talent.id) || !!REPEATABLE[talent.id] && !['aprimoramento-de-atributo', 'resiliente',
 						'treinamento-adicional', 'foco-em-pericia',
 						'dominio-de-arma', 'dominio-de-kit', 'cientista:registros-paralelos',
 						'tecnologo:prototipos-paralelos'].includes(talent.id) ||
 						['cientista:publicacao-de-referencia', 'cientista:especializacao-cientifica',
 							'tecnologo:especializacao-tecnica', 'explorador:especialista-de-terreno'].includes(talent.id),
-					secondVariant: ['artista:artista-versatil', 'atleta:atleta-polivalente'].includes(talent.id),
-					thirdVariant: talent.id === 'atleta:atleta-polivalente',
+					secondVariant: ['artista:artista-versatil', 'atleta:atleta-polivalente',
+						'cientista:autoridade-cientifica'].includes(talent.id),
+					thirdVariant: ['atleta:atleta-polivalente', 'cientista:autoridade-cientifica'].includes(talent.id),
 				},
 			};
 		});
@@ -289,6 +290,9 @@ function applyTalentEffect(sheet: RPGTrainerSheet, talent: RPGTrainerTalentDefin
 	if (talent.id === 'arqueologo:memoria-academica') {
 		attributes.intelligence = Math.min(20, attributes.intelligence + 1);
 		next.academicMemoryApplied = true;
+	}
+	if (talent.id === 'cientista:hipotese-persistente') {
+		attributes.intelligence = Math.min(20, attributes.intelligence + 1);
 	}
 	if (talent.id === 'arqueologo:resgate-de-reliquia') {
 		attributes.dexterity = Math.min(20, attributes.dexterity + 1);
@@ -354,10 +358,12 @@ function applyTalentEffect(sheet: RPGTrainerSheet, talent: RPGTrainerTalentDefin
 				'Escolha modalidades esportivas diferentes das já selecionadas');
 		}
 	}
-	if (!['artista:artista-versatil', 'atleta:atleta-polivalente'].includes(talent.id) && choice.secondVariant !== undefined) {
+	if (!['artista:artista-versatil', 'atleta:atleta-polivalente', 'cientista:autoridade-cientifica']
+		.includes(talent.id) && choice.secondVariant !== undefined) {
 		throw new Error('Este talento não escolhe uma segunda modalidade');
 	}
-	if (talent.id !== 'atleta:atleta-polivalente' && choice.thirdVariant !== undefined) {
+	if (!['atleta:atleta-polivalente', 'cientista:autoridade-cientifica'].includes(talent.id) &&
+		choice.thirdVariant !== undefined) {
 		throw new Error('Este talento não escolhe uma terceira modalidade');
 	}
 	if (talent.id === 'dominio-de-escudos') {
@@ -396,6 +402,13 @@ function applyTalentEffect(sheet: RPGTrainerSheet, talent: RPGTrainerTalentDefin
 		(typeof choice.variant !== 'string' || !choice.variant.startsWith('conhecimento:') ||
 			!next.skills.trained.includes(choice.variant))) {
 		throw new Error('A especialização exige uma área de Conhecimento treinada');
+	}
+	if (talent.id === 'cientista:autoridade-cientifica') {
+		const areas = [choice.variant, choice.secondVariant, choice.thirdVariant];
+		if (new Set(areas).size !== 3 || areas.some(area => !area ||
+			!next.skills.trained.includes(area) || !area.startsWith('conhecimento:'))) {
+			throw new Error('Escolha três áreas diferentes de Conhecimento treinadas');
+		}
 	}
 	if (talent.id === 'tecnologo:especializacao-tecnica' &&
 		!TECH_AREAS.has(choice.variant || '')) throw new Error('Área técnica inválida');
