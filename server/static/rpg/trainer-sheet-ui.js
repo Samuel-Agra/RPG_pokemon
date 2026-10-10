@@ -486,7 +486,7 @@
 			editor.append(el('strong', '', `Registros ativos (${action.scientistRecord.slots.length}/${action.scientistRecord.limit})`));
 			for (let slot = 0; slot < action.scientistRecord.limit; slot++) {
 				const prepared = action.scientistRecord.slots.find(entry => entry.slot === slot);
-				let selectedFormula = prepared?.formulaId || '';
+				let selectedFormula = prepared?.custom ? 'custom' : prepared?.formulaId || '';
 				const row = el('div', 'trainer-sheet-scientist-row');
 				const formula = el('button', 'trainer-sheet-scientist-choose',
 					action.scientistRecord.formulas.find(entry => entry.id === selectedFormula)?.name || 'Escolher registro');
@@ -496,10 +496,12 @@
 				recipient.value = prepared?.recipientCharacterId || '';
 				recipient.setAttribute('aria-label', `Destinatário do registro ${slot + 1}`);
 				const selected = el('p', 'trainer-sheet-scientist-effect');
-				const showSelection = () => {
+				let showSelection = () => {
 					const entry = action.scientistRecord.formulas.find(option => option.id === selectedFormula);
-					formula.textContent = entry?.name || 'Escolher registro';
-					selected.textContent = entry?.effect || 'Escolha uma fórmula para preparar.';
+					formula.textContent = entry?.name || (selectedFormula === 'custom' ? 'Registro livre' :
+						prepared?.custom?.name || 'Escolher registro');
+					selected.textContent = entry ? `${entry.effect} · ${entry.charges} carga(s)` :
+						prepared?.custom?.description || 'Escolha uma fórmula para preparar.';
 				};
 				showSelection();
 				formula.addEventListener('click', () => {
@@ -510,9 +512,17 @@
 					dialog.append(el('h2', '', 'Escolher registro'));
 					const list = el('div', 'trainer-sheet-record-list');
 					const closePicker = () => { overlay.remove(); recordPicker = null; formula.focus(); };
+					if (action.scientistRecord.allowCustom) {
+						const choice = el('button', 'trainer-sheet-record-choice'); choice.type = 'button';
+						choice.append(el('strong', '', 'Registro livre'),
+							el('span', '', 'Defina nome e descrição; o Mestre aprova o nível do kit e o custo em cargas.'));
+						choice.addEventListener('click', () => { selectedFormula = 'custom'; showSelection(); closePicker(); });
+						list.append(choice);
+					}
 					for (const entry of action.scientistRecord.formulas) {
 						const choice = el('button', 'trainer-sheet-record-choice'); choice.type = 'button';
-						choice.append(el('strong', '', entry.name), el('span', '', entry.effect));
+						choice.append(el('strong', '', entry.name), el('span', '', entry.effect),
+							el('span', '', `${entry.charges} carga(s) científicas`));
 						choice.addEventListener('click', () => {
 							selectedFormula = entry.id; showSelection(); closePicker();
 						});
@@ -526,11 +536,26 @@
 					document.body.append(overlay);
 					recordPicker = { overlay, close: closePicker };
 				});
+				const customName = el('input', 'trainer-sheet-scientist-custom-name');
+				customName.placeholder = 'Nome do registro livre'; customName.maxLength = 100;
+				customName.value = prepared?.custom?.name || '';
+				const customDescription = el('textarea', 'trainer-sheet-scientist-custom-description');
+				customDescription.placeholder = 'Descrição do efeito e suas limitações'; customDescription.maxLength = 2000;
+				customDescription.value = prepared?.custom?.description || '';
+				const customFields = el('div', 'trainer-sheet-scientist-custom-fields');
+				customFields.append(customName, customDescription);
+				const originalShowSelection = showSelection;
+				showSelection = () => { originalShowSelection(); customFields.classList.toggle('hidden', selectedFormula !== 'custom'); };
+				showSelection();
 				const save = el('button', 'trainer-sheet-talent-use', prepared ? 'Atualizar' : 'Preparar');
 				save.type = 'button';
 				const remove = el('button', 'trainer-sheet-archive-remove', 'Remover');
 				remove.type = 'button'; remove.classList.toggle('hidden', !prepared);
 				const feedback = el('p', 'trainer-sheet-roll-error hidden');
+				if (action.scientistRecord.pending?.some(entry => entry.slot === slot)) {
+					feedback.textContent = 'Registro livre aguardando aprovação do Mestre.';
+					feedback.classList.remove('hidden'); save.disabled = true;
+				}
 				async function submit(clear) {
 					if (!clear && (!selectedFormula || !recipient.value)) {
 						feedback.textContent = 'Escolha uma fórmula e um destinatário.';
@@ -538,10 +563,17 @@
 					}
 					save.disabled = true; remove.disabled = true;
 					try {
-						await action.api('/trainer/talents/scientist-record', { method: 'POST', body: {
-							slot, ...(clear ? { clear: true } : { formulaId: selectedFormula,
-								recipientCharacterId: recipient.value }),
-						} });
+						if (selectedFormula === 'custom' && !clear) {
+							await action.api('/trainer/talents/scientist-record/custom', { method: 'POST', body: {
+								requestId: crypto.randomUUID(), slot, recipientCharacterId: recipient.value,
+								name: customName.value, description: customDescription.value,
+							} });
+						} else {
+							await action.api('/trainer/talents/scientist-record', { method: 'POST', body: {
+								slot, ...(clear ? { clear: true } : { formulaId: selectedFormula,
+									recipientCharacterId: recipient.value }),
+							} });
+						}
 						close();
 						window.dispatchEvent(new CustomEvent('rpg:realtime-sync',
 							{ detail: { tableId: selectedTable } }));
@@ -553,7 +585,7 @@
 				}
 				save.addEventListener('click', () => submit(false));
 				remove.addEventListener('click', () => submit(true));
-				row.append(formula, recipient, selected, save, remove, feedback);
+				row.append(formula, recipient, selected, customFields, save, remove, feedback);
 				editor.append(row);
 			}
 			panel.insertBefore(editor, panel.children[1]);

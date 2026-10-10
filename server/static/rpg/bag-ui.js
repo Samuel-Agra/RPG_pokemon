@@ -174,6 +174,7 @@
 		if (action === 'equip') return 'Equipar';
 		if (action === 'remove') return 'Remover';
 		if (action === 'teach') return 'Ensinar';
+		if (action === 'use-record') return 'Usar';
 		if (action === 'produce-record') return 'Iniciar produção';
 		if (action === 'finish-record') return 'Concluir produção';
 		if (action === 'cancel-record') return 'Cancelar produção';
@@ -487,27 +488,31 @@
 				actions.append(identify);
 			}
 			for (const action of item.actions || []) {
-				const actionButton = makeButton(actionLabel(action, item), action === 'use' || action === 'equip' ||
+				const actionButton = makeButton(actionLabel(action, item), action === 'use' || action === 'use-record' || action === 'equip' ||
 					action === 'teach' || action === 'produce-record' || action === 'finish-record' ? 'button primary' : 'button');
 				actionButton.addEventListener('click', () => {
-					if (['produce-record', 'finish-record', 'cancel-record'].includes(action)) {
+					if (['use-record', 'produce-record', 'finish-record', 'cancel-record'].includes(action)) {
 						const match = /^cientista:registro-reprodutivel@([^:]+):(\d+)$/.exec(item.id);
 						if (!match) { recordFeedback.textContent = 'Registro inválido.'; return; }
 						actionButton.disabled = true;
-						const type = action === 'produce-record' ? 'record-start' :
+						const type = action === 'use-record' ? 'record-use' :
+							action === 'produce-record' ? 'record-start' :
 							action === 'finish-record' ? 'record-complete' : 'record-cancel';
 						void options.api('/trainer/activities', { method: 'POST', body: {
 							characterId: options.characterId, requestId: window.crypto.randomUUID(),
-							action: type === 'record-start' ? { type, sourceCharacterId: match[1], slot: Number(match[2]) } :
-							{ type, craftId: item.recordCraftId },
+							action: type === 'record-start' || type === 'record-use' ?
+								{ type, sourceCharacterId: match[1], slot: Number(match[2]) } :
+								{ type, craftId: item.recordCraftId },
 						} }).then(response => {
 							close();
 							const result = response.result;
-							options.toast(type === 'record-start' ?
-								`Produção de ${result.formulaName} iniciada. Aguarde ${result.minutes} minuto(s) no relógio da campanha.` :
-								type === 'record-complete' ?
-									`${result.formulaName} produzido: ${result.effect} (${result.chargesConsumed} carga(s) usadas).` :
-									'Produção cancelada.');
+							options.toast(type === 'record-use' ?
+								`${result.formulaName}: ${result.effect} ${result.chargesConsumed} carga(s) usadas. ` +
+								`Preparo: ${result.minutes} minuto(s).` : type === 'record-start' ?
+									`Produção de ${result.formulaName} iniciada. Aguarde ${result.minutes} minuto(s) no relógio da campanha.` :
+									type === 'record-complete' ?
+										`${result.formulaName} produzido: ${result.effect} (${result.chargesConsumed} carga(s) usadas).` :
+										'Produção cancelada.');
 							void load();
 						}).catch(error => {
 							recordFeedback.textContent = error.message || 'Não foi possível produzir o registro.';

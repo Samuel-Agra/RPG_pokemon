@@ -59,7 +59,8 @@ export interface RPGTrainerSheet {
 	/** Cada espaço preparado pertence a um destinatário e a uma área treinada de Conhecimento. */
 	sharedArchives?: { slot: number, topic: string, knowledge: string, recipientCharacterId: string }[];
 	/** Cada fórmula escrita ocupa um espaço ativo e acompanha somente seu destinatário. */
-	scientistRecords?: { slot: number, formulaId: string, recipientCharacterId: string }[];
+	scientistRecords?: { slot: number, formulaId: string, recipientCharacterId: string,
+		custom?: { name: string, description: string, kitTier: number, charges: number }, }[];
 	/** Uma falha prepara o bônus; a rolagem aguarda seu resultado antes de outra falha. Campos antigos são opcionais para compatibilidade. */
 	persistentHypothesis?: { failures: number, awaitingOutcome?: boolean, topic?: string,
 		lastEvidence?: string, preparedEvidence?: string, };

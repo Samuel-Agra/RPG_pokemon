@@ -454,6 +454,21 @@ export class RPGHttpServer {
 			this.json(res, 200, this.login.setTrainerScientistRecord(this.token(req), Number(body.slot), entry));
 			return;
 		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/scientist-record/custom') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.requestCustomScientistRecord(this.token(req), {
+				requestId: this.string(body.requestId), slot: body.slot as number,
+				recipientCharacterId: this.string(body.recipientCharacterId),
+				name: this.string(body.name), description: this.string(body.description),
+			}));
+			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/scientist-record/custom/decide') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.decideCustomScientistRecord(this.token(req),
+				this.string(body.id), body.accepted as boolean, body.kitTier as number, body.charges as number));
+			return;
+		}
 		if (method === 'POST' && url.pathname === '/api/rpg/trainer/publications') {
 			const body = await this.body(req);
 			this.json(res, 200, this.login.createScientificPublication(this.token(req), {
@@ -2710,6 +2725,8 @@ export class RPGHttpServer {
 	/** Only established domain validation messages may cross the HTTP boundary. */
 	private isPublicValidationError(message: string): boolean {
 		if (/persisted|estado persistido|table scope|random source|repository|repositório/i.test(message)) return false;
+		if (/^(?:Você precisa de um Kit Científico na Bag|Este registro exige (?:um Kit Científico de nível|\d+ carga\(s\))|Registro (?:inválido|não pertence a este treinador|científico indisponível)|Cientista indisponível nesta mesa|Esta fórmula já está em preparação|Há preparações demais em andamento|Preparação indisponível|O Registro Reprodutível foi alterado ou retirado|A preparação ainda não atingiu o tempo necessário)/.test(message)) return true;
+		if (/^(?:Registro Avançado indisponível|Espaço de registro inválido|Destinatário indisponível|Informe nome \(3–100\)|Identificador inválido|Identificador já utilizado|Já existe um registro aguardando aprovação|Registro não está pendente|Nível do kit ou cargas inválidos|Cientista ou destinatário indisponível|A biblioteca permite até dois Registros Avançados ativos)/.test(message)) return true;
 		if (/^(?:Publicação de Referência não está disponível|Identificador do artigo inválido|Informe título e resumo do artigo|Já existe um artigo aguardando avaliação|Artigo não está pendente|Decisão ou pagamento inválido|Pagamento ultrapassa o limite de Pokécoins|Entre como jogador em uma mesa para criar o artigo|Nenhum personagem selecionado|Personagem fora da mesa atual)/.test(message)) return true;
 		if (/^(?:Identificador de nível |Ajuste de nível )/.test(message)) return true;
 		if (['Escolha de talento inválida', 'Escolha modalidades artísticas diferentes das já selecionadas',

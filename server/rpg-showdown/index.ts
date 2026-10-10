@@ -93,7 +93,7 @@ import {
 } from './trainer-survival';
 import { RPG_TRAINER_CLASS_FEATURES } from './trainer-class-features';
 import { rpgScientistRecordFormulas, rpgScientistRecordLimit, rpgScientistRecordProduction,
-	rpgSetScientistRecord } from './trainer-scientist-records';
+	rpgSetScientistRecord, RPG_SCIENTIST_RECORDS } from './trainer-scientist-records';
 import { resolveRPGExposure, prepareRPGCamp, type RPGExposure } from './trainer-exploration';
 import { resolveRPGMasterExcavation } from './trainer-excavation';
 import { advanceRPGTravel, createRPGTravelState, resolveRPGForcedMarch,
@@ -565,6 +565,13 @@ export interface RPGScientificPublication {
 	decidedAt?: string; payment?: number;
 }
 
+export interface RPGCustomScientistRecordRequest {
+	id: string; characterId: string; characterName: string; slot: number;
+	recipientCharacterId: string; name: string; description: string; submittedAt: string;
+	status: 'pending' | 'accepted' | 'rejected'; decidedAt?: string;
+	kitTier?: number; charges?: number;
+}
+
 export interface RPGTrainerProfile {
 	version: 1;
 	tagline: string;
@@ -827,7 +834,7 @@ export class RPGLoginService {
 	private readonly campaignSettingsFile?: string;
 	private campaignSettings: {
 		name: string, currentDateTime: string, quickNotes: string, events: RPGCampaignEvent[],
-		publications: RPGScientificPublication[],
+		publications: RPGScientificPublication[], customRecordRequests: RPGCustomScientistRecordRequest[],
 		playerNotes: Record<string, string>, sceneNpcIds: string[], sceneNpcRevealed: Record<string, number[]>,
 		equipmentOffers: Record<string, Record<string, { stock: number, price: number }>>,
 		trainerHelp: { characterId: string, skill: string, total: number, bonus: number }[],
@@ -872,7 +879,7 @@ export class RPGLoginService {
 		this.campaignSettingsFile = options.campaignSettingsFile && resolve(options.campaignSettingsFile);
 		this.campaignSettings = {
 			name: 'Minha campanha', currentDateTime: new Date(this.now()).toISOString(), quickNotes: '', events: [],
-			publications: [],
+			publications: [], customRecordRequests: [],
 			playerNotes: {}, sceneNpcIds: [], sceneNpcRevealed: {},
 			equipmentOffers: {}, trainerHelp: [],
 		};
@@ -906,6 +913,10 @@ export class RPGLoginService {
 			if (Array.isArray(stored.publications)) this.campaignSettings.publications = stored.publications.filter(entry =>
 				entry && typeof entry.id === 'string' && typeof entry.characterId === 'string' &&
 				['pending', 'accepted', 'rejected'].includes(entry.status));
+			if (Array.isArray(stored.customRecordRequests)) this.campaignSettings.customRecordRequests =
+				stored.customRecordRequests.filter(entry => entry && typeof entry.id === 'string' &&
+					typeof entry.characterId === 'string' && Number.isSafeInteger(entry.slot) &&
+					['pending', 'accepted', 'rejected'].includes(entry.status));
 			if (stored.playerNotes && typeof stored.playerNotes === 'object' && !Array.isArray(stored.playerNotes)) {
 				this.campaignSettings.playerNotes = Object.fromEntries(Object.entries(stored.playerNotes)
 					.filter((entry): entry is [string, string] => typeof entry[1] === 'string')
@@ -1865,6 +1876,92 @@ export class RPGLoginService {
 		return { publication: structuredClone(publication), money: record.state.money };
 	}
 
+	requestCustomScientistRecord(token: string, input: { requestId: string, slot: number,
+		recipientCharacterId: string, name: string, description: string, }) {
+		const session = this.getSession(token);
+		if (session.mode !== 'player' || !session.platformTableId) throw new Error('Entre como jogador em uma mesa');
+		const characterId = session.role === 'master' ? session.viewAsCharacterId : session.characterId;
+		if (!characterId) throw new Error('Nenhum personagem selecionado');
+		const record = this.requireCharacter(toID(characterId));
+		const sheet = record.state.trainerSheet;
+		if (record.tableId !== session.platformTableId || !sheet?.talents.class.includes('cientista:registro-avancado'))
+			throw new Error('Registro Avançado indisponível');
+		if (!Number.isSafeInteger(input.slot) || input.slot < 0 || input.slot >= rpgScientistRecordLimit(sheet))
+			throw new Error('Espaço de registro inválido');
+		if (!this.trainerRecordRecipients(token).some(person => person.id === input.recipientCharacterId))
+			throw new Error('Destinatário indisponível nesta mesa');
+		const name = String(input.name || '').trim();
+		const description = String(input.description || '').trim();
+		if (name.length < 3 || name.length > 100 || description.length < 10 || description.length > 2000)
+			throw new Error('Informe nome (3–100) e descrição (10–2000 caracteres)');
+		if (!/^[a-zA-Z0-9_-]{8,100}$/.test(input.requestId)) throw new Error('Identificador inválido');
+		const prior = this.campaignSettings.customRecordRequests.find(entry => entry.id === input.requestId);
+		if (prior) {
+			if (prior.characterId !== characterId || prior.slot !== input.slot || prior.name !== name ||
+				prior.description !== description || prior.recipientCharacterId !== input.recipientCharacterId)
+				throw new Error('Identificador já utilizado');
+			return { request: structuredClone(prior), repeated: true };
+		}
+		if (this.campaignSettings.customRecordRequests.some(entry => entry.characterId === characterId &&
+			entry.slot === input.slot && entry.status === 'pending')) throw new Error('Já existe um registro aguardando aprovação neste espaço');
+		const request: RPGCustomScientistRecordRequest = { id: input.requestId, characterId,
+			characterName: record.state.characterName, slot: input.slot, recipientCharacterId: input.recipientCharacterId,
+			name, description, submittedAt: this.campaignSettings.currentDateTime, status: 'pending' };
+		this.campaignSettings.customRecordRequests.push(request);
+		try { this.persistAtomically(() => this.persistCampaignSettings()); } catch (error) {
+			this.campaignSettings.customRecordRequests.pop(); throw error;
+		}
+		return { request: structuredClone(request), repeated: false };
+	}
+
+	decideCustomScientistRecord(token: string, id: string, accepted: boolean, kitTier: number, charges: number) {
+		this.requireMasterRole(token);
+		const request = this.campaignSettings.customRecordRequests.find(entry => entry.id === id);
+		if (!request || request.status !== 'pending') throw new Error('Registro não está pendente');
+		if (typeof accepted !== 'boolean' || accepted && (!Number.isSafeInteger(kitTier) || kitTier < 1 || kitTier > 3 ||
+			!Number.isSafeInteger(charges) || charges < 1 || charges > 20)) throw new Error('Nível do kit ou cargas inválidos');
+		const record = this.requireCharacter(request.characterId);
+		const recipient = this.repository.get(request.recipientCharacterId);
+		const sheet = record.state.trainerSheet;
+		if (accepted && (!sheet?.talents.class.includes('cientista:registro-avancado') ||
+			request.slot >= rpgScientistRecordLimit(sheet) ||
+			!record.tableId || !record.accountId ||
+			this.accounts.repository.getMembership(record.tableId, record.accountId)?.status !== 'active' ||
+			!recipient || recipient.tableId !== record.tableId || !recipient.accountId ||
+			this.accounts.repository.getMembership(record.tableId, recipient.accountId)?.status !== 'active')) {
+			throw new Error('Cientista ou destinatário indisponível para aprovação');
+		}
+		const previous = structuredClone(record);
+		const previousRequest = structuredClone(request);
+		request.status = accepted ? 'accepted' : 'rejected';
+		request.decidedAt = this.campaignSettings.currentDateTime;
+		if (accepted && sheet) {
+			request.kitTier = kitTier; request.charges = charges;
+			const records = (sheet.scientistRecords || []).filter(entry => entry.slot !== request.slot);
+			records.push({ slot: request.slot, formulaId: `custom:${request.id}`,
+				recipientCharacterId: request.recipientCharacterId,
+				custom: { name: request.name, description: request.description, kitTier, charges } });
+			if (sheet.talents.apex === 'cientista:biblioteca-de-procedimentos' &&
+				records.filter(entry => entry.custom || RPG_SCIENTIST_RECORDS.some(formula =>
+					formula.id === entry.formulaId && formula.advanced)).length > 2) {
+				Object.assign(request, previousRequest); throw new Error('A biblioteca permite até dois Registros Avançados ativos');
+			}
+			sheet.scientistRecords = records.sort((a, b) => a.slot - b.slot);
+			record.state.updatedAt = this.now();
+		}
+		try {
+			this.persistAtomically(() => {
+				if (accepted) this.repository.set(record);
+				this.persistCampaignSettings();
+			});
+		} catch (error) {
+			Object.assign(request, previousRequest);
+			if (accepted) this.repository.set(previous);
+			throw error;
+		}
+		return { request: structuredClone(request) };
+	}
+
 	setCampaignPlayerNote(token: string, characterId: unknown, note: unknown): { note: string } {
 		this.requireMasterRole(token);
 		if (typeof characterId !== 'string' || !this.repository.get(characterId)) throw new Error('Player inválido');
@@ -2004,6 +2101,19 @@ export class RPGLoginService {
 		record.state.trainerInventory.pokemonStorage ||= [];
 		record.state.inventory.bag.generalReservedSlots = rpgEquipmentSlots(record.state.trainerInventory.items);
 		return record.state.trainerInventory;
+	}
+
+	/** Diferencia a ausência do kit, nível insuficiente e falta de cargas antes de usar o registro. */
+	private scientificKitForRecord(inventory: RPGTrainerInventory, minimumTier: number,
+		requiredCharges: number): RPGEquipmentInstance {
+		const kits = inventory.items.filter(item => item.location === 'bag' &&
+			item.itemId.startsWith('kit-cientifico-'));
+		if (!kits.length) throw new Error('Você precisa de um Kit Científico na Bag para usar este registro');
+		const eligible = kits.filter(item => (rpgEquipment(item.itemId).tier || 1) >= minimumTier);
+		if (!eligible.length) throw new Error(`Este registro exige um Kit Científico de nível ${minimumTier} ou superior na Bag`);
+		const kit = eligible.find(item => (item.charges || 0) >= requiredCharges);
+		if (!kit) throw new Error(`Este registro exige ${requiredCharges} carga(s) em um mesmo Kit Científico; nenhum kit adequado possui cargas suficientes`);
+		return kit;
 	}
 
 	private validateTrainerInventory(record: RPGStoredCharacter): void {
@@ -2414,7 +2524,12 @@ export class RPGLoginService {
 				this.trainerArchiveRecipients(token) : [],
 			scientistRecord: sheet.classId === 'cientista' ? {
 				slots: sheet.scientistRecords || [], limit: rpgScientistRecordLimit(sheet),
-				formulas: rpgScientistRecordFormulas(sheet), recipients: this.trainerRecordRecipients(token),
+				formulas: rpgScientistRecordFormulas(sheet).map(formula => ({ ...formula,
+					charges: rpgScientistRecordProduction(formula.id, sheet, false).charges })),
+				recipients: this.trainerRecordRecipients(token),
+				allowCustom: sheet.talents.class.includes('cientista:registro-avancado'),
+				pending: this.campaignSettings.customRecordRequests.filter(entry =>
+					entry.characterId === state.id && entry.status === 'pending'),
 			} : null,
 			activeTalentUses: { restCycle: sheet.talentRestCycle || 0, used: sheet.talentUses || {} },
 			comfortingArtRecipients: sheet.talents.class.includes('artista:arte-reconfortante') ?
@@ -2876,6 +2991,7 @@ export class RPGLoginService {
 				{ type: 'travel-advance', leg: RPGTravelLeg, hoursBudget: number } |
 				{ type: 'craft-start', recipeId: string } |
 				{ type: 'craft-complete', craftId: string } |
+				{ type: 'record-use', sourceCharacterId: string, slot: number } |
 				{ type: 'record-start', sourceCharacterId: string, slot: number } |
 				{ type: 'record-complete', craftId: string } |
 				{ type: 'record-cancel', craftId: string } |
@@ -2887,7 +3003,8 @@ export class RPGLoginService {
 			!input.action || typeof input.action !== 'object') throw new Error('Atividade inválida');
 		const session = this.getSession(token);
 		if (session.mode === 'player' && (input.action.type === 'craft-start' ||
-			input.action.type === 'craft-complete' || input.action.type === 'record-start' ||
+			input.action.type === 'craft-complete' || input.action.type === 'record-use' ||
+			input.action.type === 'record-start' ||
 			input.action.type === 'record-complete' || input.action.type === 'record-cancel')) {
 			const actorId = session.role === 'master' ? session.viewAsCharacterId : session.characterId;
 			if (!session.platformTableId || !actorId || toID(input.characterId) !== actorId) {
@@ -2901,7 +3018,8 @@ export class RPGLoginService {
 		if (session.mode === 'player' && original.tableId !== session.platformTableId) {
 			throw new Error('Personagem fora da mesa atual');
 		}
-		if (input.action.type === 'record-start' || input.action.type === 'record-complete') {
+		if (input.action.type === 'record-use' || input.action.type === 'record-start' ||
+			input.action.type === 'record-complete') {
 			this.requireWorldBagItemUse(token, original.state.id);
 		}
 		const actor = structuredClone(original);
@@ -2919,6 +3037,27 @@ export class RPGLoginService {
 		if (!Number.isSafeInteger(now)) throw new Error('Tempo da campanha inválido');
 		let result: Record<string, unknown>;
 		switch (action.type) {
+			case 'record-use': {
+				if (!session.platformTableId || typeof action.sourceCharacterId !== 'string' ||
+					!Number.isSafeInteger(action.slot) || action.slot < 0) throw new Error('Registro inválido');
+				const source = this.requireCharacter(toID(action.sourceCharacterId));
+				if (source.tableId !== session.platformTableId || !source.accountId ||
+					this.accounts.repository.getMembership(session.platformTableId, source.accountId)?.status !== 'active') {
+					throw new Error('Cientista indisponível nesta mesa');
+				}
+				const sourceSheet = source.state.trainerSheet;
+				const entry = sourceSheet?.scientistRecords?.find(item => item.slot === action.slot);
+				if (!sourceSheet || !entry || entry.recipientCharacterId !== actor.state.id ||
+					action.slot >= rpgScientistRecordLimit(sourceSheet)) throw new Error('Registro não pertence a este treinador');
+				const production = rpgScientistRecordProduction(entry.formulaId, sourceSheet,
+					source.state.id === actor.state.id, entry.custom);
+				const inventory = this.ensureTrainerInventory(actor);
+				const kit = this.scientificKitForRecord(inventory, production.minimumKitTier, production.charges);
+				kit.charges = (kit.charges || 0) - production.charges;
+				result = { formulaName: production.formula.name, effect: production.formula.effect,
+					minutes: production.minutes, chargesConsumed: production.charges, kitInstanceId: kit.id };
+				break;
+			}
 			case 'record-start': {
 				if (!session.platformTableId || typeof action.sourceCharacterId !== 'string' ||
 					!Number.isSafeInteger(action.slot) || action.slot < 0) throw new Error('Registro inválido');
@@ -2932,7 +3071,7 @@ export class RPGLoginService {
 				if (!sourceSheet || !entry || entry.recipientCharacterId !== actor.state.id ||
 					action.slot >= rpgScientistRecordLimit(sourceSheet)) throw new Error('Registro não pertence a este treinador');
 				const production = rpgScientistRecordProduction(entry.formulaId, sourceSheet,
-					source.state.id === actor.state.id);
+					source.state.id === actor.state.id, entry.custom);
 				if ((activities.recordCrafts || []).some(craft => craft.sourceCharacterId === source.state.id &&
 					craft.slot === action.slot && craft.formulaId === entry.formulaId &&
 					craft.completedAt === undefined && craft.cancelledAt === undefined)) {
@@ -2943,10 +3082,7 @@ export class RPGLoginService {
 					throw new Error('Há preparações demais em andamento');
 				}
 				const inventory = this.ensureTrainerInventory(actor);
-				if (!inventory.items.some(item => item.location === 'bag' &&
-					item.itemId.startsWith('kit-cientifico-') &&
-					(rpgEquipment(item.itemId).tier || 1) >= production.minimumKitTier &&
-					(item.charges || 0) >= production.charges)) throw new Error('Kit Científico com cargas suficientes indisponível');
+				this.scientificKitForRecord(inventory, production.minimumKitTier, production.charges);
 				const craft = { id: input.requestId, sourceCharacterId: source.state.id, slot: action.slot,
 					formulaId: entry.formulaId, startedAt: now };
 				(activities.recordCrafts ||= []).push(craft);
@@ -2973,16 +3109,12 @@ export class RPGLoginService {
 					throw new Error('O Registro Reprodutível foi alterado ou retirado');
 				}
 				const production = rpgScientistRecordProduction(craft.formulaId, sourceSheet,
-					source.state.id === actor.state.id);
+					source.state.id === actor.state.id, entry.custom);
 				if (now - craft.startedAt < production.minutes * 60_000) {
 					throw new Error('A preparação ainda não atingiu o tempo necessário');
 				}
 				const inventory = this.ensureTrainerInventory(actor);
-				const kit = inventory.items.find(item => item.location === 'bag' &&
-					item.itemId.startsWith('kit-cientifico-') &&
-					(rpgEquipment(item.itemId).tier || 1) >= production.minimumKitTier &&
-					(item.charges || 0) >= production.charges);
-				if (!kit) throw new Error('Kit Científico com cargas suficientes indisponível');
+				const kit = this.scientificKitForRecord(inventory, production.minimumKitTier, production.charges);
 				kit.charges = (kit.charges || 0) - production.charges;
 				craft.completedAt = now;
 				result = { craft, formulaName: production.formula.name, effect: production.formula.effect,
@@ -4355,10 +4487,11 @@ export class RPGLoginService {
 					const formulas = new Map(rpgScientistRecordFormulas(sheet).map(formula => [formula.id, formula]));
 					for (const entry of sheet.scientistRecords || []) {
 						if (entry.recipientCharacterId !== record.state.id || entry.slot >= rpgScientistRecordLimit(sheet)) continue;
-						const formula = formulas.get(entry.formulaId);
+						const formula = entry.custom ? { name: entry.custom.name,
+							effect: entry.custom.description, description: entry.custom.description } : formulas.get(entry.formulaId);
 						if (!formula) continue;
 						const production = rpgScientistRecordProduction(entry.formulaId, sheet,
-							source.state.id === record.state.id);
+							source.state.id === record.state.id, entry.custom);
 						const pending = record.state.trainerSheet?.activities?.recordCrafts?.find(craft =>
 							craft.sourceCharacterId === source.state.id && craft.slot === entry.slot &&
 							craft.formulaId === entry.formulaId &&
@@ -4371,9 +4504,10 @@ export class RPGLoginService {
 							category: 'talent-items', registryCategory: 'key',
 							description: `${formula.name}: ${formula.effect} ${formula.description} ` +
 								`Preparado por ${source.state.characterName}. ` +
-								`Produção: ${production.charges} carga(s) científicas e ${production.minutes} minuto(s).`,
+								`Uso: ${production.charges} carga(s) científicas; preparo de ${production.minutes} minuto(s).`,
 							favorite: false, mission: false,
-							actions: canProduce ? pending ? ['finish-record', 'cancel-record'] : ['produce-record'] : [],
+							// Preparações iniciadas antes da ação direta ainda podem ser concluídas ou canceladas.
+							actions: canProduce ? pending ? ['finish-record', 'cancel-record'] : ['use-record'] : [],
 							...(pending ? { recordCraftId: pending.id } : {}), equippedIn: [],
 							icon: './assets/item-icons/registro-reprodutivel.png', sprite: null,
 							tags: ['trainer-talent'], weightKg: 0, slots: 0,

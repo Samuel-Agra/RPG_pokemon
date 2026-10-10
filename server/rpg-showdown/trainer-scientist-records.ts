@@ -14,9 +14,20 @@ const FIVE_MINUTE_RECORDS = new Set(['reagente-revelador', 'tinta-de-revelacao-s
 
 /** Custo da fórmula ativa. Biblioteca e Economia oferecem a mesma redução, nunca duas. */
 export function rpgScientistRecordProduction(formulaId: string, source: RPGTrainerSheet,
-	producerIsSource: boolean) {
-	const formula = rpgScientistRecordFormulas(source).find(record => record.id === formulaId);
+	producerIsSource: boolean, custom?: { name: string, description: string, kitTier: number, charges: number }) {
+	const formula = custom && formulaId.startsWith('custom:') &&
+		source.talents.class.includes('cientista:registro-avancado') ?
+		{ id: formulaId, name: custom.name, effect: custom.description,
+			description: custom.description, advanced: true as const } :
+		rpgScientistRecordFormulas(source).find(record => record.id === formulaId);
 	if (!formula) throw new Error('Registro científico indisponível');
+	if (custom) {
+		if (!Number.isSafeInteger(custom.kitTier) || custom.kitTier < 1 || custom.kitTier > 3 ||
+			!Number.isSafeInteger(custom.charges) || custom.charges < 1 || custom.charges > 20) {
+			throw new Error('Custo do registro aprovado inválido');
+		}
+		return { formula, charges: custom.charges, minimumKitTier: custom.kitTier, minutes: 30 };
+	}
 	const baseCharges = formula.advanced ? THREE_CHARGE_RECORDS.has(formula.id) ? 3 : 2 : 1;
 	const reduction = producerIsSource && (source.talents.apex === 'cientista:biblioteca-de-procedimentos' ||
 		source.talents.class.includes('cientista:economia-de-reagentes')) ? 1 : 0;
@@ -103,7 +114,7 @@ export function rpgSetScientistRecord(sheet: RPGTrainerSheet, slot: number,
 		records.push({ slot, formulaId: entry.formulaId, recipientCharacterId: entry.recipientCharacterId });
 	}
 	if (sheet.talents.apex === 'cientista:biblioteca-de-procedimentos' &&
-		records.filter(record => RPG_SCIENTIST_RECORDS.some(formula =>
+		records.filter(record => record.custom || RPG_SCIENTIST_RECORDS.some(formula =>
 			formula.id === record.formulaId && formula.advanced)).length > 2) {
 		throw new Error('A biblioteca permite até dois Registros Avançados ativos');
 	}

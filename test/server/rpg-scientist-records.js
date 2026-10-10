@@ -7,6 +7,7 @@ const { RPG_SCIENTIST_RECORDS, rpgScientistRecordFormulas, rpgScientistRecordLim
 	rpgScientistRecordProduction,
 	rpgSetScientistRecord } = require('../../dist/server/rpg-showdown/trainer-scientist-records');
 const { RPGLoginService, RPGMemoryCharacterRepository } = require('../../dist/server/rpg-showdown');
+const { RPGHttpServer } = require('../../dist/server/rpg-showdown/http');
 
 function scientist() {
 	return {
@@ -91,7 +92,7 @@ describe('RPG Scientist reproducible records', () => {
 			{ formulaId: 'marcador-rastreavel', recipientCharacterId: 'cientista' }), /até dois/);
 	});
 
-	it('spends reduced kit charges once after the required campaign time and preserves the receipt', () => {
+	it('does not charge for writing a record, charges on Bag use, and preserves old timed preparations', () => {
 		const service = new RPGLoginService({ masterCode: 'local-test',
 			repository: new RPGMemoryCharacterRepository() });
 		service.createCharacter({ characterName: 'Cientista', playerName: 'Pessoa', avatar: 'lucas',
@@ -119,6 +120,23 @@ describe('RPG Scientist reproducible records', () => {
 		service.getSession = () => ({ mode: 'player', role: 'player', platformTableId: 'mesa-cientista',
 			characterId: 'cientista' });
 		service.accounts.repository.getMembership = () => ({ status: 'active' });
+		service.setTrainerScientistRecord('token', 0,
+			{ formulaId: 'neutralizador-direcionado', recipientCharacterId: 'cientista' });
+		assert.equal(service.repository.get('cientista').state.trainerInventory.items.find(item =>
+			item.id === kit.id).charges, 2);
+		const use = { characterId: 'cientista', requestId: 'registro_usar_01',
+			action: { type: 'record-use', sourceCharacterId: 'cientista', slot: 0 } };
+		assert.equal(service.applyTrainerActivity('token', use).result.chargesConsumed, 2);
+		assert.equal(service.repository.get('cientista').state.trainerInventory.items.find(item =>
+			item.id === kit.id).charges, 0);
+		assert.equal(service.repository.get('cientista').state.trainerSheet.scientistRecords[0].formulaId,
+			'neutralizador-direcionado');
+		assert.equal(service.applyTrainerActivity('token', use).repeated, true);
+		assert.throws(() => service.applyTrainerActivity('token', { ...use, requestId: 'registro_usar_02' }),
+			/Este registro exige 2 carga\(s\) em um mesmo Kit Científico/);
+		const replenished = service.repository.get('cientista');
+		replenished.state.trainerInventory.items.find(item => item.id === kit.id).charges = 2;
+		service.repository.set(replenished);
 		const start = { characterId: 'cientista', requestId: 'registro_inicio_01',
 			action: { type: 'record-start', sourceCharacterId: 'cientista', slot: 0 } };
 		assert.equal(service.applyTrainerActivity('token', start).result.charges, 2);
@@ -133,6 +151,30 @@ describe('RPG Scientist reproducible records', () => {
 		assert.equal(service.applyTrainerActivity('token', complete).repeated, true);
 		assert.equal(service.repository.get('cientista').state.trainerInventory.items.find(item =>
 			item.id === kit.id).charges, 0);
+	});
+
+	it('explains missing kit, insufficient tier and insufficient charges without masking them as internal errors', () => {
+		const service = new RPGLoginService({ masterCode: 'local-test',
+			repository: new RPGMemoryCharacterRepository() });
+		const inventory = { items: [] };
+		assert.throws(() => service.scientificKitForRecord(inventory, 2, 3),
+			/Você precisa de um Kit Científico na Bag/);
+		inventory.items.push({ itemId: 'kit-cientifico-1', location: 'bag', charges: 5 });
+		assert.throws(() => service.scientificKitForRecord(inventory, 2, 3),
+			/exige um Kit Científico de nível 2 ou superior/);
+		inventory.items[0].itemId = 'kit-cientifico-2';
+		inventory.items[0].charges = 2;
+		assert.throws(() => service.scientificKitForRecord(inventory, 2, 3),
+			/exige 3 carga\(s\) em um mesmo Kit Científico/);
+		inventory.items[0].charges = 3;
+		assert.equal(service.scientificKitForRecord(inventory, 2, 3), inventory.items[0]);
+		const handler = Object.create(RPGHttpServer.prototype);
+		for (const message of [
+			'Você precisa de um Kit Científico na Bag para usar este registro',
+			'Este registro exige um Kit Científico de nível 2 ou superior na Bag',
+			'Este registro exige 3 carga(s) em um mesmo Kit Científico; nenhum kit adequado possui cargas suficientes',
+		]) assert.equal(handler.isPublicValidationError(message), true);
+		assert.equal(handler.isPublicValidationError('RPG repository persisted error'), false);
 	});
 
 	it('gives a weightless Bag record only to an active recipient of the same table', () => {
@@ -171,6 +213,44 @@ describe('RPG Scientist reproducible records', () => {
 		assert.equal(service.getBag('token', 'friend', { category: 'talent-items' }).items.length, 0);
 		assert.match(service.getBag('token', 'scientist', { category: 'talent-items' }).items[0].description,
 			/Selante Expansivo/);
+		assert.deepEqual(service.getBag('token', 'scientist', { category: 'talent-items' }).items[0].actions,
+			['use-record']);
+	});
+
+	it('requires Master approval for a free advanced record and uses its approved kit and charges', () => {
+		const service = new RPGLoginService({ masterCode: 'local-test',
+			repository: new RPGMemoryCharacterRepository() });
+		const sheet = scientist();
+		sheet.talents.class.push('cientista:registro-avancado');
+		service.repository.create({ tableId: 'table-a', accountId: 'account-scientist', state: {
+			id: 'scientist', characterName: 'Scientist', trainerSheet: sheet, updatedAt: 0,
+		} });
+		service.repository.create({ tableId: 'table-a', accountId: 'account-friend', state: {
+			id: 'friend', characterName: 'Friend', trainerSheet: null, updatedAt: 0,
+		} });
+		service.getSession = () => ({ mode: 'player', role: 'player', platformTableId: 'table-a',
+			characterId: 'scientist' });
+		service.accounts.repository.getMembership = () => ({ status: 'active' });
+		const input = { requestId: 'custom_record_01', slot: 0, recipientCharacterId: 'friend',
+			name: 'Sinal próprio', description: 'Uma luz química que indica um caminho por uma hora.' };
+		assert.equal(service.requestCustomScientistRecord('token', input).request.status, 'pending');
+		assert.equal(service.requestCustomScientistRecord('token', input).repeated, true);
+		assert.equal(service.repository.get('scientist').state.trainerSheet.scientistRecords, undefined);
+		assert.throws(() => service.requestCustomScientistRecord('token',
+			{ ...input, requestId: 'custom_record_02' }), /aguardando aprovação/);
+		service.requireMasterRole = () => {};
+		assert.throws(() => service.decideCustomScientistRecord('token', input.requestId, true, 4, 2),
+			/kit ou cargas inválidos/);
+		const approved = service.decideCustomScientistRecord('token', input.requestId, true, 2, 4);
+		assert.equal(approved.request.status, 'accepted');
+		const entry = service.repository.get('scientist').state.trainerSheet.scientistRecords[0];
+		assert.equal(entry.custom.name, 'Sinal próprio');
+		assert.equal(rpgScientistRecordProduction(entry.formulaId,
+			service.repository.get('scientist').state.trainerSheet, false, entry.custom).charges, 4);
+		assert.equal(rpgScientistRecordProduction(entry.formulaId,
+			service.repository.get('scientist').state.trainerSheet, false, entry.custom).minimumKitTier, 2);
+		assert.throws(() => service.decideCustomScientistRecord('token', input.requestId, true, 2, 4),
+			/não está pendente/);
 	});
 
 	it('connects the talent picker, authenticated route and weightless Bag representation', () => {
@@ -181,9 +261,9 @@ describe('RPG Scientist reproducible records', () => {
 		assert(ui.includes("feature.name === 'Registro Reprodutível'"));
 		assert(ui.includes("'/trainer/talents/scientist-record'"));
 		const bagUI = fs.readFileSync(path.join(root, 'server/static/rpg/bag-ui.js'), 'utf8');
-		assert(bagUI.includes("type === 'record-start'"));
+		assert(bagUI.includes("type === 'record-use'"));
 		assert(bagUI.includes("type === 'record-complete'"));
-		assert(service.includes("actions: canProduce ? pending ? ['finish-record', 'cancel-record'] : ['produce-record']"));
+		assert(service.includes("actions: canProduce ? pending ? ['finish-record', 'cancel-record'] : ['use-record']"));
 		assert(ui.includes("el('div', 'trainer-sheet-record-overlay')"));
 		assert(http.includes('this.login.setTrainerScientistRecord'));
 		assert(service.includes("icon: './assets/item-icons/registro-reprodutivel.png'"));

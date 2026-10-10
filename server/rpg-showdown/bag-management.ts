@@ -27,7 +27,7 @@ export type RPGManagedBagCategory = 'pokeballs' | 'medicines' | 'held-items' |
 	'mega-stones' | 'key-items' | 'battle-items' | 'talent-items';
 export type RPGManagedBagAction = 'use' | 'equip' | 'remove' | 'teach' | 'favorite' | 'unfavorite' |
 	'move-to-mission' | 'remove-from-mission' | 'edit-mission-note' | 'discard' | 'give' |
-	'produce-record' | 'finish-record' | 'cancel-record';
+	'use-record' | 'produce-record' | 'finish-record' | 'cancel-record';
 
 export interface RPGManagedBagQuery {
 	context?: RPGManagedBagContext;
