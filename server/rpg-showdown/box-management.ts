@@ -107,6 +107,8 @@ export interface RPGBoxPokemonMetadata {
 	lastBattleAt?: number;
 	ot?: string;
 	evTraining?: RPGEVTrainingJob;
+	trainingReward?: true;
+	contestHarmonization?: true | { groupId: string };
 	breeding?: boolean;
 }
 
@@ -375,6 +377,89 @@ export class RPGBoxManagement {
 		}
 		entry.metadata = next;
 		this.commit(character);
+	}
+
+	static prepareTrainingReward(character: RPGBoxCharacterData, pokemonId: string): void {
+		const entry = this.requireEntry(character.box, pokemonId);
+		if (!character.box.party.some(item => item.pokemonId === pokemonId)) {
+			throw new Error('Somente Pokémon da equipe ativa podem receber a recompensa');
+		}
+		if (entry.metadata?.breeding || entry.metadata?.training === 'roleplay') {
+			throw new Error('Pokémon indisponível para receber a recompensa');
+		}
+		if (entry.metadata?.evTraining) throw new Error('Pokémon já está em treinamento');
+		if (entry.metadata?.trainingReward) throw new Error('Este Pokémon já possui uma recompensa de treinamento');
+		entry.metadata = { ...(entry.metadata || {}), trainingReward: true };
+		this.commit(character);
+	}
+
+	static expireTrainingRewards(character: RPGBoxCharacterData): boolean {
+		let changed = false;
+		for (const entry of [...character.box.party,
+			...character.box.boxes.flatMap(box => box.slots).filter((item): item is RPGManagedStoredPokemon => !!item)]) {
+			if (!entry.metadata?.trainingReward) continue;
+			delete entry.metadata.trainingReward;
+			changed = true;
+		}
+		if (changed) this.commit(character);
+		return changed;
+	}
+
+	static prepareContestHarmonization(character: RPGBoxCharacterData, pokemonIds: readonly string[], groupId: string): void {
+		const entries = pokemonIds.map(pokemonId => this.requireEntry(character.box, pokemonId));
+		for (const entry of entries) {
+			if (!character.box.party.some(item => item.pokemonId === entry.pokemonId) || entry.metadata?.breeding ||
+				entry.metadata?.evTraining || entry.metadata?.training === 'roleplay') {
+				throw new Error('Escolha um Pokémon disponível na equipe ativa');
+			}
+			if (entry.metadata?.contestHarmonization) throw new Error('Este Pokémon já possui Harmonização de Sabores');
+		}
+		if (character.box.party.some(entry => !!entry.metadata?.contestHarmonization)) {
+			throw new Error('Este treinador já possui uma Harmonização de Sabores pendente');
+		}
+		for (const entry of entries) entry.metadata = { ...(entry.metadata || {}),
+			contestHarmonization: { groupId } };
+		this.commit(character);
+	}
+
+	static contestHarmonizationPrepared(character: RPGBoxCharacterData, teamIndexes: readonly number[]): boolean {
+		const selected = teamIndexes.map(index => character.box.party[index]).filter(Boolean);
+		const prepared = selected.filter(entry => !!entry.metadata?.contestHarmonization);
+		if (!prepared.length) return false;
+		const group = prepared[0].metadata?.contestHarmonization;
+		if (group === true) return true;
+		return character.box.party.filter(entry => typeof entry.metadata?.contestHarmonization === 'object' &&
+			entry.metadata.contestHarmonization.groupId === group.groupId)
+			.every(entry => selected.includes(entry));
+	}
+
+	static consumeContestHarmonization(character: RPGBoxCharacterData, teamIndexes: readonly number[]): boolean {
+		const selected = teamIndexes.map(index => character.box.party[index])
+			.filter(item => !!item?.metadata?.contestHarmonization);
+		if (!selected.length) return false;
+		const groups = new Set(selected.map(entry => entry.metadata?.contestHarmonization)
+			.filter((value): value is { groupId: string } => typeof value === 'object').map(value => value.groupId));
+		for (const entry of [...character.box.party,
+			...character.box.boxes.flatMap(box => box.slots).filter((item): item is RPGManagedStoredPokemon => !!item)]) {
+			const marker = entry.metadata?.contestHarmonization;
+			if (selected.includes(entry) || typeof marker === 'object' && groups.has(marker.groupId)) {
+				delete entry.metadata!.contestHarmonization;
+			}
+		}
+		this.commit(character);
+		return true;
+	}
+
+	static expireContestHarmonizations(character: RPGBoxCharacterData): boolean {
+		let changed = false;
+		for (const entry of [...character.box.party,
+			...character.box.boxes.flatMap(box => box.slots).filter((item): item is RPGManagedStoredPokemon => !!item)]) {
+			if (!entry.metadata?.contestHarmonization) continue;
+			delete entry.metadata.contestHarmonization;
+			changed = true;
+		}
+		if (changed) this.commit(character);
+		return changed;
 	}
 
 	static heldItem(character: RPGBoxCharacterData, pokemonId: string): {
@@ -673,7 +758,7 @@ export class RPGBoxManagement {
 		if (!Number.isSafeInteger(character.money) || character.money < cost) {
 			throw new Error('Pokecoins insuficientes para o treinamento');
 		}
-		const durationMs = steps * 30 * 60 * 1000 * (reducedDuration ? 0.75 : 1);
+		const durationMs = steps * 30 * 60 * 1000 * (reducedDuration ? 0.75 : entry.metadata?.trainingReward ? 0.9 : 1);
 		const values = { ...entry.pokemon.evs, [fromStat]: source - amount, [toStat]: destination + amount } as
 			Record<RPGTeamBuilderStat, number>;
 		const changes = Object.fromEntries(stats.map(stat => [stat, 0])) as Record<RPGTeamBuilderStat, number>;
@@ -684,6 +769,7 @@ export class RPGBoxManagement {
 			kind: 'redistribution', values, changes, amount, steps, cost,
 			startedAt: now, durationMs, remainingMs: durationMs,
 		} };
+		delete entry.metadata.trainingReward;
 		this.commit(character);
 		return { fromStat, toStat, amount, steps, cost, roleplayDurationMs: durationMs };
 	}
@@ -722,12 +808,13 @@ export class RPGBoxManagement {
 		if (!Number.isSafeInteger(character.money) || character.money < cost) {
 			throw new Error('Pokecoins insuficientes para o treinamento');
 		}
-		const durationMs = steps * 30 * 60 * 1000 * (reducedDuration ? 0.75 : 1);
+		const durationMs = steps * 30 * 60 * 1000 * (reducedDuration ? 0.75 : entry.metadata?.trainingReward ? 0.9 : 1);
 		character.money -= cost;
 		entry.metadata = { ...(entry.metadata || {}), training: 'ev', evTraining: {
 			kind: 'redistribution', values: { ...next }, changes: { ...changes }, amount: added, steps, cost,
 			startedAt: now, durationMs, remainingMs: durationMs,
 		} };
+		delete entry.metadata.trainingReward;
 		this.commit(character);
 		return { values: { ...next }, changes: { ...changes }, amount: added, steps, cost, roleplayDurationMs: durationMs };
 	}

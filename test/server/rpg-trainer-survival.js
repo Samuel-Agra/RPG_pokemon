@@ -35,6 +35,16 @@ describe('RPG trainer survival', () => {
 		assert.equal(rpgTrainerRest(rpgTrainerStartRest({ ...athlete, talents: {
 			general: [], class: [], apex: null } }, 'long', 0), 'long', 28_800_000, {}, () => 0).recovered, 3);
 	});
+	it('rerolls only the natural recovery die granted by Nutrition Recovery and consumes it once', () => {
+		const sheet = { ...ready(), nutritionRecoveryPending: true,
+			hitPoints: { current: 1, maximum: 30, temporary: 0 } };
+		const rolls = [0, 0.99];
+		const outcome = rpgTrainerRest(rpgTrainerStartRest(sheet, 'long', 0), 'long', 28_800_000,
+			{}, () => rolls.shift());
+		assert.equal(outcome.recovered, 10);
+		assert.equal(outcome.sheet.nutritionRecoveryPending, undefined);
+		assert.equal(sheet.nutritionRecoveryPending, true);
+	});
 	it('reduces one level of exhaustion for a valid Comforting Art recipient', () => {
 		const exhausted = rpgTrainerAddExhaustion(ready(), 2);
 		const recovered = rpgTrainerReduceExhaustion(exhausted);

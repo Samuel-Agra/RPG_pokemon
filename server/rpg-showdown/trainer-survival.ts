@@ -347,7 +347,12 @@ export function rpgTrainerRest(sheet: RPGTrainerSheet, kind: RPGTrainerRestKind,
 			const dice = 1 + Number(next.talents.class.includes('atleta:recuperacao-atletica')) +
 				Number(!!options.medicalCare && options.medicalCheckTotal! >= 15);
 			let rolled = 0;
-			for (let index = 0; index < dice; index++) rolled += randomDie(sides, random);
+			for (let index = 0; index < dice; index++) {
+				const first = randomDie(sides, random);
+				rolled += index === 0 && next.nutritionRecoveryPending ?
+					Math.max(first, randomDie(sides, random)) : first;
+			}
+			delete next.nutritionRecoveryPending;
 			healMutable(next, state, Math.max(1, rolled + constitution));
 		}
 		if (options.adequate && state.exhaustion > 0) state.exhaustion--;

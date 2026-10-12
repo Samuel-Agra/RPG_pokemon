@@ -89,6 +89,7 @@ const rows: Row[] = [
 	['cantil', 'Cantil', 'food', 0.3, 1, 1, 300, 'free', { maxCharges: 4 }],
 	['racao', 'Ração de Viagem', 'food', 0.5, 1, 9, 100], ['alimento', 'Alimento', 'food', 0.5, 1, 9, 75],
 	['racao-pokemon', 'Ração Pokémon', 'food', 0.5, 1, 9, 100], ['suprimento-fogueira', 'Suprimento para Fogueira', 'camp', 0.5, 1, 9, 100],
+	['racao-artesanal-pokemon', 'Ração Artesanal Pokémon', 'food', 0.5, 1, 9, 100],
 	['barraca', 'Barraca', 'camp', 6, 3, 1, 2500], ['saco-dormir', 'Saco de Dormir', 'camp', 1.5, 1, 1, 700],
 	['cobertor', 'Cobertor', 'camp', 2, 1, 1, 300], ['rede', 'Rede', 'camp', 1.5, 1, 1, 600], ['lona', 'Lona', 'camp', 2, 2, 1, 400],
 	['equipamento-artistico', 'Equipamento Artístico', 'general', 2, 2, 1, 1500],

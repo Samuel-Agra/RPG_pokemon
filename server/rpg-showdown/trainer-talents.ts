@@ -26,6 +26,7 @@ const RESISTANCE_NAMES: Readonly<Record<string, RPGTrainerResistance>> = {
 	fortitude: 'fortitude', reflexos: 'reflexes', vontade: 'will',
 };
 const TRAINED_SKILL_PREREQUISITES: Readonly<Record<string, string>> = {
+	'cozinheiro:petisco-de-amizade': 'conhecimento:pokemon',
 	'explorador:guia-de-montaria': 'montaria-pokemon',
 	'medico:medicina-integrada': 'medicina-pokemon',
 	'escalador-treinado': 'atletismo',

@@ -66,7 +66,7 @@ import { RPGMySQLPersistence, rpgMySQLConfig } from './database/mysql-persistenc
 import { createRPGPendingTrainerSheet, type RPGTrainerChatRoll, type RPGTrainerSheet } from './trainer-sheet';
 import {
 	RPG_EQUIPMENT_CATALOG, rpgAssertEquipmentLicense, rpgEquipment, rpgEquipmentSlots,
-	rpgEquipmentWeight, rpgInitialTrainerInventory, rpgCanAcquireKitDomain, rpgEquipmentDerivedOptions,
+	rpgEquipmentWeight, rpgInitialTrainerInventory, rpgCanAcquireKitDomain, rpgEquipmentDerivedOptions, rpgKitBonus,
 	type RPGEquipmentInstance, type RPGTrainerInventory, type RPGLicense,
 } from './trainer-equipment';
 import {
@@ -1274,6 +1274,8 @@ export class RPGLoginService {
 			occurredAt: this.campaignSettings.currentDateTime,
 		});
 		for (const record of records) {
+			if (RPGBoxManagement.expireTrainingRewards(record.state)) changedIds.add(record.state.id);
+			if (RPGBoxManagement.expireContestHarmonizations(record.state)) changedIds.add(record.state.id);
 			if (record.state.trainerSheet?.status === 'complete') {
 				const sheet = record.state.trainerSheet;
 				if (hours === 8) {
@@ -2534,6 +2536,58 @@ export class RPGLoginService {
 			activeTalentUses: { restCycle: sheet.talentRestCycle || 0, used: sheet.talentUses || {} },
 			comfortingArtRecipients: sheet.talents.class.includes('artista:arte-reconfortante') ?
 				this.trainerArchiveRecipients(token) : [],
+			revigoratingMeal: sheet.classId === 'cozinheiro' ? {
+				available: (sheet.talentRestCycle || 0) > 0 &&
+					sheet.talentUses?.['cozinheiro:refeicao-revigorante'] !== sheet.talentRestCycle,
+				recipients: this.trainerArchiveRecipients(token).filter(person => {
+					const target = this.repository.get(person.id)?.state.trainerSheet;
+					return target?.revigoratingMealCycle !== (sheet.talentRestCycle || 0) &&
+						rpgTrainerSurvival(target!).lifeState !== 'dead';
+				}),
+			} : null,
+			friendshipSnacks: sheet.talents.class.includes('cozinheiro:petisco-de-amizade') ? {
+				rations: ['racao-pokemon', 'racao-artesanal-pokemon'].map(itemId => ({ itemId,
+					quantity: equipment.items.filter(item => item.itemId === itemId && item.location === 'bag')
+						.reduce((sum, item) => sum + item.quantity, 0) })),
+				recipients: this.trainerRecordRecipients(token).map(person => {
+					const owner = this.repository.get(person.id)!;
+					return { ...person, pokemon: [
+						...owner.state.box.party,
+						...owner.state.box.boxes.flatMap(box => box.slots).filter(entry => !!entry),
+					].map(entry => ({ id: entry.pokemonId,
+						name: entry.pokemon.name || entry.pokemon.species })) };
+				}),
+			} : null,
+			trainingReward: sheet.talents.class.includes('cozinheiro:recompensa-de-treinamento') ? {
+				rations: ['racao-pokemon', 'racao-artesanal-pokemon'].map(itemId => ({ itemId,
+					quantity: equipment.items.filter(item => item.itemId === itemId && item.location === 'bag')
+						.reduce((sum, item) => sum + item.quantity, 0) })),
+				recipients: this.trainerRecordRecipients(token).map(person => {
+					const owner = this.repository.get(person.id)!;
+					return { ...person, pokemon: owner.state.box.party
+						.filter(entry => !entry.metadata?.breeding && !entry.metadata?.evTraining &&
+							entry.metadata?.training !== 'roleplay')
+						.map(entry => ({ id: entry.pokemonId, name: entry.pokemon.name || entry.pokemon.species,
+							prepared: !!entry.metadata?.trainingReward })) };
+				}),
+			} : null,
+			contestHarmonization: sheet.talents.class.includes('cozinheiro:harmonizacao-de-sabores') ? {
+				chef: sheet.talents.apex === 'cozinheiro:chef-pokemon',
+				availableFood: equipment.items.filter(item => item.itemId === 'alimento' && item.location === 'bag')
+					.reduce((sum, item) => sum + item.quantity, 0),
+				recipients: this.trainerRecordRecipients(token).map(person => {
+					const owner = this.repository.get(person.id)!;
+					return { ...person, pokemon: owner.state.box.party
+						.filter(entry => !entry.metadata?.breeding && !entry.metadata?.evTraining &&
+							entry.metadata?.training !== 'roleplay')
+						.map(entry => ({ id: entry.pokemonId, name: entry.pokemon.name || entry.pokemon.species,
+							prepared: !!entry.metadata?.contestHarmonization })) };
+				}),
+			} : null,
+			artisanRation: sheet.talents.class.includes('cozinheiro:racao-artesanal-pokemon') ? {
+				availableFood: equipment.items.filter(item => item.itemId === 'alimento' && item.location === 'bag')
+					.reduce((sum, item) => sum + item.quantity, 0),
+			} : null,
 			captainPlan: sheet.talents.class.includes('atleta:capitao-de-time') ? {
 				plan: sheet.captainPlan || null,
 				recipients: this.trainerArchiveRecipients(token),
@@ -2650,6 +2704,429 @@ export class RPGLoginService {
 			throw error;
 		}
 		return { effect, recipientCharacterId: target.state.id, sheet: structuredClone(nextTarget) };
+	}
+
+	/** Uma receita consome um Alimento por até cinco participantes; o resultado é uma cura humana, não um item. */
+	useTrainerRevigoratingMeal(token: string, input: { requestId: string, dc: number, recipientCharacterIds: string[] }) {
+		const session = this.getSession(token);
+		if (session.mode !== 'player' || !session.platformTableId) throw new Error('Entre como jogador em uma mesa');
+		const actorId = session.role === 'master' ? session.viewAsCharacterId : session.characterId;
+		if (!actorId) throw new Error('Nenhum personagem selecionado');
+		if (!input || !/^[a-zA-Z0-9_-]{8,100}$/.test(input.requestId) ||
+			![10, 15, 20].includes(input.dc) || !Array.isArray(input.recipientCharacterIds) ||
+			!input.recipientCharacterIds.length || input.recipientCharacterIds.length > 30 ||
+			input.recipientCharacterIds.some(id => typeof id !== 'string') ||
+			new Set(input.recipientCharacterIds).size !== input.recipientCharacterIds.length) {
+			throw new Error('Escolha a CD e participantes diferentes para a refeição');
+		}
+		const actor = structuredClone(this.requireCharacter(toID(actorId)));
+		if (actor.tableId !== session.platformTableId) throw new Error('Personagem fora da mesa atual');
+		const sheet = actor.state.trainerSheet;
+		if (!sheet || sheet.status !== 'complete' || sheet.classId !== 'cozinheiro') {
+			throw new Error('Refeição Revigorante exige um Cozinheiro com ficha completa');
+		}
+		const fingerprint = createHash('sha256').update(JSON.stringify({
+			dc: input.dc, recipients: input.recipientCharacterIds,
+		})).digest('hex');
+		const previous = sheet.revigoratingMealReceipts?.find(entry => entry.requestId === input.requestId);
+		if (previous) {
+			if (previous.fingerprint !== fingerprint) throw new Error('Identificador de refeição já utilizado');
+			return { result: structuredClone(previous.result), repeated: true };
+		}
+		const cycle = sheet.talentRestCycle || 0;
+		if (!cycle || sheet.talentUses?.['cozinheiro:refeicao-revigorante'] === cycle) {
+			throw new Error('Refeição Revigorante estará disponível após o próximo descanso longo de 8 horas');
+		}
+		this.requireBagRecord(token, actor.state.id, 'bag:edit');
+		this.requireWorldBagItemUse(token, actor.state.id);
+		const valid = new Set(this.trainerArchiveRecipients(token).map(person => person.id));
+		const recipients = input.recipientCharacterIds.map(id => {
+			if (!valid.has(id)) throw new Error('Participante indisponível nesta mesa');
+			return id === actor.state.id ? actor : structuredClone(this.requireCharacter(toID(id)));
+		});
+		for (const target of recipients) {
+			if (target.state.trainerSheet?.revigoratingMealCycle === cycle) {
+				throw new Error(`${target.state.characterName} já recebeu Refeição Revigorante neste descanso`);
+			}
+			if (rpgTrainerSurvival(target.state.trainerSheet!).lifeState === 'dead') {
+				throw new Error(`${target.state.characterName} não pode ser curado`);
+			}
+		}
+		const foodCount = Math.ceil(recipients.length / 5);
+		const inventory = this.ensureTrainerInventory(actor);
+		const food = inventory.items.filter(item => item.itemId === 'alimento' && item.location === 'bag' && !item.equipped);
+		if (food.reduce((sum, item) => sum + item.quantity, 0) < foodCount) {
+			throw new Error(`Alimento insuficiente na Bag: ${foodCount} necessário(s)`);
+		}
+		let remaining = foodCount;
+		for (const item of food) {
+			const used = Math.min(item.quantity, remaining);
+			item.quantity -= used; remaining -= used;
+			if (!item.quantity) inventory.items.splice(inventory.items.indexOf(item), 1);
+			if (!remaining) break;
+		}
+		const roll = rollRPGTrainerSkillCheck(sheet, 'oficio:culinaria', undefined,
+			{ dc: input.dc, naturalFloor: sheet.talents.apex === 'cozinheiro:mestre-da-cozinha' ? 10 : 0 }, this.random);
+		const healing = Math.max(1, rpgTrainerProficiency(sheet.level) + Math.floor((sheet.attributes!.wisdom - 10) / 2));
+		const comfortingMeal = sheet.talents.class.includes('cozinheiro:refeicao-reconfortante');
+		const recoveryNutrition = sheet.talents.class.includes('cozinheiro:nutricao-de-recuperacao');
+		const recovered = recipients.map(target => {
+			const targetSheet = target.state.trainerSheet!;
+			const before = targetSheet.hitPoints.current || 0;
+			const exhaustionBefore = rpgTrainerSurvival(targetSheet).exhaustion;
+			target.state.trainerSheet = roll.success ? rpgTrainerHeal(targetSheet, healing) : targetSheet;
+			if (roll.success && comfortingMeal && exhaustionBefore > 0) {
+				target.state.trainerSheet = rpgTrainerReduceExhaustion(target.state.trainerSheet);
+			}
+			if (roll.success && recoveryNutrition) target.state.trainerSheet.nutritionRecoveryPending = true;
+			target.state.trainerSheet.revigoratingMealCycle = cycle;
+			target.state.updatedAt = this.now();
+			return { id: target.state.id, name: target.state.characterName,
+				recovered: (target.state.trainerSheet.hitPoints.current || 0) - before,
+				exhaustionReduced: exhaustionBefore - rpgTrainerSurvival(target.state.trainerSheet).exhaustion };
+		});
+		const result = { dc: input.dc, natural: roll.natural, effectiveNatural: roll.effectiveNatural,
+			total: roll.total, bonus: roll.total - roll.effectiveNatural,
+			success: roll.success, foodConsumed: foodCount, healing: roll.success ? healing : 0, recipients: recovered };
+		actor.state.trainerSheet!.talentUses = { ...actor.state.trainerSheet!.talentUses,
+			'cozinheiro:refeicao-revigorante': cycle };
+		actor.state.trainerSheet!.revigoratingMealReceipts = [
+			...(actor.state.trainerSheet!.revigoratingMealReceipts || []).slice(-19),
+			{ requestId: input.requestId, fingerprint, cycle, result },
+		];
+		inventory.revision++;
+		this.validateTrainerInventory(actor);
+		actor.state.updatedAt = this.now();
+		const changed = [actor, ...recipients.filter(target => target !== actor)];
+		const originals = changed.map(target => structuredClone(this.requireCharacter(target.state.id)));
+		try { this.persistAtomically(() => { for (const target of changed) this.repository.set(target); }); } catch (error) {
+			for (const original of originals) this.repository.set(original);
+			throw error;
+		}
+		return { result, repeated: false };
+	}
+
+	/** Um preparo usa a proporção 3:4, com uma rolagem por lote e sem consumir ingredientes na falha. */
+	useTrainerArtisanRation(token: string, input: { requestId: string, foodQuantity: number }) {
+		const session = this.getSession(token);
+		if (session.mode !== 'player' || !session.platformTableId) throw new Error('Entre como jogador em uma mesa');
+		const actorId = session.role === 'master' ? session.viewAsCharacterId : session.characterId;
+		if (!actorId) throw new Error('Nenhum personagem selecionado');
+		if (!input || !/^[a-zA-Z0-9_-]{8,100}$/.test(input.requestId) ||
+			!Number.isSafeInteger(input.foodQuantity) || input.foodQuantity < 3 ||
+			input.foodQuantity > 999 || input.foodQuantity % 3) {
+			throw new Error('Escolha uma quantidade de Alimentos múltipla de 3');
+		}
+		const actor = structuredClone(this.requireCharacter(toID(actorId)));
+		if (actor.tableId !== session.platformTableId) throw new Error('Personagem fora da mesa atual');
+		const sheet = actor.state.trainerSheet;
+		if (sheet?.status !== 'complete' || !sheet.talents.class.includes('cozinheiro:racao-artesanal-pokemon')) {
+			throw new Error('Este treinador não possui Ração Artesanal Pokémon');
+		}
+		const previous = sheet.artisanRationReceipts?.find(entry => entry.requestId === input.requestId);
+		if (previous) {
+			if (previous.foodQuantity !== input.foodQuantity) throw new Error('Identificador de preparo já utilizado');
+			return { result: structuredClone(previous.result), repeated: true };
+		}
+		this.requireBagRecord(token, actor.state.id, 'bag:edit');
+		this.requireWorldBagItemUse(token, actor.state.id);
+		const inventory = this.ensureTrainerInventory(actor);
+		const foods = inventory.items.filter(item => item.itemId === 'alimento' && item.location === 'bag' &&
+			!item.equipped);
+		if (foods.reduce((sum, item) => sum + item.quantity, 0) < input.foodQuantity) {
+			throw new Error('Alimentos insuficientes na Bag');
+		}
+		const kit = inventory.items.find(item => item.location === 'bag' && item.itemId.startsWith('kit-culinaria-'));
+		if (!kit) throw new Error('Kit de Culinária necessário para preparar a ração');
+		const kitBonus = rpgKitBonus(sheet, kit.itemId);
+		if (kitBonus.disadvantage) throw new Error('Domínio do Kit de Culinária necessário');
+		const check = rollRPGTrainerSkillCheck(sheet, 'oficio:culinaria', undefined,
+			{ dc: 12, bonus: kitBonus.bonus,
+				naturalFloor: sheet.talents.apex === 'cozinheiro:mestre-da-cozinha' ? 10 : 0 }, this.random);
+		const produced = check.success ? input.foodQuantity / 3 * 4 : 0;
+		if (produced) {
+			let remaining = input.foodQuantity;
+			for (const item of foods) {
+				const used = Math.min(item.quantity, remaining);
+				item.quantity -= used; remaining -= used;
+				if (!item.quantity) inventory.items.splice(inventory.items.indexOf(item), 1);
+				if (!remaining) break;
+			}
+			remaining = produced;
+			for (const stack of inventory.items.filter(item => item.itemId === 'racao-artesanal-pokemon' &&
+				item.location === 'bag' && !item.equipped && item.quantity < 9)) {
+				const added = Math.min(remaining, 9 - stack.quantity);
+				stack.quantity += added; remaining -= added;
+				if (!remaining) break;
+			}
+			while (remaining) {
+				const quantity = Math.min(9, remaining);
+				inventory.items.push({ id: secureRandomBytes(12).toString('hex'),
+					itemId: 'racao-artesanal-pokemon', quantity, equipped: false, location: 'bag' });
+				remaining -= quantity;
+			}
+			inventory.revision++;
+			this.validateTrainerInventory(actor);
+		}
+		const result = { foodQuantity: input.foodQuantity, produced, natural: check.natural,
+			effectiveNatural: check.effectiveNatural,
+			bonus: check.total - check.effectiveNatural, total: check.total, success: check.success };
+		sheet.artisanRationReceipts = [...(sheet.artisanRationReceipts || []).slice(-29),
+			{ requestId: input.requestId, foodQuantity: input.foodQuantity, result }];
+		actor.state.updatedAt = this.now();
+		const original = structuredClone(this.requireCharacter(actor.state.id));
+		try { this.persistAtomically(() => this.repository.set(actor)); } catch (error) {
+			this.repository.set(original); throw error;
+		}
+		return { result, repeated: false };
+	}
+
+	/** Reserva os pontos finais do próximo concurso do Pokémon, com consumo imediato do Alimento. */
+	useTrainerContestHarmonization(token: string, input: { requestId: string, characterId: string,
+		pokemonIds: string[], }) {
+		const session = this.getSession(token);
+		if (session.mode !== 'player' || !session.platformTableId) throw new Error('Entre como jogador em uma mesa');
+		const actorId = session.role === 'master' ? session.viewAsCharacterId : session.characterId;
+		if (!actorId) throw new Error('Nenhum personagem selecionado');
+		if (!input || !/^[a-zA-Z0-9_-]{8,100}$/.test(input.requestId)) throw new Error('Identificador de preparo inválido');
+		const actor = structuredClone(this.requireCharacter(toID(actorId)));
+		const sheet = actor.state.trainerSheet;
+		if (sheet?.status !== 'complete' || !sheet.talents.class.includes('cozinheiro:harmonizacao-de-sabores')) {
+			throw new Error('Este treinador não possui Harmonização de Sabores');
+		}
+		const maxPokemon = sheet.talents.apex === 'cozinheiro:chef-pokemon' ? 3 : 1;
+		if (!Array.isArray(input.pokemonIds) || input.pokemonIds.length < 1 ||
+			input.pokemonIds.length > maxPokemon || new Set(input.pokemonIds).size !== input.pokemonIds.length ||
+			input.pokemonIds.some(id => typeof id !== 'string' || !id)) {
+			throw new Error(`Escolha de um a ${maxPokemon} Pokémon diferentes`);
+		}
+		const fingerprint = createHash('sha256').update(JSON.stringify([input.characterId, input.pokemonIds])).digest('hex');
+		const previous = sheet.contestHarmonizationReceipts?.find(entry => entry.requestId === input.requestId);
+		if (previous) {
+			if (previous.fingerprint !== fingerprint) throw new Error('Identificador de preparo já utilizado');
+			return { result: previous.result, repeated: true };
+		}
+		if (!this.trainerRecordRecipients(token).some(person => person.id === input.characterId)) {
+			throw new Error('Escolha um treinador da mesa');
+		}
+		this.requireBagRecord(token, actor.state.id, 'bag:edit');
+		this.requireWorldBagItemUse(token, actor.state.id);
+		const owner = input.characterId === actor.state.id ? actor :
+			structuredClone(this.requireCharacter(toID(input.characterId)));
+		if (owner.tableId !== session.platformTableId) throw new Error('Pokémon fora da mesa atual');
+		const inventory = this.ensureTrainerInventory(actor);
+		const foods = inventory.items.filter(item => item.itemId === 'alimento' && item.location === 'bag' &&
+			!item.equipped);
+		if (foods.reduce((sum, item) => sum + item.quantity, 0) < input.pokemonIds.length) {
+			throw new Error(`São necessários ${input.pokemonIds.length} Alimentos na Bag`);
+		}
+		const names = input.pokemonIds.map(id => {
+			const pokemon = RPGBoxManagement.pokemonSet(owner.state, id);
+			return pokemon.name || pokemon.species;
+		});
+		RPGBoxManagement.prepareContestHarmonization(owner.state, input.pokemonIds, input.requestId);
+		let remaining = input.pokemonIds.length;
+		for (const food of foods) {
+			const used = Math.min(food.quantity, remaining);
+			food.quantity -= used; remaining -= used;
+			if (!food.quantity) inventory.items.splice(inventory.items.indexOf(food), 1);
+			if (!remaining) break;
+		}
+		inventory.revision++;
+		const result = { names };
+		sheet.contestHarmonizationReceipts = [...(sheet.contestHarmonizationReceipts || []).slice(-29),
+			{ requestId: input.requestId, fingerprint, result }];
+		this.validateTrainerInventory(actor);
+		const originals = [actor.state.id, owner.state.id].filter((id, index, ids) => ids.indexOf(id) === index)
+			.map(id => structuredClone(this.requireCharacter(id)));
+		try {
+			this.persistAtomically(() => {
+				this.repository.set(actor);
+				if (owner !== actor) this.repository.set(owner);
+			});
+		} catch (error) {
+			for (const original of originals) this.repository.set(original);
+			throw error;
+		}
+		return { result, repeated: false };
+	}
+
+	contestHarmonizationPrepared(characterId: string, teamIndexes: readonly number[]): boolean {
+		const record = this.repository.get(characterId);
+		return !!record && RPGBoxManagement.contestHarmonizationPrepared(record.state, teamIndexes);
+	}
+
+	consumeContestHarmonization(characterId: string, teamIndexes: readonly number[]): void {
+		const record = this.repository.get(characterId);
+		if (!record || !RPGBoxManagement.consumeContestHarmonization(record.state, teamIndexes)) return;
+		this.persistBoxRecord(record);
+	}
+
+	/** O início do concurso consome, em uma transação, todos os preparos usados ou desperdiçados. */
+	consumeContestHarmonizations(participants: readonly { characterId?: string, teamIndexes: number[] }[]): void {
+		const originals = new Map<string, RPGStoredCharacter>();
+		const changed: RPGStoredCharacter[] = [];
+		for (const participant of participants) {
+			if (!participant.characterId) continue;
+			const original = this.repository.get(participant.characterId);
+			if (!original) continue;
+			const record = structuredClone(original);
+			if (!RPGBoxManagement.consumeContestHarmonization(record.state, participant.teamIndexes)) continue;
+			originals.set(record.state.id, structuredClone(original));
+			record.state.updatedAt = this.now();
+			changed.push(record);
+		}
+		if (!changed.length) return;
+		try { this.persistAtomically(() => { for (const record of changed) this.repository.set(record); }); } catch (error) {
+			for (const original of originals.values()) this.repository.set(original);
+			throw error;
+		}
+	}
+
+	/** Prepara uma única sessão futura de treinamento, consumindo a ração agora. */
+	useTrainerTrainingReward(token: string, input: { requestId: string, rationItemId: string,
+		characterId: string, pokemonId: string, }) {
+		const session = this.getSession(token);
+		if (session.mode !== 'player' || !session.platformTableId) throw new Error('Entre como jogador em uma mesa');
+		const actorId = session.role === 'master' ? session.viewAsCharacterId : session.characterId;
+		if (!actorId) throw new Error('Nenhum personagem selecionado');
+		if (!input || !/^[a-zA-Z0-9_-]{8,100}$/.test(input.requestId) ||
+			!['racao-pokemon', 'racao-artesanal-pokemon'].includes(input.rationItemId)) {
+			throw new Error('Escolha uma Ração Pokémon válida');
+		}
+		const actor = structuredClone(this.requireCharacter(toID(actorId)));
+		const sheet = actor.state.trainerSheet;
+		if (sheet?.status !== 'complete' || !sheet.talents.class.includes('cozinheiro:recompensa-de-treinamento')) {
+			throw new Error('Este treinador não possui Recompensa de Treinamento');
+		}
+		const fingerprint = createHash('sha256').update(JSON.stringify([input.rationItemId,
+			input.characterId, input.pokemonId])).digest('hex');
+		const previous = sheet.trainingRewardReceipts?.find(entry => entry.requestId === input.requestId);
+		if (previous) {
+			if (previous.fingerprint !== fingerprint) throw new Error('Identificador de recompensa já utilizado');
+			return { result: previous.result, repeated: true };
+		}
+		if (!this.trainerRecordRecipients(token).some(person => person.id === input.characterId)) {
+			throw new Error('Escolha um treinador da mesa');
+		}
+		this.requireBagRecord(token, actor.state.id, 'bag:edit');
+		this.requireWorldBagItemUse(token, actor.state.id);
+		const owner = input.characterId === actor.state.id ? actor :
+			structuredClone(this.requireCharacter(toID(input.characterId)));
+		if (owner.tableId !== session.platformTableId) throw new Error('Pokémon fora da mesa atual');
+		const inventory = this.ensureTrainerInventory(actor);
+		const ration = inventory.items.find(item => item.itemId === input.rationItemId &&
+			item.location === 'bag' && !item.equipped && item.quantity > 0);
+		if (!ration) throw new Error('É necessária uma Ração Pokémon na Bag');
+		const pokemon = RPGBoxManagement.pokemonSet(owner.state, input.pokemonId);
+		RPGBoxManagement.prepareTrainingReward(owner.state, input.pokemonId);
+		ration.quantity--;
+		if (!ration.quantity) inventory.items.splice(inventory.items.indexOf(ration), 1);
+		inventory.revision++;
+		const result = { name: pokemon.name || pokemon.species };
+		sheet.trainingRewardReceipts = [...(sheet.trainingRewardReceipts || []).slice(-29),
+			{ requestId: input.requestId, fingerprint, result }];
+		this.validateTrainerInventory(actor);
+		const originals = [actor.state.id, owner.state.id].filter((id, index, ids) => ids.indexOf(id) === index)
+			.map(id => structuredClone(this.requireCharacter(id)));
+		try {
+			this.persistAtomically(() => {
+				this.repository.set(actor);
+				if (owner !== actor) this.repository.set(owner);
+			});
+		} catch (error) {
+			for (const original of originals) this.repository.set(original);
+			throw error;
+		}
+		return { result, repeated: false };
+	}
+
+	/** Uma Ração Pokémon prepara três porções imediatas; só Pokémon persistidos recebem amizade automática. */
+	useTrainerFriendshipSnack(token: string, input: { requestId: string, rationItemId?: string,
+		servings: { characterId?: string, pokemonId?: string, otherPokemon?: string }[], }) {
+		const session = this.getSession(token);
+		if (session.mode !== 'player' || !session.platformTableId) throw new Error('Entre como jogador em uma mesa');
+		const actorId = session.role === 'master' ? session.viewAsCharacterId : session.characterId;
+		if (!actorId) throw new Error('Nenhum personagem selecionado');
+		if (!input || !/^[a-zA-Z0-9_-]{8,100}$/.test(input.requestId) ||
+			!Array.isArray(input.servings) || !input.servings.length || input.servings.length > 3 ||
+			input.servings.some(serving => !serving || typeof serving !== 'object')) {
+			throw new Error('Escolha de um a três Pokémon para os petiscos');
+		}
+		const actor = structuredClone(this.requireCharacter(toID(actorId)));
+		if (actor.tableId !== session.platformTableId) throw new Error('Personagem fora da mesa atual');
+		const sheet = actor.state.trainerSheet;
+		if (sheet?.status !== 'complete' || !sheet.talents.class.includes('cozinheiro:petisco-de-amizade')) {
+			throw new Error('Este treinador não possui Petisco de Amizade');
+		}
+		const rationItemId = input.rationItemId || 'racao-pokemon';
+		if (!['racao-pokemon', 'racao-artesanal-pokemon'].includes(rationItemId)) {
+			throw new Error('Escolha uma Ração Pokémon válida');
+		}
+		const fingerprint = createHash('sha256').update(JSON.stringify({ rationItemId,
+			servings: input.servings })).digest('hex');
+		const previous = sheet.friendshipSnackReceipts?.find(entry => entry.requestId === input.requestId);
+		if (previous) {
+			if (previous.fingerprint !== fingerprint) throw new Error('Identificador de petiscos já utilizado');
+			return { result: structuredClone(previous.result), repeated: true };
+		}
+		this.requireBagRecord(token, actor.state.id, 'bag:edit');
+		this.requireWorldBagItemUse(token, actor.state.id);
+		const inventory = this.ensureTrainerInventory(actor);
+		const ration = inventory.items.find(item => item.itemId === rationItemId && item.location === 'bag' &&
+			!item.equipped && item.quantity > 0);
+		if (!ration) throw new Error('É necessária uma Ração Pokémon na Bag');
+		const available = new Set(this.trainerRecordRecipients(token).map(person => person.id));
+		const records = new Map<string, RPGStoredCharacter>([[actor.state.id, actor]]);
+		const used = new Set<string>();
+		const at = Date.parse(this.campaignSettings.currentDateTime);
+		if (!Number.isFinite(at)) throw new Error('Horário da campanha inválido');
+		const served = input.servings.map(serving => {
+			if (typeof serving.otherPokemon === 'string' && serving.otherPokemon.trim()) {
+				const name = serving.otherPokemon.trim();
+				if (name.length > 80) throw new Error('Nome do outro Pokémon muito longo');
+				return { name, friendshipGained: null };
+			}
+			if (!serving.characterId || !serving.pokemonId || !available.has(serving.characterId)) {
+				throw new Error('Escolha um treinador e um de seus Pokémon');
+			}
+			const key = `${serving.characterId}:${serving.pokemonId}`;
+			if (used.has(key)) throw new Error('Cada Pokémon pode receber somente um petisco por preparo');
+			used.add(key);
+			let owner = records.get(serving.characterId);
+			if (!owner) {
+				owner = structuredClone(this.requireCharacter(toID(serving.characterId)));
+				if (owner.tableId !== session.platformTableId) throw new Error('Pokémon fora da mesa atual');
+				records.set(serving.characterId, owner);
+			}
+			const target = RPGBoxManagement.itemTarget(owner.state, serving.pokemonId);
+			const last = target.state.lastFriendshipSnackAt;
+			let gained = 0;
+			if (last === undefined || at - last >= 7 * 86_400_000) {
+				const current = Math.max(0, Math.min(255, target.state.friendship ?? 50));
+				gained = Math.min(255 - current, sheet.talents.apex === 'cozinheiro:chef-pokemon' ? 10 : 5);
+				target.state.friendship = current + gained;
+				target.state.lastFriendshipSnackAt = at;
+				RPGBoxManagement.applyItemState(owner.state, serving.pokemonId, target.state, owner.state.box.revision);
+			}
+			owner.state.updatedAt = this.now();
+			return { name: RPGBoxManagement.pokemonSet(owner.state, serving.pokemonId).name ||
+				RPGBoxManagement.pokemonSet(owner.state, serving.pokemonId).species, friendshipGained: gained };
+		});
+		ration.quantity--;
+		if (!ration.quantity) inventory.items.splice(inventory.items.indexOf(ration), 1);
+		inventory.revision++;
+		const result = { served };
+		sheet.friendshipSnackReceipts = [...(sheet.friendshipSnackReceipts || []).slice(-29),
+			{ requestId: input.requestId, fingerprint, result }];
+		actor.state.updatedAt = this.now();
+		this.validateTrainerInventory(actor);
+		const originals = [...records.keys()].map(id => structuredClone(this.requireCharacter(id)));
+		try { this.persistAtomically(() => { for (const record of records.values()) this.repository.set(record); }); } catch (error) {
+			for (const original of originals) this.repository.set(original);
+			throw error;
+		}
+		return { result, repeated: false };
 	}
 
 	/** Remove o bônus preparado somente após a mensagem da resistência ter sido gravada. */
@@ -3207,7 +3684,7 @@ export class RPGLoginService {
 					{ startedAt: craft.startedAt, campaignTime: now, random: this.random });
 				const kit = inventory.items.find(entry => entry.id === plan.kitInstanceId)!;
 				kit.charges = (kit.charges || 0) - plan.chargesConsumed;
-				for (const [itemId, amount] of Object.entries(plan.inputsConsumed)) {
+				for (const [itemId, amount] of Object.entries(plan.produced ? plan.inputsConsumed : {})) {
 					let remaining = amount;
 					for (const entry of inventory.items.filter(item => item.itemId === itemId && item.location === 'bag')) {
 						const used = Math.min(remaining, entry.quantity);
@@ -4541,6 +5018,37 @@ export class RPGLoginService {
 			if (!query.category || query.category === 'talent-items') {
 				view.items.push(...talentItems.filter(item => !search ||
 					toID(item.name + ' ' + item.description).includes(search)));
+			}
+			const food = (record.state.trainerInventory?.items || [])
+				.filter(item => item.location === 'bag' && rpgEquipment(item.itemId).category === 'food')
+				.map(item => ({ item, definition: rpgEquipment(item.itemId) }));
+			const foodCategory = view.categories.find(entry => entry.id === 'food-items');
+			if (foodCategory) {
+				foodCategory.itemTypes = new Set(food.map(entry => entry.item.itemId)).size;
+				foodCategory.quantity = food.reduce((sum, entry) => sum + entry.item.quantity, 0);
+			}
+			if (!query.category || query.category === 'food-items') {
+				for (const itemId of new Set(food.map(entry => entry.item.itemId))) {
+					const definition = rpgEquipment(itemId);
+					if (search && !toID(definition.name).includes(search)) continue;
+					const quantity = food.filter(entry => entry.item.itemId === itemId)
+						.reduce((sum, entry) => sum + entry.item.quantity, 0);
+					view.items.push({ id: `equipment:${itemId}`, name: definition.name, quantity,
+						category: 'food-items', registryCategory: 'key',
+						description: itemId === 'alimento' ?
+							(record.state.trainerSheet?.talents.apex === 'cozinheiro:mesa-para-todos' ?
+								'Uma unidade de Alimento rende 4 porções de refeição. Com Aproveitamento Superior, 4 porções preparadas rendem 6; em preparos comunitários de pelo menos 10 porções, Mesa para Todos dobra o rendimento no lugar dos outros benefícios. O preparo fica no roleplay.' :
+								record.state.trainerSheet?.talents.class.includes('cozinheiro:aproveitamento-superior') ?
+									'Uma unidade de Alimento rende 4 porções de refeição. Com Aproveitamento Superior, 4 porções preparadas rendem 6 (+50%). Ele substitui Aproveitamento Integral; os bônus não se somam. O preparo fica no roleplay.' :
+									record.state.trainerSheet?.classId === 'cozinheiro' ?
+										'Uma unidade de Alimento rende 4 porções de refeição. Com Aproveitamento Integral, 4 porções preparadas rendem 5. O preparo fica no roleplay.' :
+										'Uma unidade de Alimento rende 4 porções de refeição. O preparo fica no roleplay.') :
+							'Alimento armazenado na Bag do treinador.',
+						favorite: false, mission: false, actions: [], equippedIn: [],
+						icon: null, sprite: null, tags: ['trainer-food'],
+						weightKg: definition.weight * quantity, slots: food.filter(entry => entry.item.itemId === itemId)
+							.reduce((sum, entry) => sum + definition.spaces, 0) });
+				}
 			}
 		}
 		const knowsFossilQuality = session.role === 'master' ||

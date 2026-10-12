@@ -60,6 +60,18 @@ describe('RPG trainer equipment and item bank', () => {
 		assert.equal(rpgTractionLoad('carroca-leve', 200, [60],
 			[{ baseAttack: 60, size: 'medium', anatomyApproved: true }]).allowed, false);
 	});
+	it('shows Alimento in the Bag without creating a meal item', () => {
+		const service = new RPGLoginService({ masterCode: 'teste', repository: new RPGMemoryCharacterRepository() });
+		const master = service.loginMaster('teste');
+		character(service, 'Cozinheira');
+		service.changeTrainerEquipment(master.token, { action: 'grant', characterId: 'cozinheira',
+			expectedRevision: 0, itemId: 'alimento', quantity: 2 });
+		const bag = service.getBag(master.token, 'cozinheira', { category: 'food-items' });
+		assert.equal(bag.items.find(item => item.name === 'Alimento').quantity, 2);
+		assert.match(bag.items.find(item => item.name === 'Alimento').description,
+			/4 porções de refeição.*roleplay/);
+		assert.equal(bag.items.some(item => /Refeição Preparada/.test(item.name)), false);
+	});
 	it('allocates class gear in the shared Bag and keeps purchases, transfers and consumption consistent', () => {
 		const repository = new RPGMemoryCharacterRepository();
 		const service = new RPGLoginService({ masterCode: 'teste', repository });

@@ -150,7 +150,7 @@ describe('RPG trainer campaign activities', () => {
 		] };
 		const plan = planRPGCraft(sheet, inventory, 'culinary:pokemon-ration',
 			{ startedAt: 0, campaignTime: 3600000, random: () => 0.99 });
-		assert.deepEqual(plan.produced, { itemId: 'racao-pokemon', quantity: 4, kind: 'equipment' });
+		assert.deepEqual(plan.produced, { itemId: 'racao-artesanal-pokemon', quantity: 4, kind: 'equipment' });
 		assert.deepEqual(plan.inputsConsumed, { alimento: 3 });
 		assert.throws(() => planRPGCraft(sheet, inventory, 'culinary:pokemon-ration',
 			{ startedAt: 0, campaignTime: 1800000 }), /Tempo/);

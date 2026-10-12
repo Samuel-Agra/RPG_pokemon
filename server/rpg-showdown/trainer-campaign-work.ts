@@ -32,7 +32,7 @@ export const RPG_CRAFT_RECIPES: Readonly<Record<string, RPGCraftRecipe>> = Objec
 			outputKind: 'pokemon-item' as const,
 		}]),
 	['culinary:pokemon-ration', {
-		id: 'culinary:pokemon-ration', outputId: 'racao-pokemon', outputQuantity: 4, hours: 1,
+		id: 'culinary:pokemon-ration', outputId: 'racao-artesanal-pokemon', outputQuantity: 4, hours: 1,
 		skill: 'oficio:culinaria', dc: 12, kitId: 'kit-culinaria', minimumKitTier: 1, kitCharges: 0,
 		inputs: { alimento: 3 }, requiredTalent: 'cozinheiro:racao-artesanal-pokemon',
 		outputKind: 'equipment' as const,

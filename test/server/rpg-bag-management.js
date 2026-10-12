@@ -103,7 +103,7 @@ describe('RPG Bag management backend', () => {
 		const world = service.getBag(master.token, 'samuel');
 		assert.deepEqual(world.categories.map(category => category.id), [
 			'favorites', 'pokeballs', 'medicines', 'held-items', 'evolution-items',
-			'tms', 'fossils', 'treasures', 'mega-stones', 'key-items', 'mission-items', 'talent-items',
+			'tms', 'fossils', 'treasures', 'mega-stones', 'key-items', 'mission-items', 'food-items', 'talent-items',
 		]);
 		assert.equal(world.money, 3250);
 		assert.equal(world.items.find(item => item.id === 'charizarditey').category, 'mega-stones');

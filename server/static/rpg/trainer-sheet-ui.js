@@ -700,6 +700,233 @@
 			}
 			save.addEventListener('click', submit);
 			controls.append(save, feedback); panel.append(controls);
+		} else if (action?.revigoratingMeal) {
+			const editor = el('div', 'trainer-sheet-archive-editor');
+			const difficulty = select([['10', 'CD 10 — cozinha equipada'],
+				['15', 'CD 15 — cozinha improvisada'], ['20', 'CD 20 — ambiente desfavorável']]);
+			difficulty.setAttribute('aria-label', 'Dificuldade da Refeição Revigorante');
+			const selected = new Set();
+			const people = el('div', 'trainer-sheet-captain-players');
+			for (const person of action.revigoratingMeal.recipients) {
+				const button = el('button', 'trainer-sheet-captain-player', person.name);
+				button.type = 'button'; button.setAttribute('aria-pressed', 'false');
+				button.addEventListener('click', () => {
+					if (selected.has(person.id)) selected.delete(person.id); else selected.add(person.id);
+					button.setAttribute('aria-pressed', String(selected.has(person.id)));
+				});
+				people.append(button);
+			}
+			const use = el('button', 'trainer-sheet-talent-use', 'Preparar refeição'); use.type = 'button';
+			use.disabled = !action.revigoratingMeal.available;
+			const feedback = el('p', 'trainer-sheet-roll-error hidden');
+			if (!action.revigoratingMeal.available) editor.append(el('p', 'trainer-sheet-talent-unavailable',
+				'Aguarde o próximo descanso longo de 8 horas no relógio da campanha.'));
+			use.addEventListener('click', async () => {
+				if (!selected.size) {
+					feedback.textContent = 'Escolha ao menos um participante.';
+					feedback.classList.remove('hidden'); return;
+				}
+				use.disabled = true;
+				try {
+					const outcome = await action.api('/trainer/talents/revigorating-meal', { method: 'POST', body: {
+						requestId: crypto.randomUUID(), dc: Number(difficulty.value),
+						recipientCharacterIds: [...selected],
+					} });
+					feedback.textContent = outcome.result.success ?
+						`Refeição preparada. A cura dos participantes foi registrada no chat.` :
+						'O teste falhou; o resultado e o Alimento consumido foram registrados no chat.';
+					feedback.classList.remove('hidden');
+					window.dispatchEvent(new CustomEvent('rpg:realtime-sync',
+						{ detail: { tableId: selectedTable } }));
+				} catch (error) {
+					feedback.textContent = error.message || 'Não foi possível preparar a refeição.';
+					feedback.classList.remove('hidden'); use.disabled = false;
+				}
+			});
+			editor.append(el('label', '', 'Condições do preparo'), difficulty,
+				el('strong', '', 'Participantes'), people, use, feedback);
+			panel.append(editor);
+		} else if (action?.artisanRation) {
+			const editor = el('div', 'trainer-sheet-archive-editor');
+			const amount = select(Array.from({ length: Math.floor(action.artisanRation.availableFood / 3) }, (_, index) => {
+				const foods = (index + 1) * 3;
+				return [String(foods), `${foods} Alimentos → ${foods / 3 * 4} rações artesanais`];
+			}));
+			amount.setAttribute('aria-label', 'Quantidade de Alimentos para transformar');
+			const use = el('button', 'trainer-sheet-talent-use', 'Preparar ração artesanal');
+			use.type = 'button'; use.disabled = !amount.options.length;
+			const feedback = el('p', 'trainer-sheet-roll-error hidden');
+			if (!amount.options.length) editor.append(el('p', 'trainer-sheet-talent-unavailable',
+				'São necessários pelo menos três Alimentos na Bag.'));
+			use.addEventListener('click', async () => {
+				use.disabled = true;
+				try {
+					const outcome = await action.api('/trainer/talents/artisan-ration', { method: 'POST', body: {
+						requestId: crypto.randomUUID(), foodQuantity: Number(amount.value),
+					} });
+					feedback.textContent = outcome.result.success ?
+						`${outcome.result.produced} Rações Artesanais Pokémon criadas. A rolagem foi enviada ao chat.` :
+						'A rolagem falhou. Nenhum Alimento foi consumido; o resultado foi enviado ao chat.';
+					feedback.classList.remove('hidden');
+					window.dispatchEvent(new CustomEvent('rpg:realtime-sync', { detail: { tableId: selectedTable } }));
+				} catch (error) {
+					feedback.textContent = error.message || 'Não foi possível preparar a ração.';
+					feedback.classList.remove('hidden'); use.disabled = false;
+				}
+			});
+			editor.append(el('label', '', 'Quantidade de Alimentos'), amount, use, feedback);
+			panel.append(editor);
+		} else if (action?.contestHarmonization) {
+			const editor = el('div', 'trainer-sheet-archive-editor');
+			const feedback = el('p', 'trainer-sheet-roll-error hidden');
+			const trainer = select([['', 'Escolha o treinador'],
+				...action.contestHarmonization.recipients.map(person => [person.id, person.name])]);
+			const pokemonChoices = Array.from({ length: action.contestHarmonization.chef ? 3 : 1 },
+				() => select([['', 'Escolha o Pokémon']]));
+			trainer.addEventListener('change', () => {
+				for (const pokemon of pokemonChoices) {
+					pokemon.replaceChildren(...[['', 'Escolha o Pokémon'],
+						...(action.contestHarmonization.recipients.find(person => person.id === trainer.value)?.pokemon || [])
+							.filter(entry => !entry.prepared).map(entry => [entry.id, entry.name])]
+						.map(([value, label]) => {
+							const option = document.createElement('option');
+							option.value = value; option.textContent = label; return option;
+						}));
+				}
+			});
+			const use = el('button', 'trainer-sheet-talent-use', 'Preparar harmonização');
+			use.type = 'button'; use.disabled = !action.contestHarmonization.availableFood;
+			if (!action.contestHarmonization.availableFood) editor.append(el('p',
+				'trainer-sheet-talent-unavailable', 'É necessário um Alimento na Bag.'));
+			use.addEventListener('click', async () => {
+				const pokemonIds = pokemonChoices.map(choice => choice.value).filter(Boolean);
+				if (!trainer.value || !pokemonIds.length || new Set(pokemonIds).size !== pokemonIds.length) {
+					feedback.textContent = 'Escolha um treinador e Pokémon diferentes da sua equipe.';
+					feedback.classList.remove('hidden'); return;
+				}
+				use.disabled = true;
+				try {
+					const outcome = await action.api('/trainer/talents/contest-harmonization', { method: 'POST', body: {
+						requestId: crypto.randomUUID(), characterId: trainer.value, pokemonIds,
+					} });
+					feedback.textContent = `${outcome.result.names.join(', ')}: +3 pontos uma única vez ` +
+						'quando todos participarem do próximo concurso. ' +
+						'O efeito expira se o relógio da mesa avançar antes.';
+					feedback.classList.remove('hidden');
+					window.dispatchEvent(new CustomEvent('rpg:realtime-sync', { detail: { tableId: selectedTable } }));
+				} catch (error) {
+					feedback.textContent = error.message || 'Não foi possível preparar a harmonização.';
+					feedback.classList.remove('hidden'); use.disabled = false;
+				}
+			});
+			editor.append(el('label', '', 'Treinador'), trainer);
+			pokemonChoices.forEach((pokemon, index) => editor.append(el('label', '',
+				index ? `Pokémon ${index + 1} (opcional)` : 'Pokémon'), pokemon));
+			editor.append(use, feedback);
+			panel.append(editor);
+		} else if (action?.trainingReward) {
+			const editor = el('div', 'trainer-sheet-archive-editor');
+			const feedback = el('p', 'trainer-sheet-roll-error hidden');
+			const ration = select(action.trainingReward.rations.filter(entry => entry.quantity > 0)
+				.map(entry => [entry.itemId, `${entry.itemId === 'racao-pokemon' ? 'Ração Pokémon' :
+				'Ração Artesanal Pokémon'} (${entry.quantity})`]));
+			const trainer = select([['', 'Escolha o treinador'],
+				...action.trainingReward.recipients.map(person => [person.id, person.name])]);
+			const pokemon = select([['', 'Escolha o Pokémon']]);
+			trainer.addEventListener('change', () => {
+				pokemon.replaceChildren(...[['', 'Escolha o Pokémon'],
+					...(action.trainingReward.recipients.find(person => person.id === trainer.value)?.pokemon || [])
+						.filter(entry => !entry.prepared).map(entry => [entry.id, entry.name])]
+					.map(([value, label]) => {
+						const option = document.createElement('option');
+						option.value = value; option.textContent = label; return option;
+					}));
+			});
+			const use = el('button', 'trainer-sheet-talent-use', 'Preparar recompensa');
+			use.type = 'button'; use.disabled = !ration.options.length;
+			use.addEventListener('click', async () => {
+				if (!trainer.value || !pokemon.value) {
+					feedback.textContent = 'Escolha um treinador e seu Pokémon.';
+					feedback.classList.remove('hidden'); return;
+				}
+				use.disabled = true;
+				try {
+					const outcome = await action.api('/trainer/talents/training-reward', { method: 'POST', body: {
+						requestId: crypto.randomUUID(), rationItemId: ration.value,
+						characterId: trainer.value, pokemonId: pokemon.value,
+					} });
+					feedback.textContent = `${outcome.result.name} receberá 10% de redução no próximo treinamento. ` +
+						'O benefício expira após o próximo descanso curto se não for usado.';
+					feedback.classList.remove('hidden');
+					window.dispatchEvent(new CustomEvent('rpg:realtime-sync', { detail: { tableId: selectedTable } }));
+				} catch (error) {
+					feedback.textContent = error.message || 'Não foi possível preparar a recompensa.';
+					feedback.classList.remove('hidden'); use.disabled = false;
+				}
+			});
+			editor.append(el('label', '', 'Ração utilizada'), ration,
+				el('label', '', 'Treinador'), trainer, el('label', '', 'Pokémon'), pokemon, use, feedback);
+			panel.append(editor);
+		} else if (action?.friendshipSnacks) {
+			const editor = el('div', 'trainer-sheet-archive-editor');
+			editor.append(el('p', '', 'Uma Ração Pokémon rende até três petiscos oferecidos agora; porções não escolhidas não ficam guardadas.'));
+			const feedback = el('p', 'trainer-sheet-roll-error hidden');
+			const ration = select(action.friendshipSnacks.rations.filter(entry => entry.quantity > 0)
+				.map(entry => [entry.itemId, `${entry.itemId === 'racao-pokemon' ? 'Ração Pokémon' :
+				'Ração Artesanal Pokémon'} (${entry.quantity})`]));
+			ration.setAttribute('aria-label', 'Ração utilizada nos petiscos');
+			const rows = [];
+			for (let index = 0; index < 3; index++) {
+				const row = el('div', 'trainer-sheet-archive-row');
+				const trainer = select([['', 'Escolha o treinador'],
+					...action.friendshipSnacks.recipients.map(person => [person.id, person.name]),
+					['other', 'Outro Pokémon (NPC ou selvagem)']]);
+				const pokemon = select([['', 'Escolha o Pokémon']]);
+				const other = el('input'); other.type = 'text'; other.placeholder = 'Nome do outro Pokémon';
+				other.maxLength = 80; other.classList.add('hidden');
+				trainer.addEventListener('change', () => {
+					pokemon.replaceChildren(...(trainer.value && trainer.value !== 'other' ?
+						[['', 'Escolha o Pokémon'], ...(action.friendshipSnacks.recipients.find(person =>
+							person.id === trainer.value)?.pokemon || []).map(entry => [entry.id, entry.name])] :
+						[['', 'Escolha o Pokémon']]).map(([value, label]) => {
+						const option = document.createElement('option'); option.value = value;
+						option.textContent = label; return option;
+					}));
+					pokemon.classList.toggle('hidden', trainer.value === 'other');
+					other.classList.toggle('hidden', trainer.value !== 'other');
+				});
+				row.append(el('strong', '', `${index + 1}º petisco`), trainer, pokemon, other);
+				editor.append(row); rows.push({ trainer, pokemon, other });
+			}
+			const use = el('button', 'trainer-sheet-talent-use', 'Preparar e oferecer petiscos');
+			use.type = 'button'; use.disabled = !ration.options.length;
+			if (!ration.options.length) editor.append(el('p', 'trainer-sheet-talent-unavailable',
+				'É necessária uma Ração Pokémon na Bag.'));
+			use.addEventListener('click', async () => {
+				const servings = rows.filter(row => row.trainer.value).map(row => row.trainer.value === 'other' ?
+					{ otherPokemon: row.other.value.trim() } :
+					{ characterId: row.trainer.value, pokemonId: row.pokemon.value });
+				if (!servings.length || servings.some(entry => !entry.otherPokemon && !entry.pokemonId)) {
+					feedback.textContent = 'Escolha de um a três Pokémon para receber os petiscos.';
+					feedback.classList.remove('hidden'); return;
+				}
+				use.disabled = true;
+				try {
+					const outcome = await action.api('/trainer/talents/friendship-snack', { method: 'POST', body: {
+						requestId: crypto.randomUUID(), rationItemId: ration.value, servings,
+					} });
+					feedback.textContent = outcome.result.served.map(entry => `${entry.name}: ` +
+						(entry.friendshipGained === null ? 'oferecido; efeito narrado pelo Mestre' :
+						`+${entry.friendshipGained} de amizade`)).join(' · ');
+					feedback.classList.remove('hidden');
+					window.dispatchEvent(new CustomEvent('rpg:realtime-sync', { detail: { tableId: selectedTable } }));
+				} catch (error) {
+					feedback.textContent = error.message || 'Não foi possível preparar os petiscos.';
+					feedback.classList.remove('hidden'); use.disabled = false;
+				}
+			});
+			editor.prepend(el('label', '', 'Ração utilizada'), ration);
+			editor.append(use, feedback); panel.append(editor);
 		} else if (action?.comfortingArt) {
 			const controls = el('div', 'trainer-sheet-archive-editor');
 			const recipient = select([['', 'Participante'], ...action.comfortingArt.map(person =>
@@ -1829,12 +2056,22 @@
 										recipients: progression.archiveRecipients || [],
 									} } : !readOnly && id === 'atleta:capitao-de-time' ? { id, api, refresh,
 										captainPlan: { ...(progression.captainPlan || {}), proficiency: progression.proficiency } } :
-									!readOnly && id === 'artista:arte-reconfortante' ? { id, api, refresh,
-										comfortingArt: progression.comfortingArtRecipients || [] } :
-									!readOnly && ['segundo-folego', 'sortudo', 'determinado', 'esforco-heroico'].includes(id) ?
-										{ id, api, refresh, reroll: id !== 'segundo-folego',
-											available: progression.rerollAvailability?.[id],
-											used: progression.activeTalentUses?.used?.[id] === progression.activeTalentUses?.restCycle } : null));
+									!readOnly && sheet.classId === 'cozinheiro' && name === 'Refeição Revigorante' ?
+										{ id, api, revigoratingMeal: progression.revigoratingMeal } :
+										!readOnly && id === 'cozinheiro:petisco-de-amizade' ?
+											{ id, api, friendshipSnacks: progression.friendshipSnacks } :
+											!readOnly && id === 'cozinheiro:recompensa-de-treinamento' ?
+												{ id, api, trainingReward: progression.trainingReward } :
+												!readOnly && id === 'cozinheiro:harmonizacao-de-sabores' ?
+													{ id, api, contestHarmonization: progression.contestHarmonization } :
+													!readOnly && id === 'cozinheiro:racao-artesanal-pokemon' ?
+														{ id, api, artisanRation: progression.artisanRation } :
+														!readOnly && id === 'artista:arte-reconfortante' ? { id, api, refresh,
+															comfortingArt: progression.comfortingArtRecipients || [] } :
+														!readOnly && ['segundo-folego', 'sortudo', 'determinado', 'esforco-heroico'].includes(id) ?
+															{ id, api, refresh, reroll: id !== 'segundo-folego',
+																available: progression.rerollAvailability?.[id],
+																used: progression.activeTalentUses?.used?.[id] === progression.activeTalentUses?.restCycle } : null));
 			talentList.append(button);
 		}
 		talentSection.append(talentList);

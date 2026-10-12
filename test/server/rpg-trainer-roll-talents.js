@@ -22,6 +22,31 @@ function sheet() {
 }
 
 describe('RPG trainer situational roll talents', () => {
+	it('offers only the matching Cook situational bonuses when selected', () => {
+		const cook = { ...sheet(), classId: 'cozinheiro', talents: { general: [],
+			class: ['cozinheiro:forrageio-gastronomico', 'cozinheiro:paladar-resistente'], apex: null } };
+		const forage = rpgTrainerRollTalentOptions(cook, 'skill', 'sobrevivencia');
+		assert.equal(forage.length, 1);
+		assert.equal(forage[0].bonus, 2);
+		assert.equal(rpgResolveTrainerRollTalents(cook, 'skill', 'sobrevivencia', []).bonus, 0);
+		assert.equal(rpgResolveTrainerRollTalents(cook, 'skill', 'sobrevivencia', [forage[0].key]).bonus, 2);
+		const resistant = rpgTrainerRollTalentOptions(cook, 'resistance', 'fortitude');
+		assert.equal(resistant.length, 1);
+		assert.equal(resistant[0].bonus, 2);
+		assert.deepEqual(rpgTrainerRollTalentOptions(cook, 'skill', 'percepcao'), []);
+	});
+	it('offers Master of the Kitchen only for Culinary checks and raises the natural result to ten', () => {
+		const cook = { ...sheet(), classId: 'cozinheiro', talents: { general: [], class: [],
+			apex: 'cozinheiro:mestre-da-cozinha' }, skills: { trained: ['oficio:culinaria'], focused: [] } };
+		const [option] = rpgTrainerRollTalentOptions(cook, 'skill', 'oficio:culinaria');
+		assert.equal(option.naturalFloor, 10);
+		assert.deepEqual(rpgTrainerRollTalentOptions(cook, 'skill', 'oficio:artesanato'), []);
+		assert.equal(rpgResolveTrainerRollTalents(cook, 'skill', 'oficio:culinaria', [option.key]).naturalFloor, 10);
+		const roll = rollRPGTrainerSkillCheck(cook, 'oficio:culinaria', undefined,
+			{ dc: 12, naturalFloor: 10 }, () => 0.1);
+		assert.equal(roll.natural, 3);
+		assert.equal(roll.effectiveNatural, 10);
+	});
 	it('offers Scientific Authority only for its three selected Knowledge areas', () => {
 		const scientist = { ...sheet(), classId: 'cientista', talents: { general: [], class: [],
 			apex: 'cientista:autoridade-cientifica' }, talentSelections: [{

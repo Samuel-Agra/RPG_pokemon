@@ -24,7 +24,7 @@ export const RPG_BAG_MANAGEMENT_VERSION = 1;
 export type RPGManagedBagContext = 'world' | 'battle';
 export type RPGManagedBagCategory = 'pokeballs' | 'medicines' | 'held-items' |
 	'evolution-items' | 'tms' | 'fossils' | 'treasures' | 'favorites' | 'mission-items' |
-	'mega-stones' | 'key-items' | 'battle-items' | 'talent-items';
+	'mega-stones' | 'key-items' | 'battle-items' | 'talent-items' | 'food-items';
 export type RPGManagedBagAction = 'use' | 'equip' | 'remove' | 'teach' | 'favorite' | 'unfavorite' |
 	'move-to-mission' | 'remove-from-mission' | 'edit-mission-note' | 'discard' | 'give' |
 	'use-record' | 'produce-record' | 'finish-record' | 'cancel-record';
@@ -134,6 +134,7 @@ const WORLD_CATEGORIES: readonly { id: RPGManagedBagCategory, name: string }[] =
 	{ id: 'mega-stones', name: 'Mega Pedras' },
 	{ id: 'key-items', name: 'Itens-chave' },
 	{ id: 'mission-items', name: 'Itens de Missão' },
+	{ id: 'food-items', name: 'Alimentos' },
 	{ id: 'talent-items', name: 'Itens de talentos' },
 ];
 const BATTLE_CATEGORIES: readonly { id: RPGManagedBagCategory, name: string }[] = [

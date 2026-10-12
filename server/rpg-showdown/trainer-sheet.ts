@@ -55,6 +55,26 @@ export interface RPGTrainerSheet {
 	talentRestCycle?: number;
 	/** Ciclo em que cada talento ativo foi utilizado; persistido com a ficha. */
 	talentUses?: Record<string, number>;
+	/** Evita repetir Refeição Revigorante no mesmo avanço de descanso longo. */
+	revigoratingMealCycle?: number;
+	/** Chaves idempotentes das ações de Petisco de Amizade. */
+	friendshipSnackReceipts?: { requestId: string, fingerprint: string, result: {
+		served: { name: string, friendshipGained: number | null }[], }, }[];
+	trainingRewardReceipts?: { requestId: string, fingerprint: string, result: { name: string } }[];
+	contestHarmonizationReceipts?: { requestId: string, fingerprint: string, result: { names: string[] } }[];
+	/** Repetições da fabricação não rolam novamente nem duplicam rações. */
+	artisanRationReceipts?: { requestId: string, foodQuantity: number, result: {
+		foodQuantity: number, produced: number, natural: number, effectiveNatural?: number,
+		bonus: number, total: number, success: boolean,
+	}, }[];
+	/** Próximo dado de recuperação natural recebe a repetição de Nutrição de Recuperação. */
+	nutritionRecoveryPending?: boolean;
+	/** Confirma retries sem consumir Alimento ou curar novamente. */
+	revigoratingMealReceipts?: { requestId: string, fingerprint: string, cycle: number, result: {
+		dc: number, natural: number, effectiveNatural?: number, total: number, bonus: number, success: boolean,
+		foodConsumed: number, healing: number,
+		recipients: { id: string, name: string, recovered: number, exhaustionReduced: number }[],
+	}, }[];
 	lastChatRolls?: { any?: RPGTrainerChatRoll, resistance?: RPGTrainerChatRoll, skill?: RPGTrainerChatRoll };
 	/** Cada espaço preparado pertence a um destinatário e a uma área treinada de Conhecimento. */
 	sharedArchives?: { slot: number, topic: string, knowledge: string, recipientCharacterId: string }[];

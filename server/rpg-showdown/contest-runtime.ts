@@ -79,6 +79,7 @@ export interface RPGContestRuntimeParticipant {
 	stageMoves: [RPGContestMoveStageResult[], RPGContestMoveStageResult[]];
 	roundStages: [RPGContestRoundStageResult | null, RPGContestRoundStageResult | null];
 	scenarioCoherenceBonus: number;
+	contestHarmonizationBonus?: number;
 	judging: [RPGContestRoundJudging | null, RPGContestRoundJudging | null];
 	audienceReactions: [RPGContestAudienceReaction | null, RPGContestAudienceReaction | null];
 	judgeComments: [RPGContestJudgingComments | null, RPGContestJudgingComments | null];
@@ -209,6 +210,7 @@ export interface RPGContestRuntimeManagerOptions {
 	now?: () => number;
 	getCharacterTeam?: (characterId: string) => PokemonSet[] | undefined;
 	getTrainerSheet?: (characterId: string) => RPGTrainerSheet | undefined;
+	getContestHarmonization?: (characterId: string, teamIndexes: readonly number[]) => boolean;
 	getCombos?: () => readonly RPGContestComboDefinition[];
 	onFinished?: (session: RPGContestSession, results: readonly RPGContestPlacement[]) => void;
 	onMovePPSpent?: (characterId: string, teamIndex: number, moveId: string) => boolean;
@@ -223,6 +225,7 @@ export class RPGContestRuntimeManager {
 	private readonly onFinished?: RPGContestRuntimeManagerOptions['onFinished'];
 	private readonly getCharacterTeam: (characterId: string) => PokemonSet[] | undefined;
 	private readonly getTrainerSheet: (characterId: string) => RPGTrainerSheet | undefined;
+	private readonly getContestHarmonization: (characterId: string, teamIndexes: readonly number[]) => boolean;
 	private readonly getCombos: () => readonly RPGContestComboDefinition[];
 	private readonly onMovePPSpent?: RPGContestRuntimeManagerOptions['onMovePPSpent'];
 	private readonly onNPCMovePPSpent?: RPGContestRuntimeManagerOptions['onNPCMovePPSpent'];
@@ -231,6 +234,7 @@ export class RPGContestRuntimeManager {
 		this.now = options.now || Date.now;
 		this.getCharacterTeam = options.getCharacterTeam || (() => undefined);
 		this.getTrainerSheet = options.getTrainerSheet || (() => undefined);
+		this.getContestHarmonization = options.getContestHarmonization || (() => false);
 		this.getCombos = options.getCombos || (() => RPG_DEFAULT_CONTEST_COMBOS);
 		this.onFinished = options.onFinished;
 		this.onMovePPSpent = options.onMovePPSpent;
@@ -481,6 +485,7 @@ export class RPGContestRuntimeManager {
 			id: participant.id, disqualified: participant.disqualified,
 			roundTotals: participant.judging.filter(Boolean).map(judging => judging!.totalAfterJudging),
 			scenarioCoherenceBonus: participant.scenarioCoherenceBonus +
+				(participant.contestHarmonizationBonus || 0) +
 				this.trainerContestBonus(state, participant),
 			performanceBonus: participant.pokemonTeam.reduce((sum, pokemon) => sum + pokemon.performanceBonus, 0) / participant.pokemonTeam.length,
 		})));
@@ -538,7 +543,10 @@ export class RPGContestRuntimeManager {
 			teamIndexes: selections.map(selection => selection.teamIndex).filter((index): index is number => index !== undefined),
 			disqualified: false, rounds: [[], []], roundPokemonIndexes: [[], []], roundScores: [null, null],
 			stageStates: [firstStage, secondStage], stageMoves: [[], []], roundStages: [null, null],
-			scenarioCoherenceBonus: 0, judging: [null, null], audienceReactions: [null, null], judgeComments: [null, null],
+			scenarioCoherenceBonus: 0,
+			contestHarmonizationBonus: participant.characterId && this.getContestHarmonization(participant.characterId,
+				selections.map(selection => selection.teamIndex).filter((index): index is number => index !== undefined)) ? 3 : 0,
+			judging: [null, null], audienceReactions: [null, null], judgeComments: [null, null],
 		};
 	}
 

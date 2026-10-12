@@ -23,6 +23,27 @@ function ready(classId, level = 1, overrides = {}) {
 }
 
 describe('RPG trainer classes and talents', () => {
+	it('requires trained Pokémon Knowledge for Petisco de Amizade', () => {
+		const cook = ready('cozinheiro', 3);
+		const option = () => rpgTrainerTalentCatalog(cook).find(entry =>
+			entry.id === 'cozinheiro:petisco-de-amizade');
+		assert.equal(option().available, false);
+		assert.throws(() => chooseRPGTrainerTalent(cook,
+			{ id: 'cozinheiro:petisco-de-amizade' }), /treinamento na perícia/);
+		cook.skills.trained.push('conhecimento:pokemon');
+		assert.equal(option().available, true);
+		assert(chooseRPGTrainerTalent(cook,
+			{ id: 'cozinheiro:petisco-de-amizade' }).talents.class.includes('cozinheiro:petisco-de-amizade'));
+	});
+	it('offers Intelligence or Wisdom for Paladar Analítico and applies only the selected increase', () => {
+		const cook = ready('cozinheiro', 3);
+		const option = rpgTrainerTalentCatalog(cook).find(entry => entry.id === 'cozinheiro:paladar-analitico');
+		assert.deepEqual(option.attributeChoices, ['intelligence', 'wisdom']);
+		assert.throws(() => chooseRPGTrainerTalent(cook, { id: option.id }), /Escolha um atributo/);
+		const chosen = chooseRPGTrainerTalent(cook, { id: option.id, attribute: 'wisdom' });
+		assert.equal(chosen.attributes.wisdom, cook.attributes.wisdom + 1);
+		assert.equal(chosen.attributes.intelligence, cook.attributes.intelligence);
+	});
 	it('requires three distinct trained Knowledge areas for Scientific Authority', () => {
 		const scientist = ready('cientista', 10, { skills: { trained: [
 			'conhecimento:ciencias', 'conhecimento:pokemon', 'conhecimento:regioes',
@@ -48,9 +69,9 @@ describe('RPG trainer classes and talents', () => {
 	it('registers all twenty class bases, innate features and all published talents', () => {
 		assert.equal(Object.keys(RPG_TRAINER_CLASSES).length, 20);
 		assert.equal(Object.keys(RPG_TRAINER_CLASS_FEATURES).length, 20);
-		assert.equal(RPG_TRAINER_TALENTS.length, 456);
+		assert.equal(RPG_TRAINER_TALENTS.length, 455);
 		assert.equal(RPG_TRAINER_TALENTS.filter(talent => talent.kind === 'general').length, 54);
-		assert.equal(new Set(RPG_TRAINER_TALENTS.map(talent => talent.id)).size, 456);
+		assert.equal(new Set(RPG_TRAINER_TALENTS.map(talent => talent.id)).size, 455);
 		assert(!RPG_TRAINER_TALENTS.some(talent => talent.id === 'artista:memoria-de-repertorio'));
 		for (const classId of Object.keys(RPG_TRAINER_CLASSES)) {
 			assert.ok(rpgTrainerClassFeatures(ready(classId)).length >= 2, classId);

@@ -86,12 +86,13 @@ describe('RPG login', () => {
 			assert(storedSpecies.includes('Eevee'));
 			const showcaseBag = first.getBag(player.token);
 			for (const category of showcaseBag.categories.filter(entry =>
-				!['mission-items', 'treasures', 'key-items', 'talent-items'].includes(entry.id))) {
+				!['mission-items', 'treasures', 'key-items', 'talent-items', 'food-items'].includes(entry.id))) {
 				assert(category.itemTypes > 0, 'Expected test Bag category ' + category.id + ' to contain an item');
 			}
 			assert(showcaseBag.items.some(item => item.id === 'thunderstone'));
-			assert.equal(showcaseBag.categories.at(-2).id, 'mission-items');
-			assert.equal(showcaseBag.categories.at(-1).id, 'talent-items');
+			assert(showcaseBag.categories.some(category => category.id === 'mission-items'));
+			assert(showcaseBag.categories.some(category => category.id === 'talent-items'));
+			assert(showcaseBag.categories.some(category => category.id === 'food-items'));
 			const secondPlayer = first.loginPlayer('teste2', '4321');
 			const secondState = first.getCharacter(secondPlayer.token);
 			assert.deepEqual(secondState.team.map(pokemon => pokemon.species), ['Charmander', 'Charmeleon', 'Charizard']);
@@ -134,12 +135,13 @@ describe('RPG login', () => {
 			assert(restartedStoredSpecies.includes('Eevee'));
 			const restartedBag = restarted.getBag(restartedPlayer.token);
 			for (const category of restartedBag.categories.filter(entry =>
-				!['mission-items', 'treasures', 'key-items', 'talent-items'].includes(entry.id))) {
+				!['mission-items', 'treasures', 'key-items', 'talent-items', 'food-items'].includes(entry.id))) {
 				assert(category.itemTypes > 0, 'Expected persisted test Bag category ' + category.id + ' to contain an item');
 			}
 			assert(restartedBag.items.some(item => item.id === 'thunderstone'));
-			assert.equal(restartedBag.categories.at(-2).id, 'mission-items');
-			assert.equal(restartedBag.categories.at(-1).id, 'talent-items');
+			assert(restartedBag.categories.some(category => category.id === 'mission-items'));
+			assert(restartedBag.categories.some(category => category.id === 'talent-items'));
+			assert(restartedBag.categories.some(category => category.id === 'food-items'));
 			assert.equal(state.box.placements.some(entry => entry.placementId === 'orphaned-capture'), false);
 			const restartedSecondPlayer = restarted.loginPlayer('teste2', '4321');
 			const restartedSecondState = restarted.getCharacter(restartedSecondPlayer.token);

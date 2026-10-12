@@ -118,6 +118,8 @@ export class RPGHttpServer {
 		manager = new RPGContestRuntimeManager({
 			getCharacterTeam: characterId => this.login.repository.get(characterId)?.state.team,
 			getTrainerSheet: characterId => this.login.repository.get(characterId)?.state.trainerSheet,
+			getContestHarmonization: (characterId, teamIndexes) =>
+				this.login.contestHarmonizationPrepared(characterId, teamIndexes),
 			getCombos: () => this.login.contestCombos.list(),
 			onMovePPSpent: (characterId, teamIndex, moveId) =>
 				this.login.consumeContestMovePP(characterId, teamIndex, moveId),
@@ -494,6 +496,82 @@ export class RPGHttpServer {
 				this.string(body.recipientCharacterId), this.string(body.effect) as 'will' | 'exhaustion'));
 			return;
 		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/revigorating-meal') {
+			const token = this.token(req);
+			const session = this.login.getSession(token);
+			if (!session.platformTableId || !session.platformAccountId || !this.login.mysqlPersistence) {
+				throw new Error('Chat da mesa indisponível');
+			}
+			const body = await this.body(req);
+			const outcome = this.login.useTrainerRevigoratingMeal(token, {
+				requestId: this.string(body.requestId), dc: Number(body.dc),
+				recipientCharacterIds: body.recipientCharacterIds as string[],
+			});
+			const result = outcome.result;
+			if (!outcome.repeated) {
+				const people = result.recipients.map(person => `${person.name}: +${person.recovered} PV` +
+					(person.exhaustionReduced ? `, -${person.exhaustionReduced} Exaustão (Refeição Reconfortante)` : '')).join('\n');
+				const floorLine = (result.effectiveNatural ?? result.natural) > result.natural ?
+					`Ápice — Mestre da Cozinha: ${result.natural} no dado vale ${result.effectiveNatural}.\n` : '';
+				const message = `Refeição Revigorante — CD ${result.dc}\n${floorLine}` +
+					`Ofício — Culinária: 1d20 tirou ${result.effectiveNatural ?? result.natural} + ${result.bonus} = ${result.total}\n` +
+					(result.success ? `Cura: ${result.healing} PV por participante\n${people}` : 'Falha: nenhuma cura adicional.') +
+					`\nAlimento consumido: ${result.foodConsumed}`;
+				await this.login.mysqlPersistence.createTableChatMessage(
+					session.platformTableId, session.platformAccountId, message);
+			}
+			this.json(res, 200, outcome);
+			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/friendship-snack') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.useTrainerFriendshipSnack(this.token(req), {
+				requestId: this.string(body.requestId),
+				rationItemId: this.string(body.rationItemId),
+				servings: body.servings as { characterId?: string, pokemonId?: string, otherPokemon?: string }[],
+			}));
+			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/training-reward') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.useTrainerTrainingReward(this.token(req), {
+				requestId: this.string(body.requestId), rationItemId: this.string(body.rationItemId),
+				characterId: this.string(body.characterId), pokemonId: this.string(body.pokemonId),
+			}));
+			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/contest-harmonization') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.useTrainerContestHarmonization(this.token(req), {
+				requestId: this.string(body.requestId), characterId: this.string(body.characterId),
+				pokemonIds: body.pokemonIds as string[],
+			}));
+			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/artisan-ration') {
+			const token = this.token(req);
+			const session = this.login.getSession(token);
+			if (!session.platformTableId || !session.platformAccountId || !this.login.mysqlPersistence) {
+				throw new Error('Chat da mesa indisponível');
+			}
+			const body = await this.body(req);
+			const outcome = this.login.useTrainerArtisanRation(token, {
+				requestId: this.string(body.requestId), foodQuantity: Number(body.foodQuantity),
+			});
+			if (!outcome.repeated) {
+				const result = outcome.result;
+				const floorLine = (result.effectiveNatural ?? result.natural) > result.natural ?
+					`Ápice — Mestre da Cozinha: ${result.natural} no dado vale ${result.effectiveNatural}.\n` : '';
+				const message = `Ração Artesanal Pokémon — CD 12\n${floorLine}` +
+					`Ofício — Culinária: 1d20 tirou ${result.effectiveNatural ?? result.natural} + ${result.bonus} = ${result.total}\n` +
+					(result.success ? `${result.foodQuantity} Alimentos → ${result.produced} Rações Artesanais Pokémon` :
+					'Falha: nenhum Alimento consumido e nenhuma ração criada.');
+				await this.login.mysqlPersistence.createTableChatMessage(
+					session.platformTableId, session.platformAccountId, message);
+			}
+			this.json(res, 200, outcome);
+			return;
+		}
 		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/team-captain') {
 			const body = await this.body(req);
 			this.json(res, 200, this.login.setTrainerCaptainPlan(this.token(req),
@@ -557,15 +635,17 @@ export class RPGHttpServer {
 				character.trainerSheet?.talents.apex === 'artista:lenda-dos-palcos';
 			const eraVoice = offered.talents.some(talent => talent.id === 'arqueologo:voz-das-eras');
 			const scientificAuthority = offered.talents.some(talent => talent.id === 'cientista:autoridade-cientifica');
+			const kitchenMastery = offered.talents.some(talent => talent.id === 'cozinheiro:mestre-da-cozinha');
 			const athleticFundamentals = character.trainerSheet?.classId === 'atleta' &&
 				(skill === 'atletismo' || skill === 'acrobacia');
 			const completeAthlete = athleticFundamentals &&
 				character.trainerSheet?.talents.apex === 'atleta:atleta-completo';
-			const naturalFloor = stageLegend || eraVoice || scientificAuthority || completeAthlete ? 10 : skill === 'conhecimento:arqueologia-fosseis' &&
+			const naturalFloor = stageLegend || eraVoice || scientificAuthority || kitchenMastery || completeAthlete ? 10 : skill === 'conhecimento:arqueologia-fosseis' &&
 				character.trainerSheet?.talents.class.includes('arqueologo:memoria-academica') ? 8 :
 				athleticFundamentals ? 5 : 0;
 			const floorSource = stageLegend ? 'Ápice — Lenda dos Palcos' : eraVoice ? 'Voz das Eras' :
 				scientificAuthority ? 'Ápice — Autoridade Científica' :
+				kitchenMastery ? 'Ápice — Mestre da Cozinha' :
 				completeAthlete ? 'Ápice — Atleta Completo' :
 				athleticFundamentals ? 'Fundamentos Esportivos' : 'Memória Acadêmica';
 			const floorLine = offered.result.effectiveNatural > offered.result.natural ?
@@ -675,15 +755,17 @@ export class RPGHttpServer {
 				character.trainerSheet?.talents.apex === 'artista:lenda-dos-palcos';
 			const eraVoice = talentEffects.chosen.some(talent => talent.id === 'arqueologo:voz-das-eras');
 			const scientificAuthority = talentEffects.chosen.some(talent => talent.id === 'cientista:autoridade-cientifica');
+			const kitchenMastery = talentEffects.chosen.some(talent => talent.id === 'cozinheiro:mestre-da-cozinha');
 			const athleticFundamentals = skillRoll && character.trainerSheet?.classId === 'atleta' &&
 				(skill === 'atletismo' || skill === 'acrobacia');
 			const completeAthlete = athleticFundamentals &&
 				character.trainerSheet?.talents.apex === 'atleta:atleta-completo';
-			const naturalFloor = stageLegend || eraVoice || scientificAuthority || completeAthlete ? 10 : skillRoll && skill === 'conhecimento:arqueologia-fosseis' &&
+			const naturalFloor = stageLegend || eraVoice || scientificAuthority || kitchenMastery || completeAthlete ? 10 : skillRoll && skill === 'conhecimento:arqueologia-fosseis' &&
 				character.trainerSheet?.talents.class.includes('arqueologo:memoria-academica') ? 8 :
 				athleticFundamentals ? 5 : 0;
 			const floorSource = stageLegend ? 'Ápice — Lenda dos Palcos' : eraVoice ? 'Voz das Eras' :
 				scientificAuthority ? 'Ápice — Autoridade Científica' :
+				kitchenMastery ? 'Ápice — Mestre da Cozinha' :
 				completeAthlete ? 'Ápice — Atleta Completo' :
 				athleticFundamentals ? 'Fundamentos Esportivos' : 'Memória Acadêmica';
 			const floorLine = skillRoll && effectiveNatural > result.natural ?
@@ -2236,8 +2318,10 @@ export class RPGHttpServer {
 				const contestSession = this.login.startContestSession(token, contestSessionId);
 				try {
 					const contest = this.contestRuntimeManager.start(contestSession);
+					this.login.consumeContestHarmonizations(contest.participants);
 					this.json(res, 200, { contestSession, contest });
 				} catch (error) {
+					this.contestRuntimeManager.replaceState(contestSessionId, null);
 					this.login.rollbackContestSessionStart(contestSessionId);
 					throw error;
 				}
@@ -2725,6 +2809,11 @@ export class RPGHttpServer {
 	/** Only established domain validation messages may cross the HTTP boundary. */
 	private isPublicValidationError(message: string): boolean {
 		if (/persisted|estado persistido|table scope|random source|repository|repositório/i.test(message)) return false;
+		if (/^(?:Refeição Revigorante |Escolha a CD e participantes |Alimento insuficiente na Bag|Identificador de refeição já utilizado|.* já recebeu Refeição Revigorante neste descanso|.* não pode ser curado)/.test(message)) return true;
+		if (/^(?:Escolha de um a três Pokémon|Este treinador não possui Petisco de Amizade|Identificador de petiscos já utilizado|É necessária uma Ração Pokémon|Nome do outro Pokémon muito longo|Escolha um treinador e um de seus Pokémon|Cada Pokémon pode receber somente um petisco)/.test(message)) return true;
+		if (/^(?:Este treinador não possui Recompensa de Treinamento|Identificador de recompensa já utilizado|Escolha um treinador da mesa|Pokémon já está em treinamento|Este Pokémon já possui uma recompensa de treinamento|Somente Pokémon da equipe ativa podem receber a recompensa|Pokémon indisponível para receber a recompensa)/.test(message)) return true;
+		if (/^(?:Este treinador não possui Harmonização de Sabores|Este Pokémon já possui Harmonização de Sabores|Este treinador já possui uma Harmonização de Sabores pendente|Escolha um Pokémon disponível na equipe ativa|Escolha de um a \d Pokémon diferentes|São necessários \d+ Alimentos na Bag|É necessário um Alimento na Bag)/.test(message)) return true;
+		if (/^(?:Escolha uma quantidade de Alimentos|Este treinador não possui Ração Artesanal Pokémon|Identificador de preparo já utilizado|Alimentos insuficientes na Bag|Kit de Culinária necessário|Domínio do Kit de Culinária necessário|Escolha uma Ração Pokémon válida)/.test(message)) return true;
 		if (/^(?:Você precisa de um Kit Científico na Bag|Este registro exige (?:um Kit Científico de nível|\d+ carga\(s\))|Registro (?:inválido|não pertence a este treinador|científico indisponível)|Cientista indisponível nesta mesa|Esta fórmula já está em preparação|Há preparações demais em andamento|Preparação indisponível|O Registro Reprodutível foi alterado ou retirado|A preparação ainda não atingiu o tempo necessário)/.test(message)) return true;
 		if (/^(?:Registro Avançado indisponível|Espaço de registro inválido|Destinatário indisponível|Informe nome \(3–100\)|Identificador inválido|Identificador já utilizado|Já existe um registro aguardando aprovação|Registro não está pendente|Nível do kit ou cargas inválidos|Cientista ou destinatário indisponível|A biblioteca permite até dois Registros Avançados ativos)/.test(message)) return true;
 		if (/^(?:Publicação de Referência não está disponível|Identificador do artigo inválido|Informe título e resumo do artigo|Já existe um artigo aguardando avaliação|Artigo não está pendente|Decisão ou pagamento inválido|Pagamento ultrapassa o limite de Pokécoins|Entre como jogador em uma mesa para criar o artigo|Nenhum personagem selecionado|Personagem fora da mesa atual)/.test(message)) return true;
