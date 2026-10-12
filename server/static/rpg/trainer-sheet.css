@@ -432,3 +432,6 @@ button.trainer-sheet-attribute:hover, button.trainer-sheet-attribute[aria-expand
 	.trainer-sheet-skills .trainer-sheet-list-row { flex-direction: row; }
 	.trainer-sheet-creation-skills, .trainer-sheet-creation-gear { grid-template-columns: 1fr; }
 }
+.trainer-first-care-overlay { position: fixed; inset: 0; z-index: 1100; display: grid; place-items: center; padding: 1rem; background: #09162a99; }
+.trainer-first-care-dialog { width: min(36rem, 100%); max-height: 85vh; overflow: auto; padding: 1.5rem; border-radius: 1rem; border: 1px solid #b8c8df; background: #fff; color: #263653; box-shadow: 0 1rem 3rem #0b193766; }
+.trainer-first-care-group { display: grid; gap: .5rem; margin-top: 1rem; }

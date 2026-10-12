@@ -120,6 +120,8 @@ export class RPGHttpServer {
 			getTrainerSheet: characterId => this.login.repository.get(characterId)?.state.trainerSheet,
 			getContestHarmonization: (characterId, teamIndexes) =>
 				this.login.contestHarmonizationPrepared(characterId, teamIndexes),
+			getChoreography: (characterId, teamIndexes) =>
+				this.login.trainerContestChoreography(characterId, teamIndexes),
 			getCombos: () => this.login.contestCombos.list(),
 			onMovePPSpent: (characterId, teamIndex, moveId) =>
 				this.login.consumeContestMovePP(characterId, teamIndex, moveId),
@@ -548,6 +550,19 @@ export class RPGHttpServer {
 			}));
 			return;
 		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/choreography') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.prepareTrainerChoreography(this.token(req), {
+				requestId: this.string(body.requestId),
+				kind: this.string(body.kind) as 'rehearsal' | 'formation' | 'guest' | 'theme' | 'instinct' |
+				'warmup' | 'evacuation',
+				characterId: this.string(body.characterId),
+				pokemonIds: body.pokemonIds as string[], tag: this.string(body.tag),
+				recipientCharacterIds: body.recipientCharacterIds as string[],
+				activity: this.string(body.activity),
+			}));
+			return;
+		}
 		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/artisan-ration') {
 			const token = this.token(req);
 			const session = this.login.getSession(token);
@@ -705,7 +720,8 @@ export class RPGHttpServer {
 			const selectedTalents = body.talents === undefined ? [] : body.talents;
 			const talentEffects = rpgResolveTrainerRollTalents(character.trainerSheet!, kind,
 				rollId, selectedTalents as string[],
-				resistanceRoll || skillRoll ? this.login.getTrainerAllyRollTalents(token, characterId!) : [],
+				resistanceRoll || skillRoll || kind === 'attribute' ?
+					this.login.getTrainerAllyRollTalents(token, characterId!) : [],
 				skillAttribute);
 			const observedSkill = skillRoll && talentEffects.chosen.some(talent =>
 				talent.id === 'aprendizado-por-observacao');
@@ -781,6 +797,7 @@ export class RPGHttpServer {
 			if (talentEffects.chosen.some(talent => talent.id === 'cientista:hipotese-persistente')) {
 				this.login.consumeTrainerPersistentHypothesis(token, characterId!);
 			}
+			this.login.consumeTrainerChoreographyRoll(token, characterId!, talentEffects.chosen.map(talent => talent.key));
 			if (kind === 'attribute' || kind === 'skill' || kind === 'resistance') {
 				this.login.recordTrainerChatRoll(token, kind, rollName, bonus, posted, { ...result,
 					mode: result.mode as 'normal' | 'advantage' | 'disadvantage' },
@@ -2022,6 +2039,22 @@ export class RPGHttpServer {
 			) });
 			return;
 		}
+		if (method === 'POST' && url.pathname === '/api/rpg/nursery/examine') {
+			const body = await this.body(req);
+			this.json(res, 200, { examination: this.login.examineNurseryEgg(this.token(req),
+				this.string(body.eggId), typeof body.breederId === 'string' ? body.breederId : undefined) });
+			return;
+		}
+		if (method === 'GET' && url.pathname === '/api/rpg/trainer/first-care') {
+			this.json(res, 200, this.login.getFirstCareCandidates(this.token(req)));
+			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/first-care') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.performFirstCare(this.token(req),
+				this.string(body.characterId), this.string(body.pokemonId)));
+			return;
+		}
 		const nurseryAction = /^\/api\/rpg\/nursery\/(create|master-slot1|accept|master-slot2|master-cancel|withdraw-slot2|confirm|cancel|collect-parent|collect|collect-local|insert|remove|portable-start|portable-stop|restore-released|delete-released|shop-buy|hatch)$/.exec(url.pathname);
 		if (method === 'POST' && nurseryAction) {
 			const body = await this.body(req);
@@ -2809,6 +2842,7 @@ export class RPGHttpServer {
 	/** Only established domain validation messages may cross the HTTP boundary. */
 	private isPublicValidationError(message: string): boolean {
 		if (/persisted|estado persistido|table scope|random source|repository|repositório/i.test(message)) return false;
+		if (/^(?:Entre como jogador em uma mesa|Nenhum personagem selecionado|Preparo coreográfico inválido|Este treinador não é Coreógrafo|Escolha Pokémon diferentes|Identificador de ensaio já utilizado|Escolha outro treinador da mesa para Diretor Convidado|Personagem fora da mesa atual|Escolha \d+ Pokémon para este preparo|Escolha Pokémon disponíveis na equipe|Formação não aprendida|Ensaie individualmente com todos os Pokémon primeiro|O convidado precisa ter ficha concluída|Este participante já possui Diretor Convidado|Tema Unificado não aprendido|Escolha um tema presente nos golpes do concurso|Entrosamento Instintivo não aprendido|Pokémon requer 50 de amizade|Preparação coletiva não aprendida|Escolha de um a \d+ participantes da mesa|Descreva a atividade em até 100 caracteres)/.test(message)) return true;
 		if (/^(?:Refeição Revigorante |Escolha a CD e participantes |Alimento insuficiente na Bag|Identificador de refeição já utilizado|.* já recebeu Refeição Revigorante neste descanso|.* não pode ser curado)/.test(message)) return true;
 		if (/^(?:Escolha de um a três Pokémon|Este treinador não possui Petisco de Amizade|Identificador de petiscos já utilizado|É necessária uma Ração Pokémon|Nome do outro Pokémon muito longo|Escolha um treinador e um de seus Pokémon|Cada Pokémon pode receber somente um petisco)/.test(message)) return true;
 		if (/^(?:Este treinador não possui Recompensa de Treinamento|Identificador de recompensa já utilizado|Escolha um treinador da mesa|Pokémon já está em treinamento|Este Pokémon já possui uma recompensa de treinamento|Somente Pokémon da equipe ativa podem receber a recompensa|Pokémon indisponível para receber a recompensa)/.test(message)) return true;

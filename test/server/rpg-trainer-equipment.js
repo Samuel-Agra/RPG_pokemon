@@ -72,6 +72,23 @@ describe('RPG trainer equipment and item bank', () => {
 			/4 porções de refeição.*roleplay/);
 		assert.equal(bag.items.some(item => /Refeição Preparada/.test(item.name)), false);
 	});
+	it('groups all new equipment in Itens novos, including kits and exploration gear', () => {
+		const service = new RPGLoginService({ masterCode: 'teste', repository: new RPGMemoryCharacterRepository() });
+		const master = service.loginMaster('teste');
+		character(service, 'Exploradora');
+		service.changeTrainerEquipment(master.token, { action: 'grant', characterId: 'exploradora',
+			expectedRevision: 0, itemId: 'kit-explorador', quantity: 1 });
+		service.changeTrainerEquipment(master.token, { action: 'grant', characterId: 'exploradora',
+			expectedRevision: 1, itemId: 'faca', quantity: 1 });
+		service.changeTrainerEquipment(master.token, { action: 'grant', characterId: 'exploradora',
+			expectedRevision: 2, itemId: 'alimento', quantity: 2 });
+		const bag = service.getBag(master.token, 'exploradora', { category: 'food-items' });
+		assert.equal(bag.categories.find(category => category.id === 'food-items').name, 'Itens novos');
+		assert(bag.items.some(item => item.id === 'equipment:kit-explorador'));
+		assert(bag.items.some(item => item.id === 'equipment:faca'));
+		assert(bag.items.some(item => item.id === 'equipment:alimento' && item.quantity === 2));
+		assert(bag.items.every(item => item.icon === null && item.sprite === null));
+	});
 	it('allocates class gear in the shared Bag and keeps purchases, transfers and consumption consistent', () => {
 		const repository = new RPGMemoryCharacterRepository();
 		const service = new RPGLoginService({ masterCode: 'teste', repository });

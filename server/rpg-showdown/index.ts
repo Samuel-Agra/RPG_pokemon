@@ -79,6 +79,7 @@ import {
 } from './trainer-checks';
 import { rpgArtisticInspirationOption, rpgCaptivatingDistractionOption, rpgEncouragingPresenceOption,
 	rpgExcavationMasterOption, rpgExpeditionLeaderOption, rpgTeamCaptainOption,
+	rpgChoreographyGroupOption,
 	rpgTechnicalOpinionOption,
 	rpgResolveTrainerRollTalents, rpgSetSharedArchive, rpgUpdatePersistentHypothesis,
 	rpgSharedArchiveOptions, rpgTrainerRollTalents } from './trainer-roll-talents';
@@ -118,6 +119,7 @@ import {
 } from './account-management';
 import { applyRPGContestPerformance, type RPGContestPlacement } from './contest-progression';
 import { classifyRPGContestItem, type RPGContestItemClassification } from './contest-item-catalog';
+import { getRPGContestMoveCatalog } from './contest-move-catalog';
 import { RPGTournamentSessionService, type RPGTournament } from './tournament-session';
 import {
 	RPGBoxManagement,
@@ -2584,6 +2586,23 @@ export class RPGLoginService {
 							prepared: !!entry.metadata?.contestHarmonization })) };
 				}),
 			} : null,
+			choreography: sheet.classId === 'coreografo' ? {
+				pokemon: state.box.party.filter(entry => !entry.metadata?.breeding && !entry.metadata?.evTraining &&
+					entry.metadata?.training !== 'roleplay').map(entry => ({ id: entry.pokemonId,
+					name: entry.pokemon.name || entry.pokemon.species, friendship: entry.pokemon.rpg.friendship || 0 })),
+				recipients: this.trainerRecordRecipients(token).filter(person => person.id !== state.id).map(person => {
+					const owner = this.repository.get(person.id)!;
+					return { ...person, pokemon: owner.state.box.party.filter(entry => !entry.metadata?.breeding &&
+						!entry.metadata?.evTraining && entry.metadata?.training !== 'roleplay')
+						.map(entry => ({ id: entry.pokemonId, name: entry.pokemon.name || entry.pokemon.species })) };
+				}),
+				tags: [...new Set(getRPGContestMoveCatalog().flatMap(move => move.tags))].sort(),
+				prepared: sheet.choreography || { rehearsals: [], formations: [] },
+				groupRecipients: this.trainerArchiveRecipients(token),
+				groupPreparations: sheet.choreographyGroups || [],
+				proficiency: rpgTrainerProficiency(sheet.level),
+				currentDateTime: this.campaignSettings.currentDateTime,
+			} : null,
 			artisanRation: sheet.talents.class.includes('cozinheiro:racao-artesanal-pokemon') ? {
 				availableFood: equipment.items.filter(item => item.itemId === 'alimento' && item.location === 'bag')
 					.reduce((sum, item) => sum + item.quantity, 0),
@@ -2951,6 +2970,149 @@ export class RPGLoginService {
 		return { result, repeated: false };
 	}
 
+	/** Registra ensaios no relógio da mesa; preparos breves não sobrevivem à próxima hora sem uso. */
+	prepareTrainerChoreography(token: string, input: { requestId: string,
+		kind: 'rehearsal' | 'formation' | 'guest' | 'theme' | 'instinct' | 'warmup' | 'evacuation',
+		characterId?: string, pokemonIds?: string[], tag?: string,
+		recipientCharacterIds?: string[], activity?: string, }) {
+		const session = this.getSession(token);
+		if (session.mode !== 'player' || !session.platformTableId) throw new Error('Entre como jogador em uma mesa');
+		const actorId = session.role === 'master' ? session.viewAsCharacterId : session.characterId;
+		if (!actorId) throw new Error('Nenhum personagem selecionado');
+		if (!input || !/^[a-zA-Z0-9_-]{8,100}$/.test(input.requestId) ||
+			!['rehearsal', 'formation', 'guest', 'theme', 'instinct', 'warmup', 'evacuation'].includes(input.kind)) {
+			throw new Error('Preparo coreográfico inválido');
+		}
+		const actor = structuredClone(this.requireCharacter(toID(actorId)));
+		const sheet = actor.state.trainerSheet;
+		if (sheet?.status !== 'complete' || sheet.classId !== 'coreografo') {
+			throw new Error('Este treinador não é Coreógrafo');
+		}
+		const ids = input.pokemonIds || [];
+		if (!Array.isArray(ids) || ids.length > 3 || new Set(ids).size !== ids.length ||
+			ids.some(id => typeof id !== 'string' || !id)) throw new Error('Escolha Pokémon diferentes');
+		const fingerprint = createHash('sha256').update(JSON.stringify([input.kind, input.characterId || '', ids,
+			input.tag || '', input.recipientCharacterIds || [], input.activity || ''])).digest('hex');
+		const choreography = sheet.choreography ||= { rehearsals: [], formations: [] };
+		const previous = choreography.receipts?.find(entry => entry.requestId === input.requestId);
+		if (previous) {
+			if (previous.fingerprint !== fingerprint) throw new Error('Identificador de ensaio já utilizado');
+			return { result: previous.result, repeated: true };
+		}
+		const targetId = input.kind === 'guest' ? toID(input.characterId) : actor.state.id;
+		if (input.kind === 'guest' && (!sheet.talents.class.includes('coreografo:diretor-convidado') ||
+			!this.trainerRecordRecipients(token).some(person => person.id === targetId) || targetId === actor.state.id)) {
+			throw new Error('Escolha outro treinador da mesa para Diretor Convidado');
+		}
+		const target = targetId === actor.state.id ? actor : structuredClone(this.requireCharacter(targetId));
+		if (target.tableId !== session.platformTableId) throw new Error('Personagem fora da mesa atual');
+		const now = Date.parse(this.campaignSettings.currentDateTime);
+		const after = (hours: number) => new Date(now + hours * 60 * 60 * 1000).toISOString();
+		const names: string[] = [];
+		if (!['theme', 'warmup', 'evacuation'].includes(input.kind)) {
+			const expected = input.kind === 'guest' ? ids.length : input.kind === 'formation' ?
+				(sheet.talents.class.includes('coreografo:formacao-em-trio') && ids.length === 3 ? 3 : 2) : 1;
+			if (!expected || ids.length !== expected) throw new Error(`Escolha ${expected || 1} Pokémon para este preparo`);
+			for (const id of ids) {
+				const entry = target.state.box.party.find(pokemon => pokemon.pokemonId === id);
+				if (!entry || entry.metadata?.breeding || entry.metadata?.evTraining ||
+					entry.metadata?.training === 'roleplay') throw new Error('Escolha Pokémon disponíveis na equipe');
+				names.push(entry.pokemon.name || entry.pokemon.species);
+			}
+		}
+		let readyAt = this.campaignSettings.currentDateTime;
+		if (input.kind === 'warmup' || input.kind === 'evacuation') {
+			const talentId = input.kind === 'warmup' ? 'coreografo:preparacao-corporal-conjunta' :
+				'coreografo:conducao-de-evacuacao';
+			if (!sheet.talents.class.includes(talentId)) throw new Error('Preparação coletiva não aprendida');
+			const recipients = input.recipientCharacterIds || [];
+			const limit = rpgTrainerProficiency(sheet.level) * (input.kind === 'evacuation' ? 2 : 1);
+			if (!Array.isArray(recipients) || !recipients.length || recipients.length > limit ||
+				new Set(recipients).size !== recipients.length ||
+					recipients.some(id => !this.trainerArchiveRecipients(token).some(person => person.id === id))) {
+				throw new Error(`Escolha de um a ${limit} participantes da mesa`);
+			}
+			const activity = String(input.activity || '').trim();
+			if (!activity || activity.length > 100) throw new Error('Descreva a atividade em até 100 caracteres');
+			sheet.choreographyGroups = [...(sheet.choreographyGroups || []).filter(entry => entry.kind !== input.kind),
+				{ kind: input.kind, activity, recipientCharacterIds: [...recipients],
+					usedRecipientIds: [], expiresAt: after(1) }];
+		} else if (input.kind === 'rehearsal') {
+			choreography.rehearsals = [...choreography.rehearsals.filter(entry => entry.pokemonId !== ids[0]),
+				{ pokemonId: ids[0], readyAt: after(1) }];
+			readyAt = after(1);
+		} else if (input.kind === 'formation') {
+			const required = ids.length === 3 ? 'coreografo:formacao-em-trio' : 'coreografo:formacao-em-dupla';
+			if (!sheet.talents.class.includes(required)) throw new Error('Formação não aprendida');
+			if (!ids.every(id => choreography.rehearsals.some(entry => entry.pokemonId === id &&
+				Date.parse(entry.readyAt) <= now))) throw new Error('Ensaie individualmente com todos os Pokémon primeiro');
+			readyAt = after(ids.length === 3 ? 2 : 1);
+			choreography.formations = [...choreography.formations.filter(entry =>
+				entry.pokemonIds.length !== ids.length || !entry.pokemonIds.every(id => ids.includes(id))),
+			{ pokemonIds: [...ids], readyAt }];
+		} else if (input.kind === 'guest') {
+			readyAt = after(1);
+			const guestSheet = target.state.trainerSheet;
+			if (guestSheet?.status !== 'complete') throw new Error('O convidado precisa ter ficha concluída');
+			const guest = guestSheet.choreography ||= { rehearsals: [], formations: [] };
+			if (guest.guestDirection && Date.parse(guest.guestDirection.expiresAt) > now) {
+				throw new Error('Este participante já possui Diretor Convidado');
+			}
+			guest.guestDirection = { directorId: actor.state.id, pokemonIds: [...ids],
+				readyAt, expiresAt: after(2) };
+		} else if (input.kind === 'theme') {
+			if (!sheet.talents.class.includes('coreografo:tema-unificado')) throw new Error('Tema Unificado não aprendido');
+			const tag = String(input.tag || '').trim().toLowerCase();
+			if (!tag || !getRPGContestMoveCatalog().some(move => move.tags.includes(tag))) {
+				throw new Error('Escolha um tema presente nos golpes do concurso');
+			}
+			choreography.theme = { tag, expiresAt: after(1) };
+		} else {
+			if (sheet.talents.apex !== 'coreografo:entrosamento-instintivo') {
+				throw new Error('Entrosamento Instintivo não aprendido');
+			}
+			const entry = target.state.box.party.find(pokemon => pokemon.pokemonId === ids[0]);
+			if (!entry || (entry.pokemon.rpg.friendship || 0) < 50) throw new Error('Pokémon requer 50 de amizade');
+			choreography.instinct = { pokemonId: ids[0], expiresAt: after(1) };
+		}
+		const result = { kind: input.kind, names, readyAt };
+		choreography.receipts = [...(choreography.receipts || []).slice(-29),
+			{ requestId: input.requestId, fingerprint, result }];
+		const originalActor = this.requireCharacter(actor.state.id);
+		const originalTarget = target === actor ? undefined : this.requireCharacter(target.state.id);
+		try {
+			this.persistAtomically(() => {
+				this.repository.set(actor);
+				if (target !== actor) this.repository.set(target);
+			});
+		} catch (error) {
+			this.repository.set(originalActor);
+			if (originalTarget) this.repository.set(originalTarget);
+			throw error;
+		}
+		return { result, repeated: false };
+	}
+
+	trainerContestChoreography(characterId: string, teamIndexes: readonly number[]) {
+		const record = this.repository.get(characterId);
+		const sheet = record?.state.trainerSheet;
+		const choreography = sheet?.choreography;
+		const now = Date.parse(this.campaignSettings.currentDateTime);
+		const pokemonIds = teamIndexes.map(index => record?.state.box.party[index]?.pokemonId || '');
+		const rehearsed = pokemonIds.map(id => !!id && !!choreography?.rehearsals.some(entry =>
+			entry.pokemonId === id && Date.parse(entry.readyAt) <= now) ||
+			!!id && choreography?.instinct?.pokemonId === id && Date.parse(choreography.instinct.expiresAt) > now);
+		const formation = !!choreography?.formations.some(entry => Date.parse(entry.readyAt) <= now &&
+			entry.pokemonIds.length === pokemonIds.length && entry.pokemonIds.every(id => pokemonIds.includes(id))) &&
+			rehearsed.every(Boolean);
+		const guest = choreography?.guestDirection;
+		return { rehearsed, formation,
+			themeTag: choreography?.theme && Date.parse(choreography.theme.expiresAt) > now ? choreography.theme.tag : null,
+			guest: !!guest && Date.parse(guest.readyAt) <= now && Date.parse(guest.expiresAt) > now &&
+				guest.pokemonIds.length === pokemonIds.length && guest.pokemonIds.every(id => pokemonIds.includes(id)),
+		};
+	}
+
 	contestHarmonizationPrepared(characterId: string, teamIndexes: readonly number[]): boolean {
 		const record = this.repository.get(characterId);
 		return !!record && RPGBoxManagement.contestHarmonizationPrepared(record.state, teamIndexes);
@@ -2971,7 +3133,14 @@ export class RPGLoginService {
 			const original = this.repository.get(participant.characterId);
 			if (!original) continue;
 			const record = structuredClone(original);
-			if (!RPGBoxManagement.consumeContestHarmonization(record.state, participant.teamIndexes)) continue;
+			let modified = RPGBoxManagement.consumeContestHarmonization(record.state, participant.teamIndexes);
+			const choreography = record.state.trainerSheet?.choreography;
+			if (choreography?.theme || choreography?.guestDirection) {
+				delete choreography.theme;
+				delete choreography.guestDirection;
+				modified = true;
+			}
+			if (!modified) continue;
 			originals.set(record.state.id, structuredClone(original));
 			record.state.updatedAt = this.now();
 			changed.push(record);
@@ -3265,6 +3434,7 @@ export class RPGLoginService {
 	/** Exibe apenas treinadores de contas ativas da mesa atual; a mesma busca valida a rolagem. */
 	getTrainerAllyRollTalents(token: string, characterId: string) {
 		return [...this.encouragingPresenceOptions(token, characterId),
+			...this.choreographyGroupOptions(token, characterId),
 			...this.teamCaptainOptions(token, characterId),
 			...this.expeditionLeaderOptions(token, characterId),
 			...this.artisticInspirationOptions(token, characterId),
@@ -3272,6 +3442,50 @@ export class RPGLoginService {
 			...this.captivatingDistractionOptions(token, characterId),
 			...this.excavationMasterOptions(token, characterId),
 			...this.sharedArchiveOptions(token, characterId)];
+	}
+
+	private choreographyGroupOptions(token: string, characterId: string) {
+		const session = this.getSession(token);
+		if (!session.platformTableId) return [];
+		const options = this.repository.list().filter(record =>
+			record.tableId === session.platformTableId && record.accountId &&
+			this.accounts.repository.getMembership(session.platformTableId!, record.accountId)?.status === 'active')
+			.flatMap(record => record.state.trainerSheet ? rpgChoreographyGroupOption(record.state.id,
+				record.state.characterName, record.state.trainerSheet, characterId,
+				this.campaignSettings.currentDateTime) : []);
+		const self = this.repository.get(characterId);
+		if (self?.tableId === session.platformTableId && self.state.trainerSheet?.classId === 'coreografo') {
+			const prep = self.state.trainerSheet.choreography;
+			const now = Date.parse(this.campaignSettings.currentDateTime);
+			if (self.state.box.party.some(pokemon =>
+				prep?.rehearsals.some(entry => entry.pokemonId === pokemon.pokemonId &&
+					Date.parse(entry.readyAt) <= now) ||
+					prep?.instinct?.pokemonId === pokemon.pokemonId && Date.parse(prep.instinct.expiresAt) > now)) {
+				options.push({ key: 'coreografo:ensaio-conjunto', id: 'coreografo:ensaio-conjunto',
+					name: 'Ensaio Conjunto', bonus: 2, advantage: false,
+					condition: 'Atuação conjunta com Pokémon ensaiado e disposto da equipe ativa.',
+					targets: ['skill:atuacao'] });
+			}
+		}
+		return options;
+	}
+
+	consumeTrainerChoreographyRoll(token: string, characterId: string, keys: readonly string[]): void {
+		const session = this.getSession(token);
+		if (!session.platformTableId) return;
+		for (const key of keys.filter(value => value.startsWith('coreografo:warmup@'))) {
+			const sourceId = key.split('@')[1];
+			const original = this.repository.get(sourceId);
+			if (!original || original.tableId !== session.platformTableId) continue;
+			const source = structuredClone(original);
+			const group = source.state.trainerSheet?.choreographyGroups?.find(entry => entry.kind === 'warmup');
+			if (!group || !group.recipientCharacterIds.includes(characterId) ||
+				group.usedRecipientIds.includes(characterId)) continue;
+			group.usedRecipientIds.push(characterId);
+			try { this.persistAtomically(() => this.repository.set(source)); } catch (error) {
+				this.repository.set(original); throw error;
+			}
+		}
 	}
 
 	private teamCaptainOptions(token: string, characterId: string) {
@@ -4388,6 +4602,92 @@ export class RPGLoginService {
 		return this.nurseryView(record);
 	}
 
+	/** O exame revela somente informações que o Criador pode observar, sem expor os demais genes do ovo. */
+	examineNurseryEgg(token: string, eggId: string, breederId?: string) {
+		const session = this.getSession(token);
+		if (!session.characterId || session.role !== 'player') throw new Error('Entre como jogador para examinar o Egg');
+		const owner = this.requireBoxRecord(token, session.characterId, 'box:read', true);
+		const breeder = this.repository.get(toID(breederId || session.characterId));
+		if (!breeder || breeder.tableId !== owner.tableId || !breeder.accountId ||
+			this.accounts.repository.getMembership(owner.tableId!, breeder.accountId)?.status !== 'active' ||
+			breeder.state.trainerSheet?.status !== 'complete' ||
+			breeder.state.trainerSheet.classId !== 'criador-pokemon') {
+			throw new Error('Escolha um Criador Pokémon ativo nesta mesa');
+		}
+		const egg = this.ensureNursery(owner).projects.flatMap(project => project.egg ? [project.egg] : [])
+			.find(candidate => candidate.id === eggId && candidate.ownerId === owner.state.id && candidate.status !== 'hatched');
+		if (!egg) throw new Error('Egg não encontrado com este treinador');
+		const view = RPGIncubation.view(egg);
+		return { breederName: breeder.state.characterName, remainingIncubationTimeMs: view.remainingIncubationTimeMs,
+			species: egg.genetics.species, form: egg.genetics.species,
+			sex: egg.genetics.sex === 'N' ? null : egg.genetics.sex };
+	}
+
+	private firstCareCandidates(token: string) {
+		const session = this.getSession(token);
+		if (session.role !== 'player' || !session.characterId || !session.platformTableId) {
+			throw new Error('Entre como Criador Pokémon nesta mesa');
+		}
+		const actor = this.requireCharacter(session.characterId);
+		if (actor.state.trainerSheet?.status !== 'complete' ||
+			actor.state.trainerSheet.classId !== 'criador-pokemon') throw new Error('Somente Criador Pokémon pode prestar Primeiros Cuidados');
+		const now = Date.parse(this.campaignSettings.currentDateTime);
+		if (!Number.isFinite(now)) throw new Error('Horário da campanha inválido');
+		const days = actor.state.trainerSheet.talents.class.includes('criador-pokemon:recuperacao-acompanhada') ? 5 : 7;
+		const players = this.repository.list().filter(record => record.tableId === session.platformTableId &&
+			record.accountId && this.accounts.repository.getMembership(session.platformTableId!, record.accountId)?.status === 'active')
+			.map(record => ({ characterId: record.state.id, name: record.state.characterName,
+				pokemon: [...record.state.box.party, ...record.state.box.boxes.flatMap(box => box.slots).filter(entry => !!entry)]
+					.flatMap(entry => {
+						if ((entry.pokemon.rpg.hp ?? 1) > 0) return [];
+						const remainingMs = Math.max(0, (entry.metadata?.lastFirstCareAt || 0) + days * 86_400_000 - now);
+						return [{ id: entry.pokemonId, name: entry.pokemon.name || entry.pokemon.species,
+							remainingMs }];
+					}) })).filter(player => player.pokemon.length);
+		return { actor, now, players };
+	}
+
+	getFirstCareCandidates(token: string) {
+		const { actor, players } = this.firstCareCandidates(token);
+		const kit = this.ensureTrainerInventory(actor).items.find(item => item.itemId === 'kit-medicina-pokemon' &&
+			item.location === 'bag' && (item.charges || 0) > 0);
+		return { players, kitAvailable: !!kit };
+	}
+
+	performFirstCare(token: string, characterId: string, pokemonId: string) {
+		const { actor, now, players } = this.firstCareCandidates(token);
+		const selected = players.find(player => player.characterId === characterId)?.pokemon.find(pokemon => pokemon.id === pokemonId);
+		if (!selected) throw new Error('Pokémon desmaiado não encontrado nesta mesa');
+		if (selected.remainingMs > 0) throw new Error('Este Pokémon ainda não pode receber Primeiros Cuidados');
+		this.requireWorldBagItemUse(token, actor.state.id);
+		const originalActor = structuredClone(actor);
+		const owner = actor.state.id === characterId ? actor : structuredClone(this.requireCharacter(characterId));
+		const originalOwner = owner === actor ? null : structuredClone(this.requireCharacter(characterId));
+		const inventory = this.ensureTrainerInventory(actor);
+		const kit = inventory.items.find(item => item.itemId === 'kit-medicina-pokemon' && item.location === 'bag' &&
+			(item.charges || 0) > 0);
+		if (!kit) throw new Error('É necessário um Kit de Medicina Pokémon com uma carga na Bag');
+		const target = RPGBoxManagement.itemTarget(owner.state, pokemonId);
+		const restored = actor.state.trainerSheet?.talents.apex === 'criador-pokemon:restaurador-pokemon' ?
+			Math.ceil(target.maxHP * 0.1) : 1;
+		target.state.hp = restored;
+		RPGBoxManagement.applyItemState(owner.state, pokemonId, target.state, owner.state.box.revision);
+		const entry = [...owner.state.box.party, ...owner.state.box.boxes.flatMap(box => box.slots).filter(slot => !!slot)]
+			.find(pokemon => pokemon.pokemonId === pokemonId)!;
+		entry.metadata = { ...entry.metadata, lastFirstCareAt: now };
+		if (!actor.state.trainerSheet?.talents.class.includes('criador-pokemon:socorro-bem-administrado') || this.int(6) < 4) {
+			kit.charges!--;
+		}
+		inventory.revision++;
+		actor.state.updatedAt = this.now(); owner.state.updatedAt = this.now();
+		try { this.persistAtomically(() => { this.repository.set(actor); if (owner !== actor) this.repository.set(owner); }); } catch (error) {
+			this.repository.set(originalActor);
+			if (originalOwner) this.repository.set(originalOwner);
+			throw error;
+		}
+		return { pokemonName: selected.name, hp: restored, kitCharges: kit.charges };
+	}
+
 	purchaseNurseryItem(
 		token: string, characterId: string | undefined, itemId: string,
 		quantity: number, expectedBagRevision: number
@@ -5020,7 +5320,7 @@ export class RPGLoginService {
 					toID(item.name + ' ' + item.description).includes(search)));
 			}
 			const food = (record.state.trainerInventory?.items || [])
-				.filter(item => item.location === 'bag' && rpgEquipment(item.itemId).category === 'food')
+				.filter(item => item.location === 'bag')
 				.map(item => ({ item, definition: rpgEquipment(item.itemId) }));
 			const foodCategory = view.categories.find(entry => entry.id === 'food-items');
 			if (foodCategory) {
@@ -5043,9 +5343,9 @@ export class RPGLoginService {
 									record.state.trainerSheet?.classId === 'cozinheiro' ?
 										'Uma unidade de Alimento rende 4 porções de refeição. Com Aproveitamento Integral, 4 porções preparadas rendem 5. O preparo fica no roleplay.' :
 										'Uma unidade de Alimento rende 4 porções de refeição. O preparo fica no roleplay.') :
-							'Alimento armazenado na Bag do treinador.',
+							'Item armazenado na Bag do treinador.',
 						favorite: false, mission: false, actions: [], equippedIn: [],
-						icon: null, sprite: null, tags: ['trainer-food'],
+						icon: null, sprite: null, tags: ['trainer-equipment'],
 						weightKg: definition.weight * quantity, slots: food.filter(entry => entry.item.itemId === itemId)
 							.reduce((sum, entry) => sum + definition.spaces, 0) });
 				}
@@ -6652,6 +6952,9 @@ export class RPGLoginService {
 			if (!record) continue;
 			const rewarded = record.state.completedContestRewards ||= [];
 			if (rewarded.includes(session.id)) continue;
+			if (record.state.trainerSheet?.choreography?.instinct) {
+				delete record.state.trainerSheet.choreography.instinct;
+			}
 			const profile = this.trainerProfile(record.state);
 			profile.stats.contestsEntered++;
 			if (result.place === 1) profile.stats.contestsWon++;
@@ -7107,6 +7410,10 @@ export class RPGLoginService {
 			.map(project => project.egg)
 			.filter((egg): egg is NonNullable<typeof egg> => !!egg && egg.status !== 'hatched')
 			.map(egg => RPGIncubation.view(egg)) : [];
+		const breeders = record ? this.repository.list().filter(candidate => candidate.tableId === record.tableId &&
+			candidate.accountId && this.accounts.repository.getMembership(record.tableId!, candidate.accountId)?.status === 'active' &&
+			candidate.state.trainerSheet?.status === 'complete' && candidate.state.trainerSheet.classId === 'criador-pokemon')
+			.map(candidate => ({ id: candidate.state.id, name: candidate.state.characterName })) : [];
 		const inventory = record ? RPGInventorySystem.migrate(record.state.inventory) : undefined;
 		const bag = inventory?.bag;
 		const activeEggs = record ? this.activeEggs(record) : [];
@@ -7165,6 +7472,7 @@ export class RPGLoginService {
 			projects,
 			...(releasedPokemon ? { releasedPokemon } : {}),
 			eggs,
+			breeders,
 			teamEggs: activeEggs.map(egg => ({
 				...RPGIncubation.view(egg), name: 'Egg', species: 'Egg', virtual: true as const,
 			})),
@@ -7800,6 +8108,13 @@ export class RPGLoginService {
 		const owner = session.participants.find(participant => participant.team === 'A' && participant.kind === 'player');
 		if (!owner?.characterId) return;
 		const record = this.requireCharacter(owner.characterId);
+		const breeder = record.state.trainerSheet?.status === 'complete' &&
+			record.state.trainerSheet.classId === 'criador-pokemon';
+		if (breeder) {
+			const bonus = record.state.trainerSheet!.talents.class.includes('criador-pokemon:afinidade-aprimorada') ? 20 : 10;
+			result.capture.pokemon.rpg.friendship = Math.min(255,
+				Math.max(0, result.capture.pokemon.rpg.friendship ?? 50) + bonus);
+		}
 		const placement = RPGBoxSystem.placeCapture(record.state.box, result.capture, {
 			placementId: `${session.id}:capture`,
 			pokemonId: `${owner.characterId}:capture:${session.id}`,

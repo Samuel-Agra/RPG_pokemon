@@ -80,11 +80,20 @@ export interface RPGContestRuntimeParticipant {
 	roundStages: [RPGContestRoundStageResult | null, RPGContestRoundStageResult | null];
 	scenarioCoherenceBonus: number;
 	contestHarmonizationBonus?: number;
+	/** Fotografia dos preparos válidos na abertura: mudanças posteriores não alteram um concurso ativo. */
+	choreography?: RPGContestChoreography;
 	judging: [RPGContestRoundJudging | null, RPGContestRoundJudging | null];
 	audienceReactions: [RPGContestAudienceReaction | null, RPGContestAudienceReaction | null];
 	judgeComments: [RPGContestJudgingComments | null, RPGContestJudgingComments | null];
 	teamIndex?: number;
 	teamIndexes: number[];
+}
+
+export interface RPGContestChoreography {
+	rehearsed: boolean[];
+	formation: boolean;
+	themeTag: string | null;
+	guest: boolean;
 }
 
 export type RPGContestJudgingCriterion =
@@ -211,6 +220,7 @@ export interface RPGContestRuntimeManagerOptions {
 	getCharacterTeam?: (characterId: string) => PokemonSet[] | undefined;
 	getTrainerSheet?: (characterId: string) => RPGTrainerSheet | undefined;
 	getContestHarmonization?: (characterId: string, teamIndexes: readonly number[]) => boolean;
+	getChoreography?: (characterId: string, teamIndexes: readonly number[]) => RPGContestChoreography;
 	getCombos?: () => readonly RPGContestComboDefinition[];
 	onFinished?: (session: RPGContestSession, results: readonly RPGContestPlacement[]) => void;
 	onMovePPSpent?: (characterId: string, teamIndex: number, moveId: string) => boolean;
@@ -226,6 +236,7 @@ export class RPGContestRuntimeManager {
 	private readonly getCharacterTeam: (characterId: string) => PokemonSet[] | undefined;
 	private readonly getTrainerSheet: (characterId: string) => RPGTrainerSheet | undefined;
 	private readonly getContestHarmonization: (characterId: string, teamIndexes: readonly number[]) => boolean;
+	private readonly getChoreography: (characterId: string, teamIndexes: readonly number[]) => RPGContestChoreography;
 	private readonly getCombos: () => readonly RPGContestComboDefinition[];
 	private readonly onMovePPSpent?: RPGContestRuntimeManagerOptions['onMovePPSpent'];
 	private readonly onNPCMovePPSpent?: RPGContestRuntimeManagerOptions['onNPCMovePPSpent'];
@@ -235,6 +246,8 @@ export class RPGContestRuntimeManager {
 		this.getCharacterTeam = options.getCharacterTeam || (() => undefined);
 		this.getTrainerSheet = options.getTrainerSheet || (() => undefined);
 		this.getContestHarmonization = options.getContestHarmonization || (() => false);
+		this.getChoreography = options.getChoreography || (() => ({ rehearsed: [], formation: false,
+			themeTag: null, guest: false }));
 		this.getCombos = options.getCombos || (() => RPG_DEFAULT_CONTEST_COMBOS);
 		this.onFinished = options.onFinished;
 		this.onMovePPSpent = options.onMovePPSpent;
@@ -514,6 +527,22 @@ export class RPGContestRuntimeManager {
 		if (talents.has('coreografo:transicao-fluida') && rounds.some((round, index) =>
 			new Set(round).size === 3 && !round.includes(RPG_CONTEST_NO_PP_ACTION) &&
 				!!participant.roundScores[index]?.matchedCombos.length)) bonus++;
+		const choreography = participant.choreography;
+		if (choreography) {
+			const moves = rounds.flat().filter(move => move !== RPG_CONTEST_NO_PP_ACTION);
+			if (talents.has('coreografo:tema-unificado') && choreography.themeTag && moves.length === 6 &&
+				(moves.every(coherent) || moves.every(move =>
+					getRPGContestMove(move).tags.includes(choreography.themeTag!)))) bonus += 2;
+			const groupSize = state.session.mode === 'trio' ? 3 : state.session.mode === 'duo' ? 2 : 0;
+			const formation = groupSize > 0 && choreography.formation &&
+				choreography.rehearsed.length === groupSize && choreography.rehearsed.every(Boolean);
+			if (formation && groupSize === 3 && talents.has('coreografo:formacao-em-trio')) bonus += 3;
+			else if (formation && groupSize === 2 && talents.has('coreografo:formacao-em-dupla')) bonus += 2;
+			if (formation && sheet.talents.apex === 'coreografo:geometria-em-movimento') bonus += 3;
+			if (sheet.talents.apex === 'coreografo:diretor-de-espetaculo' &&
+				choreography.rehearsed.some(Boolean)) bonus += 3;
+			if (choreography.guest) bonus++;
+		}
 		return bonus;
 	}
 
@@ -546,6 +575,8 @@ export class RPGContestRuntimeManager {
 			scenarioCoherenceBonus: 0,
 			contestHarmonizationBonus: participant.characterId && this.getContestHarmonization(participant.characterId,
 				selections.map(selection => selection.teamIndex).filter((index): index is number => index !== undefined)) ? 3 : 0,
+			choreography: participant.characterId ? this.getChoreography(participant.characterId,
+				selections.map(selection => selection.teamIndex).filter((index): index is number => index !== undefined)) : undefined,
 			judging: [null, null], audienceReactions: [null, null], judgeComments: [null, null],
 		};
 	}
@@ -562,6 +593,12 @@ export class RPGContestRuntimeManager {
 				throw new Error(`RPG contest criterion ${criterion} must be between -1 and 5`);
 			}
 			criteria[criterion] = value;
+		}
+		if (participant.choreography?.rehearsed.length === participant.pokemonTeam.length &&
+			participant.choreography.rehearsed.every(Boolean)) {
+			const sheet = participant.characterId ? this.getTrainerSheet(participant.characterId) : undefined;
+			const minimum = sheet?.talents.apex === 'coreografo:diretor-de-espetaculo' ? 4 : 3;
+			criteria.trainerPokemonSync = Math.max(criteria.trainerPokemonSync, minimum);
 		}
 		const rawScore = Object.values(criteria).reduce((total, value) => total + value, 0);
 		const interpretationScore = rawScore < 0 ? rawScore : Number((rawScore * 10 / 25).toFixed(1));

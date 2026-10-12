@@ -406,13 +406,54 @@
 		if (closeAttributePopover) closeAttributePopover();
 		const panel = el('div', 'trainer-sheet-talent-popover');
 		if (action?.pokemonPharmacy || action?.advancedPharmacy || action?.masterPharmacy ||
+			action?.choreography ||
 			action?.persistentHypothesis !== undefined) {
 			panel.dataset.preserveOnRefresh = 'true';
 		}
 		let recordPicker = null;
 		panel.append(el('strong', 'trainer-sheet-talent-popover-title', name),
 			renderTrainerDescription(description, 'trainer-sheet-talent-description'));
-		if (action?.persistentHypothesis !== undefined) {
+		if (action?.firstCare) {
+			const care = el('button', 'trainer-sheet-talent-use', 'Cuidar');
+			care.type = 'button';
+			care.addEventListener('click', async () => {
+				try {
+					const data = await action.api('/trainer/first-care');
+					const overlay = el('div', 'trainer-first-care-overlay');
+					const dialog = el('section', 'trainer-first-care-dialog');
+					dialog.setAttribute('role', 'dialog'); dialog.setAttribute('aria-modal', 'true');
+					dialog.append(el('h2', '', 'Primeiros Cuidados'));
+					if (!data.kitAvailable) dialog.append(el('p', '', 'É necessário um Kit de Medicina Pokémon com carga na Bag.'));
+					if (!data.players.length) dialog.append(el('p', '', 'Nenhum Pokémon desmaiado nesta mesa.'));
+					for (const player of data.players) {
+						const group = el('div', 'trainer-first-care-group');
+						group.append(el('h3', '', player.name));
+						for (const pokemon of player.pokemon) {
+							const row = el('button', 'trainer-sheet-talent-use', pokemon.name +
+								(pokemon.remainingMs ? ' · disponível em ' +
+								Math.ceil(pokemon.remainingMs / 3_600_000) + 'h' : ' · cuidar'));
+							row.type = 'button'; row.disabled = !!pokemon.remainingMs || !data.kitAvailable;
+							row.addEventListener('click', async () => {
+								try {
+									const result = await action.api('/trainer/first-care', { method: 'POST',
+										body: { characterId: player.characterId, pokemonId: pokemon.id } });
+									row.disabled = true; row.textContent = result.pokemonName + ' recuperou ' + result.hp + ' PV.';
+									await action.refresh();
+								} catch (error) { row.textContent = error.message || 'Não foi possível cuidar.'; }
+							});
+							group.append(row);
+						}
+						dialog.append(group);
+					}
+					const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
+					const onKey = event => { if (event.key === 'Escape') close(); };
+					overlay.addEventListener('click', event => { if (event.target === overlay) close(); });
+					document.addEventListener('keydown', onKey);
+					overlay.append(dialog); document.body.append(overlay);
+				} catch (error) { care.textContent = error.message || 'Não foi possível consultar os Pokémon.'; }
+			});
+			panel.append(care);
+		} else if (action?.persistentHypothesis !== undefined) {
 			const editor = el('div', 'trainer-sheet-archive-editor');
 			const status = el('p');
 			const controls = el('div', 'trainer-sheet-archive-actions');
@@ -700,6 +741,97 @@
 			}
 			save.addEventListener('click', submit);
 			controls.append(save, feedback); panel.append(controls);
+		} else if (action?.choreography) {
+			const data = action.choreography;
+			const kind = action.id === 'coreografo:ensaio-conjunto' ? 'rehearsal' :
+				action.id === 'coreografo:formacao-em-dupla' || action.id === 'coreografo:formacao-em-trio' ?
+					'formation' : action.id === 'coreografo:diretor-convidado' ? 'guest' :
+					action.id === 'coreografo:tema-unificado' ? 'theme' :
+					action.id === 'coreografo:preparacao-corporal-conjunta' ? 'warmup' :
+					action.id === 'coreografo:conducao-de-evacuacao' ? 'evacuation' : 'instinct';
+			const editor = el('div', 'trainer-sheet-archive-editor');
+			const feedback = el('p', 'trainer-sheet-roll-error hidden');
+			const recipient = kind === 'guest' ? select([['', 'Escolha o treinador'],
+				...data.recipients.map(person => [person.id, person.name])]) : null;
+			const group = kind === 'warmup' || kind === 'evacuation';
+			const count = kind === 'formation' ? (action.id.endsWith('trio') ? 3 : 2) :
+				kind === 'guest' ? 3 : kind === 'theme' || group ? 0 : 1;
+			const pokemonChoices = Array.from({ length: count }, () => select([['', 'Escolha o Pokémon']]));
+			const fill = () => {
+				const available = recipient ? data.recipients.find(person => person.id === recipient.value)?.pokemon || [] :
+					data.pokemon.filter(pokemon => kind !== 'instinct' || pokemon.friendship >= 50);
+				for (const choice of pokemonChoices) {
+					choice.replaceChildren(...[['', 'Escolha o Pokémon'], ...available.map(pokemon => [pokemon.id, pokemon.name])]
+						.map(([value, caption]) => {
+							const option = document.createElement('option');
+							option.value = value; option.textContent = caption; return option;
+						}));
+				}
+			};
+			if (recipient) { recipient.addEventListener('change', fill); editor.append(recipient); }
+			fill();
+			for (const choice of pokemonChoices) editor.append(choice);
+			const tag = kind === 'theme' ? select([['', 'Escolha o tema'],
+				...data.tags.map(value => [value, value])]) : null;
+			if (tag) editor.append(tag);
+			const selectedPeople = new Set();
+			const activity = group ? el('input', 'trainer-sheet-progression-input') : null;
+			if (activity) {
+				activity.maxLength = 100; activity.placeholder = 'Atividade preparada';
+				editor.append(activity);
+				const people = el('div', 'trainer-sheet-captain-players');
+				const limit = data.proficiency * (kind === 'evacuation' ? 2 : 1);
+				for (const person of data.groupRecipients) {
+					const choice = el('button', 'trainer-sheet-captain-player', person.name);
+					choice.type = 'button'; choice.setAttribute('aria-pressed', 'false');
+					choice.addEventListener('click', () => {
+						if (selectedPeople.has(person.id)) selectedPeople.delete(person.id);
+						else if (selectedPeople.size < limit) selectedPeople.add(person.id);
+						choice.setAttribute('aria-pressed', String(selectedPeople.has(person.id)));
+					});
+					people.append(choice);
+				}
+				editor.append(el('p', '', `Escolha até ${limit} participantes`), people);
+			}
+			const status = data.prepared;
+			if (kind === 'rehearsal' && status.rehearsals.length) editor.append(el('p', '',
+				`${status.rehearsals.length} Pokémon com ensaio registrado; cada ensaio exige 1 hora.`));
+			if (kind === 'formation' && status.formations.length) editor.append(el('p', '',
+				`${status.formations.length} formação(ões) registrada(s).`));
+			const use = el('button', 'trainer-sheet-talent-use', kind === 'rehearsal' ? 'Iniciar ensaio' :
+				kind === 'formation' ? 'Ensaiar formação' : kind === 'guest' ? 'Dirigir participante' :
+				kind === 'theme' ? 'Declarar tema' : kind === 'warmup' ? 'Preparar grupo' :
+				kind === 'evacuation' ? 'Organizar evacuação' : 'Preparar entrosamento');
+			use.type = 'button';
+			use.addEventListener('click', async () => {
+				const pokemonIds = pokemonChoices.map(choice => choice.value).filter(Boolean);
+				if ((!group && kind !== 'theme' && (!pokemonIds.length || new Set(pokemonIds).size !== pokemonIds.length ||
+					(kind !== 'guest' && pokemonIds.length !== count))) ||
+					(kind === 'guest' && !recipient.value) || (kind === 'theme' && !tag.value) ||
+					(group && (!selectedPeople.size || !activity.value.trim()))) {
+					feedback.textContent = 'Complete as escolhas sem repetir Pokémon.';
+					feedback.classList.remove('hidden'); return;
+				}
+				use.disabled = true;
+				try {
+					const outcome = await action.api('/trainer/talents/choreography', { method: 'POST', body: {
+						requestId: crypto.randomUUID(), kind, pokemonIds,
+						characterId: recipient?.value || '', tag: tag?.value || '',
+						recipientCharacterIds: [...selectedPeople], activity: activity?.value || '',
+					} });
+					feedback.textContent = `${outcome.result.names.join(', ') || 'Preparação'}: preparo registrado.` +
+						(kind === 'rehearsal' || kind === 'formation' || kind === 'guest' ?
+							' Aguarde o tempo de ensaio no relógio da campanha.' :
+							' Utilize antes do próximo avanço de uma hora.');
+					feedback.classList.remove('hidden');
+					window.dispatchEvent(new CustomEvent('rpg:realtime-sync',
+						{ detail: { tableId: selectedTable } }));
+				} catch (error) {
+					feedback.textContent = error.message || 'Não foi possível preparar a coreografia.';
+					feedback.classList.remove('hidden');
+				} finally { use.disabled = false; }
+			});
+			editor.append(use, feedback); panel.append(editor);
 		} else if (action?.revigoratingMeal) {
 			const editor = el('div', 'trainer-sheet-archive-editor');
 			const difficulty = select([['10', 'CD 10 — cozinha equipada'],
@@ -2021,7 +2153,9 @@
 		const classTalents = sortTalents([
 			...(rules?.classFeatures?.[sheet.classId] || []).map(feature =>
 				({ id: sheet.classId === 'cientista' && feature.name === 'Registro Reprodutível' ?
-					'cientista:registro-reprodutivel' : undefined,
+					'cientista:registro-reprodutivel' : sheet.classId === 'coreografo' &&
+						feature.name === 'Ensaio Conjunto' ? 'coreografo:ensaio-conjunto' :
+					feature.name === 'Primeiros Cuidados' ? 'criador-pokemon:primeiros-cuidados' : undefined,
 				name: feature.name, description: feature.text })),
 			...acquired(sheet.talents?.class),
 		]);
@@ -2037,41 +2171,47 @@
 			button.type = 'button'; button.setAttribute('aria-haspopup', 'dialog');
 			button.setAttribute('aria-expanded', 'false');
 			button.addEventListener('click', () => showTalentPopover(button, name, description,
-				!readOnly && id === 'cientista:registro-reprodutivel' ? { id, api, refresh,
-					scientistRecord: progression.scientistRecord } :
-				!readOnly && id === 'cientista:hipotese-persistente' ?
-					{ id, api, refresh, persistentHypothesis: progression.persistentHypothesis,
-						persistentHypothesisCharacterId: character.id } :
-					!readOnly && id === 'cientista:publicacao-de-referencia' ?
-						{ id, api, refresh, publication: progression.publication } :
-						!readOnly && id === 'cientista:producao-farmaceutica-pokemon' ?
-							{ id, api, refresh, pokemonPharmacy: character.id } :
-							!readOnly && id === 'cientista:farmacologia-avancada' ?
-								{ id, api, refresh, advancedPharmacy: character.id } :
-								!readOnly && id === 'cientista:mestre-de-formulacao' ?
-									{ id, api, refresh, masterPharmacy: character.id } :
-									!readOnly && id === 'arqueologo:acervo-compartilhado' ? { id, api, refresh, archive: {
-										slots: sheet.sharedArchives || [], proficiency: progression.proficiency,
-										knowledge: (sheet.skills?.trained || []).filter(skill => skill.startsWith('conhecimento:')),
-										recipients: progression.archiveRecipients || [],
-									} } : !readOnly && id === 'atleta:capitao-de-time' ? { id, api, refresh,
-										captainPlan: { ...(progression.captainPlan || {}), proficiency: progression.proficiency } } :
-									!readOnly && sheet.classId === 'cozinheiro' && name === 'Refeição Revigorante' ?
-										{ id, api, revigoratingMeal: progression.revigoratingMeal } :
-										!readOnly && id === 'cozinheiro:petisco-de-amizade' ?
-											{ id, api, friendshipSnacks: progression.friendshipSnacks } :
-											!readOnly && id === 'cozinheiro:recompensa-de-treinamento' ?
-												{ id, api, trainingReward: progression.trainingReward } :
-												!readOnly && id === 'cozinheiro:harmonizacao-de-sabores' ?
-													{ id, api, contestHarmonization: progression.contestHarmonization } :
-													!readOnly && id === 'cozinheiro:racao-artesanal-pokemon' ?
-														{ id, api, artisanRation: progression.artisanRation } :
-														!readOnly && id === 'artista:arte-reconfortante' ? { id, api, refresh,
-															comfortingArt: progression.comfortingArtRecipients || [] } :
-														!readOnly && ['segundo-folego', 'sortudo', 'determinado', 'esforco-heroico'].includes(id) ?
-															{ id, api, refresh, reroll: id !== 'segundo-folego',
-																available: progression.rerollAvailability?.[id],
-																used: progression.activeTalentUses?.used?.[id] === progression.activeTalentUses?.restCycle } : null));
+				!readOnly && id === 'criador-pokemon:primeiros-cuidados' ? { id, api, refresh, firstCare: true } :
+				!readOnly && progression.choreography && ['coreografo:ensaio-conjunto',
+					'coreografo:formacao-em-dupla', 'coreografo:formacao-em-trio', 'coreografo:diretor-convidado',
+					'coreografo:tema-unificado', 'coreografo:entrosamento-instintivo',
+					'coreografo:preparacao-corporal-conjunta', 'coreografo:conducao-de-evacuacao'].includes(id) ?
+					{ id, api, choreography: progression.choreography } :
+					!readOnly && id === 'cientista:registro-reprodutivel' ? { id, api, refresh,
+						scientistRecord: progression.scientistRecord } :
+					!readOnly && id === 'cientista:hipotese-persistente' ?
+						{ id, api, refresh, persistentHypothesis: progression.persistentHypothesis,
+							persistentHypothesisCharacterId: character.id } :
+						!readOnly && id === 'cientista:publicacao-de-referencia' ?
+							{ id, api, refresh, publication: progression.publication } :
+							!readOnly && id === 'cientista:producao-farmaceutica-pokemon' ?
+								{ id, api, refresh, pokemonPharmacy: character.id } :
+								!readOnly && id === 'cientista:farmacologia-avancada' ?
+									{ id, api, refresh, advancedPharmacy: character.id } :
+									!readOnly && id === 'cientista:mestre-de-formulacao' ?
+										{ id, api, refresh, masterPharmacy: character.id } :
+										!readOnly && id === 'arqueologo:acervo-compartilhado' ? { id, api, refresh, archive: {
+											slots: sheet.sharedArchives || [], proficiency: progression.proficiency,
+											knowledge: (sheet.skills?.trained || []).filter(skill => skill.startsWith('conhecimento:')),
+											recipients: progression.archiveRecipients || [],
+										} } : !readOnly && id === 'atleta:capitao-de-time' ? { id, api, refresh,
+											captainPlan: { ...(progression.captainPlan || {}), proficiency: progression.proficiency } } :
+										!readOnly && sheet.classId === 'cozinheiro' && name === 'Refeição Revigorante' ?
+											{ id, api, revigoratingMeal: progression.revigoratingMeal } :
+											!readOnly && id === 'cozinheiro:petisco-de-amizade' ?
+												{ id, api, friendshipSnacks: progression.friendshipSnacks } :
+												!readOnly && id === 'cozinheiro:recompensa-de-treinamento' ?
+													{ id, api, trainingReward: progression.trainingReward } :
+													!readOnly && id === 'cozinheiro:harmonizacao-de-sabores' ?
+														{ id, api, contestHarmonization: progression.contestHarmonization } :
+														!readOnly && id === 'cozinheiro:racao-artesanal-pokemon' ?
+															{ id, api, artisanRation: progression.artisanRation } :
+															!readOnly && id === 'artista:arte-reconfortante' ? { id, api, refresh,
+																comfortingArt: progression.comfortingArtRecipients || [] } :
+															!readOnly && ['segundo-folego', 'sortudo', 'determinado', 'esforco-heroico'].includes(id) ?
+																{ id, api, refresh, reroll: id !== 'segundo-folego',
+																	available: progression.rerollAvailability?.[id],
+																	used: progression.activeTalentUses?.used?.[id] === progression.activeTalentUses?.restCycle } : null));
 			talentList.append(button);
 		}
 		talentSection.append(talentList);

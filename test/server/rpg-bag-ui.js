@@ -12,6 +12,12 @@ const html = fs.readFileSync(path.join(root, 'server/static/rpg/index.html'), 'u
 const css = fs.readFileSync(path.join(root, 'server/static/rpg/rpg.css'), 'utf8');
 
 describe('RPG Bag frontend', () => {
+	it('lets the Master add catalogued trainer equipment and shows it without sprites', () => {
+		assert.match(bagUi, /makeButton\('Adicionar item'/);
+		assert.match(bagUi, /\['trainer-equipment', 'Itens novos'\]/);
+		assert.match(bagUi, /action: 'grant', characterId: options\.characterId/);
+		assert.match(bagUi, /item\.category !== 'food-items'/);
+	});
 	it('offers random and explicit fossil grades when the Master adds an item', () => {
 		assert.match(bagUi, /\['', 'Aleatório'\].*\['fragmented', 'Frag\.'\].*\['preserved', 'Pres\.'\].*\['exceptional', 'Excep\.'\]/);
 		assert.match(bagUi, /\.\.\.\(selectedQuality \? \{ quality: selectedQuality \} : \{\}\)/);

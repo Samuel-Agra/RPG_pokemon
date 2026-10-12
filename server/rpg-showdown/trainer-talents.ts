@@ -141,7 +141,8 @@ function validSkill(skill: string): boolean {
 function allowedAttributeChoices(talent: RPGTrainerTalentDefinition): (keyof RPGTrainerAttributes)[] {
 	// Aumentos fixos pertencem à própria regra e não exigem escolha de atributo.
 	if (['arqueologo:memoria-academica', 'cientista:hipotese-persistente', 'artista:presenca-magnetica',
-		'artista:corpo-de-cena'].includes(talent.id)) return [];
+		'artista:corpo-de-cena', 'coreografo:leitura-cinetica',
+		'coreografo:preparacao-corporal-conjunta'].includes(talent.id)) return [];
 	if (talent.id === 'aprimoramento-de-atributo') return Object.values(ATTRIBUTE_NAMES);
 	const line = (/Aumente (?:também )?em 1[^\n]*/i.exec(talent.text))?.[0];
 	if (!line) return [];
@@ -303,6 +304,12 @@ function applyTalentEffect(sheet: RPGTrainerSheet, talent: RPGTrainerTalentDefin
 		attributes.charisma = Math.min(20, attributes.charisma + 1);
 	}
 	if (talent.id === 'artista:corpo-de-cena') {
+		attributes.dexterity = Math.min(20, attributes.dexterity + 1);
+	}
+	if (talent.id === 'coreografo:leitura-cinetica') {
+		attributes.wisdom = Math.min(20, attributes.wisdom + 1);
+	}
+	if (talent.id === 'coreografo:preparacao-corporal-conjunta') {
 		attributes.dexterity = Math.min(20, attributes.dexterity + 1);
 	}
 	if (talent.id === 'resiliente') {

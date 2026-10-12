@@ -134,7 +134,8 @@ const WORLD_CATEGORIES: readonly { id: RPGManagedBagCategory, name: string }[] =
 	{ id: 'mega-stones', name: 'Mega Pedras' },
 	{ id: 'key-items', name: 'Itens-chave' },
 	{ id: 'mission-items', name: 'Itens de Missão' },
-	{ id: 'food-items', name: 'Alimentos' },
+	// Agrupamento visual temporário da V3; o id antigo preserva Bags e filtros já salvos.
+	{ id: 'food-items', name: 'Itens novos' },
 	{ id: 'talent-items', name: 'Itens de talentos' },
 ];
 const BATTLE_CATEGORIES: readonly { id: RPGManagedBagCategory, name: string }[] = [

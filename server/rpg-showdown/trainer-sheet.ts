@@ -62,6 +62,18 @@ export interface RPGTrainerSheet {
 		served: { name: string, friendshipGained: number | null }[], }, }[];
 	trainingRewardReceipts?: { requestId: string, fingerprint: string, result: { name: string } }[];
 	contestHarmonizationReceipts?: { requestId: string, fingerprint: string, result: { names: string[] } }[];
+	/** Ensaios permanentes e preparos breves do Coreógrafo, sempre vinculados aos Pokémon da mesa. */
+	choreography?: {
+		rehearsals: { pokemonId: string, readyAt: string }[],
+		formations: { pokemonIds: string[], readyAt: string }[],
+		theme?: { tag: string, expiresAt: string },
+		instinct?: { pokemonId: string, expiresAt: string },
+		guestDirection?: { directorId: string, pokemonIds: string[], readyAt: string, expiresAt: string },
+		receipts?: { requestId: string, fingerprint: string, result: { kind: string, names: string[], readyAt: string } }[],
+	};
+	/** Orientações coletivas têm um destinatário, não acumulam e expiram após uma hora de campanha. */
+	choreographyGroups?: { kind: 'warmup' | 'evacuation', activity: string,
+		recipientCharacterIds: string[], usedRecipientIds: string[], expiresAt: string, }[];
 	/** Repetições da fabricação não rolam novamente nem duplicam rações. */
 	artisanRationReceipts?: { requestId: string, foodQuantity: number, result: {
 		foodQuantity: number, produced: number, natural: number, effectiveNatural?: number,

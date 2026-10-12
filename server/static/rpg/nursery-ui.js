@@ -73,6 +73,34 @@
 		let selectedPokemonId = view.pokemon.find(pokemon => !pokemon.busy)?.pokemonId || '';
 		let refreshing = false;
 		let hatching = false;
+		function examineButton(egg) {
+			if (!view.breeders?.length || options.isMaster) return null;
+			const breeder = view.breeders.find(person => person.id === view.ownerId) || view.breeders[0];
+			const button = el('button', 'button', breeder.id === view.ownerId ?
+				'Examinar' : breeder.name + ' examinar');
+			button.type = 'button';
+			button.addEventListener('click', async () => {
+				try {
+					const result = (await options.api('/nursery/examine', { method: 'POST',
+						body: { eggId: egg.eggId, breederId: breeder.id } })).examination;
+					const overlay = el('div', 'nursery-examination-overlay');
+					const panel = el('section', 'nursery-examination-panel');
+					panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-modal', 'true');
+					panel.append(el('h2', '', 'Exame do Egg'),
+						el('p', '', 'Tempo para chocar: ' + duration(result.remainingIncubationTimeMs)),
+						el('p', '', 'Espécie: ' + result.species),
+						el('p', '', 'Forma: ' + result.form),
+						el('p', '', 'Sexo: ' + (result.sex === 'M' ? 'Masculino' :
+						result.sex === 'F' ? 'Feminino' : 'Não aplicável')));
+					const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
+					const onKey = event => { if (event.key === 'Escape') close(); };
+					overlay.addEventListener('click', event => { if (event.target === overlay) close(); });
+					document.addEventListener('keydown', onKey);
+					overlay.append(panel); document.body.append(overlay);
+				} catch (error) { options.toast(error.message, true); }
+			});
+			return button;
+		}
 		const refreshTimer = window.setInterval(async () => {
 			if (!root.isConnected) {
 				window.clearInterval(refreshTimer);
@@ -835,7 +863,15 @@
 			const egg = incubator.egg;
 			const chamber = el('div', 'nursery-local-chamber' + (egg ? ' occupied' : ' empty'));
 			const glass = el('div', 'nursery-local-glass');
-			if (egg) glass.append(eggIcon(options, egg));
+			if (egg) {
+				const icon = eggIcon(options, egg);
+				const examine = examineButton(egg);
+				if (examine) {
+					icon.classList.add('nursery-egg-examinable');
+					icon.addEventListener('click', () => examine.click());
+				}
+				glass.append(icon);
+			}
 			chamber.append(glass);
 			if (egg) {
 				const meter = el('div', 'nursery-local-progress');
@@ -935,6 +971,8 @@
 					const control = el('article', 'nursery-local-control' + (incubator.egg ? ' occupied' : ' empty'));
 					if (incubator.egg) {
 						const egg = incubator.egg;
+						const examine = examineButton(egg);
+						if (examine) control.append(examine);
 						if (egg.status === 'ready_to_hatch') {
 							const hatch = el('button', 'button primary', 'Chocar Egg');
 							const teamFull = Number(view.capacity?.teamUsed || 0) >= Number(view.capacity?.teamMax || 6);
@@ -979,6 +1017,8 @@
 					info.append(el('small', '', egg.portableIncubator ?
 						'Incubando · ' + egg.progress + '%' : 'Sendo carregado · progresso ' + egg.progress + '%'));
 					const commands = el('span', 'nursery-egg-actions');
+					const examine = examineButton(egg);
+					if (examine) commands.append(examine);
 					if (egg.portableIncubator && egg.status === 'ready_to_hatch') {
 						const hatch = el('button', 'button primary', 'Chocar ovo');
 						hatch.addEventListener('click', () => hatchEgg(egg));
@@ -1010,7 +1050,12 @@
 						start.addEventListener('click', () => action('portable-start', { eggId: egg.eggId }));
 						commands.append(deposit, start);
 					}
-					row.append(eggIcon(options, egg), info, commands);
+					const icon = eggIcon(options, egg);
+					if (examine) {
+						icon.classList.add('nursery-egg-examinable');
+						icon.addEventListener('click', () => examine.click());
+					}
+					row.append(icon, info, commands);
 					list.append(row);
 				}
 				page.append(list);

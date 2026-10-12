@@ -90,10 +90,10 @@ const RULES: Readonly<Record<string, Rule>> = {
 		condition: 'Contra alimentos, bebidas ou odores nocivos.' },
 	'coreografo:movimento-espelhado': { targets: ['skill:atuacao', 'skill:acrobacia'], bonus: 2,
 		condition: 'Movimentos conjuntos com Pokémon disposto.' },
-	'coreografo:conducao-de-evacuacao': { targets: ['skill:atletismo', 'skill:acrobacia', 'skill:sobrevivencia'], bonus: 2,
-		condition: 'Atravessar obstáculos seguindo a evacuação coordenada.' },
-	'coreografo:preparacao-corporal-conjunta': { targets: ['skill:atletismo', 'skill:acrobacia'], bonus: 1,
-		condition: 'Primeiro teste físico da atividade aquecida e ensaiada.' },
+	'coreografo:leitura-do-espaco': { targets: ['skill:percepcao'], bonus: 2,
+		condition: 'Identificar circulação, posicionamento ou riscos evidentes após observar a área por um minuto.' },
+	'coreografo:mestre-de-cerimonias': { targets: ['skill:atuacao', 'skill:persuasao'], bonus: 2,
+		condition: 'Conduzir um evento depois de conhecer espaço, participantes e programação.' },
 	'criador-pokemon:manejo-sem-estresse': { targets: ['skill:empatia-pokemon', 'skill:adestramento-pokemon', 'skill:medicina-pokemon'], bonus: 2,
 		condition: 'Conduzir, examinar ou conter sem violência Pokémon agitado fora de combate.' },
 	'criador-pokemon:ninho-intacto': { targets: ['skill:percepcao', 'skill:sobrevivencia'], bonus: 2,
@@ -314,6 +314,28 @@ export function rpgTeamCaptainOption(allyId: string, allyName: string,
 		name: `Capitão de Time de ${allyName}`, bonus: 2, advantage: false,
 		condition: `Teste físico diretamente ligado ao plano: ${plan.description}.`,
 		targets: ['skill:atletismo', 'skill:acrobacia'] };
+}
+
+export function rpgChoreographyGroupOption(allyId: string, allyName: string,
+	ally: RPGTrainerSheet, recipientId: string, campaignTime: string): RPGTrainerRollTalent[] {
+	if (ally.status !== 'complete') return [];
+	return (ally.choreographyGroups || []).filter(group =>
+		group.recipientCharacterIds.includes(recipientId) &&
+		Date.parse(group.expiresAt) > Date.parse(campaignTime) &&
+		(group.kind !== 'warmup' || !group.usedRecipientIds.includes(recipientId)))
+		.map(group => ({ key: `coreografo:${group.kind}@${allyId}`,
+			id: group.kind === 'warmup' ? 'coreografo:preparacao-corporal-conjunta' :
+			'coreografo:conducao-de-evacuacao',
+			name: `${group.kind === 'warmup' ? 'Preparação Corporal Conjunta' : 'Condução de Evacuação'} de ${allyName}`,
+			bonus: group.kind === 'warmup' ? 1 : 2, advantage: false,
+			condition: `Atividade preparada: ${group.activity}. ` +
+				(group.kind === 'warmup' ? 'Primeiro teste físico fora de combate.' :
+				'Travessia de obstáculo durante a evacuação, sem afetar batalha.'),
+			targets: group.kind === 'warmup' ?
+				['attribute:strength', 'attribute:dexterity', 'attribute:constitution',
+					'skill:atletismo', 'skill:acrobacia'] :
+				['skill:atletismo', 'skill:acrobacia', 'skill:sobrevivencia'],
+		}));
 }
 
 /** O líder presente pode orientar os deslocamentos físicos dos demais participantes da expedição. */

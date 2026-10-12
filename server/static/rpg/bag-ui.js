@@ -183,6 +183,7 @@
 	}
 
 	const CATALOG_CATEGORIES = [
+		['trainer-equipment', 'Itens novos'],
 		['pokeballs', 'Poké Balls'], ['medicines', 'Medicamentos'],
 		['held-items', 'Held Items'], ['evolution-items', 'Itens de Evolução'],
 		['tms', 'TMs'], ['fossils', 'Fósseis'], ['treasures', 'Tesouros'],
@@ -190,6 +191,7 @@
 		['mission-items', 'Itens de Missão'],
 	];
 	function catalogCategoryId(item) {
+		if (item.category === 'trainer-equipment') return 'trainer-equipment';
 		if (item.tags?.includes('mission')) return 'mission-items';
 		if (item.category === 'ball') return 'pokeballs';
 		if (['healing', 'status', 'pp', 'revive'].includes(item.category)) return 'medicines';
@@ -319,7 +321,8 @@
 				const name = el('span', 'bag-ui-item-name');
 				name.append(el('strong', '', item.name));
 				if (item.category === 'talent-items') name.append(el('small', '', item.description));
-				card.append(itemIcon(item), name, el('b', 'bag-ui-quantity', '×' + item.quantity));
+				if (item.category !== 'food-items') card.append(itemIcon(item));
+				card.append(name, el('b', 'bag-ui-quantity', '×' + item.quantity));
 				if (item.favorite) card.append(el('span', 'bag-ui-favorite-mark', '★'));
 				card.addEventListener('click', () => showItemDetails(item, card));
 				list.append(card);
@@ -333,7 +336,7 @@
 			const text = el('div');
 			text.append(el('strong', '', 'Ferramentas do Mestre'), el('small', '', 'Administre esta Bag sem sair da visualização do Player.'));
 			const actions = el('div', 'bag-ui-master-actions');
-			const manage = makeButton('Adicionar ou remover itens', 'button');
+			const manage = makeButton('Adicionar item', 'button');
 			manage.addEventListener('click', () => void showQuantityManager(manage));
 			const create = makeButton('Criar Item de Missão', 'button');
 			create.addEventListener('click', () => void showCustomItemCreator(create));
@@ -461,8 +464,12 @@
 			dialogHeading(dialog.card, item.name, close);
 			const summary = el('div', 'bag-ui-detail-summary');
 			const identity = el('div');
-			identity.append(el('strong', '', item.name), el('small', '', item.registryCategory));
-			summary.append(itemIcon(item, 'large'), identity, el('b', '', '×' + item.quantity));
+			identity.append(el('strong', '', item.name));
+			if (item.category !== 'food-items') {
+				identity.append(el('small', '', item.registryCategory));
+				summary.append(itemIcon(item, 'large'));
+			}
+			summary.append(identity, el('b', '', '×' + item.quantity));
 			dialog.card.append(summary, el('p', 'bag-ui-description', item.description));
 			if (item.category === 'talent-items') dialog.card.append(el('p', 'bag-ui-description',
 				'Peso: 0 kg · Espaços na Bag: 0'));
@@ -983,7 +990,11 @@
 			dialog.card.append(form);
 			try {
 				const data = await options.api('/bag/master/catalog');
-				const catalog = data.items || [];
+				const equipment = await options.api('/trainer/equipment?characterId=' + encodeURIComponent(options.characterId));
+				const catalog = [...(data.items || []), ...Object.values(equipment.catalog || {}).map(item => ({
+					id: 'equipment:' + item.id, name: item.name, category: 'trainer-equipment',
+					icon: null, sprite: null, tags: ['trainer-equipment'],
+				}))];
 				const owned = new Map();
 				for (const item of bagData.items || []) {
 					const previous = owned.get(item.id);
@@ -993,7 +1004,8 @@
 				let selectedQuality = '';
 				let selectedCategory = '';
 				const sourceItems = () => operation.value === 'remove' ?
-					catalog.filter(item => owned.has(item.id)) : catalog;
+					catalog.filter(item => item.category !== 'trainer-equipment' && owned.has(item.id)) :
+					operation.value === 'set' ? catalog.filter(item => item.category !== 'trainer-equipment') : catalog;
 				const renderCategories = () => {
 					selectedId = '';
 					selectedQuality = '';
@@ -1039,7 +1051,8 @@
 							const choice = makeButton(
 								'', 'bag-ui-master-catalog-item' + (entry.id === selectedId && entry.quality === selectedQuality ? ' selected' : '')
 							);
-							choice.append(itemIcon(entry), el('span', '', entry.displayName));
+							if (entry.category !== 'trainer-equipment') choice.append(itemIcon(entry));
+							choice.append(el('span', '', entry.displayName));
 							if (owned.has(entry.id)) choice.append(el('b', '', '×' + owned.get(entry.id).quantity));
 							choice.addEventListener('click', () => {
 								selectedId = entry.id;
@@ -1075,14 +1088,22 @@
 					}
 					try {
 						submit.disabled = true;
-						await options.api('/bag/master/quantity', {
-							method: 'POST', body: {
-								characterId: options.characterId, itemId: selectedId,
-								operation: operation.value, quantity: Number(quantity.value),
-								expectedRevision: bagData.revision,
-								...(selectedQuality ? { quality: selectedQuality } : {}),
-							},
-						});
+						if (selectedId.startsWith('equipment:')) {
+							await options.api('/trainer/equipment', { method: 'POST', body: {
+								action: 'grant', characterId: options.characterId,
+								itemId: selectedId.slice('equipment:'.length),
+								quantity: Number(quantity.value), expectedRevision: equipment.inventory.revision,
+							} });
+						} else {
+							await options.api('/bag/master/quantity', {
+								method: 'POST', body: {
+									characterId: options.characterId, itemId: selectedId,
+									operation: operation.value, quantity: Number(quantity.value),
+									expectedRevision: bagData.revision,
+									...(selectedQuality ? { quality: selectedQuality } : {}),
+								},
+							});
+						}
 						close();
 						options.toast('Bag atualizada pelo Mestre.');
 						await load();

@@ -105,6 +105,7 @@ export interface RPGBoxPokemonMetadata {
 	companion?: boolean;
 	training?: RPGBoxTrainingState;
 	lastBattleAt?: number;
+	lastFirstCareAt?: number;
 	ot?: string;
 	evTraining?: RPGEVTrainingJob;
 	trainingReward?: true;
