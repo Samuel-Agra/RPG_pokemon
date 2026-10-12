@@ -8,12 +8,14 @@ const {
 	RPGMemoryCharacterRepository,
 } = require('../../dist/server/rpg-showdown');
 
-function createService() {
+function createService(options = {}) {
 	let byte = 0;
 	let randomState = 0x12345678;
 	return new RPGLoginService({
 		masterCode: '14081998',
-		repository: new RPGMemoryCharacterRepository(),
+		repository: options.repository || new RPGMemoryCharacterRepository(),
+		sessionStore: options.sessionStore,
+		deletionStore: options.deletionStore,
 		random: () => {
 			randomState = (1664525 * randomState + 1013904223) >>> 0;
 			return randomState / 0x100000000;
@@ -35,6 +37,24 @@ function createCharacter(service, name, species, password) {
 }
 
 describe('RPG Box management backend', () => {
+	it('keeps a release challenge across reconstructed table services', () => {
+		const repository = new RPGMemoryCharacterRepository();
+		const sessionStore = new Map();
+		const deletionStore = { challenges: new Map(), lastWords: new Map(), pokemonReleaseChallenges: new Map() };
+		const options = { repository, sessionStore, deletionStore };
+		const first = createService(options);
+		createCharacter(first, 'Samuel', 'Squirtle', 'senha-rpg');
+		const player = first.loginPlayer('samuel', 'senha-rpg');
+		const box = first.getBox(player.token);
+		const challenge = first.createPokemonReleaseChallenge(
+			player.token, undefined, box.team[0].pokemonId, box.revision
+		);
+		const second = createService(options);
+		const released = second.releaseBoxPokemon(player.token, challenge.challengeId, true);
+		assert.equal(released.results.length, 0);
+		assert.equal(repository.get('samuel').state.box.party.length, 0);
+		assert.throws(() => first.releaseBoxPokemon(player.token, challenge.challengeId, true), /Confirmação de liberação inválida ou expirada/);
+	});
 	it('exposes the Box contract through authenticated HTTP routes', async () => {
 		const service = createService();
 		createCharacter(service, 'Samuel', 'Squirtle', 'senha-rpg');

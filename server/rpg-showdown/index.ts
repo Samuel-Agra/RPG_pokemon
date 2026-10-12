@@ -413,6 +413,7 @@ interface RPGInternalDeletionChallenge extends RPGCharacterDeletionChallenge {
 export interface RPGCharacterDeletionStore {
 	challenges: Map<string, RPGInternalDeletionChallenge>;
 	lastWords: Map<string, string>;
+	pokemonReleaseChallenges?: Map<string, RPGInternalPokemonReleaseChallenge>;
 }
 
 export interface RPGPokemonReleaseChallenge {
@@ -824,7 +825,7 @@ export class RPGLoginService {
 	private readonly masterCodeHash: Buffer;
 	private readonly deletionChallenges: RPGCharacterDeletionStore['challenges'];
 	private readonly lastDeletionWord: RPGCharacterDeletionStore['lastWords'];
-	private readonly pokemonReleaseChallenges = new Map<string, RPGInternalPokemonReleaseChallenge>();
+	private readonly pokemonReleaseChallenges: Map<string, RPGInternalPokemonReleaseChallenge>;
 	private readonly sessionTtlMs: number;
 	private readonly now: () => number;
 	private readonly random: () => number;
@@ -853,6 +854,7 @@ export class RPGLoginService {
 		this.sessions = options.sessionStore || new Map<string, RPGInternalSession>();
 		this.deletionChallenges = options.deletionStore?.challenges || new Map();
 		this.lastDeletionWord = options.deletionStore?.lastWords || new Map();
+		this.pokemonReleaseChallenges = options.deletionStore?.pokemonReleaseChallenges || new Map();
 		this.mysqlPersistence = options.mysqlPersistence;
 		this.accounts = options.accountManagement || new RPGAccountManagement();
 		this.legacyTableId = options.legacyTableId;
@@ -6118,7 +6120,7 @@ export class RPGLoginService {
 		const challenge = this.pokemonReleaseChallenges.get(challengeId);
 		if (!challenge || challenge.sessionKey !== this.tokenKey(token) || challenge.expiresAt <= this.now()) {
 			if (challenge) this.pokemonReleaseChallenges.delete(challengeId);
-			throw new Error('Invalid or expired RPG Pokemon release challenge');
+			throw new Error('Confirmação de liberação inválida ou expirada. Tente novamente.');
 		}
 		this.pokemonReleaseChallenges.delete(challengeId);
 		if (confirmed !== true) throw new Error('RPG Pokemon release was not confirmed');
