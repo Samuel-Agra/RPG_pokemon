@@ -27,6 +27,44 @@
 		incubating: 'Incubando',
 		ready_to_hatch: 'Pronto para chocar',
 	};
+	let closeExamination = null;
+	function showExamination(result) {
+		closeExamination?.();
+		const overlay = el('div', 'nursery-examination-overlay');
+		const panel = el('section', 'nursery-examination-panel');
+		panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-modal', 'true');
+		panel.append(el('h2', '', 'Exame do Egg'),
+			el('p', '', 'Tempo para chocar: ' + duration(result.remainingIncubationTimeMs)),
+			el('p', '', 'Espécie: ' + result.species),
+			el('p', '', 'Forma: ' + result.form),
+			el('p', '', 'Sexo: ' + (result.sex === 'M' ? 'Masculino' :
+			result.sex === 'F' ? 'Feminino' : 'Não aplicável')));
+		const close = () => {
+			overlay.remove();
+			document.removeEventListener('keydown', onKey);
+			if (closeExamination === close) closeExamination = null;
+		};
+		const onKey = event => { if (event.key === 'Escape') close(); };
+		overlay.addEventListener('click', event => { if (event.target === overlay) close(); });
+		document.addEventListener('keydown', onKey);
+		overlay.append(panel); document.body.append(overlay);
+		closeExamination = close;
+	}
+	async function examineEgg(options, eggId, breederId) {
+		try {
+			let selectedBreederId = breederId;
+			if (!selectedBreederId) {
+				const query = options.characterId ? '?characterId=' + encodeURIComponent(options.characterId) : '';
+				const view = (await options.api('/nursery' + query)).nursery;
+				const breeder = view.breeders?.find(person => person.id === view.ownerId) || view.breeders?.[0];
+				if (!breeder) throw new Error('É necessário um Criador Pokémon ativo nesta mesa para examinar o Egg.');
+				selectedBreederId = breeder.id;
+			}
+			const result = (await options.api('/nursery/examine', { method: 'POST',
+				body: { eggId, breederId: selectedBreederId } })).examination;
+			showExamination(result);
+		} catch (error) { options.toast(error.message, true); }
+	}
 
 	function eggIcon(options, egg) {
 		if (egg?.portableIncubator && options.eggVisual) {
@@ -79,26 +117,7 @@
 			const button = el('button', 'button', breeder.id === view.ownerId ?
 				'Examinar' : breeder.name + ' examinar');
 			button.type = 'button';
-			button.addEventListener('click', async () => {
-				try {
-					const result = (await options.api('/nursery/examine', { method: 'POST',
-						body: { eggId: egg.eggId, breederId: breeder.id } })).examination;
-					const overlay = el('div', 'nursery-examination-overlay');
-					const panel = el('section', 'nursery-examination-panel');
-					panel.setAttribute('role', 'dialog'); panel.setAttribute('aria-modal', 'true');
-					panel.append(el('h2', '', 'Exame do Egg'),
-						el('p', '', 'Tempo para chocar: ' + duration(result.remainingIncubationTimeMs)),
-						el('p', '', 'Espécie: ' + result.species),
-						el('p', '', 'Forma: ' + result.form),
-						el('p', '', 'Sexo: ' + (result.sex === 'M' ? 'Masculino' :
-						result.sex === 'F' ? 'Feminino' : 'Não aplicável')));
-					const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
-					const onKey = event => { if (event.key === 'Escape') close(); };
-					overlay.addEventListener('click', event => { if (event.target === overlay) close(); });
-					document.addEventListener('keydown', onKey);
-					overlay.append(panel); document.body.append(overlay);
-				} catch (error) { options.toast(error.message, true); }
-			});
+			button.addEventListener('click', () => { void examineEgg(options, egg.eggId, breeder.id); });
 			return button;
 		}
 		const refreshTimer = window.setInterval(async () => {
@@ -713,7 +732,13 @@
 			}
 			if (project.status === 'egg_ready' && project.eggOwnerId === view.ownerId) {
 				const ready = el('div', 'nursery-ready');
-				ready.append(eggIcon(options), el('div', '', 'O ovo foi produzido e aguarda retirada.'));
+				const icon = eggIcon(options, project.egg);
+				const examine = examineButton(project.egg);
+				if (examine) {
+					icon.classList.add('nursery-egg-examinable');
+					icon.addEventListener('click', () => examine.click());
+				}
+				ready.append(icon, el('div', '', 'O ovo foi produzido e aguarda retirada.'));
 				const collect = el('button', 'button primary', 'Retirar ovo');
 				collect.addEventListener('click', () => action('collect', { projectId: project.id }));
 				ready.append(collect);
@@ -867,8 +892,8 @@
 				const icon = eggIcon(options, egg);
 				const examine = examineButton(egg);
 				if (examine) {
-					icon.classList.add('nursery-egg-examinable');
-					icon.addEventListener('click', () => examine.click());
+					glass.classList.add('nursery-egg-examinable');
+					glass.addEventListener('click', () => examine.click());
 				}
 				glass.append(icon);
 			}
@@ -946,7 +971,13 @@
 					projectId: project.id, incubatorId: emptyLocal?.id,
 				}));
 				actions.append(collect, deposit);
-				ready.append(eggIcon(options), copy, actions);
+				const icon = eggIcon(options, project.egg);
+				const examine = examineButton(project.egg);
+				if (examine) {
+					icon.classList.add('nursery-egg-examinable');
+					icon.addEventListener('click', () => examine.click());
+				}
+				ready.append(icon, copy, actions);
 				page.append(ready);
 			}
 
@@ -983,11 +1014,10 @@
 							control.append(hatch);
 						} else if (egg.status === 'incubating') {
 							const remove = el('button', 'button', 'Retirar Egg');
-							remove.title = 'Ao retirar, há 25% de chance de perder o Egg';
 							remove.addEventListener('click', () => {
 								if (remove.dataset.confirm !== 'true') {
 									remove.dataset.confirm = 'true';
-									remove.textContent = 'Confirmar · 25% de perda';
+									remove.textContent = egg.safeRemoval ? 'Confirmar retirada segura' : 'Confirmar · 25% de perda';
 									return;
 								}
 								action('remove', { eggId: egg.eggId });
@@ -1025,11 +1055,10 @@
 						commands.append(hatch);
 					} else if (egg.portableIncubator) {
 						const stop = el('button', 'button', 'Guardar incubadora');
-						stop.title = 'Ao retirar, há 25% de chance de perder o Egg';
 						stop.addEventListener('click', () => {
 							if (stop.dataset.confirm !== 'true') {
 								stop.dataset.confirm = 'true';
-								stop.textContent = 'Confirmar · 25% de perda';
+								stop.textContent = egg.safeRemoval ? 'Confirmar retirada segura' : 'Confirmar · 25% de perda';
 								return;
 							}
 							action('portable-stop', { eggId: egg.eggId });
@@ -1052,8 +1081,10 @@
 					}
 					const icon = eggIcon(options, egg);
 					if (examine) {
-						icon.classList.add('nursery-egg-examinable');
-						icon.addEventListener('click', () => examine.click());
+						row.classList.add('nursery-egg-examinable');
+						row.addEventListener('click', event => {
+							if (!event.target.closest('button')) examine.click();
+						});
 					}
 					row.append(icon, info, commands);
 					list.append(row);
@@ -1068,5 +1099,5 @@
 		paint();
 		return root;
 	}
-	window.RPGNurseryUI = { render };
+	window.RPGNurseryUI = { render, examineEgg };
 })();

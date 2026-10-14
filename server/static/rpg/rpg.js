@@ -8077,7 +8077,8 @@ async function renderDashboard() {
 			$('#logout-button').classList.add('danger');
 			$('#delete-character').classList.add('hidden');
 			body.replaceChildren(
-				state.dashboardView === 'trainer-sheet' ? await window.RPGTrainerSheetUI.render({ api, state, master: true, characters }) :
+				state.dashboardView === 'trainer-sheet' ? await window.RPGTrainerSheetUI.render({ api, state, master: true, characters,
+					spriteUrl: pokemon => spriteUrl(pokemon) }) :
 				state.dashboardView === 'battles' ? await renderMasterBattles(characters) :
 				state.dashboardView === 'contests' ? await window.RPGContestUI.render({ state, api, master: true, characters, rerender: renderDashboard }) :
 				state.dashboardView === 'npcs' ? await renderMasterNPCLibraryDashboard() :
@@ -8116,7 +8117,8 @@ async function renderDashboard() {
 			$('#logout-button').classList.toggle('danger', !viewing);
 			$('#delete-character').classList.toggle('hidden', !viewing);
 			const playerView = state.dashboardView === 'battles' ? await renderPlayerBattles(character) :
-				state.dashboardView === 'trainer-sheet' ? await window.RPGTrainerSheetUI.render({ api, state, master: false, character }) :
+				state.dashboardView === 'trainer-sheet' ? await window.RPGTrainerSheetUI.render({ api, state, master: false, character,
+					spriteUrl: pokemon => spriteUrl(pokemon) }) :
 				state.dashboardView === 'contests' ? await window.RPGContestUI.render({ state, api, master: false, character, rerender: renderDashboard }) :
 				state.dashboardView === 'tournaments' ? await renderPlayerTournaments(character) :
 				state.dashboardView === 'box' ? await renderPlayerBox(character) :

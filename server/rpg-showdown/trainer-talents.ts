@@ -142,6 +142,7 @@ function allowedAttributeChoices(talent: RPGTrainerTalentDefinition): (keyof RPG
 	// Aumentos fixos pertencem à própria regra e não exigem escolha de atributo.
 	if (['arqueologo:memoria-academica', 'cientista:hipotese-persistente', 'artista:presenca-magnetica',
 		'artista:corpo-de-cena', 'coreografo:leitura-cinetica',
+		'criador-pokemon:incubacao-de-emergencia', 'criador-pokemon:mestre-do-bercario',
 		'coreografo:preparacao-corporal-conjunta'].includes(talent.id)) return [];
 	if (talent.id === 'aprimoramento-de-atributo') return Object.values(ATTRIBUTE_NAMES);
 	const line = (/Aumente (?:também )?em 1[^\n]*/i.exec(talent.text))?.[0];
@@ -299,6 +300,14 @@ function applyTalentEffect(sheet: RPGTrainerSheet, talent: RPGTrainerTalentDefin
 	if (talent.id === 'arqueologo:resgate-de-reliquia') {
 		attributes.dexterity = Math.min(20, attributes.dexterity + 1);
 		next.relicRescueApplied = true;
+	}
+	if (talent.id === 'criador-pokemon:incubacao-de-emergencia') {
+		attributes.wisdom = Math.min(20, attributes.wisdom + 1);
+		next.emergencyIncubationWisdomApplied = true;
+	}
+	if (talent.id === 'criador-pokemon:mestre-do-bercario') {
+		attributes.wisdom = Math.min(20, attributes.wisdom + 1);
+		next.nurseryMasterWisdomApplied = true;
 	}
 	if (talent.id === 'artista:presenca-magnetica') {
 		attributes.charisma = Math.min(20, attributes.charisma + 1);

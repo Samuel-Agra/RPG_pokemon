@@ -1801,6 +1801,8 @@ button.team-builder-main-property:hover { border-color: #5a7ead; box-shadow: 0 0
 	min-height: 150px;
 	display: grid;
 	place-items: center;
+	align-content: center;
+	gap: 12px;
 	padding: 24px;
 	box-sizing: border-box;
 	border: 1px solid #b7c2d1;

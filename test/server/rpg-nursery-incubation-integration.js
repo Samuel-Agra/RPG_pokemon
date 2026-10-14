@@ -1,7 +1,8 @@
 'use strict';
 
 const assert = require('assert').strict;
-const { RPGLoginService, RPGMemoryCharacterRepository } = require('../../dist/server/rpg-showdown');
+const { RPGLoginService, RPGMemoryCharacterRepository,
+	RPGIncubation } = require('../../dist/server/rpg-showdown');
 
 const stats = value => ({ hp: value, atk: value, def: value, spa: value, spd: value, spe: value });
 function set(species, gender, ability, item = '') {
@@ -18,6 +19,210 @@ function create(service, name) {
 	});
 }
 describe('RPG connected Nursery and Incubation flow', () => {
+	it('reduz uma única vez a reprodução quando um dos Pokémon pertence ao Criador com talento', () => {
+		const duration = (owners, apexOwners = []) => {
+			const service = new RPGLoginService({ masterCode: 'teste',
+				repository: new RPGMemoryCharacterRepository() });
+			create(service, 'Samuel'); create(service, 'Marina');
+			const master = service.loginMaster('teste');
+			service.replaceCharacterTeam(master.token, 'samuel', [set('Gardevoir', 'F', 'Synchronize')]);
+			service.replaceCharacterTeam(master.token, 'marina', [set('Gallade', 'M', 'Sharpness')]);
+			for (const id of owners) {
+				const record = service.repository.get(id);
+				record.state.trainerSheet = { status: 'complete', classId: 'criador-pokemon',
+					talents: { class: ['criador-pokemon:reproducao-assistida'], general: [],
+						apex: apexOwners.includes(id) ? 'criador-pokemon:mestre-do-bercario' : null } };
+				service.repository.set(record);
+			}
+			const first = service.loginPlayer('samuel', '1234');
+			const second = service.loginPlayer('marina', '1234');
+			const pokemon1 = service.getCharacter(first.token).box.party[0].pokemonId;
+			const pokemon2 = service.getCharacter(second.token).box.party[0].pokemonId;
+			const request = service.createNurseryProject(first.token, undefined, pokemon1);
+			const projectId = request.projects.find(project => project.status === 'inviting').id;
+			service.acceptNurseryInvitation(second.token, projectId, pokemon2);
+			service.confirmNurseryProject(second.token, projectId);
+			service.confirmNurseryProject(first.token, projectId);
+			return service.repository.get('samuel').state.nursery.projects[0].requiredBreedingTimeMs;
+		};
+		const normal = duration([]);
+		assert.equal(duration(['samuel']), Math.ceil(normal * 0.8));
+		assert.equal(duration(['marina']), Math.ceil(normal * 0.8));
+		assert.equal(duration(['samuel', 'marina']), Math.ceil(normal * 0.8));
+		assert.equal(duration(['samuel'], ['samuel']), Math.ceil(normal * 0.7));
+		assert.equal(duration(['samuel', 'marina'], ['marina']), Math.ceil(normal * 0.7));
+	});
+	it('reduz em 30% a incubação portátil própria e de aliados sem acumular com a redução de 20%', () => {
+		const service = new RPGLoginService({ masterCode: 'teste',
+			repository: new RPGMemoryCharacterRepository() });
+		create(service, 'Criador'); create(service, 'Aliado');
+		const master = service.loginMaster('teste');
+		const breeder = service.loginPlayer('criador', '1234');
+		const ally = service.loginPlayer('aliado', '1234');
+		for (const id of ['criador', 'aliado']) {
+			const record = service.repository.get(id);
+			if (id === 'criador') record.state.trainerSheet = { status: 'complete', classId: 'criador-pokemon',
+				talents: { class: ['criador-pokemon:incubacao-assistida'], general: [],
+					apex: 'criador-pokemon:mestre-do-bercario' } };
+			const egg = { id: `${id}-egg`, ownerId: id, status: 'carried', createdAt: 1,
+				genetics: { species: 'Eevee', sex: 'F', nature: 'Hardy', ability: 'Run Away',
+					ivs: stats(16), ivOrigins: stats('random'), moves: ['tackle'], eggMoves: [],
+					shiny: false, family: 'field', lineage: 'Eevee', parentIds: ['a', 'b'],
+					parentOwnerIds: [id, id] } };
+			service.ensureNursery(record).projects.push({ id: `${id}-project`, egg,
+				slot1: { ownerId: id, ownerName: id, participantType: 'player' },
+				slot2ParticipantType: 'npc', eggOwnerId: id, status: 'collected',
+				confirmed: {}, createdAt: 1 });
+			service.repository.set(record);
+			const baseline = RPGIncubation.requiredTime('Eevee');
+			const token = id === 'criador' ? breeder.token : ally.token;
+			const bag = service.getBag(token);
+			service.masterSetBagItemQuantity(master.token, id, 'portableincubator', 1, bag.revision, 'add');
+			service.startPortableNurseryIncubator(token, egg.id);
+			const incubating = service.repository.get(id).state.nursery.projects[0].egg;
+			assert.equal(incubating.requiredIncubationTimeMs, Math.ceil(baseline * 0.7));
+		}
+	});
+	it('protege Eggs do Criador e do aliado ao retirar incubadoras locais e portáteis', () => {
+		const service = new RPGLoginService({ masterCode: 'teste',
+			repository: new RPGMemoryCharacterRepository(), random: () => 0.1 });
+		create(service, 'Criador'); create(service, 'Aliado');
+		const master = service.loginMaster('teste');
+		const breeder = service.loginPlayer('criador', '1234');
+		const ally = service.loginPlayer('aliado', '1234');
+		for (const id of ['criador', 'aliado']) {
+			const record = service.repository.get(id);
+			if (id === 'criador') record.state.trainerSheet = { status: 'complete', classId: 'criador-pokemon',
+				talents: { class: ['criador-pokemon:incubacao-de-emergencia'], general: [], apex: null } };
+			service.ensureNursery(record).projects.push({ id: `${id}-project`,
+				slot1: { ownerId: id, ownerName: id, participantType: 'player' },
+				slot2ParticipantType: 'npc', eggOwnerId: id, status: 'collected', confirmed: {}, createdAt: 1,
+				egg: { id: `${id}-egg`, ownerId: id, status: 'carried', createdAt: 1,
+					genetics: { species: 'Eevee', sex: 'F', nature: 'Hardy', ability: 'Run Away',
+						ivs: stats(16), ivOrigins: stats('random'), moves: ['tackle'], eggMoves: [],
+						shiny: false, family: 'field', lineage: 'Eevee', parentIds: ['a', 'b'],
+						parentOwnerIds: [id, id] } } });
+			service.repository.set(record);
+		}
+		const local = service.getNursery(ally.token).incubators[0].id;
+		service.insertNurseryEgg(ally.token, 'aliado-egg', local);
+		const removed = service.removeNurseryEgg(ally.token, 'aliado-egg');
+		assert.equal(removed.lost, false);
+		assert.equal(service.repository.get('aliado').state.nursery.projects[0].egg.status, 'carried');
+		const bag = service.getBag(breeder.token);
+		service.masterSetBagItemQuantity(master.token, 'criador', 'portableincubator', 1, bag.revision, 'add');
+		service.startPortableNurseryIncubator(breeder.token, 'criador-egg');
+		const portable = service.stopPortableNurseryIncubator(breeder.token, 'criador-egg');
+		assert.equal(portable.lost, false);
+		assert.equal(service.repository.get('criador').state.nursery.projects[0].egg.status, 'carried');
+		const unrelatedBreeder = service.repository.get('criador');
+		unrelatedBreeder.tableId = 'outra-mesa';
+		service.repository.set(unrelatedBreeder);
+		const allyRecord = service.repository.get('aliado');
+		allyRecord.tableId = 'mesa-atual';
+		service.repository.set(allyRecord);
+		service.insertNurseryEgg(ally.token, 'aliado-egg', local);
+		assert.equal(service.removeNurseryEgg(ally.token, 'aliado-egg').lost, true);
+	});
+	it('aplica talentos do Criador apenas quando ele coloca o Egg na incubadora portátil', () => {
+		const service = new RPGLoginService({ masterCode: 'teste',
+			repository: new RPGMemoryCharacterRepository() });
+		create(service, 'Criador');
+		create(service, 'Aliado');
+		const master = service.loginMaster('teste');
+		const breeder = service.loginPlayer('criador', '1234');
+		const ally = service.loginPlayer('aliado', '1234');
+		for (const id of ['criador', 'aliado']) {
+			const record = service.repository.get(id);
+			record.state.trainerSheet = { status: 'complete', classId: 'criador-pokemon',
+				talents: { class: id === 'criador' ? [
+					'criador-pokemon:incubacao-assistida', 'criador-pokemon:nascimento-acolhido',
+				] : [], general: [], apex: null } };
+			const egg = { id: `${id}-egg`, ownerId: id, status: 'carried', createdAt: 1,
+				genetics: { species: 'Eevee', sex: 'F', nature: 'Hardy', ability: 'Run Away',
+					ivs: stats(16), ivOrigins: stats('random'), moves: ['tackle'], eggMoves: [],
+					shiny: false, family: 'field', lineage: 'Eevee', parentIds: ['a', 'b'],
+					parentOwnerIds: [id, id] } };
+			service.ensureNursery(record).projects.push({ id: `${id}-project`, egg,
+				slot1: { ownerId: id, ownerName: id, participantType: 'player' },
+				slot2ParticipantType: 'npc', eggOwnerId: id, status: 'egg_ready',
+				confirmed: {}, createdAt: 1 });
+			service.repository.set(record);
+			const bag = service.getBag(id === 'criador' ? breeder.token : ally.token);
+			service.masterSetBagItemQuantity(master.token, id, 'portableincubator', 1, bag.revision, 'add');
+		}
+		service.startPortableNurseryIncubator(breeder.token, 'criador-egg');
+		service.startPortableNurseryIncubator(ally.token, 'aliado-egg');
+		const own = service.repository.get('criador').state.nursery.projects[0].egg;
+		const other = service.repository.get('aliado').state.nursery.projects[0].egg;
+		assert.equal(own.requiredIncubationTimeMs, Math.ceil(other.requiredIncubationTimeMs * 0.8));
+		assert.equal(own.welcomedBirth, true);
+		assert.equal(other.welcomedBirth, false);
+		const transfer = service.getBagTransferTargets(breeder.token, undefined, 'portableincubator', own.id);
+		const destination = transfer.targets.find(target => target.characterId === 'aliado');
+		service.transferBagItem(breeder.token, undefined, 'aliado', 'portableincubator', 1,
+			transfer.senderRevision, destination.revision, own.id);
+		const transferred = service.repository.get('aliado').state.nursery.projects.find(project =>
+			project.egg?.id === own.id).egg;
+		assert.equal(transferred.welcomedBirth, true);
+		assert.equal(transferred.requiredIncubationTimeMs, own.requiredIncubationTimeMs);
+		const allyRecord = service.repository.get('aliado');
+		const allyEgg = allyRecord.state.nursery.projects.find(project => project.egg?.id === 'aliado-egg').egg;
+		allyEgg.status = 'ready_to_hatch';
+		allyRecord.state.nursery.projects.find(project => project.egg?.id === transferred.id).egg.status =
+			'ready_to_hatch';
+		service.repository.set(allyRecord);
+		const bag = service.getBag(ally.token);
+		service.masterSetBagItemQuantity(master.token, 'aliado', 'pokeball', 2, bag.revision, 'add');
+		assert.equal(service.hatchNurseryEgg(ally.token, transferred.id).hatch.pokemon.rpg.friendship, 60);
+		assert.equal(service.hatchNurseryEgg(ally.token, allyEgg.id).hatch.pokemon.rpg.friendship, 50);
+	});
+	it('Guardião de Gerações beneficia incubadoras portáteis do Criador e aliados, mas não incubadoras locais', () => {
+		const service = new RPGLoginService({ masterCode: 'teste',
+			repository: new RPGMemoryCharacterRepository() });
+		create(service, 'Criador'); create(service, 'Aliado');
+		const master = service.loginMaster('teste');
+		const breeder = service.loginPlayer('criador', '1234');
+		const ally = service.loginPlayer('aliado', '1234');
+		const creator = service.repository.get('criador');
+		creator.state.trainerSheet = { status: 'complete', classId: 'criador-pokemon',
+			talents: { class: [], general: [], apex: 'criador-pokemon:guardiao-de-geracoes' } };
+		service.repository.set(creator);
+		for (const id of ['criador', 'aliado']) {
+			const record = service.repository.get(id);
+			for (const kind of ['portable', 'local']) {
+				const egg = { id: `${id}-${kind}`, ownerId: id, status: 'carried', createdAt: 1,
+					genetics: { species: 'Eevee', sex: 'F', nature: 'Hardy', ability: 'Run Away',
+						ivs: stats(16), ivOrigins: stats('random'), moves: ['tackle'], eggMoves: [],
+						shiny: false, family: 'field', lineage: 'Eevee', parentIds: ['a', 'b'],
+						parentOwnerIds: [id, id] } };
+				service.ensureNursery(record).projects.push({ id: `${id}-${kind}-project`, egg,
+					slot1: { ownerId: id, ownerName: id, participantType: 'player' },
+					slot2ParticipantType: 'npc', eggOwnerId: id, status: 'collected',
+					confirmed: {}, createdAt: 1 });
+			}
+			service.repository.set(record);
+			const token = id === 'criador' ? breeder.token : ally.token;
+			const bag = service.getBag(token);
+			service.masterSetBagItemQuantity(master.token, id, 'portableincubator', 1, bag.revision, 'add');
+			service.startPortableNurseryIncubator(token, `${id}-portable`);
+			const local = service.getNursery(token).incubators[0].id;
+			service.insertNurseryEgg(token, `${id}-local`, local);
+			const eggs = service.repository.get(id).state.nursery.projects.map(project => project.egg);
+			assert.equal(eggs.find(egg => egg.id === `${id}-portable`).guardianBirth, true);
+			assert.equal(eggs.find(egg => egg.id === `${id}-local`).guardianBirth, undefined);
+		}
+		for (const id of ['criador', 'aliado']) {
+			const record = service.repository.get(id);
+			for (const project of record.state.nursery.projects) project.egg.status = 'ready_to_hatch';
+			service.repository.set(record);
+			const token = id === 'criador' ? breeder.token : ally.token;
+			const bag = service.getBag(token);
+			service.masterSetBagItemQuantity(master.token, id, 'pokeball', 2, bag.revision, 'add');
+			assert.equal(service.hatchNurseryEgg(token, `${id}-portable`).hatch.pokemon.rpg.friendship, 60);
+			assert.equal(service.hatchNurseryEgg(token, `${id}-local`).hatch.pokemon.rpg.friendship, 50);
+		}
+	});
 	it('loses an incubated Egg on a 1-in-4 withdrawal roll but never rolls for direct collection', () => {
 		const roll = 0.1;
 		let byte = 0;

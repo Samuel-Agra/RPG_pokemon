@@ -110,6 +110,7 @@ export interface RPGBoxPokemonMetadata {
 	evTraining?: RPGEVTrainingJob;
 	trainingReward?: true;
 	contestHarmonization?: true | { groupId: string };
+	contestImpeccablePreparationAt?: number;
 	breeding?: boolean;
 }
 
@@ -204,6 +205,8 @@ export interface RPGBoxMasterEdit {
 	pp?: number[];
 	status?: string;
 	experience?: number;
+	friendship?: number;
+	performance?: number;
 	item?: string;
 	ot?: string;
 	species?: string;
@@ -966,6 +969,14 @@ export class RPGBoxManagement {
 		this.revision(character, expectedRevision);
 		const entry = this.requireEntry(character.box, pokemonId);
 		const dex = Dex.mod('gen9');
+		if (edit.friendship !== undefined &&
+			(!Number.isSafeInteger(edit.friendship) || edit.friendship < 0 || edit.friendship > 255)) {
+			throw new Error('Amizade deve ser um número inteiro entre 0 e 255');
+		}
+		if (edit.performance !== undefined &&
+			(!Number.isSafeInteger(edit.performance) || edit.performance < 0 || edit.performance > 100)) {
+			throw new Error('Performance deve ser um número inteiro entre 0 e 100');
+		}
 		if (edit.species !== undefined) {
 			const species = dex.species.get(edit.species);
 			if (!species.exists) throw new Error('Invalid RPG Pokemon species');
@@ -1004,6 +1015,13 @@ export class RPGBoxManagement {
 				throw new Error('Invalid RPG Pokemon experience');
 			}
 			entry.pokemon.rpg.experience = edit.experience;
+		}
+		if (edit.friendship !== undefined) {
+			entry.pokemon.rpg.friendship = edit.friendship;
+		}
+		if (edit.performance !== undefined) {
+			entry.pokemon.rpg.contestPerformance = edit.performance;
+			entry.pokemon.rpg.contestPerformanceTrainerId = character.id;
 		}
 		if (edit.ot !== undefined) {
 			entry.metadata = { ...(entry.metadata || {}), ot: this.text(edit.ot, 'OT', 50) };

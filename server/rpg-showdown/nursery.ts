@@ -89,6 +89,14 @@ export interface RPGNurseryEgg {
 	portableIncubator?: boolean;
 	portableIncubatorId?: string;
 	portableIncubatorMission?: boolean;
+	/** Criador que colocou este Egg na incubadora portátil atual. */
+	portableBreederId?: string;
+	/** A redução de Incubação Assistida só pode ser aplicada uma vez por Egg. */
+	assistedIncubation?: boolean;
+	/** Amizade inicial concedida pelo Criador ao colocar o Egg na incubadora portátil. */
+	welcomedBirth?: boolean;
+	/** Ápice de Criador ou aliado ativo ao iniciar a incubação portátil. */
+	guardianBirth?: boolean;
 	hatchedAt?: number;
 }
 

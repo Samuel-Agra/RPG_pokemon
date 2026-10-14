@@ -11,6 +11,24 @@ describe('RPG trainer sheet read-only frontend', () => {
 	const page = fs.readFileSync(path.join(root, 'trainer-sheet-ui.js'), 'utf8');
 	const style = fs.readFileSync(path.join(root, 'trainer-sheet.css'), 'utf8');
 	const http = fs.readFileSync(path.resolve(root, '../../rpg-showdown/http.ts'), 'utf8');
+	it('shows First Care above the talent and presents fainted Pokemon as detailed sprite cards', () => {
+		assert(page.includes("'criador-pokemon:restaurador-pokemon'].includes(id)"));
+		assert.match(style, /\.trainer-first-care-overlay \{[^}]*z-index: 10002/);
+		assert.match(page, /trainer-first-care-sprite/);
+		assert.match(page, /action\.spriteUrl\(pokemon\)/);
+		assert.match(page, /'Nv\. ' \+ pokemon\.level/);
+		assert.match(page, /for \(const type of pokemon\.types\)/);
+		assert.match(page, /'HP ' \+ pokemon\.hp \+ ' \/ ' \+ pokemon\.maxHP/);
+		assert.match(style, /\.trainer-first-care-hp-bar \{[^}]*background: #aab2bd/);
+		assert.match(page, /const pokemonGrid = el\('div', 'trainer-first-care-pokemon-grid'\)/);
+		assert.match(style, /\.trainer-first-care-pokemon-grid \{[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\)/);
+	});
+	it('lets the breeder select a trainer and keeps recently enriched Pokémon visible but disabled', () => {
+		assert(page.includes("id === 'criador-pokemon:rotina-de-enriquecimento'"));
+		assert(page.includes("action.api('/trainer/talents/enrichment-routine'"));
+		assert(page.includes('option.disabled = entry.remainingMs > 0'));
+		assert(page.includes('editor.append(el(\'label\', \'\', \'Treinador\'), trainer, el(\'label\', \'\', \'Pokémon\'), pokemon'));
+	});
 	it('keeps talent and record windows open while their contents scroll', () => {
 		const popover = page.split('function showTalentPopover(')[1].split('function section(')[0];
 		assert(popover.includes("document.addEventListener('pointerdown', outside)"));
@@ -137,8 +155,8 @@ describe('RPG trainer sheet read-only frontend', () => {
 		assert(html.includes('trainer-sheet.css'));
 		assert(app.includes("['trainer-sheet', 'Fichas']"));
 		assert(app.includes("['trainer-sheet', 'Ficha']"));
-		assert(app.includes('RPGTrainerSheetUI.render({ api, state, master: true, characters })'));
-		assert(app.includes('RPGTrainerSheetUI.render({ api, state, master: false, character })'));
+		assert(app.includes('RPGTrainerSheetUI.render({ api, state, master: true, characters,'));
+		assert(app.includes('RPGTrainerSheetUI.render({ api, state, master: false, character,'));
 		assert(page.includes('if (master) {'));
 		assert(page.includes("api('/trainer/sheet' + query)"));
 		assert(!page.includes("api('/trainer/equipment' + query)"));

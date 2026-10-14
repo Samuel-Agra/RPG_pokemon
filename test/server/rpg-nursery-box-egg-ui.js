@@ -16,6 +16,14 @@ const teamBuilder = fs.readFileSync(path.join(root, 'server/static/rpg/team-buil
 const bag = fs.readFileSync(path.join(root, 'server/static/rpg/bag-ui.js'), 'utf8');
 
 describe('RPG Egg presentation outside incubation', () => {
+	it('examines a carried Egg with an allied breeder from Team Builder or the Nursery', () => {
+		assert.match(teamBuilder, /Examinar com ' \+ breeder\.name/);
+		assert.match(teamBuilder, /RPGNurseryUI\.examineEgg\(deps, deps\.selectedEgg\.eggId, breeder\.id\)/);
+		assert.match(nursery, /view\.breeders\?\.find\(person => person\.id === view\.ownerId\) \|\| view\.breeders\?\.\[0\]/);
+		assert.match(nursery, /body: \{ eggId, breederId: selectedBreederId \}/);
+		assert.match(nursery, /icon\.addEventListener\('click', \(\) => examine\.click\(\)\)/);
+		assert.match(nursery, /window\.RPGNurseryUI = \{ render, examineEgg \}/);
+	});
 	it('shows Eggs in party slots without drag, drop, details, or Box movement', () => {
 		assert.match(rpg, /teamEggs: teamEggs\(character\)/);
 		assert.match(box, /const eggs = Array\.isArray\(deps\.teamEggs\)/);
@@ -135,6 +143,8 @@ describe('RPG Egg presentation outside incubation', () => {
 		assert.doesNotMatch(nursery, /Vaga livre|VAGA ' \+ incubator\.slot|Incubadora local ' \+ groupNumber|Sem Egg disponível/);
 		assert.match(teamBuilder, /Incubadoras Portáteis/);
 		assert.match(teamBuilder, /Retirar Egg/);
+		assert.match(teamBuilder, /deps\.selectedEgg\.safeRemoval/);
+		assert.match(nursery, /egg\.safeRemoval \? 'Confirmar retirada segura'/);
 		assert.match(teamBuilder, /Colocar Egg/);
 		assert.match(teamBuilder, /deps\.selectedEgg\.status === 'ready_to_hatch'/);
 		assert.match(teamBuilder, /button\('Chocar', 'button primary'\)/);

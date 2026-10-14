@@ -117,6 +117,9 @@ export class RPGIncubation {
 		incubator.eggId = egg.id;
 		egg.incubatorId = incubator.id;
 		delete egg.portableIncubator;
+		delete egg.portableBreederId;
+		delete egg.welcomedBirth;
+		delete egg.guardianBirth;
 		egg.incubationStartedAt = now;
 		egg.status = 'incubating';
 	}
@@ -155,6 +158,9 @@ export class RPGIncubation {
 		delete egg.portableIncubatorId;
 		delete egg.portableIncubatorMission;
 		delete egg.incubationStartedAt;
+		delete egg.portableBreederId;
+		delete egg.welcomedBirth;
+		delete egg.guardianBirth;
 		egg.status = 'carried';
 	}
 
@@ -208,7 +214,8 @@ export class RPGIncubation {
 			moves: [...genetics.moves], ivs: { ...genetics.ivs },
 			evs: { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 },
 			rpg: {
-				version: RPG_STATE_VERSION, level: 1, friendship: 50, item: '',
+				version: RPG_STATE_VERSION, level: 1, friendship: egg.portableIncubator &&
+					(egg.guardianBirth || egg.welcomedBirth) ? 60 : 50, item: '',
 				captureBall: 'pokeball',
 				experience: getSpeciesExperience(species.id) ? 0 : undefined,
 			},
@@ -220,6 +227,9 @@ export class RPGIncubation {
 		delete egg.portableIncubator;
 		delete egg.portableIncubatorId;
 		delete egg.portableIncubatorMission;
+		delete egg.portableBreederId;
+		delete egg.welcomedBirth;
+		delete egg.guardianBirth;
 		return {
 			eggId: egg.id, pokemon,
 			revealed: {

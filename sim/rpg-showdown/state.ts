@@ -34,6 +34,8 @@ export interface RPGPokemonState {
 	friendship?: number;
 	/** Último aumento de amizade por Petisco de Amizade, no relógio da campanha. */
 	lastFriendshipSnackAt?: number;
+	/** Última Rotina de Enriquecimento, segundo o relógio da campanha. */
+	lastEnrichmentRoutineAt?: number;
 	experienceMultiplier?: number;
 	/** Experiência de palco vinculada ao treinador atual, entre 0 e 100. */
 	contestPerformance?: number;

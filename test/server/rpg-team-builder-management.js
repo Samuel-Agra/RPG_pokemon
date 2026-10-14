@@ -455,10 +455,30 @@ describe('RPG Team Builder management backend', () => {
 		let box = service.getBox(master.token, 'samuel');
 		const pokemonId = box.team[0].pokemonId;
 		box = service.masterEditBoxPokemon(
-			master.token, 'samuel', pokemonId, { hp: 1, experience: 9000 }, box.revision
+			master.token, 'samuel', pokemonId,
+			{ hp: 1, experience: 9000, friendship: 180, performance: 42 }, box.revision
 		);
 		assert.equal(box.team[0].hp, 1);
 		assert.equal(box.team[0].experience, 9000);
+		let details = service.getPokemonTeamBuilder(master.token, 'samuel', pokemonId);
+		assert.equal(details.progression.friendship, 180);
+		assert.equal(details.progression.performance, 42);
+		box = service.masterEditBoxPokemon(
+			master.token, 'samuel', pokemonId, { friendship: 25, performance: 7 }, box.revision
+		);
+		details = service.getPokemonTeamBuilder(master.token, 'samuel', pokemonId);
+		assert.equal(details.progression.friendship, 25);
+		assert.equal(details.progression.performance, 7);
+		assert.throws(() => service.masterEditBoxPokemon(
+			master.token, 'samuel', pokemonId, { friendship: 256 }, box.revision
+		), /Amizade/);
+		assert.throws(() => service.masterEditBoxPokemon(
+			master.token, 'samuel', pokemonId, { performance: -1 }, box.revision
+		), /Performance/);
+		const player = service.loginPlayer('samuel', 'senha-rpg');
+		assert.throws(() => service.masterEditBoxPokemon(
+			player.token, 'samuel', pokemonId, { friendship: 200 }, box.revision
+		));
 		assert.throws(() => service.masterEditBoxPokemon(
 			master.token, 'outro-player', pokemonId, { hp: 2 }, box.revision
 		), /only edit the character currently being viewed/);

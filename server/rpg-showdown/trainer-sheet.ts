@@ -44,6 +44,9 @@ export interface RPGTrainerSheet {
 	academicMemoryApplied?: boolean;
 	/** Marca a correção do bônus de Destreza para fichas que já possuíam Resgate de Relíquia. */
 	relicRescueApplied?: boolean;
+	/** Marca a aplicação única da Sabedoria de Incubação de Emergência. */
+	emergencyIncubationWisdomApplied?: boolean;
+	nurseryMasterWisdomApplied?: boolean;
 	/** Escolhas parametrizadas preservam a variante e o nível de aquisição. */
 	talentSelections?: (import('./trainer-talents').RPGTrainerTalentChoice &
 		{ acquiredAtLevel: number, grantedSkill?: string })[];
@@ -60,6 +63,13 @@ export interface RPGTrainerSheet {
 	/** Chaves idempotentes das ações de Petisco de Amizade. */
 	friendshipSnackReceipts?: { requestId: string, fingerprint: string, result: {
 		served: { name: string, friendshipGained: number | null }[], }, }[];
+	/** Identificadores de uso evitam duplicar Amizade em tentativas repetidas. */
+	enrichmentRoutineReceipts?: { requestId: string, fingerprint: string,
+		result: { name: string, friendshipGained: number, availableAt: number }, }[];
+	guardianEnrichmentUsedAt?: number;
+	guardianEnrichmentReceipts?: { requestId: string, fingerprint: string,
+		result: { pokemon: { name: string, friendshipGained: number }[], availableAt: number }, }[];
+	impeccablePreparationReceipts?: { requestId: string, fingerprint: string, result: { name: string } }[];
 	trainingRewardReceipts?: { requestId: string, fingerprint: string, result: { name: string } }[];
 	contestHarmonizationReceipts?: { requestId: string, fingerprint: string, result: { names: string[] } }[];
 	/** Ensaios permanentes e preparos breves do Coreógrafo, sempre vinculados aos Pokémon da mesa. */

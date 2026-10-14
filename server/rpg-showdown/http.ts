@@ -120,6 +120,8 @@ export class RPGHttpServer {
 			getTrainerSheet: characterId => this.login.repository.get(characterId)?.state.trainerSheet,
 			getContestHarmonization: (characterId, teamIndexes) =>
 				this.login.contestHarmonizationPrepared(characterId, teamIndexes),
+			getImpeccablePreparation: (characterId, teamIndexes) =>
+				this.login.contestImpeccablePreparationPrepared(characterId, teamIndexes),
 			getChoreography: (characterId, teamIndexes) =>
 				this.login.trainerContestChoreography(characterId, teamIndexes),
 			getCombos: () => this.login.contestCombos.list(),
@@ -531,6 +533,30 @@ export class RPGHttpServer {
 				requestId: this.string(body.requestId),
 				rationItemId: this.string(body.rationItemId),
 				servings: body.servings as { characterId?: string, pokemonId?: string, otherPokemon?: string }[],
+			}));
+			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/enrichment-routine') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.useTrainerEnrichmentRoutine(this.token(req), {
+				requestId: this.string(body.requestId), characterId: this.string(body.characterId),
+				pokemonId: this.string(body.pokemonId),
+			}));
+			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/guardian-enrichment') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.useTrainerGuardianEnrichment(this.token(req), {
+				requestId: this.string(body.requestId),
+				pokemon: body.pokemon as { characterId: string, pokemonId: string }[],
+			}));
+			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/impeccable-preparation') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.useTrainerImpeccablePreparation(this.token(req), {
+				requestId: this.string(body.requestId), characterId: this.string(body.characterId),
+				pokemonId: this.string(body.pokemonId),
 			}));
 			return;
 		}
@@ -2051,8 +2077,20 @@ export class RPGHttpServer {
 		}
 		if (method === 'POST' && url.pathname === '/api/rpg/trainer/first-care') {
 			const body = await this.body(req);
-			this.json(res, 200, this.login.performFirstCare(this.token(req),
-				this.string(body.characterId), this.string(body.pokemonId)));
+			const token = this.token(req);
+			const result = this.login.performFirstCare(token,
+				this.string(body.characterId), this.string(body.pokemonId));
+			if (result.supplyRoll !== null) {
+				const session = this.login.getSession(token);
+				if (session.platformTableId && session.platformAccountId && this.login.mysqlPersistence) {
+					await this.login.mysqlPersistence.createTableChatMessage(session.platformTableId,
+						session.platformAccountId, `${result.breederName} usou Socorro Bem Administrado em ` +
+						`${result.pokemonName}.\n1d6 tirou ${result.supplyRoll}: ` +
+						(result.chargeSaved ? 'carga do Kit de Medicina Pokémon preservada.' :
+						'1 carga do Kit de Medicina Pokémon consumida.'));
+				}
+			}
+			this.json(res, 200, result);
 			return;
 		}
 		const nurseryAction = /^\/api\/rpg\/nursery\/(create|master-slot1|accept|master-slot2|master-cancel|withdraw-slot2|confirm|cancel|collect-parent|collect|collect-local|insert|remove|portable-start|portable-stop|restore-released|delete-released|shop-buy|hatch)$/.exec(url.pathname);
@@ -2842,6 +2880,8 @@ export class RPGHttpServer {
 	/** Only established domain validation messages may cross the HTTP boundary. */
 	private isPublicValidationError(message: string): boolean {
 		if (/persisted|estado persistido|table scope|random source|repository|repositório/i.test(message)) return false;
+		if (/^(?:Amizade deve ser um número inteiro entre 0 e 255|Performance deve ser um número inteiro entre 0 e 100)$/.test(message)) return true;
+		if (/^(?:Ovo (?:sem incubadora válida|desconhecido ou pertencente a outro treinador)|O ovo (?:ainda não está pronto para chocar|pronto não está nesta incubadora|pronto está na incubadora portátil)|Não há espaço livre na equipe para resgatar o Pokémon chocado|É necessário ter ao menos uma Poké Ball na Bag para o Pokémon nascer)$/.test(message)) return true;
 		if (/^(?:Entre como jogador em uma mesa|Nenhum personagem selecionado|Preparo coreográfico inválido|Este treinador não é Coreógrafo|Escolha Pokémon diferentes|Identificador de ensaio já utilizado|Escolha outro treinador da mesa para Diretor Convidado|Personagem fora da mesa atual|Escolha \d+ Pokémon para este preparo|Escolha Pokémon disponíveis na equipe|Formação não aprendida|Ensaie individualmente com todos os Pokémon primeiro|O convidado precisa ter ficha concluída|Este participante já possui Diretor Convidado|Tema Unificado não aprendido|Escolha um tema presente nos golpes do concurso|Entrosamento Instintivo não aprendido|Pokémon requer 50 de amizade|Preparação coletiva não aprendida|Escolha de um a \d+ participantes da mesa|Descreva a atividade em até 100 caracteres)/.test(message)) return true;
 		if (/^(?:Confirmação de liberação inválida ou expirada\.|Refeição Revigorante |Escolha a CD e participantes |Alimento insuficiente na Bag|Identificador de refeição já utilizado|.* já recebeu Refeição Revigorante neste descanso|.* não pode ser curado)/.test(message)) return true;
 		if (/^(?:Escolha de um a três Pokémon|Este treinador não possui Petisco de Amizade|Identificador de petiscos já utilizado|É necessária uma Ração Pokémon|Nome do outro Pokémon muito longo|Escolha um treinador e um de seus Pokémon|Cada Pokémon pode receber somente um petisco)/.test(message)) return true;

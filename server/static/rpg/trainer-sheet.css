@@ -83,6 +83,7 @@ button.trainer-sheet-talent-row:hover, button.trainer-sheet-talent-row[aria-expa
 .trainer-sheet-publication-count { float: right; margin-left: 8px; color: #46734e; font-size: 11px; }
 .trainer-sheet-archive-editor input, .trainer-sheet-archive-editor textarea { box-sizing: border-box; width: 100%; }
 .trainer-sheet-archive-editor textarea { min-height: 90px; resize: vertical; }
+.trainer-sheet-enrichment-pokemon option:disabled { color: #9299a7; background: #edf0f4; }
 .trainer-sheet-pharmacy-pending { display: grid; gap: 6px; }
 .trainer-sheet-pharmacy-row { display: flex; align-items: center; justify-content: space-between;
 	gap: 10px; padding: 8px; border: 1px solid #d5dfed; border-radius: 7px; background: #f2f5fa; }
@@ -432,6 +433,27 @@ button.trainer-sheet-attribute:hover, button.trainer-sheet-attribute[aria-expand
 	.trainer-sheet-skills .trainer-sheet-list-row { flex-direction: row; }
 	.trainer-sheet-creation-skills, .trainer-sheet-creation-gear { grid-template-columns: 1fr; }
 }
-.trainer-first-care-overlay { position: fixed; inset: 0; z-index: 1100; display: grid; place-items: center; padding: 1rem; background: #09162a99; }
-.trainer-first-care-dialog { width: min(36rem, 100%); max-height: 85vh; overflow: auto; padding: 1.5rem; border-radius: 1rem; border: 1px solid #b8c8df; background: #fff; color: #263653; box-shadow: 0 1rem 3rem #0b193766; }
+.trainer-first-care-overlay { position: fixed; inset: 0; z-index: 10002; display: grid; place-items: center; padding: 1rem; background: #09162a99; }
+.trainer-first-care-dialog { box-sizing: border-box; width: min(48rem, 100%); max-height: 85vh; overflow: auto; padding: 1.5rem; border-radius: 1rem; border: 1px solid #b8c8df; background: #fff; color: #263653; box-shadow: 0 1rem 3rem #0b193766; }
 .trainer-first-care-group { display: grid; gap: .5rem; margin-top: 1rem; }
+.trainer-first-care-pokemon-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.trainer-first-care-pokemon { display: flex; align-items: center; gap: 12px; width: 100%; min-width: 0;
+	padding: 8px 10px; border: 1px solid #b8c8df; border-radius: 9px; background: #f4f7fc;
+	color: #263653; font: inherit; text-align: left; cursor: pointer; }
+.trainer-first-care-pokemon:hover:not(:disabled) { border-color: #6a90c8; background: #eaf1fb; }
+.trainer-first-care-pokemon:disabled { cursor: not-allowed; opacity: .7; }
+.trainer-first-care-sprite { width: 62px; height: 62px; flex: 0 0 62px; object-fit: contain; image-rendering: pixelated; }
+.trainer-first-care-details { display: grid; gap: 4px; min-width: 0; flex: 1; }
+.trainer-first-care-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; }
+.trainer-first-care-heading strong { overflow-wrap: anywhere; }
+.trainer-first-care-heading > span { flex: none; font-weight: 700; }
+.trainer-first-care-types { display: flex; flex-wrap: wrap; gap: 4px; font-size: 12px; }
+.trainer-first-care-types > span { padding: 2px 7px; border-radius: 99px; background: #e1e9f5; }
+.trainer-first-care-hp { display: grid; gap: 3px; font-size: 12px; color: #697586; }
+.trainer-first-care-hp-bar { height: 7px; border-radius: 99px; background: #aab2bd; }
+.trainer-first-care-remaining { max-width: 100px; color: #68768a; }
+.trainer-first-care-feedback { margin: 2px 0; color: #366549; font-size: 13px; }
+.trainer-sheet-talent-choice-grid .trainer-sheet-talent-use.selected {
+	border-color: #d6aa26;
+	box-shadow: 0 0 0 2px #f1d16d;
+}

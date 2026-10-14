@@ -156,6 +156,8 @@ describe('RPG Team Builder frontend', () => {
 		assert.ok(selectedCard.indexOf("['Amizade'") < selectedCard.indexOf("['Performance'"));
 		assert.match(selectedCard, /data\.progression\.friendship/);
 		assert.match(selectedCard, /data\.progression\.performance/);
+		assert.match(selectedCard, /masterProgressionControl\('friendship', data\.progression\.friendship, 255/);
+		assert.match(selectedCard, /masterProgressionControl\('performance', data\.progression\.performance, 100/);
 		assert.match(css, /\.team-builder-detail-cell small[\s\S]*position: absolute/);
 		assert.match(teamBuilder, /data\.permanentState\.hp/);
 		assert.match(teamBuilder, /function hpTone\(value, maximum\)/);

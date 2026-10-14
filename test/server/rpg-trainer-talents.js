@@ -69,10 +69,11 @@ describe('RPG trainer classes and talents', () => {
 	it('registers all twenty class bases, innate features and all published talents', () => {
 		assert.equal(Object.keys(RPG_TRAINER_CLASSES).length, 20);
 		assert.equal(Object.keys(RPG_TRAINER_CLASS_FEATURES).length, 20);
-		assert.equal(RPG_TRAINER_TALENTS.length, 455);
+		assert.equal(RPG_TRAINER_TALENTS.length, 454);
 		assert.equal(RPG_TRAINER_TALENTS.filter(talent => talent.kind === 'general').length, 54);
-		assert.equal(new Set(RPG_TRAINER_TALENTS.map(talent => talent.id)).size, 455);
+		assert.equal(new Set(RPG_TRAINER_TALENTS.map(talent => talent.id)).size, 454);
 		assert(!RPG_TRAINER_TALENTS.some(talent => talent.id === 'artista:memoria-de-repertorio'));
+		assert(!RPG_TRAINER_TALENTS.some(talent => talent.id === 'criador-pokemon:primeiros-cuidados-rapidos'));
 		for (const classId of Object.keys(RPG_TRAINER_CLASSES)) {
 			assert.ok(rpgTrainerClassFeatures(ready(classId)).length >= 2, classId);
 			assert.ok(RPG_TRAINER_TALENTS.some(talent => talent.classId === classId && talent.kind === 'apex'));
@@ -153,6 +154,23 @@ describe('RPG trainer classes and talents', () => {
 			...original.attributes, dexterity: 20,
 		} }), { id: 'arqueologo:resgate-de-reliquia' });
 		assert.equal(capped.attributes.dexterity, 20);
+	});
+	it('grants Emergency Incubation wisdom automatically up to 20', () => {
+		const original = ready('criador-pokemon', 5);
+		original.talents.class.push('criador-pokemon:incubacao-assistida');
+		const chosen = chooseRPGTrainerTalent(original, { id: 'criador-pokemon:incubacao-de-emergencia' });
+		assert.equal(chosen.attributes.wisdom, Math.min(20, original.attributes.wisdom + 1));
+		assert.equal(chosen.emergencyIncubationWisdomApplied, true);
+	});
+	it('grants Nursery Master wisdom automatically without asking for an attribute', () => {
+		const original = ready('criador-pokemon', 10);
+		original.talents.class.push('criador-pokemon:incubacao-assistida',
+			'criador-pokemon:reproducao-assistida', 'criador-pokemon:incubacao-de-emergencia');
+		const chosen = chooseRPGTrainerTalent(original, { id: 'criador-pokemon:mestre-do-bercario' });
+		assert.equal(chosen.attributes.wisdom, original.attributes.wisdom + 1);
+		assert.equal(chosen.nurseryMasterWisdomApplied, true);
+		assert.equal(rpgTrainerTalentCatalog(original).find(entry =>
+			entry.id === 'criador-pokemon:mestre-do-bercario').attributeChoices.length, 0);
 	});
 
 	it('applies general training, focus, resistance and domain without duplicate benefits', () => {

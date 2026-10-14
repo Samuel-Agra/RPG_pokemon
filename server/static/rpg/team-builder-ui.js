@@ -341,6 +341,20 @@
 			portrait.append(sprite, el('strong', '', 'Egg'));
 			const message = el('div', 'team-builder-egg-message');
 			message.append(el('p', '', 'Parece que tem algo se mexendo.'));
+			if (!deps.isMaster) {
+				try {
+					const nursery = (await deps.api('/nursery?characterId=' +
+						encodeURIComponent(deps.characterId))).nursery;
+					const breeder = nursery.breeders?.find(person => person.id === nursery.ownerId) || nursery.breeders?.[0];
+					if (breeder) {
+						const examine = button('Examinar com ' + breeder.name, 'button primary');
+						examine.addEventListener('click', () => {
+							void window.RPGNurseryUI.examineEgg(deps, deps.selectedEgg.eggId, breeder.id);
+						});
+						message.append(examine);
+					}
+				} catch (error) { deps.toast(error.message, true); }
+			}
 			body.append(portrait, message);
 			card.append(toolbar, body);
 			const incubatorPanel = el('section', 'panel team-builder-egg-incubators');
@@ -379,7 +393,8 @@
 						remove.addEventListener('click', async () => {
 							if (remove.dataset.confirm !== 'true') {
 								remove.dataset.confirm = 'true';
-								remove.textContent = 'Confirmar · 25% de perda';
+								remove.textContent = deps.selectedEgg.safeRemoval ?
+									'Confirmar retirada segura' : 'Confirmar · 25% de perda';
 								return;
 							}
 							remove.disabled = true;
@@ -861,11 +876,33 @@
 				}
 				xpControl = wrapper;
 			}
+			function masterProgressionControl(field, value, maximum, label) {
+				if (!data.permissions.master || isReadOnly()) return String(value);
+				const control = input('number', value);
+				control.min = 0; control.max = maximum; control.step = 1;
+				control.setAttribute('aria-label', label);
+				control.addEventListener('change', () => {
+					const next = Number(control.value);
+					if (!Number.isSafeInteger(next) || next < 0 || next > maximum) {
+						deps.toast(label + ' deve estar entre 0 e ' + maximum + '.', true);
+						control.value = String(value);
+						return;
+					}
+					if (next === value) return;
+					void run(() => deps.api('/box/pokemon/' + encodeURIComponent(deps.pokemonId), {
+						method: 'PATCH', body: {
+							characterId: deps.characterId, expectedRevision: data.boxRevision,
+							edit: { [field]: next },
+						},
+					}), label + ' atualizada.');
+				});
+				return control;
+			}
 			for (const [label, value] of [
 				['Shiny', data.pokemon.shiny ? 'Sim' : 'Não'], ['Gênero', data.pokemon.gender || 'N'],
 				['Level', levelControl], ['XP', xpControl],
-				['Amizade', String(data.progression.friendship)],
-				['Performance', String(data.progression.performance)],
+				['Amizade', masterProgressionControl('friendship', data.progression.friendship, 255, 'Amizade')],
+				['Performance', masterProgressionControl('performance', data.progression.performance, 100, 'Performance')],
 			]) {
 				const cell = el('div', 'team-builder-detail-cell');
 				cell.append(el('small', '', label), typeof value === 'string' ? el('strong', '', value) : value);

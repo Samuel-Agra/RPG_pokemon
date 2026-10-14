@@ -194,6 +194,14 @@ function lowerLegacyRPGTrainerLevel(sheet: RPGTrainerSheet): RPGTrainerSheet {
 		if (selection.id === 'dominio-de-escudos') remove(next.proficiencies || [], 'escudos');
 		if (selection.proficiency) remove(next.proficiencies || [], selection.proficiency);
 		if (selection.id === 'robusto') maximum -= currentLevel;
+		if (selection.id === 'criador-pokemon:incubacao-de-emergencia') {
+			attributes.wisdom = Math.max(1, attributes.wisdom - 1);
+			next.emergencyIncubationWisdomApplied = false;
+		}
+		if (selection.id === 'criador-pokemon:mestre-do-bercario') {
+			attributes.wisdom = Math.max(1, attributes.wisdom - 1);
+			next.nurseryMasterWisdomApplied = false;
+		}
 	}
 	next.talentSelections = (next.talentSelections || []).filter(entry => entry.acquiredAtLevel !== currentLevel);
 	const rule = RPG_TRAINER_CLASSES[next.classId!];

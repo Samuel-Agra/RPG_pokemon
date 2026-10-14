@@ -80,6 +80,7 @@ export interface RPGContestRuntimeParticipant {
 	roundStages: [RPGContestRoundStageResult | null, RPGContestRoundStageResult | null];
 	scenarioCoherenceBonus: number;
 	contestHarmonizationBonus?: number;
+	impeccablePreparationBonus?: number;
 	/** Fotografia dos preparos válidos na abertura: mudanças posteriores não alteram um concurso ativo. */
 	choreography?: RPGContestChoreography;
 	judging: [RPGContestRoundJudging | null, RPGContestRoundJudging | null];
@@ -220,6 +221,7 @@ export interface RPGContestRuntimeManagerOptions {
 	getCharacterTeam?: (characterId: string) => PokemonSet[] | undefined;
 	getTrainerSheet?: (characterId: string) => RPGTrainerSheet | undefined;
 	getContestHarmonization?: (characterId: string, teamIndexes: readonly number[]) => boolean;
+	getImpeccablePreparation?: (characterId: string, teamIndexes: readonly number[]) => boolean;
 	getChoreography?: (characterId: string, teamIndexes: readonly number[]) => RPGContestChoreography;
 	getCombos?: () => readonly RPGContestComboDefinition[];
 	onFinished?: (session: RPGContestSession, results: readonly RPGContestPlacement[]) => void;
@@ -236,6 +238,7 @@ export class RPGContestRuntimeManager {
 	private readonly getCharacterTeam: (characterId: string) => PokemonSet[] | undefined;
 	private readonly getTrainerSheet: (characterId: string) => RPGTrainerSheet | undefined;
 	private readonly getContestHarmonization: (characterId: string, teamIndexes: readonly number[]) => boolean;
+	private readonly getImpeccablePreparation: (characterId: string, teamIndexes: readonly number[]) => boolean;
 	private readonly getChoreography: (characterId: string, teamIndexes: readonly number[]) => RPGContestChoreography;
 	private readonly getCombos: () => readonly RPGContestComboDefinition[];
 	private readonly onMovePPSpent?: RPGContestRuntimeManagerOptions['onMovePPSpent'];
@@ -246,6 +249,7 @@ export class RPGContestRuntimeManager {
 		this.getCharacterTeam = options.getCharacterTeam || (() => undefined);
 		this.getTrainerSheet = options.getTrainerSheet || (() => undefined);
 		this.getContestHarmonization = options.getContestHarmonization || (() => false);
+		this.getImpeccablePreparation = options.getImpeccablePreparation || (() => false);
 		this.getChoreography = options.getChoreography || (() => ({ rehearsed: [], formation: false,
 			themeTag: null, guest: false }));
 		this.getCombos = options.getCombos || (() => RPG_DEFAULT_CONTEST_COMBOS);
@@ -499,6 +503,7 @@ export class RPGContestRuntimeManager {
 			roundTotals: participant.judging.filter(Boolean).map(judging => judging!.totalAfterJudging),
 			scenarioCoherenceBonus: participant.scenarioCoherenceBonus +
 				(participant.contestHarmonizationBonus || 0) +
+				(participant.impeccablePreparationBonus || 0) +
 				this.trainerContestBonus(state, participant),
 			performanceBonus: participant.pokemonTeam.reduce((sum, pokemon) => sum + pokemon.performanceBonus, 0) / participant.pokemonTeam.length,
 		})));
@@ -575,6 +580,8 @@ export class RPGContestRuntimeManager {
 			scenarioCoherenceBonus: 0,
 			contestHarmonizationBonus: participant.characterId && this.getContestHarmonization(participant.characterId,
 				selections.map(selection => selection.teamIndex).filter((index): index is number => index !== undefined)) ? 3 : 0,
+			impeccablePreparationBonus: participant.characterId && this.getImpeccablePreparation(participant.characterId,
+				selections.map(selection => selection.teamIndex).filter((index): index is number => index !== undefined)) ? 2 : 0,
 			choreography: participant.characterId ? this.getChoreography(participant.characterId,
 				selections.map(selection => selection.teamIndex).filter((index): index is number => index !== undefined)) : undefined,
 			judging: [null, null], audienceReactions: [null, null], judgeComments: [null, null],
