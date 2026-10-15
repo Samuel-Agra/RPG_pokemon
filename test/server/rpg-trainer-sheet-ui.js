@@ -89,6 +89,14 @@ describe('RPG trainer sheet read-only frontend', () => {
 		assert(style.includes(".trainer-sheet-captain-player[aria-pressed='true']"));
 		assert(http.includes("'/api/rpg/trainer/talents/team-captain'"));
 	});
+	it('prepares and closes a Detective capture plan for selected teammates', () => {
+		assert(page.includes("'detetive:plano-de-captura'"));
+		assert(page.includes("'/trainer/talents/capture-plan'"));
+		assert(page.includes('ids.length > plan.proficiency'));
+		assert(page.includes('usedRecipientIds'));
+		assert(http.includes("'/api/rpg/trainer/talents/capture-plan'"));
+		assert(http.includes('consumeTrainerCapturePlanRoll'));
+	});
 	it('offers two Knowledge choices and marks half-proficiency on the right half of each skill', () => {
 		assert(page.includes("chosen.id === 'conhecimento-diversificado'"));
 		assert(page.includes("entry.halfProficiency ? ' half-proficiency'"));

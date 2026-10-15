@@ -6,6 +6,8 @@ const { rollRPGTrainerSkillCheck, rpgTrainerProficiency } = require('../../dist/
 const { rpgTrainerRollTalentOptions, rpgResolveTrainerRollTalents, rpgTrainerRollBonusTerms,
 	rpgArtisticInspirationOption, rpgCaptivatingDistractionOption, rpgEncouragingPresenceOption,
 	rpgTeamCaptainOption,
+	rpgDetectiveCapturePlanOption,
+	rpgDetectiveDuoOption,
 	rpgTechnicalOpinionOption,
 	rpgExpeditionLeaderOption,
 	rpgExcavationMasterOption,
@@ -125,6 +127,49 @@ describe('RPG trainer situational roll talents', () => {
 		assert.equal(rpgTeamCaptainOption('capitao', 'Lia', athlete, 'aliado').bonus, 2);
 		athlete.captainPlan.recipientCharacterIds = ['capitao'];
 		assert.equal(rpgTeamCaptainOption('capitao', 'Lia', athlete, 'aliado'), null);
+	});
+	it('offers a Detective capture plan after preparation, once per designated participant', () => {
+		const detective = { ...sheet(), classId: 'detetive', level: 7,
+			talents: { general: [], class: ['detetive:plano-de-captura'], apex: null },
+			capturePlan: { description: 'Conter o fugitivo no cais',
+				recipientCharacterIds: ['detetive', 'aliado'], usedRecipientIds: [],
+				readyAt: '2026-10-15T12:30:00.000Z' } };
+		assert.deepEqual(rpgTrainerRollTalentOptions(detective, 'skill', 'atletismo'), []);
+		assert.equal(rpgDetectiveCapturePlanOption('detetive', 'Lia', detective,
+			'aliado', '2026-10-15T12:29:00.000Z'), null);
+		const option = rpgDetectiveCapturePlanOption('detetive', 'Lia', detective,
+			'aliado', '2026-10-15T12:30:00.000Z');
+		assert.equal(option.bonus, 2);
+		assert.match(option.condition, /cais/);
+		assert.equal(rpgResolveTrainerRollTalents(sheet(), 'skill', 'atletismo',
+			[option.key], [option]).bonus, 2);
+		assert.equal(rpgResolveTrainerRollTalents(sheet(), 'skill', 'pilotagem:terrestre',
+			[option.key], [option]).bonus, 2);
+		assert.throws(() => rpgResolveTrainerRollTalents(sheet(), 'attack', 'melee',
+			[option.key], [option]), /indisponível/);
+		assert.equal(rpgDetectiveCapturePlanOption('detetive', 'Lia', detective,
+			'outro', '2026-10-15T12:30:00.000Z'), null);
+		detective.capturePlan.usedRecipientIds.push('aliado');
+		assert.equal(rpgDetectiveCapturePlanOption('detetive', 'Lia', detective,
+			'aliado', '2026-10-15T12:31:00.000Z'), null);
+		assert(rpgDetectiveCapturePlanOption('detetive', 'Lia', detective,
+			'detetive', '2026-10-15T12:31:00.000Z'));
+	});
+	it('offers Inseparable Duo only as an optional Intuition bonus from the linked partner base SpA', () => {
+		const detective = { ...sheet(), classId: 'detetive', talents: { general: [],
+			class: ['detetive:parceiro-investigativo', 'detetive:voz-do-parceiro'],
+			apex: 'detetive:dupla-indissociavel' }, investigativePartnerPokemonId: 'squirtle-1' };
+		const option = rpgDetectiveDuoOption(detective, 'Squirtle', 50);
+		assert.equal(option.bonus, 2);
+		assert.deepEqual(option.targets, ['skill:intuicao']);
+		assert.equal(rpgResolveTrainerRollTalents(detective, 'skill', 'intuicao', [], [option]).bonus, 0);
+		assert.equal(rpgResolveTrainerRollTalents(detective, 'skill', 'intuicao', [option.key], [option]).bonus, 2);
+		assert.throws(() => rpgResolveTrainerRollTalents(detective, 'skill', 'investigacao',
+			[option.key], [option]), /indisponível/);
+		assert.equal(rpgDetectiveDuoOption({ ...detective, investigativePartnerUnavailable: true },
+			'Squirtle', 50), null);
+		assert.equal(rpgDetectiveDuoOption({ ...detective, investigativePartnerPokemonId: undefined },
+			'Squirtle', 50), null);
 	});
 	it('offers Crossing Swimmer +2 only for relevant Athletics rolls', () => {
 		const athlete = { ...sheet(), classId: 'atleta', talents: { general: [],

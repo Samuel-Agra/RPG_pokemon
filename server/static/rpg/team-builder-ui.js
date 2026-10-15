@@ -105,7 +105,9 @@
 		dialog.setAttribute('aria-modal', 'true');
 		dialog.append(
 			el('h2', '', 'Liberar ' + (pokemon.name || pokemon.species) + '?'),
-			el('p', '', 'Esta ação retira o Pokémon permanentemente e não pode ser desfeita.')
+			el('p', '', pokemon.pokemonId === deps.investigativePartnerPokemonId ?
+				'Este é seu Parceiro Investigativo. Ao liberá-lo, você perderá a ajuda dele, e o vínculo permanente não poderá ser trocado sem o Mestre. Deseja continuar?' :
+				'Esta ação retira o Pokémon permanentemente e não pode ser desfeita.')
 		);
 		const actions = el('div', 'team-builder-release-actions');
 		const cancel = button('Cancelar');
@@ -148,7 +150,9 @@
 		dialog.setAttribute('aria-modal', 'true');
 		dialog.append(
 			el('h2', '', 'Dar ' + (pokemon.name || pokemon.species) + ' para'),
-			el('p', '', 'Escolha outro jogador que possua uma vaga livre na equipe.')
+			el('p', '', pokemon.pokemonId === deps.investigativePartnerPokemonId ?
+				'Este é seu Parceiro Investigativo. Ao presenteá-lo, você perderá a ajuda dele, e o vínculo permanente não poderá ser trocado sem o Mestre. Escolha o destinatário somente se quiser continuar.' :
+				'Escolha outro jogador que possua uma vaga livre na equipe.')
 		);
 		const list = el('div', 'team-builder-gift-list');
 		list.append(el('div', 'empty-state', 'Carregando jogadores...'));

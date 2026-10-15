@@ -453,6 +453,16 @@ button.trainer-sheet-attribute:hover, button.trainer-sheet-attribute[aria-expand
 .trainer-first-care-hp-bar { height: 7px; border-radius: 99px; background: #aab2bd; }
 .trainer-first-care-remaining { max-width: 100px; color: #68768a; }
 .trainer-first-care-feedback { margin: 2px 0; color: #366549; font-size: 13px; }
+.trainer-sheet-partner-dialog { width: min(48rem, 96vw); }
+.trainer-sheet-partner-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; margin-top: 1rem; max-height: min(65vh, 35rem); overflow-y: auto; }
+.trainer-sheet-partner-pokemon { display: flex; align-items: center; gap: 12px; min-width: 0; padding: 9px; border: 1px solid #bac9de; border-radius: 10px; background: #f5f8fc; color: #263653; text-align: left; cursor: pointer; }
+.trainer-sheet-partner-pokemon:hover:not(:disabled) { border-color: #6a90c8; background: #eaf1fb; }
+.trainer-sheet-partner-pokemon:disabled { cursor: not-allowed; opacity: .5; }
+.trainer-sheet-partner-status { margin: .75rem 0; }
+.trainer-sheet-trusted-partner { display: grid; gap: .35rem; margin-top: .75rem; }
+.trainer-sheet-trusted-partner input { box-sizing: border-box; width: 100%; min-width: 0; padding: .55rem .7rem; border: 1px solid #b8c8df; border-radius: .45rem; background: #fff; color: #263653; }
+.trainer-sheet-trusted-partner-feedback { min-height: 1rem; color: #49617e; }
+@media (max-width: 600px) { .trainer-sheet-partner-grid { grid-template-columns: 1fr; } }
 .trainer-sheet-talent-choice-grid .trainer-sheet-talent-use.selected {
 	border-color: #d6aa26;
 	box-shadow: 0 0 0 2px #f1d16d;

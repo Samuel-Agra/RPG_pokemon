@@ -100,6 +100,12 @@ export interface RPGTrainerSheet {
 	lastChatRolls?: { any?: RPGTrainerChatRoll, resistance?: RPGTrainerChatRoll, skill?: RPGTrainerChatRoll };
 	/** Cada espaço preparado pertence a um destinatário e a uma área treinada de Conhecimento. */
 	sharedArchives?: { slot: number, topic: string, knowledge: string, recipientCharacterId: string }[];
+	/** Escolha permanente do Parceiro Investigativo; apenas o Mestre pode desfazê-la. */
+	investigativePartnerPokemonId?: string;
+	investigativePartnerName?: string;
+	investigativePartnerUnavailable?: boolean;
+	/** Nome livre do contato recorrente de Parceiro de Confiança. */
+	trustedPartnerName?: string;
 	/** Cada fórmula escrita ocupa um espaço ativo e acompanha somente seu destinatário. */
 	scientistRecords?: { slot: number, formulaId: string, recipientCharacterId: string,
 		custom?: { name: string, description: string, kitTier: number, charges: number }, }[];
@@ -112,6 +118,8 @@ export interface RPGTrainerSheet {
 	comfortingArtSession?: { restStartedAt: number, recipientCharacterIds: string[] };
 	/** Plano físico preparado pelo Atleta; permanece ativo até ser substituído. */
 	captainPlan?: { description: string, recipientCharacterIds: string[], usedRecipientIds?: string[] };
+	/** Cada participante usa o bônus do plano de abordagem somente no primeiro teste pertinente. */
+	capturePlan?: { description: string, recipientCharacterIds: string[], usedRecipientIds: string[], readyAt: string };
 	/** A primeira série elegível fica vinculada ao personagem antes da distribuição. */
 	creation?: { method: 'standard' | 'rolled', rolls: number[] | null, dice?: number[][],
 		rollProgress?: { dice: number[][], values: number[] }, };

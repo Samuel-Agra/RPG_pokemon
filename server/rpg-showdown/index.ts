@@ -78,7 +78,7 @@ import {
 	type RPGTrainerAttribute, type RPGTrainerCheckOptions, type RPGTrainerResistance,
 } from './trainer-checks';
 import { rpgArtisticInspirationOption, rpgCaptivatingDistractionOption, rpgEncouragingPresenceOption,
-	rpgExcavationMasterOption, rpgExpeditionLeaderOption, rpgTeamCaptainOption,
+	rpgDetectiveCapturePlanOption, rpgDetectiveDuoOption, rpgExcavationMasterOption, rpgExpeditionLeaderOption, rpgTeamCaptainOption,
 	rpgChoreographyGroupOption,
 	rpgTechnicalOpinionOption,
 	rpgResolveTrainerRollTalents, rpgSetSharedArchive, rpgUpdatePersistentHypothesis,
@@ -2527,6 +2527,25 @@ export class RPGLoginService {
 				!Object.values(sheet.pendingChoices || {}).some(count => count > 0),
 			proficiency: rpgTrainerProficiency(sheet.level), skills, resistances, derived, attacks,
 			rollTalents: [...rpgTrainerRollTalents(sheet), ...this.getTrainerAllyRollTalents(token, state.id)],
+			investigativePartner: sheet.talents.class.includes('detetive:parceiro-investigativo') ? {
+				pokemonId: sheet.investigativePartnerPokemonId || null,
+				pokemonName: RPGBoxManagement.view(state).results.find(pokemon =>
+					pokemon.pokemonId === sheet.investigativePartnerPokemonId)?.name ||
+					sheet.investigativePartnerName || null,
+				unavailable: !!sheet.investigativePartnerUnavailable,
+				canUnlink: this.getSession(token).role === 'master' &&
+					this.getSession(token).mode === 'player' &&
+					this.getSession(token).viewAsCharacterId === state.id,
+				pokemon: RPGBoxManagement.view(state).results.map(pokemon => ({
+					id: pokemon.pokemonId, name: pokemon.name, species: pokemon.species,
+					spriteId: pokemon.spriteId, shiny: pokemon.shiny,
+					level: pokemon.level, types: pokemon.types,
+					friendship: [...state.box.party, ...state.box.boxes.flatMap(box => box.slots)
+						.filter((entry): entry is NonNullable<typeof entry> => !!entry)]
+						.find(entry => entry.pokemonId === pokemon.pokemonId)?.pokemon.rpg.friendship || 0,
+				})).sort((a, b) => Number(b.friendship >= 50) - Number(a.friendship >= 50) ||
+					a.name.localeCompare(b.name, 'pt-BR')),
+			} : null,
 			archiveRecipients: sheet.talents.class.includes('arqueologo:acervo-compartilhado') ?
 				this.trainerArchiveRecipients(token) : [],
 			scientistRecord: sheet.classId === 'cientista' ? {
@@ -2639,6 +2658,10 @@ export class RPGLoginService {
 			} : null,
 			captainPlan: sheet.talents.class.includes('atleta:capitao-de-time') ? {
 				plan: sheet.captainPlan || null,
+				recipients: this.trainerArchiveRecipients(token),
+			} : null,
+			capturePlan: sheet.talents.class.includes('detetive:plano-de-captura') ? {
+				plan: sheet.capturePlan || null,
 				recipients: this.trainerArchiveRecipients(token),
 			} : null,
 			publication: sheet.talents.class.includes('cientista:publicacao-de-referencia') ? {
@@ -3539,6 +3562,72 @@ export class RPGLoginService {
 		}
 	}
 
+	setTrainerInvestigativePartner(token: string, pokemonId: string | null) {
+		const session = this.getSession(token);
+		if (session.mode !== 'player' || !session.platformTableId) throw new Error('Entre como jogador em uma mesa');
+		const actorId = session.role === 'master' ? session.viewAsCharacterId : session.characterId;
+		if (!actorId) throw new Error('Nenhum personagem selecionado');
+		const record = this.requireCharacter(toID(actorId));
+		if (record.tableId !== session.platformTableId) throw new Error('Personagem fora da mesa atual');
+		const sheet = record.state.trainerSheet;
+		if (!sheet || sheet.status !== 'complete' ||
+			!sheet.talents.class.includes('detetive:parceiro-investigativo')) {
+			throw new Error('Este treinador não possui Parceiro Investigativo');
+		}
+		if (pokemonId === null) {
+			if (session.role !== 'master') throw new Error('Somente o Mestre pode desvincular o parceiro');
+			if (!sheet.investigativePartnerPokemonId) throw new Error('Nenhum parceiro vinculado');
+		} else {
+			if (sheet.investigativePartnerPokemonId) throw new Error('O Parceiro Investigativo já foi escolhido');
+			const entry = [...record.state.box.party, ...record.state.box.boxes.flatMap(box => box.slots)]
+				.find(candidate => candidate?.pokemonId === pokemonId);
+			if (!entry) throw new Error('Escolha um Pokémon seu da equipe ou da Box');
+			if ((entry.pokemon.rpg.friendship || 0) < 50) {
+				throw new Error('O Pokémon precisa de pelo menos 50 de Amizade');
+			}
+		}
+		const previous = structuredClone(record);
+		if (pokemonId === null) {
+			delete sheet.investigativePartnerPokemonId;
+			delete sheet.investigativePartnerName;
+			delete sheet.investigativePartnerUnavailable;
+		} else {
+			sheet.investigativePartnerPokemonId = pokemonId;
+			sheet.investigativePartnerName = RPGBoxManagement.pokemonSet(record.state, pokemonId).name ||
+				RPGBoxManagement.pokemonSet(record.state, pokemonId).species;
+			sheet.investigativePartnerUnavailable = false;
+		}
+		record.state.updatedAt = this.now();
+		try { this.persistAtomically(() => this.repository.set(record)); } catch (error) {
+			this.repository.set(previous); throw error;
+		}
+		return { pokemonId: sheet.investigativePartnerPokemonId || null };
+	}
+
+	setTrainerTrustedPartnerName(token: string, name: string) {
+		const session = this.getSession(token);
+		if (session.mode !== 'player' || !session.platformTableId) throw new Error('Entre como jogador em uma mesa');
+		const actorId = session.role === 'master' ? session.viewAsCharacterId : session.characterId;
+		if (!actorId) throw new Error('Nenhum personagem selecionado');
+		const record = this.requireCharacter(toID(actorId));
+		if (record.tableId !== session.platformTableId) throw new Error('Personagem fora da mesa atual');
+		const sheet = record.state.trainerSheet;
+		if (!sheet || sheet.status !== 'complete' ||
+			!sheet.talents.class.includes('detetive:parceiro-de-confianca')) {
+			throw new Error('Este treinador não possui Parceiro de Confiança');
+		}
+		if (typeof name !== 'string' || name.trim().length > 80) {
+			throw new Error('O nome do parceiro deve ter até 80 caracteres');
+		}
+		const previous = structuredClone(record);
+		sheet.trustedPartnerName = name.trim();
+		record.state.updatedAt = this.now();
+		try { this.persistAtomically(() => this.repository.set(record)); } catch (error) {
+			this.repository.set(previous); throw error;
+		}
+		return { name: sheet.trustedPartnerName };
+	}
+
 	setTrainerCaptainPlan(token: string, recipientCharacterIds: string[]) {
 		const session = this.getSession(token);
 		if (session.mode !== 'player' || !session.platformTableId) throw new Error('Entre como jogador em uma mesa');
@@ -3568,6 +3657,62 @@ export class RPGLoginService {
 			this.repository.set(original); throw error;
 		}
 		return { plan: structuredClone(sheet.captainPlan || null) };
+	}
+
+	setTrainerCapturePlan(token: string, description: string, recipientCharacterIds: string[]) {
+		const session = this.getSession(token);
+		if (session.mode !== 'player' || !session.platformTableId) throw new Error('Entre como jogador em uma mesa');
+		const actorId = session.role === 'master' ? session.viewAsCharacterId : session.characterId;
+		if (!actorId) throw new Error('Nenhum personagem selecionado');
+		const record = this.requireCharacter(toID(actorId));
+		if (record.tableId !== session.platformTableId) throw new Error('Personagem fora da mesa atual');
+		const sheet = record.state.trainerSheet;
+		if (!sheet || sheet.status !== 'complete' || !sheet.talents.class.includes('detetive:plano-de-captura')) {
+			throw new Error('Este treinador não possui Plano de Captura');
+		}
+		if (!Array.isArray(recipientCharacterIds) ||
+			recipientCharacterIds.some(id => typeof id !== 'string') ||
+			new Set(recipientCharacterIds).size !== recipientCharacterIds.length ||
+				recipientCharacterIds.length > rpgTrainerProficiency(sheet.level)) {
+			throw new Error('Escolha até seu bônus de proficiência em participantes diferentes');
+		}
+		const valid = new Set(this.trainerArchiveRecipients(token).map(person => person.id));
+		if (recipientCharacterIds.some(id => !valid.has(id))) throw new Error('Participante indisponível nesta mesa');
+		const detail = typeof description === 'string' ? description.trim() : '';
+		if (recipientCharacterIds.length && (!detail || detail.length > 160)) {
+			throw new Error('Descreva a abordagem e o alvo em até 160 caracteres');
+		}
+		const original = structuredClone(record);
+		sheet.capturePlan = recipientCharacterIds.length ? {
+			description: detail, recipientCharacterIds: [...recipientCharacterIds], usedRecipientIds: [],
+			readyAt: new Date(Date.parse(this.campaignSettings.currentDateTime) + 30 * 60_000).toISOString(),
+		} : undefined;
+		record.state.updatedAt = this.now();
+		try { this.persistAtomically(() => this.repository.set(record)); } catch (error) {
+			this.repository.set(original); throw error;
+		}
+		return { plan: structuredClone(sheet.capturePlan || null) };
+	}
+
+	consumeTrainerCapturePlanRoll(token: string, characterId: string, keys: readonly string[]): void {
+		const session = this.getSession(token);
+		if (!session.platformTableId) return;
+		for (const key of keys.filter(value => value.startsWith('detetive:plano-de-captura@'))) {
+			const sourceId = key.split('@')[1];
+			const original = this.repository.get(sourceId);
+			if (!original || original.tableId !== session.platformTableId || !original.accountId ||
+				this.accounts.repository.getMembership(session.platformTableId, original.accountId)?.status !== 'active') continue;
+			const source = structuredClone(original);
+			const sheet = source.state.trainerSheet;
+			const plan = sheet?.capturePlan;
+			if (!sheet?.talents.class.includes('detetive:plano-de-captura') || !plan ||
+				!plan.recipientCharacterIds.includes(characterId) || plan.usedRecipientIds.includes(characterId)) continue;
+			plan.usedRecipientIds.push(characterId);
+			source.state.updatedAt = this.now();
+			try { this.persistAtomically(() => this.repository.set(source)); } catch (error) {
+				this.repository.set(original); throw error;
+			}
+		}
 	}
 
 	/** Guarda a referência da rolagem real do chat; texto enviado pelo usuário não entra neste registro. */
@@ -3661,15 +3806,35 @@ export class RPGLoginService {
 
 	/** Exibe apenas treinadores de contas ativas da mesa atual; a mesma busca valida a rolagem. */
 	getTrainerAllyRollTalents(token: string, characterId: string) {
-		return [...this.encouragingPresenceOptions(token, characterId),
+		return [...this.detectiveDuoOptions(token, characterId),
+			...this.encouragingPresenceOptions(token, characterId),
 			...this.choreographyGroupOptions(token, characterId),
 			...this.teamCaptainOptions(token, characterId),
+			...this.detectiveCapturePlanOptions(token, characterId),
 			...this.expeditionLeaderOptions(token, characterId),
 			...this.artisticInspirationOptions(token, characterId),
 			...this.technicalOpinionOptions(token, characterId),
 			...this.captivatingDistractionOptions(token, characterId),
 			...this.excavationMasterOptions(token, characterId),
 			...this.sharedArchiveOptions(token, characterId)];
+	}
+
+	private detectiveDuoOptions(token: string, characterId: string) {
+		const session = this.getSession(token);
+		if (!session.platformTableId) return [];
+		const record = this.repository.get(characterId);
+		if (!record || record.tableId !== session.platformTableId) return [];
+		const sheet = record.state.trainerSheet;
+		const partner = record.state.box.party.find(entry =>
+			entry.pokemonId === sheet?.investigativePartnerPokemonId);
+		if (!sheet || !partner || partner.metadata?.evTraining ||
+			this.isPokemonBreeding(characterId, partner.pokemonId) ||
+			partner.pokemon.rpg.hp !== undefined && partner.pokemon.rpg.hp <= 0) return [];
+		const species = Dex.mod('gen9').species.get(partner.pokemon.species);
+		if (!species.exists) return [];
+		const option = rpgDetectiveDuoOption(sheet,
+			partner.pokemon.name || partner.pokemon.species, species.baseStats.spa);
+		return option ? [option] : [];
 	}
 
 	private choreographyGroupOptions(token: string, characterId: string) {
@@ -3725,6 +3890,20 @@ export class RPGLoginService {
 			.flatMap(record => {
 				const option = record.state.trainerSheet && rpgTeamCaptainOption(record.state.id,
 					record.state.characterName, record.state.trainerSheet, characterId);
+				return option ? [option] : [];
+			});
+	}
+
+	private detectiveCapturePlanOptions(token: string, characterId: string) {
+		const session = this.getSession(token);
+		if (!session.platformTableId) return [];
+		return this.repository.list().filter(record =>
+			record.tableId === session.platformTableId && record.accountId &&
+			this.accounts.repository.getMembership(session.platformTableId!, record.accountId)?.status === 'active')
+			.flatMap(record => {
+				const option = record.state.trainerSheet && rpgDetectiveCapturePlanOption(record.state.id,
+					record.state.characterName, record.state.trainerSheet, characterId,
+					this.campaignSettings.currentDateTime);
 				return option ? [option] : [];
 			});
 	}
@@ -6415,6 +6594,9 @@ export class RPGLoginService {
 		const record = this.requireBoxRecord(token, challenge.characterId, 'box:edit');
 		this.requirePokemonNotBreeding(record, challenge.pokemonId);
 		RPGBoxManagement.release(record.state, challenge.pokemonId, challenge.expectedRevision);
+		if (record.state.trainerSheet?.investigativePartnerPokemonId === challenge.pokemonId) {
+			record.state.trainerSheet.investigativePartnerUnavailable = true;
+		}
 		this.trainerProfile(record.state).stats.pokemonReleased++;
 		this.persistBoxRecord(record);
 		return this.managedBoxView(record);
@@ -6703,6 +6885,9 @@ export class RPGLoginService {
 		const originalSource = structuredClone(source);
 		const originalDestination = structuredClone(destination);
 		const entry = RPGBoxManagement.extract(source.state, pokemonId, sourceRevision);
+		if (source.state.trainerSheet?.investigativePartnerPokemonId === pokemonId) {
+			source.state.trainerSheet.investigativePartnerUnavailable = true;
+		}
 		RPGBoxManagement.insert(destination.state, entry);
 		try {
 			this.persistAtomically(() => {
@@ -7459,6 +7644,9 @@ export class RPGLoginService {
 		const originalDestination = structuredClone(destination);
 		try {
 			const entry = RPGBoxManagement.extract(source.state, pokemonId, sourceRevision);
+			if (source.state.trainerSheet?.investigativePartnerPokemonId === pokemonId) {
+				source.state.trainerSheet.investigativePartnerUnavailable = true;
+			}
 			RPGBoxManagement.insertParty(destination.state, entry);
 			this.persistAtomically(() => {
 				this.persistBoxRecord(source);

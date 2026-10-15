@@ -9,6 +9,7 @@ const {
 	rpgTrainerSkillAttributes,
 	awardRPGTrainerXP, completeRPGTrainerSheet, RPGLoginService, RPGMemoryCharacterRepository,
 } = require('../../dist/server/rpg-showdown');
+const { rpgTrainerRollTalents } = require('../../dist/server/rpg-showdown/trainer-roll-talents');
 
 function ready(classId, level = 1, overrides = {}) {
 	return {
@@ -23,6 +24,171 @@ function ready(classId, level = 1, overrides = {}) {
 }
 
 describe('RPG trainer classes and talents', () => {
+	it('permite ao Detetive escolher Inteligência ou Sabedoria em Perfil Investigativo', () => {
+		const original = ready('detetive', 3);
+		const option = rpgTrainerTalentCatalog(original).find(entry => entry.id === 'detetive:perfil-investigativo');
+		assert.deepEqual(option.attributeChoices, ['intelligence', 'wisdom']);
+		assert.throws(() => chooseRPGTrainerTalent(original, { id: option.id }), /Escolha um atributo/);
+		for (const attribute of option.attributeChoices) {
+			const chosen = chooseRPGTrainerTalent(original, { id: option.id, attribute });
+			assert.equal(chosen.attributes[attribute], original.attributes[attribute] + 1);
+		}
+	});
+	it('oferece Arquivo de Casos e Vigilância Discreta apenas nas perícias apropriadas', () => {
+		const detective = ready('detetive', 5);
+		detective.talents.class.push('detetive:arquivo-de-casos', 'detetive:vigilancia-discreta');
+		const options = rpgTrainerRollTalents(detective);
+		const archive = options.find(option => option.id === 'detetive:arquivo-de-casos');
+		const surveillance = options.find(option => option.id === 'detetive:vigilancia-discreta');
+		assert.deepEqual(archive.targets, ['skill:investigacao']);
+		assert.equal(archive.bonus, 2);
+		assert.deepEqual(surveillance.targets, ['skill:percepcao', 'skill:furtividade']);
+		assert.equal(surveillance.bonus, 2);
+	});
+	it('só oferece o bônus do Parceiro Investigativo após vínculo válido e enquanto ele está disponível', () => {
+		const detective = ready('detetive', 5);
+		detective.talents.class.push('detetive:parceiro-investigativo');
+		const partner = () => rpgTrainerRollTalents(detective).find(option =>
+			option.id === 'detetive:parceiro-investigativo');
+		assert.equal(partner(), undefined);
+		detective.investigativePartnerPokemonId = 'pokemon-1';
+		assert.deepEqual(partner().targets, ['skill:investigacao', 'skill:percepcao']);
+		detective.investigativePartnerUnavailable = true;
+		assert.equal(partner(), undefined);
+	});
+	it('vincula o Parceiro Investigativo uma vez e reserva a desvinculação ao Mestre', () => {
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({ masterCode: 'teste', repository });
+		service.createCharacter({ characterName: 'Ana', playerName: 'Conta', avatar: 'lucas',
+			password: 'senha-rpg', initialMoney: 100, starter: { species: 'Squirtle', gender: 'M' } });
+		const record = repository.get('ana');
+		record.tableId = 'mesa-teste';
+		record.state.trainerSheet = ready('detetive', 5);
+		record.state.trainerSheet.talents.class.push('detetive:parceiro-investigativo');
+		repository.set(record);
+		const playerSession = { mode: 'player', role: 'player', platformTableId: 'mesa-teste', characterId: 'ana' };
+		const masterSession = { ...playerSession, role: 'master', viewAsCharacterId: 'ana' };
+		service.getSession = () => playerSession;
+		assert.throws(() => service.setTrainerInvestigativePartner('teste', 'outro'), /Pokémon seu/);
+		const pokemonId = record.state.box.party[0].pokemonId;
+		const unfriendly = repository.get('ana');
+		unfriendly.state.box.party[0].pokemon.rpg.friendship = 49;
+		repository.set(unfriendly);
+		assert.throws(() => service.setTrainerInvestigativePartner('teste', pokemonId), /50 de Amizade/);
+		unfriendly.state.box.party[0].pokemon.rpg.friendship = 50;
+		repository.set(unfriendly);
+		assert.equal(service.setTrainerInvestigativePartner('teste', pokemonId).pokemonId, pokemonId);
+		assert.equal(repository.get('ana').state.trainerSheet.investigativePartnerName, 'Squirtle');
+		assert.throws(() => service.setTrainerInvestigativePartner('teste', pokemonId), /já foi escolhido/);
+		assert.throws(() => service.setTrainerInvestigativePartner('teste', null), /Somente o Mestre/);
+		service.getSession = () => masterSession;
+		assert.equal(service.setTrainerInvestigativePartner('teste', null).pokemonId, null);
+		assert.equal(repository.get('ana').state.trainerSheet.investigativePartnerName, undefined);
+	});
+	it('Voz do Parceiro usa o Pokémon já vinculado como Parceiro Investigativo', () => {
+		const voice = RPG_TRAINER_TALENTS.find(talent => talent.id === 'detetive:voz-do-parceiro');
+		assert.match(voice.text, /Pokémon já vinculado como Parceiro Investigativo/);
+		assert.doesNotMatch(voice.text, /escolhe definitivamente o Pokémon/);
+	});
+	it('Dupla Indissociável usa somente o parceiro vinculado e presente na equipe', () => {
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({ masterCode: 'teste', repository });
+		service.createCharacter({ characterName: 'Ana', playerName: 'Conta', avatar: 'lucas',
+			password: 'senha-rpg', initialMoney: 100, starter: { species: 'Squirtle', gender: 'M' } });
+		const record = repository.get('ana');
+		record.tableId = 'mesa-teste';
+		record.state.trainerSheet = ready('detetive', 10);
+		record.state.trainerSheet.talents.class.push('detetive:parceiro-investigativo', 'detetive:voz-do-parceiro');
+		record.state.trainerSheet.talents.apex = 'detetive:dupla-indissociavel';
+		record.state.trainerSheet.investigativePartnerPokemonId = record.state.box.party[0].pokemonId;
+		// EV e IV não podem entrar no bônus, que usa o Ataque Especial base da espécie.
+		record.state.box.party[0].pokemon.evs.spa = 252;
+		record.state.box.party[0].pokemon.ivs.spa = 31;
+		repository.set(record);
+		service.getSession = () => ({ mode: 'player', role: 'player',
+			platformTableId: 'mesa-teste', characterId: 'ana' });
+		const duo = () => service.getTrainerAllyRollTalents('teste', 'ana').find(option =>
+			option.id === 'detetive:dupla-indissociavel');
+		assert.equal(duo().bonus, 2);
+		assert.match(duo().condition, /Squirtle/);
+		record.state.trainerSheet.investigativePartnerPokemonId = 'outro';
+		repository.set(record);
+		assert.equal(duo(), undefined);
+		record.state.trainerSheet.investigativePartnerPokemonId = record.state.box.party[0].pokemonId;
+		record.state.box.party[0].pokemon.rpg.hp = 0;
+		repository.set(record);
+		assert.equal(duo(), undefined);
+		record.state.box.party[0].pokemon.rpg.hp = 10;
+		record.state.box.party[0].metadata.evTraining = { readyAt: '2026-10-15T12:00:00.000Z' };
+		repository.set(record);
+		assert.equal(duo(), undefined);
+	});
+	it('mostra Passo de Perseguição e Contradição Explorada somente nas perícias indicadas', () => {
+		const detective = ready('detetive', 5);
+		detective.talents.class.push('detetive:passo-de-perseguicao', 'detetive:contradicao-explorada');
+		const options = rpgTrainerRollTalents(detective);
+		assert.deepEqual(options.find(option => option.id === 'detetive:passo-de-perseguicao').targets,
+			['skill:atletismo', 'skill:acrobacia', 'skill:pilotagem:*']);
+		assert.deepEqual(options.find(option => option.id === 'detetive:contradicao-explorada').targets,
+			['skill:persuasao', 'skill:intimidacao']);
+	});
+	it('salva o nome de Parceiro de Confiança apenas para quem possui o talento', () => {
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({ masterCode: 'teste', repository });
+		service.createCharacter({ characterName: 'Ana', playerName: 'Conta', avatar: 'lucas',
+			password: 'senha-rpg', initialMoney: 100, starter: { species: 'Squirtle', gender: 'M' } });
+		const record = repository.get('ana');
+		record.tableId = 'mesa-teste';
+		record.state.trainerSheet = ready('detetive', 7);
+		repository.set(record);
+		service.getSession = () => ({ mode: 'player', role: 'player',
+			platformTableId: 'mesa-teste', characterId: 'ana' });
+		assert.throws(() => service.setTrainerTrustedPartnerName('teste', 'Lia'), /não possui/);
+		record.state.trainerSheet.talents.class.push('detetive:parceiro-de-confianca');
+		repository.set(record);
+		assert.equal(service.setTrainerTrustedPartnerName('teste', '  Lia  ').name, 'Lia');
+		assert.equal(repository.get('ana').state.trainerSheet.trustedPartnerName, 'Lia');
+		assert.throws(() => service.setTrainerTrustedPartnerName('teste', 'x'.repeat(81)), /80 caracteres/);
+	});
+	it('prepara o Plano de Captura após 30 minutos e consome o bônus por participante', () => {
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({ masterCode: 'teste', repository });
+		for (const name of ['Ana', 'Bia']) {
+			service.createCharacter({ characterName: name, playerName: name, avatar: 'lucas',
+				password: 'senha-rpg', initialMoney: 100,
+				starter: { species: 'Squirtle', gender: 'M' } });
+			const record = repository.get(name.toLowerCase());
+			record.tableId = 'mesa-teste'; record.accountId = name.toLowerCase();
+			record.state.trainerSheet = ready(name === 'Ana' ? 'detetive' : 'atleta', 7);
+			repository.set(record);
+		}
+		const detective = repository.get('ana');
+		detective.state.trainerSheet.talents.class.push('detetive:plano-de-captura');
+		repository.set(detective);
+		service.getSession = () => ({ mode: 'player', role: 'player',
+			platformTableId: 'mesa-teste', characterId: 'ana' });
+		service.trainerArchiveRecipients = () => [{ id: 'ana', name: 'Ana' }, { id: 'bia', name: 'Bia' }];
+		service.accounts.repository.getMembership = () => ({ status: 'active' });
+		service.campaignSettings.currentDateTime = '2026-10-15T12:00:00.000Z';
+		assert.throws(() => service.setTrainerCapturePlan('teste', 'Alvo no cais', ['ana', 'ana']),
+			/participantes diferentes/);
+		assert.throws(() => service.setTrainerCapturePlan('teste', 'Alvo no cais', ['intruso']),
+			/indisponível/);
+		const { plan } = service.setTrainerCapturePlan('teste', 'Alvo no cais', ['ana', 'bia']);
+		assert.equal(plan.readyAt, '2026-10-15T12:30:00.000Z');
+		assert.equal(service.getTrainerAllyRollTalents('teste', 'bia').some(option =>
+			option.id === 'detetive:plano-de-captura'), false);
+		service.campaignSettings.currentDateTime = plan.readyAt;
+		const option = service.getTrainerAllyRollTalents('teste', 'bia').find(entry =>
+			entry.id === 'detetive:plano-de-captura');
+		assert(option);
+		service.consumeTrainerCapturePlanRoll('teste', 'bia', [option.key]);
+		assert.equal(service.getTrainerAllyRollTalents('teste', 'bia').some(entry => entry.key === option.key), false);
+		assert(service.getTrainerAllyRollTalents('teste', 'ana').some(entry => entry.key === option.key));
+		assert.deepEqual(repository.get('ana').state.trainerSheet.capturePlan.usedRecipientIds, ['bia']);
+		assert.equal(service.setTrainerCapturePlan('teste', '', []).plan, null);
+		assert.equal(service.getTrainerAllyRollTalents('teste', 'ana').some(entry => entry.key === option.key), false);
+	});
 	it('requires trained Pokémon Knowledge for Petisco de Amizade', () => {
 		const cook = ready('cozinheiro', 3);
 		const option = () => rpgTrainerTalentCatalog(cook).find(entry =>

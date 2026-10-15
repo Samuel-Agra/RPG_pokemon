@@ -437,7 +437,9 @@
 		const dialog = el('div', 'box-release-dialog');
 		dialog.append(
 			el('h3', '', 'Liberar ' + pokemon.name + '?'),
-			el('p', '', 'Esta ação retira o Pokémon permanentemente. Ela não pode ser desfeita.')
+			el('p', '', pokemon.pokemonId === deps.investigativePartnerPokemonId ?
+				'Este é seu Parceiro Investigativo. Ao liberá-lo, você perderá a ajuda dele, e o vínculo permanente não poderá ser trocado sem o Mestre. Deseja continuar?' :
+				'Esta ação retira o Pokémon permanentemente. Ela não pode ser desfeita.')
 		);
 		const controls = el('div', 'form-actions');
 		const no = button('Não');

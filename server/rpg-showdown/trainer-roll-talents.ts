@@ -99,14 +99,16 @@ const RULES: Readonly<Record<string, Rule>> = {
 	condition: 'Conduzir, transportar, examinar ou conter sem violência Pokémon assustado, ferido ou agitado fora de combate.' },
 	'criador-pokemon:ninho-intacto': { targets: ['skill:percepcao', 'skill:sobrevivencia'], bonus: 2,
 		condition: 'Localizar ninhos, filhotes ou sinais de reprodução Pokémon.' },
+	'detetive:arquivo-de-casos': { targets: ['skill:investigacao'], bonus: 2,
+		condition: 'Investigar o assunto de um dossiê ativo, cruzando evidências já registradas.' },
+	'detetive:vigilancia-discreta': { targets: ['skill:percepcao', 'skill:furtividade'], bonus: 2,
+		condition: 'Acompanhar à distância pessoa, veículo ou local sem ser percebido.' },
 	'detetive:parceiro-investigativo': { targets: ['skill:investigacao', 'skill:percepcao'], bonus: 2,
 		condition: 'Pokémon parceiro presente e auxiliando; uma vez por cena.' },
 	'detetive:passo-de-perseguicao': { targets: ['skill:atletismo', 'skill:acrobacia', 'skill:pilotagem:*'], bonus: 2,
 		condition: 'Perseguir ou escapar de um alvo.' },
 	'detetive:contradicao-explorada': { targets: ['skill:persuasao', 'skill:intimidacao'], bonus: 2,
 		condition: 'Próximo teste contra depoente após expor contradição real.' },
-	'detetive:plano-de-captura': { targets: ['skill:atletismo', 'skill:acrobacia', 'skill:furtividade', 'skill:percepcao'], bonus: 2,
-		condition: 'Primeiro teste ligado a um papel no plano de abordagem preparado.' },
 	'diplomata:porta-voz-reconhecido': { targets: ['skill:persuasao', 'skill:enganacao', 'skill:intimidacao'], bonus: 2,
 		condition: 'Próximo teste social após aliado fornecer contribuição relevante.' },
 	'encantador:espelhamento-social': { targets: ['skill:persuasao', 'skill:enganacao'], bonus: 2,
@@ -204,7 +206,9 @@ export function rpgTrainerRollTalents(sheet: RPGTrainerSheet): RPGTrainerRollTal
 	const options = owned.flatMap(id => {
 		const rule = RULES[id];
 		const definition = RPG_TRAINER_TALENTS.find(talent => talent.id === id);
-		if (!rule || !definition || id === 'artista-marcial:reflexos-treinados' &&
+		if (!rule || !definition || id === 'detetive:parceiro-investigativo' &&
+			(!sheet.investigativePartnerPokemonId || sheet.investigativePartnerUnavailable) ||
+			id === 'artista-marcial:reflexos-treinados' &&
 			!sheet.talentSelections?.some(selection => selection.id === id && selection.variant === 'already-trained')) {
 			return [];
 		}
@@ -315,6 +319,34 @@ export function rpgTeamCaptainOption(allyId: string, allyName: string,
 		name: `Capitão de Time de ${allyName}`, bonus: 2, advantage: false,
 		condition: `Teste físico diretamente ligado ao plano: ${plan.description}.`,
 		targets: ['skill:atletismo', 'skill:acrobacia'] };
+}
+
+/** O ápice usa apenas o Ataque Especial base da espécie do parceiro já vinculado. */
+export function rpgDetectiveDuoOption(sheet: RPGTrainerSheet, partnerName: string,
+	baseSpecialAttack: number): RPGTrainerRollTalent | null {
+	if (sheet.status !== 'complete' || sheet.talents.apex !== 'detetive:dupla-indissociavel' ||
+		!sheet.talents.class.includes('detetive:parceiro-investigativo') ||
+		!sheet.talents.class.includes('detetive:voz-do-parceiro') ||
+		!sheet.investigativePartnerPokemonId || sheet.investigativePartnerUnavailable ||
+		!Number.isFinite(baseSpecialAttack) || baseSpecialAttack < 0) return null;
+	return { key: 'detetive:dupla-indissociavel', id: 'detetive:dupla-indissociavel',
+		name: 'Ápice — Dupla Indissociável', bonus: Math.floor(baseSpecialAttack / 20), advantage: false,
+		condition: `Investigação conduzida junto de ${partnerName}; ambos devem poder contribuir para a análise.`,
+		targets: ['skill:intuicao'] };
+}
+
+/** O plano beneficia apenas os participantes designados que ainda não usaram seu primeiro teste. */
+export function rpgDetectiveCapturePlanOption(allyId: string, allyName: string,
+	ally: RPGTrainerSheet, recipientId: string, campaignTime: string): RPGTrainerRollTalent | null {
+	const plan = ally.capturePlan;
+	if (ally.status !== 'complete' || !ally.talents.class.includes('detetive:plano-de-captura') ||
+		!plan?.recipientCharacterIds.includes(recipientId) || plan.usedRecipientIds.includes(recipientId) ||
+		!Number.isFinite(Date.parse(plan.readyAt)) || Date.parse(plan.readyAt) > Date.parse(campaignTime)) return null;
+	return { key: `detetive:plano-de-captura@${allyId}`, id: 'detetive:plano-de-captura',
+		name: `Plano de Captura de ${allyName}`, bonus: 2, advantage: false,
+		condition: `Primeiro teste para ocupar posição, bloquear rota, seguir o alvo ou iniciar perseguição: ${plan.description}.`,
+		targets: ['skill:atletismo', 'skill:acrobacia', 'skill:furtividade', 'skill:percepcao',
+			'skill:sobrevivencia', 'skill:pilotagem:*'] };
 }
 
 export function rpgChoreographyGroupOption(allyId: string, allyName: string,

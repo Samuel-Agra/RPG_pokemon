@@ -619,6 +619,24 @@ export class RPGHttpServer {
 				body.recipientCharacterIds as string[]));
 			return;
 		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/capture-plan') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.setTrainerCapturePlan(this.token(req),
+				this.string(body.description), body.recipientCharacterIds as string[]));
+			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/investigative-partner') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.setTrainerInvestigativePartner(this.token(req),
+				body.pokemonId === null ? null : this.string(body.pokemonId)));
+			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/trusted-partner') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.setTrainerTrustedPartnerName(this.token(req),
+				this.string(body.name)));
+			return;
+		}
 		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/reroll') {
 			const body = await this.body(req);
 			const talentId = this.string(body.talentId);
@@ -824,6 +842,7 @@ export class RPGHttpServer {
 				this.login.consumeTrainerPersistentHypothesis(token, characterId!);
 			}
 			this.login.consumeTrainerChoreographyRoll(token, characterId!, talentEffects.chosen.map(talent => talent.key));
+			this.login.consumeTrainerCapturePlanRoll(token, characterId!, talentEffects.chosen.map(talent => talent.key));
 			if (kind === 'attribute' || kind === 'skill' || kind === 'resistance') {
 				this.login.recordTrainerChatRoll(token, kind, rollName, bonus, posted, { ...result,
 					mode: result.mode as 'normal' | 'advantage' | 'disadvantage' },

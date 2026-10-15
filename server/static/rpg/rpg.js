@@ -4111,6 +4111,7 @@ function openTeamBuilder(pokemonId, returnView = state.dashboardView) {
 async function renderPlayerBox(character) {
 	return window.RPGBoxUI.render({
 		api, characterId: character.id, isMaster: state.session.role === 'master', teamEggs: teamEggs(character),
+		investigativePartnerPokemonId: character.trainerSheet?.investigativePartnerPokemonId || null,
 		refresh: renderDashboard, toast: showToast, openTeamBuilder,
 		spriteUrl: pokemon => spriteUrl(pokemon), eggVisual, portableIncubatorVisual,
 	});
@@ -4155,6 +4156,7 @@ async function renderPlayerTeamBuilder(character) {
 	const boxPokemonReadOnly = !selectedEgg && !pokemonTeam.some(pokemon => pokemon.pokemonId === state.teamBuilderPokemonId);
 	return window.RPGTeamBuilderUI.render({
 		api, characterId: character.id, pokemonId: state.teamBuilderPokemonId, team, selectedEgg,
+		investigativePartnerPokemonId: character.trainerSheet?.investigativePartnerPokemonId || null,
 		boxRevision: character.box?.revision,
 		portableIncubators: character.portableIncubators || [], refresh: renderDashboard,
 		readOnly: !!selectedEgg || boxPokemonReadOnly, isMaster: state.session.role === 'master', toast: showToast,

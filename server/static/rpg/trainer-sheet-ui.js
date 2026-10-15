@@ -413,7 +413,107 @@
 		let recordPicker = null;
 		panel.append(el('strong', 'trainer-sheet-talent-popover-title', name),
 			renderTrainerDescription(description, 'trainer-sheet-talent-description'));
-		if (action?.firstCare) {
+		if (action?.trustedPartner) {
+			const editor = el('div', 'trainer-sheet-trusted-partner');
+			const nameInput = el('input');
+			nameInput.type = 'text'; nameInput.maxLength = 80;
+			nameInput.value = action.trustedPartner.name || '';
+			nameInput.placeholder = 'Nome do parceiro';
+			nameInput.setAttribute('aria-label', 'Nome do Parceiro de Confiança');
+			const feedback = el('small', 'trainer-sheet-trusted-partner-feedback');
+			let timer = null;
+			let saving = Promise.resolve();
+			const save = () => {
+				clearTimeout(timer);
+				const name = nameInput.value;
+				if (name === action.trustedPartner.name) return;
+				feedback.textContent = 'Salvando...';
+				saving = saving.catch(() => {}).then(async () => {
+					try {
+						const result = await action.api('/trainer/talents/trusted-partner',
+							{ method: 'POST', body: { name } });
+						action.trustedPartner.name = result.name;
+						action.trustedPartner.onSaved(result.name);
+						feedback.textContent = 'Salvo.';
+					} catch (error) {
+						feedback.textContent = error.message || 'Não foi possível salvar o nome.';
+					}
+				});
+			};
+			nameInput.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(save, 500); });
+			nameInput.addEventListener('blur', save);
+			nameInput.addEventListener('keydown', event => {
+				if (event.key === 'Enter') { event.preventDefault(); nameInput.blur(); }
+			});
+			editor.append(nameInput, feedback); panel.append(editor);
+		} else if (action?.investigativePartner) {
+			const data = action.investigativePartner;
+			const linked = data.pokemon.find(pokemon => pokemon.id === data.pokemonId);
+			const status = el('p', 'trainer-sheet-partner-status', data.unavailable ?
+				'Parceiro fora de sua posse. O vínculo permanece, mas o bônus não pode ser usado.' : linked ?
+					`Parceiro vinculado: ${linked.name}.` : data.pokemonId ?
+						'O parceiro vinculado não está mais em sua posse.' : 'Nenhum parceiro vinculado.');
+			panel.append(status);
+			if (!data.pokemonId) {
+				const choose = el('button', 'trainer-sheet-talent-use', 'Escolher parceiro');
+				choose.type = 'button';
+				choose.addEventListener('click', () => {
+					const overlay = el('div', 'trainer-first-care-overlay');
+					const dialog = el('section', 'trainer-first-care-dialog trainer-sheet-partner-dialog');
+					dialog.setAttribute('role', 'dialog'); dialog.setAttribute('aria-modal', 'true');
+					dialog.append(el('h2', '', 'Escolher Parceiro Investigativo'),
+						el('p', '', 'A escolha é permanente. Apenas o Mestre poderá desfazer o vínculo.'));
+					const grid = el('div', 'trainer-sheet-partner-grid');
+					const feedback = el('p', 'trainer-sheet-roll-error hidden');
+					const closeDialog = () => { overlay.remove(); recordPicker = null; };
+					for (const pokemon of data.pokemon) {
+						const row = el('button', 'trainer-sheet-partner-pokemon');
+						row.type = 'button'; row.disabled = pokemon.friendship < 50;
+						const sprite = el('img', 'trainer-first-care-sprite');
+						sprite.src = action.spriteUrl(pokemon); sprite.alt = pokemon.species;
+						const details = el('span', 'trainer-first-care-details');
+						const heading = el('span', 'trainer-first-care-heading');
+						heading.append(el('strong', '', pokemon.name), el('span', '', 'Nv. ' + pokemon.level));
+						const types = el('span', 'trainer-first-care-types');
+						for (const type of pokemon.types) types.append(el('span', '', type));
+						details.append(heading, types, el('span', '', 'Amizade: ' + pokemon.friendship));
+						row.append(sprite, details);
+						row.addEventListener('click', async () => {
+							row.disabled = true;
+							try {
+								await action.api('/trainer/talents/investigative-partner',
+									{ method: 'POST', body: { pokemonId: pokemon.id } });
+								closeDialog(); close(); await action.refresh();
+							} catch (error) {
+								feedback.textContent = error.message || 'Não foi possível vincular o Pokémon.';
+								feedback.classList.remove('hidden'); row.disabled = false;
+							}
+						});
+						grid.append(row);
+					}
+					dialog.append(grid, feedback);
+					overlay.append(dialog);
+					overlay.addEventListener('click', event => { if (event.target === overlay) closeDialog(); });
+					document.body.append(overlay); recordPicker = { overlay, close: closeDialog };
+				});
+				panel.append(choose);
+			} else if (data.canUnlink) {
+				const unlink = el('button', 'trainer-sheet-talent-use', 'Desvincular parceiro');
+				unlink.type = 'button';
+				unlink.addEventListener('click', async () => {
+					unlink.disabled = true;
+					try {
+						await action.api('/trainer/talents/investigative-partner',
+							{ method: 'POST', body: { pokemonId: null } });
+						close(); await action.refresh();
+					} catch (error) {
+						unlink.textContent = error.message || 'Não foi possível desvincular.';
+						unlink.disabled = false;
+					}
+				});
+				panel.append(unlink);
+			}
+		} else if (action?.firstCare) {
 			const care = el('button', 'trainer-sheet-talent-use', 'Cuidar');
 			care.type = 'button';
 			care.addEventListener('click', async () => {
@@ -715,6 +815,67 @@
 			editor.append(item, create, pending, feedback);
 			panel.append(editor);
 			void showPending().catch(error => message(error.message || 'Não foi possível carregar as produções.'));
+		} else if (action?.capturePlan) {
+			const plan = action.capturePlan;
+			const controls = el('div', 'trainer-sheet-archive-editor trainer-sheet-captain-editor');
+			const description = el('input', 'trainer-sheet-progression-input');
+			description.type = 'text'; description.maxLength = 160;
+			description.placeholder = 'Alvo e abordagem planejada';
+			description.value = plan.plan?.description || '';
+			controls.append(el('strong', '', 'Plano de abordagem'), description,
+				el('strong', '', `Participantes, incluindo você (até ${plan.proficiency})`));
+			const selected = new Set(plan.plan?.recipientCharacterIds || []);
+			const playerGrid = el('div', 'trainer-sheet-captain-players');
+			const feedback = el('p', 'trainer-sheet-roll-error hidden');
+			for (const person of plan.recipients || []) {
+				const player = el('button', 'trainer-sheet-captain-player', person.name);
+				player.type = 'button'; player.setAttribute('aria-pressed', String(selected.has(person.id)));
+				player.addEventListener('click', () => {
+					if (selected.has(person.id)) selected.delete(person.id);
+					else if (selected.size < plan.proficiency) selected.add(person.id);
+					else {
+						feedback.textContent = `Escolha até ${plan.proficiency} participantes.`;
+						feedback.classList.remove('hidden'); return;
+					}
+					player.setAttribute('aria-pressed', String(selected.has(person.id)));
+					feedback.classList.add('hidden');
+				});
+				playerGrid.append(player);
+			}
+			controls.append(playerGrid);
+			if (plan.plan) {
+				controls.append(el('small', '', `Preparação concluída em ${new Date(plan.plan.readyAt).toLocaleString('pt-BR')}.`));
+				const used = (plan.plan.usedRecipientIds || []).map(id =>
+					plan.recipients.find(person => person.id === id)?.name).filter(Boolean);
+				if (used.length) controls.append(el('small', '', `Bônus já utilizado: ${used.join(', ')}.`));
+			}
+			const save = el('button', 'trainer-sheet-talent-use', 'Preparar plano'); save.type = 'button';
+			const cancel = el('button', 'trainer-sheet-talent-use', 'Encerrar plano'); cancel.type = 'button';
+			cancel.classList.toggle('hidden', !plan.plan);
+			async function submit(clear = false) {
+				const ids = clear ? [] : [...selected];
+				if (!clear && (!description.value.trim() || !ids.length || ids.length > plan.proficiency)) {
+					feedback.textContent = 'Descreva a abordagem e escolha quem participará.';
+					feedback.classList.remove('hidden'); return;
+				}
+				save.disabled = true; cancel.disabled = true;
+				try {
+					await action.api('/trainer/talents/capture-plan', { method: 'POST', body: {
+						description: clear ? '' : description.value.trim(), recipientCharacterIds: ids,
+					} });
+					feedback.textContent = clear ? 'Plano encerrado.' : 'Plano preparado para os participantes.';
+					feedback.classList.remove('hidden');
+					window.dispatchEvent(new CustomEvent('rpg:realtime-sync',
+						{ detail: { tableId: selectedTable } }));
+					await action.refresh();
+				} catch (error) {
+					feedback.textContent = error.message || 'Não foi possível alterar o plano.';
+					feedback.classList.remove('hidden');
+				} finally { save.disabled = false; cancel.disabled = false; }
+			}
+			save.addEventListener('click', () => submit());
+			cancel.addEventListener('click', () => submit(true));
+			controls.append(save, cancel, feedback); panel.append(controls);
 		} else if (action?.captainPlan) {
 			const controls = el('div', 'trainer-sheet-archive-editor trainer-sheet-captain-editor');
 			controls.append(el('strong', '', `Participantes, incluindo você (até ${action.captainPlan.proficiency})`));
@@ -2325,62 +2486,76 @@
 		const talentList = el('div', 'trainer-sheet-talent-list');
 		for (const { id, name, description } of [...classTalents, ...apexTalents, ...generalTalents]) {
 			const button = el('button', 'trainer-sheet-talent-row', name);
+			let shownDescription = id === 'detetive:voz-do-parceiro' ?
+				`${description}\n\nPokémon vinculado: ${progression.investigativePartner?.pokemonName || 'nenhum'}.` :
+				id === 'detetive:parceiro-de-confianca' && (sheet.trustedPartnerName || readOnly) ?
+					`${description}\n\nParceiro: ${sheet.trustedPartnerName || 'não informado'}.` :
+					description;
 			if (id === 'cientista:publicacao-de-referencia' && progression.publication?.accepted) {
 				button.append(el('span', 'trainer-sheet-publication-count',
 					`${progression.publication.accepted} publicação(ões)`));
 			}
 			button.type = 'button'; button.setAttribute('aria-haspopup', 'dialog');
 			button.setAttribute('aria-expanded', 'false');
-			button.addEventListener('click', () => showTalentPopover(button, name, description,
-				!readOnly && ['criador-pokemon:primeiros-cuidados',
-					'criador-pokemon:restaurador-pokemon'].includes(id) ?
-					{ id, api, refresh, spriteUrl, firstCare: true } :
-					!readOnly && progression.choreography && ['coreografo:ensaio-conjunto',
-						'coreografo:formacao-em-dupla', 'coreografo:formacao-em-trio', 'coreografo:diretor-convidado',
-						'coreografo:tema-unificado', 'coreografo:entrosamento-instintivo',
-						'coreografo:preparacao-corporal-conjunta', 'coreografo:conducao-de-evacuacao'].includes(id) ?
-						{ id, api, choreography: progression.choreography } :
-						!readOnly && id === 'cientista:registro-reprodutivel' ? { id, api, refresh,
-							scientistRecord: progression.scientistRecord } :
-						!readOnly && id === 'cientista:hipotese-persistente' ?
-							{ id, api, refresh, persistentHypothesis: progression.persistentHypothesis,
-								persistentHypothesisCharacterId: character.id } :
-							!readOnly && id === 'cientista:publicacao-de-referencia' ?
-								{ id, api, refresh, publication: progression.publication } :
-								!readOnly && id === 'cientista:producao-farmaceutica-pokemon' ?
-									{ id, api, refresh, pokemonPharmacy: character.id } :
-									!readOnly && id === 'cientista:farmacologia-avancada' ?
-										{ id, api, refresh, advancedPharmacy: character.id } :
-										!readOnly && id === 'cientista:mestre-de-formulacao' ?
-											{ id, api, refresh, masterPharmacy: character.id } :
-											!readOnly && id === 'arqueologo:acervo-compartilhado' ? { id, api, refresh, archive: {
-												slots: sheet.sharedArchives || [], proficiency: progression.proficiency,
-												knowledge: (sheet.skills?.trained || []).filter(skill => skill.startsWith('conhecimento:')),
-												recipients: progression.archiveRecipients || [],
-											} } : !readOnly && id === 'atleta:capitao-de-time' ? { id, api, refresh,
-												captainPlan: { ...(progression.captainPlan || {}), proficiency: progression.proficiency } } :
-											!readOnly && sheet.classId === 'cozinheiro' && name === 'Refeição Revigorante' ?
-												{ id, api, revigoratingMeal: progression.revigoratingMeal } :
-												!readOnly && id === 'cozinheiro:petisco-de-amizade' ?
-													{ id, api, friendshipSnacks: progression.friendshipSnacks } :
-													!readOnly && id === 'criador-pokemon:rotina-de-enriquecimento' ?
-														{ id, api, enrichmentRoutine: progression.enrichmentRoutine } :
-														!readOnly && id === 'criador-pokemon:guardiao-de-geracoes' ?
-															{ id, api, guardianEnrichment: progression.enrichmentRoutine } :
-															!readOnly && id === 'criador-pokemon:preparacao-impecavel' ?
-																{ id, api, impeccablePreparation: progression.impeccablePreparation } :
-																!readOnly && id === 'cozinheiro:recompensa-de-treinamento' ?
-																	{ id, api, trainingReward: progression.trainingReward } :
-																	!readOnly && id === 'cozinheiro:harmonizacao-de-sabores' ?
-																		{ id, api, contestHarmonization: progression.contestHarmonization } :
-																		!readOnly && id === 'cozinheiro:racao-artesanal-pokemon' ?
-																			{ id, api, artisanRation: progression.artisanRation } :
-																			!readOnly && id === 'artista:arte-reconfortante' ? { id, api, refresh,
-																				comfortingArt: progression.comfortingArtRecipients || [] } :
-																			!readOnly && ['segundo-folego', 'sortudo', 'determinado', 'esforco-heroico'].includes(id) ?
-																				{ id, api, refresh, reroll: id !== 'segundo-folego',
-																					available: progression.rerollAvailability?.[id],
-																					used: progression.activeTalentUses?.used?.[id] === progression.activeTalentUses?.restCycle } : null));
+			button.addEventListener('click', () => showTalentPopover(button, name, shownDescription,
+				!readOnly && id === 'detetive:parceiro-de-confianca' ?
+					{ id, api, trustedPartner: { name: sheet.trustedPartnerName || '', onSaved: saved => {
+						sheet.trustedPartnerName = saved;
+						shownDescription = `${description}\n\nParceiro: ${saved || 'não informado'}.`;
+					} } } :
+					!readOnly && id === 'detetive:parceiro-investigativo' ?
+						{ id, api, refresh, spriteUrl, investigativePartner: progression.investigativePartner } :
+						!readOnly && ['criador-pokemon:primeiros-cuidados',
+							'criador-pokemon:restaurador-pokemon'].includes(id) ?
+							{ id, api, refresh, spriteUrl, firstCare: true } :
+							!readOnly && progression.choreography && ['coreografo:ensaio-conjunto',
+								'coreografo:formacao-em-dupla', 'coreografo:formacao-em-trio', 'coreografo:diretor-convidado',
+								'coreografo:tema-unificado', 'coreografo:entrosamento-instintivo',
+								'coreografo:preparacao-corporal-conjunta', 'coreografo:conducao-de-evacuacao'].includes(id) ?
+								{ id, api, choreography: progression.choreography } :
+								!readOnly && id === 'cientista:registro-reprodutivel' ? { id, api, refresh,
+									scientistRecord: progression.scientistRecord } :
+								!readOnly && id === 'cientista:hipotese-persistente' ?
+									{ id, api, refresh, persistentHypothesis: progression.persistentHypothesis,
+										persistentHypothesisCharacterId: character.id } :
+									!readOnly && id === 'cientista:publicacao-de-referencia' ?
+										{ id, api, refresh, publication: progression.publication } :
+										!readOnly && id === 'cientista:producao-farmaceutica-pokemon' ?
+											{ id, api, refresh, pokemonPharmacy: character.id } :
+											!readOnly && id === 'cientista:farmacologia-avancada' ?
+												{ id, api, refresh, advancedPharmacy: character.id } :
+												!readOnly && id === 'cientista:mestre-de-formulacao' ?
+													{ id, api, refresh, masterPharmacy: character.id } :
+													!readOnly && id === 'arqueologo:acervo-compartilhado' ? { id, api, refresh, archive: {
+														slots: sheet.sharedArchives || [], proficiency: progression.proficiency,
+														knowledge: (sheet.skills?.trained || []).filter(skill => skill.startsWith('conhecimento:')),
+														recipients: progression.archiveRecipients || [],
+													} } : !readOnly && ['atleta:capitao-de-time', 'detetive:plano-de-captura'].includes(id) ?
+														{ id, api, refresh, ...(id === 'atleta:capitao-de-time' ?
+															{ captainPlan: { ...(progression.captainPlan || {}), proficiency: progression.proficiency } } :
+															{ capturePlan: { ...(progression.capturePlan || {}), proficiency: progression.proficiency } }) } :
+														!readOnly && sheet.classId === 'cozinheiro' && name === 'Refeição Revigorante' ?
+															{ id, api, revigoratingMeal: progression.revigoratingMeal } :
+															!readOnly && id === 'cozinheiro:petisco-de-amizade' ?
+																{ id, api, friendshipSnacks: progression.friendshipSnacks } :
+																!readOnly && id === 'criador-pokemon:rotina-de-enriquecimento' ?
+																	{ id, api, enrichmentRoutine: progression.enrichmentRoutine } :
+																	!readOnly && id === 'criador-pokemon:guardiao-de-geracoes' ?
+																		{ id, api, guardianEnrichment: progression.enrichmentRoutine } :
+																		!readOnly && id === 'criador-pokemon:preparacao-impecavel' ?
+																			{ id, api, impeccablePreparation: progression.impeccablePreparation } :
+																			!readOnly && id === 'cozinheiro:recompensa-de-treinamento' ?
+																				{ id, api, trainingReward: progression.trainingReward } :
+																				!readOnly && id === 'cozinheiro:harmonizacao-de-sabores' ?
+																					{ id, api, contestHarmonization: progression.contestHarmonization } :
+																					!readOnly && id === 'cozinheiro:racao-artesanal-pokemon' ?
+																						{ id, api, artisanRation: progression.artisanRation } :
+																						!readOnly && id === 'artista:arte-reconfortante' ? { id, api, refresh,
+																							comfortingArt: progression.comfortingArtRecipients || [] } :
+																						!readOnly && ['segundo-folego', 'sortudo', 'determinado', 'esforco-heroico'].includes(id) ?
+																							{ id, api, refresh, reroll: id !== 'segundo-folego',
+																								available: progression.rerollAvailability?.[id],
+																								used: progression.activeTalentUses?.used?.[id] === progression.activeTalentUses?.restCycle } : null));
 			talentList.append(button);
 		}
 		talentSection.append(talentList);
