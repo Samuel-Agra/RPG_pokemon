@@ -2148,14 +2148,81 @@ function renderMasterAreaPresence(container, players) {
 	}
 }
 
-function renderMasterCampaignEvents(container, events, publications = [], customRecordRequests = [], supplierOrders = []) {
+function renderMasterCampaignEvents(container, events, publications = [], customRecordRequests = [],
+	supplierOrders = [], confidantRequests = [], trueBondRequests = []) {
 	container.replaceChildren();
 	const pendingPublications = publications.filter(entry => entry.status === 'pending');
 	const pendingRecords = customRecordRequests.filter(entry => entry.status === 'pending');
 	const pendingOrders = supplierOrders.filter(entry => entry.status === 'pending');
-	if (!events.length && !pendingPublications.length && !pendingRecords.length && !pendingOrders.length) {
+	const pendingConfidants = confidantRequests.filter(entry => entry.status === 'pending');
+	const pendingTrueBonds = trueBondRequests.filter(entry => entry.status === 'pending');
+	if (!events.length && !pendingPublications.length && !pendingRecords.length && !pendingOrders.length &&
+		!pendingConfidants.length && !pendingTrueBonds.length) {
 		container.append(createElement('p', 'master-campaign-events-empty', 'Nenhum evento pendente.'));
 		return;
+	}
+	for (const request of [...pendingTrueBonds].reverse()) {
+		const card = createElement('article', 'master-campaign-event event-publication');
+		const heading = createElement('div', 'master-campaign-event-heading');
+		heading.append(createElement('small', '', 'Laço Verdadeiro'),
+			createElement('strong', '', request.npcName));
+		const accept = button('Aceitar', 'button primary');
+		const reject = button('Recusar', 'button');
+		const feedback = createElement('p', 'master-campaign-publication-error');
+		const decide = async accepted => {
+			accept.disabled = true; reject.disabled = true;
+			try {
+				await api('/trainer/talents/true-bond/decide', { method: 'POST', body: {
+					id: request.id, accepted,
+				} });
+				request.status = accepted ? 'accepted' : 'rejected';
+				renderMasterCampaignEvents(container, events, publications, customRecordRequests,
+					supplierOrders, confidantRequests, trueBondRequests);
+			} catch (error) {
+				feedback.textContent = error.message || 'Não foi possível avaliar o Laço Verdadeiro.';
+				accept.disabled = false; reject.disabled = false;
+			}
+		};
+		accept.addEventListener('click', () => decide(true));
+		reject.addEventListener('click', () => decide(false));
+		const actions = createElement('div', 'master-campaign-publication-buttons');
+		actions.append(accept, reject);
+		card.append(heading, createElement('span', 'master-campaign-event-owner', request.characterName),
+			actions, feedback);
+		container.append(card);
+	}
+	for (const request of [...pendingConfidants].reverse()) {
+		const card = createElement('article', 'master-campaign-event event-publication');
+		const heading = createElement('div', 'master-campaign-event-heading');
+		heading.append(createElement('small', '', 'Confidente'),
+			createElement('strong', '', request.confidantName));
+		const roll = request.roll;
+		const result = createElement('p', '', `Persuasão: 1d20 tirou ${roll.natural} ` +
+			`${roll.bonus < 0 ? '-' : '+'} ${Math.abs(roll.bonus)} = ${roll.total}`);
+		const accept = button('Aceitar', 'button primary');
+		const reject = button('Recusar', 'button');
+		const feedback = createElement('p', 'master-campaign-publication-error');
+		const decide = async accepted => {
+			accept.disabled = true; reject.disabled = true;
+			try {
+				await api('/trainer/talents/confidant/decide', { method: 'POST', body: {
+					id: request.id, accepted,
+				} });
+				request.status = accepted ? 'accepted' : 'rejected';
+				renderMasterCampaignEvents(container, events, publications, customRecordRequests,
+					supplierOrders, confidantRequests, trueBondRequests);
+			} catch (error) {
+				feedback.textContent = error.message || 'Não foi possível avaliar o confidente.';
+				accept.disabled = false; reject.disabled = false;
+			}
+		};
+		accept.addEventListener('click', () => decide(true));
+		reject.addEventListener('click', () => decide(false));
+		const actions = createElement('div', 'master-campaign-publication-buttons');
+		actions.append(accept, reject);
+		card.append(heading, result,
+			createElement('span', 'master-campaign-event-owner', request.characterName), actions, feedback);
+		container.append(card);
 	}
 	for (const request of [...pendingOrders].reverse()) {
 		const card = createElement('article', 'master-campaign-event event-publication');
@@ -2176,7 +2243,8 @@ function renderMasterCampaignEvents(container, events, publications = [], custom
 					id: request.id, accepted,
 				} });
 				request.status = result.order.status;
-				renderMasterCampaignEvents(container, events, publications, customRecordRequests, supplierOrders);
+				renderMasterCampaignEvents(container, events, publications, customRecordRequests,
+					supplierOrders, confidantRequests, trueBondRequests);
 				if (result.order.reason) showToast(result.order.reason, true);
 			} catch (error) {
 				feedback.textContent = error.message || 'Não foi possível avaliar a encomenda.';
@@ -2215,7 +2283,8 @@ function renderMasterCampaignEvents(container, events, publications = [], custom
 					id: request.id, accepted, kitTier: Number(tier.value), charges: Number(charges.value),
 				} });
 				request.status = accepted ? 'accepted' : 'rejected';
-				renderMasterCampaignEvents(container, events, publications, customRecordRequests, supplierOrders);
+				renderMasterCampaignEvents(container, events, publications, customRecordRequests,
+					supplierOrders, confidantRequests, trueBondRequests);
 			} catch (error) {
 				feedback.textContent = error.message || 'Não foi possível avaliar o registro.';
 				accept.disabled = false; reject.disabled = false;
@@ -2252,7 +2321,8 @@ function renderMasterCampaignEvents(container, events, publications = [], custom
 					id: publication.id, accepted, payment: amount,
 				} });
 				publication.status = accepted ? 'accepted' : 'rejected';
-				renderMasterCampaignEvents(container, events, publications, customRecordRequests, supplierOrders);
+				renderMasterCampaignEvents(container, events, publications, customRecordRequests,
+					supplierOrders, confidantRequests, trueBondRequests);
 			} catch (error) {
 				feedback.textContent = error.message || 'Não foi possível avaliar o artigo.';
 				accept.disabled = false; reject.disabled = false;
@@ -2288,7 +2358,8 @@ function renderMasterCampaignEvents(container, events, publications = [], custom
 				await api('/campaign/events', { method: 'DELETE', body: { eventId: event.id } });
 				const index = events.findIndex(entry => entry.id === event.id);
 				if (index >= 0) events.splice(index, 1);
-				renderMasterCampaignEvents(container, events, publications, customRecordRequests, supplierOrders);
+				renderMasterCampaignEvents(container, events, publications, customRecordRequests,
+					supplierOrders, confidantRequests, trueBondRequests);
 			} catch (error) { close.disabled = false; showToast(error.message, true); }
 		});
 		container.append(card);
@@ -5449,7 +5520,8 @@ async function renderMasterBody(characters) {
 					campaign.events.push(...time.events);
 					const eventsGrid = root.querySelector('[data-master-campaign-events]');
 					if (eventsGrid) renderMasterCampaignEvents(eventsGrid, campaign.events, campaign.publications,
-						campaign.customRecordRequests, campaign.supplierOrders);
+						campaign.customRecordRequests, campaign.supplierOrders, campaign.confidantRequests,
+						campaign.trueBondRequests);
 				}
 				orbit.classList.remove('is-advancing');
 				updateCampaignClock();
@@ -5758,12 +5830,14 @@ async function renderMasterBody(characters) {
 				if (refreshedEvents) {
 					const nextSignature = JSON.stringify([settings.settings?.events || [],
 						settings.settings?.publications || [], settings.settings?.customRecordRequests || [],
-						settings.settings?.supplierOrders || []]);
+						settings.settings?.supplierOrders || [], settings.settings?.confidantRequests || [],
+						settings.settings?.trueBondRequests || []]);
 					if (refreshedEvents.dataset.signature !== nextSignature) {
 						refreshedEvents.dataset.signature = nextSignature;
 						renderMasterCampaignEvents(refreshedEvents, settings.settings?.events || [],
 							settings.settings?.publications || [], settings.settings?.customRecordRequests || [],
-							settings.settings?.supplierOrders || []);
+							settings.settings?.supplierOrders || [], settings.settings?.confidantRequests || [],
+							settings.settings?.trueBondRequests || []);
 					}
 				}
 			} catch {}
@@ -5782,9 +5856,11 @@ async function renderMasterBody(characters) {
 		const eventsGrid = createElement('div', 'master-campaign-events-grid');
 		eventsGrid.dataset.masterCampaignEvents = '';
 		eventsGrid.dataset.signature = JSON.stringify([campaign.events || [], campaign.publications || [],
-			campaign.customRecordRequests || [], campaign.supplierOrders || []]);
+			campaign.customRecordRequests || [], campaign.supplierOrders || [], campaign.confidantRequests || [],
+			campaign.trueBondRequests || []]);
 		renderMasterCampaignEvents(eventsGrid, campaign.events || [], campaign.publications || [],
-			campaign.customRecordRequests || [], campaign.supplierOrders || []);
+			campaign.customRecordRequests || [], campaign.supplierOrders || [], campaign.confidantRequests || [],
+			campaign.trueBondRequests || []);
 		events.body.append(eventsGrid);
 		root.append(presence.panel, scene.panel, notes.panel, events.panel);
 		return root;

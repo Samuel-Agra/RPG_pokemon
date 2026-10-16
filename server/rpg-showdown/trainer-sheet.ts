@@ -40,6 +40,10 @@ export interface RPGTrainerSheet {
 	skills: { trained: string[], focused: string[] };
 	resistances: string[];
 	talents: { general: string[], class: string[], apex: string | null };
+	/** Confidente confirmado pelo Mestre; um vínculo ativo por Encantador. */
+	confidantName?: string;
+	/** NPC do Laço Verdadeiro confirmado pelo Mestre; somente o Mestre pode desfazer o vínculo. */
+	trueBondNpcName?: string;
 	/** Marca a correção do bônus de Inteligência para fichas que já possuíam Memória Acadêmica. */
 	academicMemoryApplied?: boolean;
 	/** Marca a correção do bônus de Destreza para fichas que já possuíam Resgate de Relíquia. */

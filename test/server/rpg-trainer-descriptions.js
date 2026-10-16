@@ -5,6 +5,15 @@ const { RPG_TRAINER_TALENTS } = require('../../dist/server/rpg-showdown/trainer-
 const { RPG_TRAINER_CLASS_FEATURES } = require('../../dist/server/rpg-showdown/trainer-class-features');
 
 describe('RPG trainer talent descriptions', () => {
+	it('descreve Laço Verdadeiro como vínculo voluntário e permanente', () => {
+		const apex = RPG_TRAINER_TALENTS.find(entry => entry.id === 'encantador:laco-verdadeiro');
+		assert(apex);
+		assert.equal(apex.name, 'Ápice — Laço Verdadeiro');
+		assert.match(apex.prerequisite, /Confiança Compartilhada/);
+		assert.match(apex.text, /aceitar voluntariamente/);
+		assert.match(apex.text, /controlado pelo Mestre/);
+		assert.match(apex.text, /única e permanente/);
+	});
 	it('audits every talent and innate feature for supported, balanced rich text', () => {
 		const descriptions = [...RPG_TRAINER_TALENTS,
 			...Object.values(RPG_TRAINER_CLASS_FEATURES).flat()];

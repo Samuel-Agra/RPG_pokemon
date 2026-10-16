@@ -78,6 +78,7 @@ import {
 	type RPGTrainerAttribute, type RPGTrainerCheckOptions, type RPGTrainerResistance,
 } from './trainer-checks';
 import { rpgArtisticInspirationOption, rpgCaptivatingDistractionOption, rpgEncouragingPresenceOption,
+	rpgEnchanterAllyOptions, rpgEnchanterSocialChemistryOption,
 	rpgDetectiveCapturePlanOption, rpgDetectiveDuoOption, rpgExcavationMasterOption, rpgExpeditionLeaderOption, rpgTeamCaptainOption,
 	rpgDiplomatIntroductionOption,
 	rpgDiplomatProxyOption,
@@ -572,6 +573,17 @@ export interface RPGScientificPublication {
 	decidedAt?: string; payment?: number;
 }
 
+export interface RPGConfidantRequest {
+	id: string; characterId: string; characterName: string; confidantName: string;
+	submittedAt: string; roll: { natural: number, bonus: number, total: number };
+	status: 'pending' | 'accepted' | 'rejected'; decidedAt?: string;
+}
+
+export interface RPGTrueBondRequest {
+	id: string; characterId: string; characterName: string; npcName: string;
+	submittedAt: string; status: 'pending' | 'accepted' | 'rejected'; decidedAt?: string;
+}
+
 export interface RPGSupplierOrder {
 	id: string; characterId: string; characterName: string; itemId: string; itemName: string;
 	itemKind: 'pokemon' | 'equipment'; price: number; requestedAt: string;
@@ -849,6 +861,8 @@ export class RPGLoginService {
 	private campaignSettings: {
 		name: string, currentDateTime: string, quickNotes: string, events: RPGCampaignEvent[],
 		publications: RPGScientificPublication[], customRecordRequests: RPGCustomScientistRecordRequest[],
+		confidantRequests: RPGConfidantRequest[],
+		trueBondRequests: RPGTrueBondRequest[],
 		supplierOrders: RPGSupplierOrder[],
 		playerNotes: Record<string, string>, sceneNpcIds: string[], sceneNpcRevealed: Record<string, number[]>,
 		equipmentOffers: Record<string, Record<string, { stock: number, price: number }>>,
@@ -895,7 +909,7 @@ export class RPGLoginService {
 		this.campaignSettingsFile = options.campaignSettingsFile && resolve(options.campaignSettingsFile);
 		this.campaignSettings = {
 			name: 'Minha campanha', currentDateTime: new Date(this.now()).toISOString(), quickNotes: '', events: [],
-			publications: [], customRecordRequests: [], supplierOrders: [],
+			publications: [], customRecordRequests: [], supplierOrders: [], confidantRequests: [], trueBondRequests: [],
 			playerNotes: {}, sceneNpcIds: [], sceneNpcRevealed: {},
 			equipmentOffers: {}, trainerHelp: [],
 		};
@@ -929,6 +943,14 @@ export class RPGLoginService {
 			if (Array.isArray(stored.publications)) this.campaignSettings.publications = stored.publications.filter(entry =>
 				entry && typeof entry.id === 'string' && typeof entry.characterId === 'string' &&
 				['pending', 'accepted', 'rejected'].includes(entry.status));
+			if (Array.isArray(stored.confidantRequests)) this.campaignSettings.confidantRequests =
+				stored.confidantRequests.filter(entry => entry && typeof entry.id === 'string' &&
+					typeof entry.characterId === 'string' && typeof entry.confidantName === 'string' &&
+					['pending', 'accepted', 'rejected'].includes(entry.status));
+			if (Array.isArray(stored.trueBondRequests)) this.campaignSettings.trueBondRequests =
+				stored.trueBondRequests.filter(entry => entry && typeof entry.id === 'string' &&
+					typeof entry.characterId === 'string' && typeof entry.npcName === 'string' &&
+					['pending', 'accepted', 'rejected'].includes(entry.status));
 			if (Array.isArray(stored.supplierOrders)) this.campaignSettings.supplierOrders = stored.supplierOrders.filter(entry =>
 				entry && typeof entry.id === 'string' && typeof entry.characterId === 'string' &&
 				['pokemon', 'equipment'].includes(entry.itemKind) &&
@@ -1846,8 +1868,8 @@ export class RPGLoginService {
 	getSupplierCatalog(token: string) {
 		const session = this.getSession(token);
 		const characterId = session.role === 'master' ? session.viewAsCharacterId : session.characterId;
-		const record = characterId && this.requireCharacter(toID(characterId));
-		const sheet = record && record.state.trainerSheet;
+		const record = characterId ? this.requireCharacter(toID(characterId)) : null;
+		const sheet = record?.state.trainerSheet;
 		if (session.mode !== 'player' || !session.platformTableId || record?.tableId !== session.platformTableId ||
 			sheet?.status !== 'complete' ||
 			sheet.classId !== 'diplomata' || !sheet.talents.class.includes('diplomata:canal-oficial')) {
@@ -1945,6 +1967,171 @@ export class RPGLoginService {
 			throw error;
 		}
 		return { order: structuredClone(order), money: working.state.money };
+	}
+
+	requestTrainerConfidant(token: string, input: { requestId: string, confidantName: string }) {
+		const session = this.getSession(token);
+		if (session.mode !== 'player' || !session.platformTableId) throw new Error('Entre como jogador em uma mesa');
+		const characterId = session.role === 'master' ? session.viewAsCharacterId : session.characterId;
+		if (!characterId) throw new Error('Nenhum personagem selecionado');
+		const record = this.requireCharacter(toID(characterId));
+		if (record.tableId !== session.platformTableId) throw new Error('Personagem fora da mesa atual');
+		const sheet = record.state.trainerSheet;
+		if (sheet?.status !== 'complete' || sheet.classId !== 'encantador' ||
+			!sheet.talents.class.includes('encantador:confidente')) throw new Error('Confidente indisponível');
+		if (typeof input.requestId !== 'string' || !/^[a-zA-Z0-9_-]{8,100}$/.test(input.requestId)) {
+			throw new Error('Identificador de confidente inválido');
+		}
+		const confidantName = typeof input.confidantName === 'string' ? input.confidantName.trim() : '';
+		if (confidantName.length < 2 || confidantName.length > 80) {
+			throw new Error('Informe o nome do confidente com 2 a 80 caracteres');
+		}
+		const prior = this.campaignSettings.confidantRequests.find(entry => entry.id === input.requestId);
+		if (prior) {
+			if (prior.characterId !== record.state.id || prior.confidantName !== confidantName) {
+				throw new Error('Identificador de confidente já utilizado');
+			}
+			return { request: structuredClone(prior), repeated: true };
+		}
+		if (sheet.confidantName) throw new Error('Este treinador já possui um confidente confirmado');
+		if (this.campaignSettings.confidantRequests.some(entry => entry.characterId === record.state.id &&
+			entry.status === 'pending')) throw new Error('Já existe um confidente aguardando avaliação');
+		// Esta rolagem usa somente o bônus normal da perícia; talentos, ajuda e vantagem não são aplicados.
+		const result = rollRPGTrainerSkillCheck(sheet, 'persuasao', undefined, { dc: 0 }, this.random);
+		const request: RPGConfidantRequest = { id: input.requestId, characterId: record.state.id,
+			characterName: record.state.characterName, confidantName,
+			submittedAt: this.campaignSettings.currentDateTime,
+			roll: { natural: result.natural, bonus: result.bonus, total: result.total }, status: 'pending' };
+		this.campaignSettings.confidantRequests.push(request);
+		try { this.persistAtomically(() => this.persistCampaignSettings()); } catch (error) {
+			this.campaignSettings.confidantRequests.pop(); throw error;
+		}
+		return { request: structuredClone(request), repeated: false };
+	}
+
+	decideTrainerConfidant(token: string, id: string, accepted: boolean) {
+		this.requireMasterRole(token);
+		const session = this.getSession(token);
+		const request = this.campaignSettings.confidantRequests.find(entry => entry.id === id);
+		if (!request || request.status !== 'pending' || typeof accepted !== 'boolean') {
+			throw new Error('Pedido de confidente ou decisão inválidos');
+		}
+		const record = this.requireCharacter(request.characterId);
+		if (session.platformTableId && record.tableId !== session.platformTableId) {
+			throw new Error('Personagem fora da mesa atual');
+		}
+		const sheet = record.state.trainerSheet;
+		if (sheet?.status !== 'complete' || !sheet.talents.class.includes('encantador:confidente') ||
+			accepted && sheet.confidantName) throw new Error('Confidente indisponível');
+		const previousRecord = structuredClone(record);
+		const previousRequest = structuredClone(request);
+		request.status = accepted ? 'accepted' : 'rejected';
+		request.decidedAt = this.campaignSettings.currentDateTime;
+		if (accepted) {
+			sheet.confidantName = request.confidantName;
+			record.state.updatedAt = this.now();
+		}
+		try {
+			this.persistAtomically(() => {
+				if (accepted) this.repository.set(record);
+				this.persistCampaignSettings();
+			});
+		} catch (error) {
+			Object.assign(request, previousRequest);
+			if (accepted) this.repository.set(previousRecord);
+			throw error;
+		}
+		return { request: structuredClone(request), confidantName: sheet.confidantName || null };
+	}
+
+	requestTrainerTrueBond(token: string, input: { requestId: string, npcName: string }) {
+		const session = this.getSession(token);
+		if (session.mode !== 'player' || !session.platformTableId) throw new Error('Entre como jogador em uma mesa');
+		const characterId = session.role === 'master' ? session.viewAsCharacterId : session.characterId;
+		if (!characterId) throw new Error('Nenhum personagem selecionado');
+		const record = this.requireCharacter(toID(characterId));
+		if (record.tableId !== session.platformTableId) throw new Error('Personagem fora da mesa atual');
+		const sheet = record.state.trainerSheet;
+		if (sheet?.status !== 'complete' || sheet.talents.apex !== 'encantador:laco-verdadeiro') {
+			throw new Error('Laço Verdadeiro indisponível');
+		}
+		if (typeof input.requestId !== 'string' || !/^[a-zA-Z0-9_-]{8,100}$/.test(input.requestId)) {
+			throw new Error('Identificador de Laço Verdadeiro inválido');
+		}
+		const npcName = typeof input.npcName === 'string' ? input.npcName.trim() : '';
+		if (npcName.length < 2 || npcName.length > 80) throw new Error('Informe o nome do NPC com 2 a 80 caracteres');
+		const prior = this.campaignSettings.trueBondRequests.find(entry => entry.id === input.requestId);
+		if (prior) {
+			if (prior.characterId !== record.state.id || prior.npcName !== npcName) {
+				throw new Error('Identificador de Laço Verdadeiro já utilizado');
+			}
+			return { request: structuredClone(prior), repeated: true };
+		}
+		if (sheet.trueBondNpcName) throw new Error('Este treinador já possui um Laço Verdadeiro');
+		if (this.campaignSettings.trueBondRequests.some(entry => entry.characterId === record.state.id &&
+			entry.status === 'pending')) throw new Error('Já existe um Laço Verdadeiro aguardando avaliação');
+		const request: RPGTrueBondRequest = { id: input.requestId, characterId: record.state.id,
+			characterName: record.state.characterName, npcName,
+			submittedAt: this.campaignSettings.currentDateTime, status: 'pending' };
+		this.campaignSettings.trueBondRequests.push(request);
+		try { this.persistAtomically(() => this.persistCampaignSettings()); } catch (error) {
+			this.campaignSettings.trueBondRequests.pop(); throw error;
+		}
+		return { request: structuredClone(request), repeated: false };
+	}
+
+	decideTrainerTrueBond(token: string, id: string, accepted: boolean) {
+		this.requireMasterRole(token);
+		const session = this.getSession(token);
+		const request = this.campaignSettings.trueBondRequests.find(entry => entry.id === id);
+		if (!request || request.status !== 'pending' || typeof accepted !== 'boolean') {
+			throw new Error('Pedido de Laço Verdadeiro ou decisão inválidos');
+		}
+		const record = this.requireCharacter(request.characterId);
+		if (session.platformTableId && record.tableId !== session.platformTableId) {
+			throw new Error('Personagem fora da mesa atual');
+		}
+		const sheet = record.state.trainerSheet;
+		if (sheet?.status !== 'complete' || sheet.talents.apex !== 'encantador:laco-verdadeiro' ||
+			accepted && sheet.trueBondNpcName) throw new Error('Laço Verdadeiro indisponível');
+		const previousRecord = structuredClone(record);
+		const previousRequest = structuredClone(request);
+		request.status = accepted ? 'accepted' : 'rejected';
+		request.decidedAt = this.campaignSettings.currentDateTime;
+		if (accepted) {
+			sheet.trueBondNpcName = request.npcName;
+			record.state.updatedAt = this.now();
+		}
+		try {
+			this.persistAtomically(() => {
+				if (accepted) this.repository.set(record);
+				this.persistCampaignSettings();
+			});
+		} catch (error) {
+			Object.assign(request, previousRequest);
+			if (accepted) this.repository.set(previousRecord);
+			throw error;
+		}
+		return { request: structuredClone(request), npcName: sheet.trueBondNpcName || null };
+	}
+
+	removeTrainerTrueBond(token: string) {
+		const session = this.getSession(token);
+		if (session.role !== 'master' || session.mode !== 'player' || !session.viewAsCharacterId ||
+			!session.platformTableId) throw new Error('Apenas o Mestre visualizando o jogador pode remover o Laço Verdadeiro');
+		const record = this.requireCharacter(toID(session.viewAsCharacterId));
+		if (record.tableId !== session.platformTableId) throw new Error('Personagem fora da mesa atual');
+		const sheet = record.state.trainerSheet;
+		if (sheet?.status !== 'complete' || sheet.talents.apex !== 'encantador:laco-verdadeiro' ||
+			!sheet.trueBondNpcName) throw new Error('Nenhum Laço Verdadeiro para remover');
+		const previousRecord = structuredClone(record);
+		const npcName = sheet.trueBondNpcName;
+		delete sheet.trueBondNpcName;
+		record.state.updatedAt = this.now();
+		try { this.persistAtomically(() => this.repository.set(record)); } catch (error) {
+			this.repository.set(previousRecord); throw error;
+		}
+		return { npcName, removed: true };
 	}
 
 	createScientificPublication(token: string, input: { requestId: string, title: string, summary: string }) {
@@ -2663,6 +2850,7 @@ export class RPGLoginService {
 				!Object.values(sheet.pendingChoices || {}).some(count => count > 0),
 			proficiency: rpgTrainerProficiency(sheet.level), skills, resistances, derived, attacks,
 			rollTalents: [...rpgTrainerRollTalents(sheet), ...this.getTrainerAllyRollTalents(token, state.id)],
+			helpTalents: this.getTrainerAllyHelpTalents(token, state.id),
 			investigativePartner: sheet.talents.class.includes('detetive:parceiro-investigativo') ? {
 				pokemonId: sheet.investigativePartnerPokemonId || null,
 				pokemonName: RPGBoxManagement.view(state).results.find(pokemon =>
@@ -2824,6 +3012,16 @@ export class RPGLoginService {
 				pending: this.campaignSettings.publications.some(entry =>
 					entry.characterId === state.id && entry.status === 'pending'),
 			} : null,
+			confidant: sheet.talents.class.includes('encantador:confidente') ? {
+				name: sheet.confidantName || null,
+				pending: this.campaignSettings.confidantRequests.find(entry =>
+					entry.characterId === state.id && entry.status === 'pending') || null,
+			} : null,
+			trueBond: sheet.talents.apex === 'encantador:laco-verdadeiro' ? {
+				name: sheet.trueBondNpcName || null,
+				pending: this.campaignSettings.trueBondRequests.find(entry =>
+					entry.characterId === state.id && entry.status === 'pending') || null,
+			} : null,
 			persistentHypothesis: sheet.talents.class.includes('cientista:hipotese-persistente') ?
 				sheet.persistentHypothesis || null : null,
 			rerollAvailability: this.getTrainerRerollAvailability(token, state.id) };
@@ -2877,6 +3075,34 @@ export class RPGLoginService {
 			this.repository.set(original); throw error;
 		}
 		return { sheet: structuredClone(outcome.sheet), die: outcome.die, recovered: outcome.recovered };
+	}
+
+	/** Disfarce Social gasta uma carga real do kit, sem consumir o talento. */
+	useTrainerSocialDisguise(token: string) {
+		const session = this.getSession(token);
+		if (session.mode !== 'player' || !session.platformTableId) throw new Error('Entre como jogador em uma mesa');
+		const characterId = session.role === 'master' ? session.viewAsCharacterId : session.characterId;
+		if (!characterId) throw new Error('Nenhum personagem selecionado');
+		const previous = this.requireCharacter(toID(characterId));
+		if (previous.tableId !== session.platformTableId) throw new Error('Personagem fora da mesa atual');
+		this.requireWorldBagItemUse(token, previous.state.id);
+		const actor = structuredClone(previous);
+		const sheet = actor.state.trainerSheet;
+		if (sheet?.status !== 'complete' || !sheet.talents.class.includes('encantador:disfarce-social')) {
+			throw new Error('Este treinador não possui Disfarce Social');
+		}
+		if (!sheet.proficiencies?.includes('kit-disfarce')) throw new Error('Domínio do Kit de Disfarce necessário');
+		const inventory = this.ensureTrainerInventory(actor);
+		const kits = inventory.items.filter(item => item.itemId === 'kit-disfarce' && item.location === 'bag');
+		if (!kits.length) throw new Error('Você precisa de um Kit de Disfarce na Bag');
+		const kit = kits.find(item => (item.charges || 0) > 0);
+		if (!kit) throw new Error('O Kit de Disfarce está sem cargas');
+		kit.charges!--;
+		inventory.revision++;
+		actor.state.updatedAt = this.now();
+		this.validateTrainerInventory(actor);
+		this.persistAtomically(() => this.repository.set(actor));
+		return { chargesRemaining: kit.charges, kitInstanceId: kit.id };
 	}
 
 	/** O Artista distribui o benefício; cada descanso curto renova o limite de participantes. */
@@ -4122,7 +4348,7 @@ export class RPGLoginService {
 
 	/** Exibe apenas treinadores de contas ativas da mesa atual; a mesma busca valida a rolagem. */
 	getTrainerAllyRollTalents(token: string, characterId: string, attribute?: RPGTrainerAttribute) {
-		return [...this.detectiveDuoOptions(token, characterId),
+		return [...this.enchanterAllyOptions(token, characterId), ...this.detectiveDuoOptions(token, characterId),
 			...this.diplomatProxyOptions(token, characterId, attribute),
 			...this.cosmopolitanEtiquetteOptions(token, characterId),
 			...this.diplomatIntroductionOptions(token, characterId),
@@ -4136,6 +4362,29 @@ export class RPGLoginService {
 			...this.captivatingDistractionOptions(token, characterId),
 			...this.excavationMasterOptions(token, characterId),
 			...this.sharedArchiveOptions(token, characterId)];
+	}
+
+	private enchanterAllyOptions(token: string, characterId: string) {
+		const session = this.getSession(token);
+		if (!session.platformTableId) return [];
+		return this.repository.list().filter(record => record.state.id !== characterId &&
+			record.tableId === session.platformTableId && record.accountId &&
+			this.accounts.repository.getMembership(session.platformTableId!, record.accountId)?.status === 'active')
+			.flatMap(record => record.state.trainerSheet ? rpgEnchanterAllyOptions(record.state.id,
+				record.state.characterName, record.state.trainerSheet) : []);
+	}
+
+	private getTrainerAllyHelpTalents(token: string, characterId: string) {
+		const session = this.getSession(token);
+		if (!session.platformTableId) return [];
+		return this.repository.list().filter(record => record.state.id !== characterId &&
+			record.tableId === session.platformTableId && record.accountId &&
+			this.accounts.repository.getMembership(session.platformTableId!, record.accountId)?.status === 'active')
+			.flatMap(record => {
+				const option = record.state.trainerSheet && rpgEnchanterSocialChemistryOption(record.state.id,
+					record.state.characterName, record.state.trainerSheet);
+				return option ? [option] : [];
+			});
 	}
 
 	private diplomatProxyOptions(token: string, characterId: string, attribute?: RPGTrainerAttribute) {
@@ -4767,7 +5016,8 @@ export class RPGLoginService {
 			throw new Error('Você já ofereceu ajuda para essa perícia neste período');
 		}
 		const talents = rpgResolveTrainerRollTalents(sheet, 'skill', skill, selectedTalents,
-			this.getTrainerAllyRollTalents(token, character.id), attribute);
+			[...this.getTrainerAllyRollTalents(token, character.id),
+				...this.getTrainerAllyHelpTalents(token, character.id)], attribute);
 		const observedSkill = talents.chosen.some(talent => talent.id === 'aprendizado-por-observacao');
 		const result = rollRPGTrainerSkillCheck(sheet, skill, attribute, {
 			dc: 0, bonus: talents.bonus,
@@ -4784,7 +5034,8 @@ export class RPGLoginService {
 			(['conhecimento', 'investigacao', 'medicina', 'medicina-pokemon', 'natureza', 'tecnologia']
 				.includes(skill.split(':')[0]));
 		const bonus = Math.max(rpgHelpBonus(result.total),
-			(specialized && result.total >= 10 || teamwork || collaborativeResearch) ? 2 : 0);
+			(specialized && result.total >= 10 || teamwork || collaborativeResearch ||
+				talents.chosen.some(talent => talent.id === 'encantador:quimica-social')) ? 2 : 0);
 		this.persistAtomically(() => {
 			this.campaignSettings.trainerHelp.push({ characterId: character.id, skill, total: result.total, bonus });
 			this.campaignSettings.trainerHelp = this.campaignSettings.trainerHelp.slice(-100);

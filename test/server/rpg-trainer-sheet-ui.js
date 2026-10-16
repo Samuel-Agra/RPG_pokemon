@@ -58,6 +58,22 @@ describe('RPG trainer sheet read-only frontend', () => {
 		assert(page.includes('Publicações aceitas:'));
 		assert(page.includes('trainer-sheet-publication-count'));
 	});
+	it('submits the Enchanter confidant roll for Master approval and locks the accepted name', () => {
+		assert(page.includes("id === 'encantador:confidente'"));
+		assert(page.includes("action.api('/trainer/talents/confidant'"));
+		assert(page.includes('Aguardando a avaliação do Mestre.'));
+		assert(app.includes("api('/trainer/talents/confidant/decide'"));
+		assert(app.includes('settings.settings?.confidantRequests || []'));
+		assert(http.includes("url.pathname === '/api/rpg/trainer/talents/confidant/decide'"));
+	});
+	it('submete Laço Verdadeiro aos Eventos e só oferece remoção ao Mestre como jogador', () => {
+		assert(page.includes("action.api('/trainer/talents/true-bond'"));
+		assert(page.includes("action.api('/trainer/talents/true-bond/remove'"));
+		assert(page.includes("state.session?.role === 'master'"));
+		assert(app.includes("api('/trainer/talents/true-bond/decide'"));
+		assert(app.includes('settings.settings?.trueBondRequests || []'));
+		assert(http.includes("url.pathname === '/api/rpg/trainer/talents/true-bond/decide'"));
+	});
 	it('abre o catálogo por categorias e envia a encomenda para aprovação do Mestre', () => {
 		assert(page.includes("id === 'diplomata:canal-oficial'"));
 		assert(page.includes("action.api('/trainer/supplier/catalog')"));

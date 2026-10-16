@@ -483,6 +483,36 @@ export class RPGHttpServer {
 			}));
 			return;
 		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/confidant') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.requestTrainerConfidant(this.token(req), {
+				requestId: this.string(body.requestId), confidantName: this.string(body.confidantName),
+			}));
+			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/confidant/decide') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.decideTrainerConfidant(this.token(req),
+				this.string(body.id), body.accepted as boolean));
+			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/true-bond') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.requestTrainerTrueBond(this.token(req), {
+				requestId: this.string(body.requestId), npcName: this.string(body.npcName),
+			}));
+			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/true-bond/decide') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.decideTrainerTrueBond(this.token(req),
+				this.string(body.id), body.accepted as boolean));
+			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/true-bond/remove') {
+			this.json(res, 200, this.login.removeTrainerTrueBond(this.token(req)));
+			return;
+		}
 		if (method === 'POST' && url.pathname === '/api/rpg/trainer/publications/decide') {
 			const body = await this.body(req);
 			this.json(res, 200, this.login.decideScientificPublication(this.token(req),
@@ -510,6 +540,10 @@ export class RPGHttpServer {
 		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/use') {
 			const body = await this.body(req);
 			this.json(res, 200, this.login.useTrainerSheetTalent(this.token(req), this.string(body.talentId)));
+			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/social-disguise') {
+			this.json(res, 200, this.login.useTrainerSocialDisguise(this.token(req)));
 			return;
 		}
 		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/comforting-art') {
@@ -640,11 +674,14 @@ export class RPGHttpServer {
 		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/cosmopolitan-etiquette') {
 			const body = await this.body(req);
 			const token = this.token(req);
+			const session = this.login.getSession(token);
+			if (!session.platformTableId || !session.platformAccountId || !this.login.mysqlPersistence) {
+				throw new Error('Chat da mesa indisponível');
+			}
 			const result = this.login.setTrainerCosmopolitanEtiquette(token,
 				this.string(body.community), Number(body.dc), body.recipientCharacterIds as string[]);
-			const session = this.login.getSession(token);
 			const roll = result.roll;
-			await this.login.mysqlPersistence.createTableChatMessage(session.platformTableId!, session.platformAccountId!,
+			await this.login.mysqlPersistence.createTableChatMessage(session.platformTableId, session.platformAccountId,
 				`Etiqueta Cosmopolita — Conhecimento: Regiões: 1d20 tirou ${roll.natural} + ` +
 				`${roll.total - roll.natural} = ${roll.total} (CD ${Number(body.dc)}). ` +
 				(roll.success ? `Orientação de ${this.string(body.community)} preparada.` : 'Falha: nenhum bônus concedido.'));
@@ -2950,6 +2987,7 @@ export class RPGHttpServer {
 
 	/** Only established domain validation messages may cross the HTTP boundary. */
 	private isPublicValidationError(message: string): boolean {
+		if (/^(?:Este treinador não possui Disfarce Social|Domínio do Kit de Disfarce necessário|Você precisa de um Kit de Disfarce na Bag|O Kit de Disfarce está sem cargas)/.test(message)) return true;
 		if (/persisted|estado persistido|table scope|random source|repository|repositório/i.test(message)) return false;
 		if (/^(?:Amizade deve ser um número inteiro entre 0 e 255|Performance deve ser um número inteiro entre 0 e 100)$/.test(message)) return true;
 		if (/^(?:Ovo (?:sem incubadora válida|desconhecido ou pertencente a outro treinador)|O ovo (?:ainda não está pronto para chocar|pronto não está nesta incubadora|pronto está na incubadora portátil)|Não há espaço livre na equipe para resgatar o Pokémon chocado|É necessário ter ao menos uma Poké Ball na Bag para o Pokémon nascer)$/.test(message)) return true;
@@ -2962,6 +3000,8 @@ export class RPGHttpServer {
 		if (/^(?:Você precisa de um Kit Científico na Bag|Este registro exige (?:um Kit Científico de nível|\d+ carga\(s\))|Registro (?:inválido|não pertence a este treinador|científico indisponível)|Cientista indisponível nesta mesa|Esta fórmula já está em preparação|Há preparações demais em andamento|Preparação indisponível|O Registro Reprodutível foi alterado ou retirado|A preparação ainda não atingiu o tempo necessário)/.test(message)) return true;
 		if (/^(?:Registro Avançado indisponível|Espaço de registro inválido|Destinatário indisponível|Informe nome \(3–100\)|Identificador inválido|Identificador já utilizado|Já existe um registro aguardando aprovação|Registro não está pendente|Nível do kit ou cargas inválidos|Cientista ou destinatário indisponível|A biblioteca permite até dois Registros Avançados ativos)/.test(message)) return true;
 		if (/^(?:Publicação de Referência não está disponível|Identificador do artigo inválido|Informe título e resumo do artigo|Já existe um artigo aguardando avaliação|Artigo não está pendente|Decisão ou pagamento inválido|Pagamento ultrapassa o limite de Pokécoins|Entre como jogador em uma mesa para criar o artigo|Nenhum personagem selecionado|Personagem fora da mesa atual)/.test(message)) return true;
+		if (/^(?:Confidente indisponível|Identificador de confidente (?:inválido|já utilizado)|Informe o nome do confidente|Este treinador já possui um confidente confirmado|Já existe um confidente aguardando avaliação|Pedido de confidente ou decisão inválidos)/.test(message)) return true;
+		if (/^(?:Laço Verdadeiro indisponível|Identificador de Laço Verdadeiro (?:inválido|já utilizado)|Informe o nome do NPC|Este treinador já possui um Laço Verdadeiro|Já existe um Laço Verdadeiro aguardando avaliação|Pedido de Laço Verdadeiro ou decisão inválidos|Apenas o Mestre visualizando o jogador pode remover o Laço Verdadeiro|Nenhum Laço Verdadeiro para remover)/.test(message)) return true;
 		if (/^(?:Rede de Fornecedores indisponível|Identificador da encomenda |Já existe uma encomenda aguardando avaliação|Item indisponível para encomenda|Encomenda ou decisão inválida|Treinador indisponível para receber a encomenda|Item da encomenda não está mais disponível)/.test(message)) return true;
 		if (/^(?:Identificador de nível |Ajuste de nível )/.test(message)) return true;
 		if (['Escolha de talento inválida', 'Escolha modalidades artísticas diferentes das já selecionadas',

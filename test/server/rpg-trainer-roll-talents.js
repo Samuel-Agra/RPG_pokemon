@@ -15,6 +15,8 @@ const { rpgTrainerRollTalentOptions, rpgResolveTrainerRollTalents, rpgTrainerRol
 	rpgExcavationMasterOption,
 	rpgSetSharedArchive, rpgSharedArchiveOptions } =
 	require('../../dist/server/rpg-showdown/trainer-roll-talents');
+const { rpgEnchanterAllyOptions, rpgEnchanterSocialChemistryOption } =
+	require('../../dist/server/rpg-showdown/trainer-roll-talents');
 const { rpgUpdatePersistentHypothesis } =
 	require('../../dist/server/rpg-showdown/trainer-roll-talents');
 
@@ -26,6 +28,59 @@ function sheet() {
 }
 
 describe('RPG trainer situational roll talents', () => {
+	it('oferece Salão na Palma da Mão ao Encantador e aliados somente nas perícias sociais com Carisma', () => {
+		const enchanter = { ...sheet(), classId: 'encantador', talents: { general: [], class: [],
+			apex: 'encantador:salao-na-palma-da-mao' } };
+		const own = rpgTrainerRollTalentOptions(enchanter, 'skill', 'persuasao', 'charisma');
+		assert.equal(own.find(option => option.id === 'encantador:salao-na-palma-da-mao').bonus, 2);
+		assert.deepEqual(rpgTrainerRollTalentOptions(enchanter, 'skill', 'intimidacao', 'strength'), []);
+		assert.equal(rpgTrainerRollTalentOptions(enchanter, 'skill', 'intimidacao', 'charisma').length, 1);
+		const allies = rpgEnchanterAllyOptions('encantador-1', 'Ana', enchanter);
+		assert.equal(allies.length, 1);
+		const ally = sheet();
+		assert.equal(rpgResolveTrainerRollTalents(ally, 'skill', 'atuacao', [allies[0].key],
+			allies, 'charisma').bonus, 2);
+		assert.throws(() => rpgResolveTrainerRollTalents(ally, 'skill', 'intimidacao',
+			[allies[0].key], allies, 'strength'), /indisponível/);
+		assert.deepEqual(rpgEnchanterAllyOptions('encantador-1', 'Ana',
+			{ ...enchanter, talents: { ...enchanter.talents, apex: 'encantador:icone-social' } }), []);
+	});
+	it('oferece os bônus sociais aos aliados e reserva Química Social somente para ajuda com Carisma', () => {
+		const source = { ...sheet(), classId: 'encantador', talents: { general: [], apex: null,
+			class: ['encantador:apresentacao-perfeita', 'encantador:confianca-compartilhada',
+				'encantador:quimica-social', 'encantador:rosto-memoravel'] } };
+		const ally = { ...sheet(), skills: { trained: ['persuasao'], focused: [] } };
+		const social = rpgEnchanterAllyOptions('encantador-1', 'Ana', source);
+		assert.deepEqual(social.map(option => option.bonus), [2, 2]);
+		assert.deepEqual(rpgTrainerRollTalentOptions(source, 'skill', 'persuasao')
+			.map(option => option.id), ['encantador:rosto-memoravel']);
+		assert.equal(rpgResolveTrainerRollTalents(ally, 'skill', 'persuasao', [social[0].key], social).bonus, 2);
+		const help = rpgEnchanterSocialChemistryOption('encantador-1', 'Ana', source);
+		assert(help);
+		assert.throws(() => rpgResolveTrainerRollTalents(ally, 'skill', 'intimidacao',
+			[help.key], [help], 'strength'), /indisponível/);
+		assert.equal(rpgResolveTrainerRollTalents(ally, 'skill', 'intimidacao',
+			[help.key], [help], 'charisma').bonus, 0);
+	});
+	it('offers the Enchanter social bonuses only in the matching skill rolls', () => {
+		const enchanter = { ...sheet(), classId: 'encantador', talents: { general: [],
+			class: ['encantador:espelhamento-social', 'encantador:visual-adequado'], apex: null } };
+		for (const skill of ['persuasao', 'enganacao']) {
+			const options = rpgTrainerRollTalentOptions(enchanter, 'skill', skill);
+			assert.deepEqual(options.map(option => option.id),
+				['encantador:espelhamento-social', 'encantador:visual-adequado']);
+			assert.equal(rpgResolveTrainerRollTalents(enchanter, 'skill', skill, []).bonus, 0);
+			assert.equal(rpgResolveTrainerRollTalents(enchanter, 'skill', skill,
+				options.map(option => option.key)).bonus, 4);
+		}
+		for (const skill of ['atuacao', 'intimidacao']) {
+			assert.deepEqual(rpgTrainerRollTalentOptions(enchanter, 'skill', skill)
+				.map(option => option.id), ['encantador:visual-adequado']);
+		}
+		assert.deepEqual(rpgTrainerRollTalentOptions(enchanter, 'skill', 'investigacao'), []);
+		assert.deepEqual(rpgTrainerRollTalentOptions({ ...enchanter, talents: { general: [], class: [], apex: null } },
+			'skill', 'persuasao'), []);
+	});
 	it('oferece Porta-Voz Reconhecido apenas em testes sociais feitos com Carisma', () => {
 		const diplomat = { ...sheet(), classId: 'diplomata',
 			talents: { general: [], class: ['diplomata:porta-voz-reconhecido'], apex: null } };

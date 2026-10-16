@@ -143,6 +143,7 @@ function allowedAttributeChoices(talent: RPGTrainerTalentDefinition): (keyof RPG
 	// Aumentos fixos pertencem à própria regra e não exigem escolha de atributo.
 	if (['arqueologo:memoria-academica', 'cientista:hipotese-persistente', 'artista:presenca-magnetica',
 		'diplomata:porta-voz-reconhecido',
+		'encantador:presenca-desarmante',
 		'artista:corpo-de-cena', 'coreografo:leitura-cinetica',
 		'criador-pokemon:incubacao-de-emergencia', 'criador-pokemon:mestre-do-bercario',
 		'coreografo:preparacao-corporal-conjunta'].includes(talent.id)) return [];
@@ -311,6 +312,9 @@ function applyTalentEffect(sheet: RPGTrainerSheet, talent: RPGTrainerTalentDefin
 		attributes.charisma = Math.min(20, attributes.charisma + 1);
 	}
 	if (talent.id === 'diplomata:porta-voz-reconhecido') {
+		attributes.charisma = Math.min(20, attributes.charisma + 1);
+	}
+	if (talent.id === 'encantador:presenca-desarmante') {
 		attributes.charisma = Math.min(20, attributes.charisma + 1);
 	}
 	if (talent.id === 'artista:corpo-de-cena') {

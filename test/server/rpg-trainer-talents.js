@@ -25,6 +25,125 @@ function ready(classId, level = 1, overrides = {}) {
 }
 
 describe('RPG trainer classes and talents', () => {
+	it('consome uma carga real do Kit de Disfarce e explica quando o kit acaba', () => {
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({ masterCode: 'teste', repository });
+		service.createCharacter({ characterName: 'Encantador', playerName: 'Ana', avatar: 'lucas',
+			password: 'senha-rpg', initialMoney: 100,
+			starter: { species: 'Squirtle', gender: 'M' } });
+		const record = repository.get('encantador');
+		record.tableId = 'mesa-teste'; record.accountId = 'ana';
+		record.state.trainerSheet = ready('encantador', 5, {
+			talents: { general: [], class: ['encantador:disfarce-social'], apex: null },
+			proficiencies: ['kit-disfarce'],
+		});
+		record.state.trainerInventory = { version: 1, revision: 0, licenses: [], pokemonStorage: [],
+			items: [{ id: 'kit-1', itemId: 'kit-disfarce', quantity: 1,
+				equipped: false, charges: 1, location: 'bag' }] };
+		repository.set(record);
+		service.getSession = () => ({ role: 'player', mode: 'player',
+			platformTableId: 'mesa-teste', characterId: 'encantador' });
+		assert.equal(service.useTrainerSocialDisguise('jogador').chargesRemaining, 0);
+		assert.equal(repository.get('encantador').state.trainerInventory.items[0].charges, 0);
+		assert.throws(() => service.useTrainerSocialDisguise('jogador'), /sem cargas/);
+	});
+	it('aplica apenas o aumento fixo de Carisma de Presença Desarmante', () => {
+		const before = ready('encantador', 7, { talents: { general: [],
+			class: ['encantador:sem-ressentimentos'], apex: null } });
+		const option = rpgTrainerTalentCatalog(before).find(talent => talent.id === 'encantador:presenca-desarmante');
+		assert.deepEqual(option.attributeChoices, []);
+		const after = chooseRPGTrainerTalent(before, { id: option.id });
+		assert.equal(after.attributes.charisma, before.attributes.charisma + 1);
+	});
+	it('submete Confidente com Persuasão normal e trava o nome somente após aprovação', () => {
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({ masterCode: 'teste', repository, random: () => 0.45 });
+		service.createCharacter({ characterName: 'Ana', playerName: 'Ana', avatar: 'lucas',
+			password: 'senha-rpg', initialMoney: 100, starter: { species: 'Squirtle', gender: 'M' } });
+		const record = repository.get('ana');
+		record.tableId = 'mesa-teste'; record.accountId = 'ana';
+		record.state.trainerSheet = ready('encantador', 3, { attributes: {
+			strength: 12, dexterity: 14, constitution: 13, intelligence: 14, wisdom: 12, charisma: 14,
+		}, skills: { trained: ['persuasao'], focused: [] } });
+		record.state.trainerSheet.talents.class.push('encantador:confidente', 'encantador:visual-adequado');
+		repository.set(record);
+		service.getSession = token => ['mestre', 'outra-mesa'].includes(token) ? { role: 'master', mode: 'master',
+			platformTableId: token === 'mestre' ? 'mesa-teste' : 'outra-mesa' } : { role: 'player', mode: 'player',
+			platformTableId: 'mesa-teste', characterId: 'ana' };
+		const first = service.requestTrainerConfidant('jogador', {
+			requestId: 'pedido-confidente-1', confidantName: 'Marina',
+		});
+		assert.equal(first.request.roll.bonus, 4);
+		assert.equal(first.request.roll.total, first.request.roll.natural + 4);
+		assert.equal(repository.get('ana').state.trainerSheet.confidantName, undefined);
+		assert.equal(service.requestTrainerConfidant('jogador', {
+			requestId: 'pedido-confidente-1', confidantName: 'Marina',
+		}).request.roll.total, first.request.roll.total);
+		assert.throws(() => service.requestTrainerConfidant('jogador', {
+			requestId: 'pedido-confidente-2', confidantName: 'Outra',
+		}), /aguardando avaliação/);
+		assert.throws(() => service.decideTrainerConfidant('jogador', first.request.id, true), /master session/);
+		assert.throws(() => service.decideTrainerConfidant('outra-mesa', first.request.id, true), /fora da mesa/);
+		assert.equal(service.decideTrainerConfidant('mestre', first.request.id, false).request.status, 'rejected');
+		assert.equal(repository.get('ana').state.trainerSheet.confidantName, undefined);
+		const second = service.requestTrainerConfidant('jogador', {
+			requestId: 'pedido-confidente-2', confidantName: 'Marina',
+		});
+		assert.equal(service.decideTrainerConfidant('mestre', second.request.id, true).confidantName, 'Marina');
+		assert.equal(repository.get('ana').state.trainerSheet.confidantName, 'Marina');
+		const restored = new RPGLoginService({ masterCode: 'teste', repository,
+			campaignSettings: service.getCampaignSettings('mestre') });
+		assert.equal(restored.repository.get('ana').state.trainerSheet.confidantName, 'Marina');
+		assert.throws(() => service.requestTrainerConfidant('jogador', {
+			requestId: 'pedido-confidente-3', confidantName: 'Outra',
+		}), /já possui um confidente/);
+	});
+	it('aprova Laço Verdadeiro por evento e reserva a remoção ao Mestre como jogador', () => {
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({ masterCode: 'teste', repository });
+		service.createCharacter({ characterName: 'Ana', playerName: 'Ana', avatar: 'lucas',
+			password: 'senha-rpg', initialMoney: 100, starter: { species: 'Squirtle', gender: 'M' } });
+		const record = repository.get('ana');
+		record.tableId = 'mesa-teste'; record.accountId = 'ana';
+		record.state.trainerSheet = ready('encantador', 10, {
+			talents: { general: [], class: ['encantador:confidente',
+				'encantador:confianca-compartilhada'], apex: 'encantador:laco-verdadeiro' },
+		});
+		repository.set(record);
+		service.getSession = token => token === 'mestre' ? { role: 'master', mode: 'master',
+			platformTableId: 'mesa-teste' } : token === 'mestre-jogador' ? { role: 'master', mode: 'player',
+			platformTableId: 'mesa-teste', viewAsCharacterId: 'ana' } : token === 'outra-mesa' ? {
+			role: 'master', mode: 'master', platformTableId: 'mesa-outra',
+		} : { role: 'player', mode: 'player', platformTableId: 'mesa-teste', characterId: 'ana' };
+		const first = service.requestTrainerTrueBond('jogador', {
+			requestId: 'pedido-laco-1', npcName: 'Marina',
+		});
+		assert.equal(first.request.status, 'pending');
+		assert.equal(service.requestTrainerTrueBond('jogador', {
+			requestId: 'pedido-laco-1', npcName: 'Marina',
+		}).repeated, true);
+		assert.throws(() => service.requestTrainerTrueBond('jogador', {
+			requestId: 'pedido-laco-2', npcName: 'Outra',
+		}), /aguardando avaliação/);
+		assert.throws(() => service.decideTrainerTrueBond('outra-mesa', first.request.id, true), /fora da mesa/);
+		assert.equal(service.decideTrainerTrueBond('mestre', first.request.id, false).request.status, 'rejected');
+		const second = service.requestTrainerTrueBond('jogador', {
+			requestId: 'pedido-laco-2', npcName: 'Marina',
+		});
+		assert.equal(service.decideTrainerTrueBond('mestre', second.request.id, true).npcName, 'Marina');
+		assert.equal(repository.get('ana').state.trainerSheet.trueBondNpcName, 'Marina');
+		assert.throws(() => service.requestTrainerTrueBond('jogador', {
+			requestId: 'pedido-laco-3', npcName: 'Outra',
+		}), /já possui um Laço Verdadeiro/);
+		assert.throws(() => service.removeTrainerTrueBond('jogador'), /Apenas o Mestre/);
+		assert.throws(() => service.removeTrainerTrueBond('mestre'), /Apenas o Mestre/);
+		assert.equal(service.removeTrainerTrueBond('mestre-jogador').removed, true);
+		assert.equal(repository.get('ana').state.trainerSheet.trueBondNpcName, undefined);
+		const restored = new RPGLoginService({ masterCode: 'teste', repository,
+			campaignSettings: service.getCampaignSettings('mestre') });
+		restored.getSession = service.getSession;
+		assert.equal(restored.getCampaignSettings('mestre').trueBondRequests.length, 2);
+	});
 	it('preserva o identificador do ápice do Diplomata como Voz por Procuração', () => {
 		const option = rpgTrainerTalentCatalog(ready('diplomata', 10)).find(entry =>
 			entry.id === 'diplomata:acordo-impossivel');

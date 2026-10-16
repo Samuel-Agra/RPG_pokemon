@@ -115,14 +115,13 @@ const RULES: Readonly<Record<string, Rule>> = {
 		condition: 'Próximo teste social após aliado fornecer contribuição relevante.' },
 	'encantador:espelhamento-social': { targets: ['skill:persuasao', 'skill:enganacao'], bonus: 2,
 		condition: 'Próximo teste após um minuto ajustando sua abordagem.' },
-	'encantador:visual-adequado': { targets: ['skill:persuasao', 'skill:enganacao', 'skill:atuacao'], bonus: 2,
+	'encantador:visual-adequado': { targets: ['skill:persuasao', 'skill:enganacao', 'skill:atuacao', 'skill:intimidacao'], bonus: 2,
 		condition: 'Primeira cena em que apresentação pessoal preparada seja relevante.' },
-	'encantador:apresentacao-perfeita': { targets: ['skill:persuasao', 'skill:enganacao'], bonus: 2,
-		condition: 'Primeiro teste social após apresentação entre duas pessoas.' },
 	'encantador:rosto-memoravel': { targets: ['skill:persuasao', 'skill:enganacao', 'skill:atuacao'], bonus: 2,
 		condition: 'Primeiro teste social com pessoa que o reconhece.' },
-	'encantador:salao-na-palma-da-mao': { targets: ['skill:persuasao', 'skill:enganacao', 'skill:atuacao'], bonus: 2,
-		condition: 'Teste social compatível com o tom definido para o evento.' },
+	'encantador:salao-na-palma-da-mao': { targets: ['skill:persuasao', 'skill:enganacao', 'skill:atuacao',
+		'skill:intimidacao'], bonus: 2, requiredAttribute: 'charisma',
+	condition: 'Teste social compatível com o tom definido para o evento.' },
 	'explorador:especialista-de-terreno': { targets: ['skill:sobrevivencia', 'skill:percepcao'], bonus: 2, perVariant: true,
 		condition: 'Orientação, perigos ou rotas no terreno escolhido.' },
 	'fotografo:panorama-de-reconhecimento': { targets: ['skill:investigacao', 'skill:percepcao', 'skill:sobrevivencia'], bonus: 2,
@@ -276,6 +275,42 @@ export function rpgUpdatePersistentHypothesis(sheet: RPGTrainerSheet,
 	}
 	next.persistentHypothesis = { failures: Math.min(2, (current?.failures || 0) + 1) };
 	return next;
+}
+
+/** Benefícios sociais dependem da cena; o aliado confirma sua aplicabilidade ao rolar. */
+export function rpgEnchanterAllyOptions(sourceId: string, sourceName: string,
+	source: RPGTrainerSheet): RPGTrainerRollTalent[] {
+	if (source.status !== 'complete' || source.classId !== 'encantador') return [];
+	const social = ['skill:persuasao', 'skill:enganacao', 'skill:intimidacao', 'skill:atuacao'];
+	const options: RPGTrainerRollTalent[] = ([
+		['encantador:apresentacao-perfeita',
+			'Primeiro teste social diretamente com a pessoa apresentada pelo Encantador.'],
+		['encantador:confianca-compartilhada',
+			'Primeiro teste da interação preparada após dez minutos de aconselhamento.'],
+	] as const).filter(([id]) => source.talents.class.includes(id)).map(([id, condition]) => ({
+		key: `${id}@${sourceId}`, id,
+		name: `${RPG_TRAINER_TALENTS.find(talent => talent.id === id)!.name} de ${sourceName}`,
+		condition, bonus: 2, advantage: false, targets: social,
+	}));
+	if (source.talents.apex === 'encantador:salao-na-palma-da-mao') {
+		options.push({ key: `encantador:salao-na-palma-da-mao@${sourceId}`,
+			id: 'encantador:salao-na-palma-da-mao', name: `Salão na Palma da Mão de ${sourceName}`,
+			condition: 'Teste social com Carisma compatível com o tom definido pelo Encantador para o evento.',
+			bonus: 2, advantage: false, requiredAttribute: 'charisma', targets: social });
+	}
+	return options;
+}
+
+/** Aparece somente na ação Ajuda, não como bônus da rolagem normal. */
+export function rpgEnchanterSocialChemistryOption(sourceId: string, sourceName: string,
+	source: RPGTrainerSheet): RPGTrainerRollTalent | null {
+	if (source.status !== 'complete' || source.classId !== 'encantador' ||
+		!source.talents.class.includes('encantador:quimica-social')) return null;
+	return { key: `encantador:quimica-social@${sourceId}`, id: 'encantador:quimica-social',
+		name: `Química Social de ${sourceName}`, bonus: 0, advantage: false,
+		condition: 'Ajuda em perícia social com Carisma, usando a abordagem preparada com o Encantador; bônus mínimo +2.',
+		requiredAttribute: 'charisma',
+		targets: ['skill:persuasao', 'skill:enganacao', 'skill:intimidacao', 'skill:atuacao'] };
 }
 
 export function rpgTrainerRollTalentOptions(sheet: RPGTrainerSheet, kind: RPGTrainerRollKind, id: string,
@@ -507,7 +542,9 @@ export function rpgResolveTrainerRollTalents(sheet: RPGTrainerSheet, kind: RPGTr
 		throw new Error('Talentos da rolagem inválidos');
 	}
 	const available = [...rpgTrainerRollTalentOptions(sheet, kind, id, attribute),
-		...allies.filter(talent => matches(talent.targets, kind, id))];
+		...allies.filter(talent => matches(talent.targets, kind, id) &&
+			(!talent.requiredAttribute || talent.requiredAttribute ===
+			(attribute || (kind === 'skill' ? rpgTrainerSkillAttributes(sheet, id)[0] : undefined))))];
 	const chosen = selected.map(key => {
 		const talent = available.find(option => option.key === key);
 		if (!talent) throw new Error('Talento indisponível para esta rolagem');
