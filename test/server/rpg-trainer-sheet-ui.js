@@ -58,6 +58,15 @@ describe('RPG trainer sheet read-only frontend', () => {
 		assert(page.includes('Publicações aceitas:'));
 		assert(page.includes('trainer-sheet-publication-count'));
 	});
+	it('abre o catálogo por categorias e envia a encomenda para aprovação do Mestre', () => {
+		assert(page.includes("id === 'diplomata:canal-oficial'"));
+		assert(page.includes("action.api('/trainer/supplier/catalog')"));
+		assert(page.includes('window.rpgBagCatalogCategories'));
+		assert(page.includes("action.api('/trainer/supplier/orders'"));
+		assert(app.includes("api('/trainer/supplier/orders/decide'"));
+		assert(app.includes('request.price.toLocaleString'));
+		assert(http.includes("url.pathname === '/api/rpg/trainer/supplier/orders/decide'"));
+	});
 	it('lets a Scientist register or end Persistent Hypothesis without typing details', () => {
 		assert(page.includes("id === 'cientista:hipotese-persistente'"));
 		assert(page.includes("action.api('/trainer/persistent-hypothesis'"));
@@ -97,6 +106,28 @@ describe('RPG trainer sheet read-only frontend', () => {
 		assert(http.includes("'/api/rpg/trainer/talents/capture-plan'"));
 		assert(http.includes('consumeTrainerCapturePlanRoll'));
 	});
+	it('lets a Diplomat address one letter to an ally and exposes its use in Persuasion rolls', () => {
+		assert(page.includes("id === 'diplomata:carta-de-apresentacao'"));
+		assert(page.includes("'/trainer/talents/introduction-letter'"));
+		assert(page.includes('progression.introductionLetter'));
+		assert(http.includes("'/api/rpg/trainer/talents/introduction-letter'"));
+		assert(http.includes('consumeTrainerIntroductionLetterRoll'));
+	});
+	it('prepares Voz por Procuração for selected allies and shows its replacement bonus', () => {
+		assert(page.includes("id === 'diplomata:acordo-impossivel'"));
+		assert(page.includes("'/trainer/talents/diplomat-proxy'"));
+		assert(page.includes('progression.diplomatProxy'));
+		assert(page.includes('talent.replacesBaseWith'));
+		assert(http.includes("'/api/rpg/trainer/talents/diplomat-proxy'"));
+		assert(http.includes('consumeTrainerDiplomatProxyRoll'));
+	});
+	it('lets a Diplomat select allies for Etiqueta Cosmopolita before offering the social bonus', () => {
+		assert(page.includes("id === 'diplomata:etiqueta-cosmopolita'"));
+		assert(page.includes("'/trainer/talents/cosmopolitan-etiquette'"));
+		assert(page.includes('progression.cosmopolitanEtiquette'));
+		assert(http.includes("'/api/rpg/trainer/talents/cosmopolitan-etiquette'"));
+		assert(http.includes('setTrainerCosmopolitanEtiquette'));
+	});
 	it('offers two Knowledge choices and marks half-proficiency on the right half of each skill', () => {
 		assert(page.includes("chosen.id === 'conhecimento-diversificado'"));
 		assert(page.includes("entry.halfProficiency ? ' half-proficiency'"));
@@ -119,7 +150,7 @@ describe('RPG trainer sheet read-only frontend', () => {
 		assert(page.includes('characterId, skill: id, mode: \'normal\''));
 		assert(!page.includes('trainer-sheet-help-list'));
 		assert(http.includes("'/api/rpg/trainer/help-roll'"));
-		assert(http.includes('consumeTrainerHelp(token, skill!)'));
+		assert(http.includes('consumeTrainerHelp(token, skill!, proxySourceId)'));
 		assert(http.includes('Ajuda de ${help.helperName}'));
 	});
 

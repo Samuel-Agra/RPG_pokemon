@@ -2148,13 +2148,48 @@ function renderMasterAreaPresence(container, players) {
 	}
 }
 
-function renderMasterCampaignEvents(container, events, publications = [], customRecordRequests = []) {
+function renderMasterCampaignEvents(container, events, publications = [], customRecordRequests = [], supplierOrders = []) {
 	container.replaceChildren();
 	const pendingPublications = publications.filter(entry => entry.status === 'pending');
 	const pendingRecords = customRecordRequests.filter(entry => entry.status === 'pending');
-	if (!events.length && !pendingPublications.length && !pendingRecords.length) {
+	const pendingOrders = supplierOrders.filter(entry => entry.status === 'pending');
+	if (!events.length && !pendingPublications.length && !pendingRecords.length && !pendingOrders.length) {
 		container.append(createElement('p', 'master-campaign-events-empty', 'Nenhum evento pendente.'));
 		return;
+	}
+	for (const request of [...pendingOrders].reverse()) {
+		const card = createElement('article', 'master-campaign-event event-publication');
+		const heading = createElement('div', 'master-campaign-event-heading');
+		heading.append(createElement('small', '', 'Rede de Fornecedores'),
+			createElement('strong', '', request.itemName));
+		const details = createElement('div', 'master-campaign-supplier-item');
+		const icon = typeof rpgRuntimeItemIcon === 'function' ? rpgRuntimeItemIcon(request) : null;
+		if (icon) details.append(icon);
+		details.append(createElement('span', '', `${request.itemName} · ${request.price.toLocaleString('pt-BR')} Pokécoins`));
+		const accept = button('Aceitar', 'button primary');
+		const reject = button('Recusar', 'button');
+		const feedback = createElement('p', 'master-campaign-publication-error');
+		const decide = async accepted => {
+			accept.disabled = true; reject.disabled = true;
+			try {
+				const result = await api('/trainer/supplier/orders/decide', { method: 'POST', body: {
+					id: request.id, accepted,
+				} });
+				request.status = result.order.status;
+				renderMasterCampaignEvents(container, events, publications, customRecordRequests, supplierOrders);
+				if (result.order.reason) showToast(result.order.reason, true);
+			} catch (error) {
+				feedback.textContent = error.message || 'Não foi possível avaliar a encomenda.';
+				accept.disabled = false; reject.disabled = false;
+			}
+		};
+		accept.addEventListener('click', () => decide(true));
+		reject.addEventListener('click', () => decide(false));
+		const actions = createElement('div', 'master-campaign-publication-buttons');
+		actions.append(accept, reject);
+		card.append(heading, details, createElement('span', 'master-campaign-event-owner', request.characterName),
+			actions, feedback);
+		container.append(card);
 	}
 	for (const request of [...pendingRecords].reverse()) {
 		const card = createElement('article', 'master-campaign-event event-publication');
@@ -2180,7 +2215,7 @@ function renderMasterCampaignEvents(container, events, publications = [], custom
 					id: request.id, accepted, kitTier: Number(tier.value), charges: Number(charges.value),
 				} });
 				request.status = accepted ? 'accepted' : 'rejected';
-				renderMasterCampaignEvents(container, events, publications, customRecordRequests);
+				renderMasterCampaignEvents(container, events, publications, customRecordRequests, supplierOrders);
 			} catch (error) {
 				feedback.textContent = error.message || 'Não foi possível avaliar o registro.';
 				accept.disabled = false; reject.disabled = false;
@@ -2217,7 +2252,7 @@ function renderMasterCampaignEvents(container, events, publications = [], custom
 					id: publication.id, accepted, payment: amount,
 				} });
 				publication.status = accepted ? 'accepted' : 'rejected';
-				renderMasterCampaignEvents(container, events, publications, customRecordRequests);
+				renderMasterCampaignEvents(container, events, publications, customRecordRequests, supplierOrders);
 			} catch (error) {
 				feedback.textContent = error.message || 'Não foi possível avaliar o artigo.';
 				accept.disabled = false; reject.disabled = false;
@@ -2253,7 +2288,7 @@ function renderMasterCampaignEvents(container, events, publications = [], custom
 				await api('/campaign/events', { method: 'DELETE', body: { eventId: event.id } });
 				const index = events.findIndex(entry => entry.id === event.id);
 				if (index >= 0) events.splice(index, 1);
-				renderMasterCampaignEvents(container, events, publications, customRecordRequests);
+				renderMasterCampaignEvents(container, events, publications, customRecordRequests, supplierOrders);
 			} catch (error) { close.disabled = false; showToast(error.message, true); }
 		});
 		container.append(card);
@@ -5414,7 +5449,7 @@ async function renderMasterBody(characters) {
 					campaign.events.push(...time.events);
 					const eventsGrid = root.querySelector('[data-master-campaign-events]');
 					if (eventsGrid) renderMasterCampaignEvents(eventsGrid, campaign.events, campaign.publications,
-						campaign.customRecordRequests);
+						campaign.customRecordRequests, campaign.supplierOrders);
 				}
 				orbit.classList.remove('is-advancing');
 				updateCampaignClock();
@@ -5722,11 +5757,13 @@ async function renderMasterBody(characters) {
 				const refreshedEvents = root.querySelector('[data-master-campaign-events]');
 				if (refreshedEvents) {
 					const nextSignature = JSON.stringify([settings.settings?.events || [],
-						settings.settings?.publications || [], settings.settings?.customRecordRequests || []]);
+						settings.settings?.publications || [], settings.settings?.customRecordRequests || [],
+						settings.settings?.supplierOrders || []]);
 					if (refreshedEvents.dataset.signature !== nextSignature) {
 						refreshedEvents.dataset.signature = nextSignature;
 						renderMasterCampaignEvents(refreshedEvents, settings.settings?.events || [],
-							settings.settings?.publications || [], settings.settings?.customRecordRequests || []);
+							settings.settings?.publications || [], settings.settings?.customRecordRequests || [],
+							settings.settings?.supplierOrders || []);
 					}
 				}
 			} catch {}
@@ -5745,9 +5782,9 @@ async function renderMasterBody(characters) {
 		const eventsGrid = createElement('div', 'master-campaign-events-grid');
 		eventsGrid.dataset.masterCampaignEvents = '';
 		eventsGrid.dataset.signature = JSON.stringify([campaign.events || [], campaign.publications || [],
-			campaign.customRecordRequests || []]);
+			campaign.customRecordRequests || [], campaign.supplierOrders || []]);
 		renderMasterCampaignEvents(eventsGrid, campaign.events || [], campaign.publications || [],
-			campaign.customRecordRequests || []);
+			campaign.customRecordRequests || [], campaign.supplierOrders || []);
 		events.body.append(eventsGrid);
 		root.append(presence.panel, scene.panel, notes.panel, events.panel);
 		return root;

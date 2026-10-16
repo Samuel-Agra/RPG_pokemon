@@ -120,6 +120,14 @@ export interface RPGTrainerSheet {
 	captainPlan?: { description: string, recipientCharacterIds: string[], usedRecipientIds?: string[] };
 	/** Cada participante usa o bônus do plano de abordagem somente no primeiro teste pertinente. */
 	capturePlan?: { description: string, recipientCharacterIds: string[], usedRecipientIds: string[], readyAt: string };
+	/** A recomendação ativa do Diplomata substitui a anterior e atende uma única rolagem do aliado. */
+	introductionLetter?: { id: string, recipientCharacterId: string, institution: string, subject: string, used: boolean };
+	/** Orientações do ápice do Diplomata; cada aliado tem uma única utilização durante o prazo. */
+	diplomatProxy?: { id: string, readyAt: string, expiresAt: string, recipients: {
+		characterId: string, proposal: string, audience: string, used: boolean,
+	}[], };
+	/** Orientação cultural ativa, concedida após o teste de Conhecimento: Regiões. */
+	cosmopolitanEtiquette?: { community: string, recipientCharacterIds: string[] };
 	/** A primeira série elegível fica vinculada ao personagem antes da distribuição. */
 	creation?: { method: 'standard' | 'rolled', rolls: number[] | null, dice?: number[][],
 		rollProgress?: { dice: number[][], values: number[] }, };

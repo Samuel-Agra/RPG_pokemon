@@ -89,6 +89,10 @@ button.trainer-sheet-talent-row:hover, button.trainer-sheet-talent-row[aria-expa
 	gap: 10px; padding: 8px; border: 1px solid #d5dfed; border-radius: 7px; background: #f2f5fa; }
 .trainer-sheet-pharmacy-row .trainer-sheet-talent-use { margin: 0; }
 .trainer-sheet-captain-players { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
+.trainer-sheet-proxy-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; }
+.trainer-sheet-proxy-card { display: grid; align-content: start; gap: 6px; min-width: 0; }
+.trainer-sheet-proxy-details { display: grid; gap: 6px; }
+@media (max-width: 600px) { .trainer-sheet-proxy-grid { grid-template-columns: 1fr; } }
 .trainer-sheet-captain-player { min-width: 0; padding: 10px 12px; border: 2px solid #c8d5e6;
 	border-radius: 8px; background: #f2f5fa; color: #263e66; font: inherit; font-weight: 700;
 	text-align: center; overflow-wrap: anywhere; cursor: pointer; }
@@ -130,6 +134,12 @@ button.trainer-sheet-talent-row:hover, button.trainer-sheet-talent-row[aria-expa
 	display: grid; gap: 10px; padding: 16px; border: 1px solid #aac0dd; border-radius: 12px;
 	background: #fff; box-shadow: 0 16px 40px #11213e6b; }
 .trainer-sheet-record-dialog h2 { margin: 0; font-size: 19px; color: #263e66; }
+.trainer-sheet-supplier-dialog { max-height: min(760px, calc(100vh - 36px)); overflow: hidden; }
+.trainer-sheet-supplier-stage { min-height: 0; overflow-y: auto; display: grid; align-content: start; gap: 10px; }
+.trainer-sheet-supplier-stage > .bag-ui-catalog-category { width: 100%; }
+.trainer-sheet-supplier-stage > .bag-ui-master-catalog { min-height: 0; max-height: 560px; overflow-y: auto; }
+.trainer-sheet-supplier-stage .bag-ui-master-catalog-item { min-width: 0; }
+.trainer-sheet-supplier-stage .bag-ui-master-catalog-item small { font-size: 11px; color: #536886; }
 .trainer-sheet-record-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr));
 	gap: 7px; min-width: 0; align-items: stretch; }
 .trainer-sheet-record-choice { box-sizing: border-box; display: grid; align-content: start; gap: 4px;

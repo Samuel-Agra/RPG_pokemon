@@ -8,6 +8,8 @@ const { rpgTrainerRollTalentOptions, rpgResolveTrainerRollTalents, rpgTrainerRol
 	rpgTeamCaptainOption,
 	rpgDetectiveCapturePlanOption,
 	rpgDetectiveDuoOption,
+	rpgDiplomatIntroductionOption,
+	rpgDiplomatProxyOption,
 	rpgTechnicalOpinionOption,
 	rpgExpeditionLeaderOption,
 	rpgExcavationMasterOption,
@@ -24,6 +26,67 @@ function sheet() {
 }
 
 describe('RPG trainer situational roll talents', () => {
+	it('oferece Porta-Voz Reconhecido apenas em testes sociais feitos com Carisma', () => {
+		const diplomat = { ...sheet(), classId: 'diplomata',
+			talents: { general: [], class: ['diplomata:porta-voz-reconhecido'], apex: null } };
+		for (const skill of ['atuacao', 'enganacao', 'persuasao', 'intimidacao']) {
+			const option = rpgTrainerRollTalentOptions(diplomat, 'skill', skill, 'charisma')
+				.find(entry => entry.id === 'diplomata:porta-voz-reconhecido');
+			assert.equal(option.bonus, 2);
+			assert.equal(option.requiredAttribute, 'charisma');
+		}
+		assert.equal(rpgTrainerRollTalentOptions(diplomat, 'skill', 'intimidacao', 'strength')
+			.some(entry => entry.id === 'diplomata:porta-voz-reconhecido'), false);
+		assert.equal(rpgTrainerRollTalentOptions(diplomat, 'skill', 'investigacao')
+			.some(entry => entry.id === 'diplomata:porta-voz-reconhecido'), false);
+	});
+	it('offers a diplomat letter only to its addressee for Persuasion before use', () => {
+		const diplomat = { ...sheet(), classId: 'diplomata',
+			talents: { general: [], class: ['diplomata:carta-de-apresentacao'], apex: null },
+			introductionLetter: { id: 'carta1', recipientCharacterId: 'bia', institution: 'Museu',
+				subject: 'Pesquisa', used: false } };
+		const option = rpgDiplomatIntroductionOption('ana', 'Ana', diplomat, 'bia');
+		assert.equal(option.bonus, 2);
+		assert.deepEqual(option.targets, ['skill:persuasao']);
+		assert.equal(rpgResolveTrainerRollTalents(sheet(), 'skill', 'persuasao', [option.key], [option]).bonus, 2);
+		assert.throws(() => rpgResolveTrainerRollTalents(sheet(), 'skill', 'investigacao',
+			[option.key], [option]), /indisponível/);
+		assert.equal(rpgDiplomatIntroductionOption('ana', 'Ana', diplomat, 'ana'), null);
+		assert.equal(rpgDiplomatIntroductionOption('ana', 'Ana', diplomat, 'outro'), null);
+		diplomat.introductionLetter.used = true;
+		assert.equal(rpgDiplomatIntroductionOption('ana', 'Ana', diplomat, 'bia'), null);
+	});
+	it('replaces an ally Persuasion base bonus with the Diplomat base without stacking them', () => {
+		const diplomat = { ...sheet(), classId: 'diplomata', attributes: { ...sheet().attributes, charisma: 18 },
+			skills: { trained: ['persuasao'], focused: ['persuasao'] },
+			talents: { general: [], class: [], apex: 'diplomata:acordo-impossivel' },
+			diplomatProxy: { id: 'preparo1', readyAt: '2026-10-15T12:10:00.000Z',
+				expiresAt: '2026-10-16T12:10:00.000Z', recipients: [
+					{ characterId: 'bia', proposal: 'Abrir a rota', audience: 'Guarda', used: false }] } };
+		const recipient = { ...sheet(), classId: 'atleta' };
+		const option = rpgDiplomatProxyOption('ana', 'Ana', diplomat, 'bia', recipient,
+			'2026-10-15T13:00:00.000Z');
+		assert.equal(option.replacesBaseWith, 12);
+		assert.equal(option.bonus, 12);
+		const chosen = rpgResolveTrainerRollTalents(recipient, 'skill', 'persuasao', [option.key], [option]);
+		const result = rollRPGTrainerSkillCheck(recipient, 'persuasao', undefined,
+			{ dc: 0, bonus: chosen.bonus }, () => 0.45);
+		assert.equal(result.total, result.natural + 12);
+		assert.throws(() => rpgResolveTrainerRollTalents(recipient, 'skill', 'investigacao',
+			[option.key], [option]), /indisponível/);
+		assert.equal(rpgDiplomatProxyOption('ana', 'Ana', diplomat, 'bia', recipient,
+			'2026-10-15T12:00:00.000Z'), null);
+	});
+	it('offers Diplomat Structured Mediation only for a selected Persuasion check', () => {
+		const diplomat = { ...sheet(), classId: 'diplomata' };
+		const [option] = rpgTrainerRollTalentOptions(diplomat, 'skill', 'persuasao');
+		assert.equal(option.name, 'Mediação Estruturada');
+		assert.equal(option.bonus, 2);
+		assert.equal(rpgResolveTrainerRollTalents(diplomat, 'skill', 'persuasao', []).bonus, 0);
+		assert.equal(rpgResolveTrainerRollTalents(diplomat, 'skill', 'persuasao', [option.key]).bonus, 2);
+		assert.deepEqual(rpgTrainerRollTalentOptions(diplomat, 'skill', 'investigacao'), []);
+		assert.deepEqual(rpgTrainerRollTalentOptions({ ...diplomat, classId: 'artista' }, 'skill', 'persuasao'), []);
+	});
 	it('offers only the matching Cook situational bonuses when selected', () => {
 		const cook = { ...sheet(), classId: 'cozinheiro', talents: { general: [],
 			class: ['cozinheiro:forrageio-gastronomico', 'cozinheiro:paladar-resistente'], apex: null } };

@@ -249,9 +249,10 @@
 				}
 			});
 			const detail = el('span');
-			detail.append(el('b', '', `${talent.name} · ${talent.naturalFloor ?
-				`mín. ${talent.naturalFloor} no d20` : talent.advantage ? 'vantagem' :
-				`+${talent.bonus}`}`), el('small', '', talent.condition));
+			detail.append(el('b', '', `${talent.name} · ${talent.replacesBaseWith !== undefined ?
+				`usa bônus ${talent.replacesBaseWith >= 0 ? '+' : ''}${talent.replacesBaseWith}` : talent.naturalFloor ?
+					`mín. ${talent.naturalFloor} no d20` : talent.advantage ? 'vantagem' :
+					`+${talent.bonus}`}`), el('small', '', talent.condition));
 			item.append(detail); talentChoices.append(item); talentButtons.set(talent.key, item);
 			updateTalentVisibility();
 		}
@@ -405,6 +406,7 @@
 		if (closeSkillPopover) closeSkillPopover();
 		if (closeAttributePopover) closeAttributePopover();
 		const panel = el('div', 'trainer-sheet-talent-popover');
+		if (action?.diplomatProxy) panel.classList.add('trainer-sheet-talent-popover--archive');
 		if (action?.pokemonPharmacy || action?.advancedPharmacy || action?.masterPharmacy ||
 			action?.choreography ||
 			action?.persistentHypothesis !== undefined) {
@@ -608,6 +610,98 @@
 				}
 			};
 			draw(); editor.append(status, controls, feedback); panel.append(editor);
+		} else if (action?.supplierOrder) {
+			const editor = el('div', 'trainer-sheet-archive-editor');
+			const feedback = el('p', 'trainer-sheet-roll-error hidden');
+			if (action.supplierOrder.pending) {
+				const order = action.supplierOrder.pending;
+				editor.append(el('p', '', `${order.itemName} · ${order.price.toLocaleString('pt-BR')} Pokécoins`),
+					el('p', '', 'Encomenda aguardando avaliação do Mestre.'));
+			} else {
+				let selected = null;
+				const choose = el('button', 'trainer-sheet-scientist-choose', 'Escolher item');
+				choose.type = 'button'; choose.setAttribute('aria-haspopup', 'dialog');
+				const order = el('button', 'trainer-sheet-talent-use', 'Encomendar');
+				order.type = 'button'; order.disabled = true;
+				choose.addEventListener('click', async () => {
+					choose.disabled = true;
+					try {
+						const data = await action.api('/trainer/supplier/catalog');
+						const items = data.items || [];
+						const categories = window.rpgBagCatalogCategories;
+						const overlay = el('div', 'trainer-sheet-record-overlay');
+						const dialog = el('div', 'trainer-sheet-record-dialog trainer-sheet-supplier-dialog');
+						dialog.setAttribute('role', 'dialog');
+						dialog.setAttribute('aria-label', 'Escolher item para encomendar');
+						const heading = el('h2', '', 'Escolher item');
+						const stage = el('div', 'trainer-sheet-supplier-stage');
+						const closePicker = () => { overlay.remove(); recordPicker = null; choose.focus(); };
+						const showCategories = () => {
+							stage.replaceChildren();
+							for (const [id, name] of categories.list) {
+								const count = items.filter(item => categories.id(item) === id).length;
+								if (!count) continue;
+								const button = el('button', 'bag-ui-catalog-category'); button.type = 'button';
+								button.append(el('strong', '', name), el('small', '', `${count} item(ns)`));
+								button.addEventListener('click', () => showItems(id)); stage.append(button);
+							}
+							if (!stage.children.length) stage.append(el('p', '', 'Nenhum item disponível para encomenda.'));
+						};
+						const showItems = categoryId => {
+							const back = el('button', 'bag-ui-catalog-back', '‹ Categorias'); back.type = 'button';
+							back.addEventListener('click', showCategories);
+							const search = el('input'); search.type = 'search'; search.placeholder = 'Pesquisar item';
+							const list = el('div', 'bag-ui-master-catalog');
+							const fill = () => {
+								const query = search.value.trim().toLocaleLowerCase('pt-BR');
+								list.replaceChildren();
+								for (const item of items.filter(entry => categories.id(entry) === categoryId &&
+									(!query || entry.name.toLocaleLowerCase('pt-BR').includes(query))).slice(0, 300)) {
+									const choice = el('button', 'bag-ui-master-catalog-item'); choice.type = 'button';
+									const icon = window.rpgRuntimeItemIcon?.(item);
+									if (icon) { const frame = el('span', 'bag-ui-item-icon'); frame.append(icon); choice.append(frame); }
+									choice.append(el('span', '', item.name),
+										el('small', '', `${item.orderPrice.toLocaleString('pt-BR')} Pokécoins`));
+									choice.addEventListener('click', () => {
+										selected = item;
+										choose.textContent = `${item.name} · ${item.orderPrice.toLocaleString('pt-BR')} Pokécoins`;
+										order.disabled = false; closePicker();
+									});
+									list.append(choice);
+								}
+								if (!list.children.length) list.append(el('p', 'empty-state', 'Nenhum item encontrado.'));
+							};
+							search.addEventListener('input', fill);
+							stage.replaceChildren(back, el('h3', '', categories.name(categoryId)), search, list);
+							fill();
+						};
+						showCategories(); dialog.append(heading, stage); overlay.append(dialog);
+						overlay.addEventListener('pointerdown', event => { if (event.target === overlay) closePicker(); });
+						document.body.append(overlay); recordPicker = { overlay, close: closePicker };
+					} catch (error) {
+						feedback.textContent = error.message || 'Não foi possível carregar os itens.';
+						feedback.classList.remove('hidden');
+					} finally { choose.disabled = false; }
+				});
+				order.addEventListener('click', async () => {
+					if (!selected) return;
+					order.disabled = true;
+					try {
+						await action.api('/trainer/supplier/orders', { method: 'POST', body: {
+							requestId: crypto.randomUUID(), itemId: selected.id, itemKind: selected.kind,
+						} });
+						feedback.textContent = 'Encomenda enviada para avaliação do Mestre.';
+						feedback.classList.remove('hidden'); choose.remove(); order.remove();
+						window.dispatchEvent(new CustomEvent('rpg:realtime-sync',
+							{ detail: { tableId: selectedTable } }));
+					} catch (error) {
+						feedback.textContent = error.message || 'Não foi possível enviar a encomenda.';
+						feedback.classList.remove('hidden'); order.disabled = false;
+					}
+				});
+				editor.append(choose, order);
+			}
+			editor.append(feedback); panel.append(editor);
 		} else if (action?.publication) {
 			const editor = el('div', 'trainer-sheet-archive-editor');
 			editor.append(el('strong', '', `Publicações aceitas: ${action.publication.accepted}`));
@@ -876,6 +970,173 @@
 			save.addEventListener('click', () => submit());
 			cancel.addEventListener('click', () => submit(true));
 			controls.append(save, cancel, feedback); panel.append(controls);
+		} else if (action?.diplomatProxy) {
+			const data = action.diplomatProxy;
+			const controls = el('div', 'trainer-sheet-archive-editor');
+			const prepared = new Map((data.preparation?.recipients || []).map(entry => [entry.characterId, entry]));
+			const chosen = new Set(prepared.keys());
+			const entries = new Map();
+			const grid = el('div', 'trainer-sheet-proxy-grid');
+			const feedback = el('p', 'trainer-sheet-roll-error hidden');
+			controls.append(el('strong', '', `Aliados preparados (até ${data.proficiency})`));
+			for (const person of data.recipients) {
+				const card = el('div', 'trainer-sheet-proxy-card');
+				const toggle = el('button', 'trainer-sheet-captain-player', person.name);
+				toggle.type = 'button'; toggle.setAttribute('aria-pressed', String(chosen.has(person.id)));
+				const proposal = el('input', 'trainer-sheet-progression-input');
+				proposal.type = 'text'; proposal.maxLength = 160; proposal.placeholder = 'Proposta concreta';
+				proposal.setAttribute('aria-label', `Proposta de ${person.name}`);
+				proposal.value = prepared.get(person.id)?.proposal || '';
+				const audience = el('input', 'trainer-sheet-progression-input');
+				audience.type = 'text'; audience.maxLength = 100; audience.placeholder = 'Público ou interlocutor';
+				audience.setAttribute('aria-label', `Interlocutor de ${person.name}`);
+				audience.value = prepared.get(person.id)?.audience || '';
+				const details = el('div', 'trainer-sheet-proxy-details');
+				details.append(proposal, audience);
+				details.classList.toggle('hidden', !chosen.has(person.id));
+				if (prepared.get(person.id)?.used) details.append(el('small', '', 'Uso já realizado nesta preparação.'));
+				toggle.addEventListener('click', () => {
+					if (chosen.has(person.id)) chosen.delete(person.id);
+					else if (chosen.size < data.proficiency) chosen.add(person.id);
+					else {
+						feedback.textContent = `Escolha até ${data.proficiency} aliados.`;
+						feedback.classList.remove('hidden'); return;
+					}
+					toggle.setAttribute('aria-pressed', String(chosen.has(person.id)));
+					details.classList.toggle('hidden', !chosen.has(person.id));
+					feedback.classList.add('hidden');
+				});
+				card.append(toggle, details); grid.append(card);
+				entries.set(person.id, { proposal, audience });
+			}
+			controls.append(grid);
+			if (data.preparation) controls.append(el('small', '',
+				`Pronto em ${new Date(data.preparation.readyAt).toLocaleString('pt-BR')} · ` +
+				`expira em ${new Date(data.preparation.expiresAt).toLocaleString('pt-BR')}.`));
+			const save = el('button', 'trainer-sheet-talent-use', 'Preparar aliados'); save.type = 'button';
+			const cancel = el('button', 'trainer-sheet-talent-use', 'Encerrar preparação'); cancel.type = 'button';
+			cancel.classList.toggle('hidden', !data.preparation);
+			async function submit(clear = false) {
+				const recipients = clear ? [] : [...chosen].map(characterId => ({ characterId,
+					proposal: entries.get(characterId).proposal.value.trim(),
+					audience: entries.get(characterId).audience.value.trim() }));
+				if (!clear && (!recipients.length || recipients.some(entry => !entry.proposal || !entry.audience))) {
+					feedback.textContent = 'Escolha aliados e informe a proposta e o interlocutor de cada um.';
+					feedback.classList.remove('hidden'); return;
+				}
+				save.disabled = true; cancel.disabled = true;
+				try {
+					await action.api('/trainer/talents/diplomat-proxy', { method: 'POST', body: { recipients } });
+					feedback.textContent = clear ? 'Preparação encerrada.' : 'Aliados preparados para a proposta.';
+					feedback.classList.remove('hidden');
+					window.dispatchEvent(new CustomEvent('rpg:realtime-sync', { detail: { tableId: selectedTable } }));
+					await action.refresh();
+				} catch (error) {
+					feedback.textContent = error.message || 'Não foi possível preparar os aliados.';
+					feedback.classList.remove('hidden');
+				} finally { save.disabled = false; cancel.disabled = false; }
+			}
+			save.addEventListener('click', () => submit()); cancel.addEventListener('click', () => submit(true));
+			controls.append(save, cancel, feedback); panel.append(controls);
+		} else if (action?.introductionLetter) {
+			const letter = action.introductionLetter;
+			const controls = el('div', 'trainer-sheet-archive-editor');
+			const recipient = el('select', 'trainer-sheet-progression-input');
+			recipient.append(new Option('Escolha o aliado', ''));
+			for (const person of letter.recipients || []) recipient.append(new Option(person.name, person.id));
+			recipient.value = letter.letter?.recipientCharacterId || '';
+			const institution = el('input', 'trainer-sheet-progression-input');
+			institution.type = 'text'; institution.maxLength = 80;
+			institution.placeholder = 'Instituição ou organização';
+			institution.value = letter.letter?.institution || '';
+			const subject = el('input', 'trainer-sheet-progression-input');
+			subject.type = 'text'; subject.maxLength = 160;
+			subject.placeholder = 'Assunto da recomendação';
+			subject.value = letter.letter?.subject || '';
+			controls.append(el('strong', '', 'Destinatário da carta'), recipient,
+				el('strong', '', 'Instituição'), institution, el('strong', '', 'Assunto'), subject);
+			if (letter.letter) controls.append(el('small', '', letter.letter.used ?
+				'Esta carta já foi utilizada.' : 'Carta ativa. Uma nova carta substituirá esta.'));
+			const save = el('button', 'trainer-sheet-talent-use', 'Escrever carta'); save.type = 'button';
+			const cancel = el('button', 'trainer-sheet-talent-use', 'Encerrar carta'); cancel.type = 'button';
+			cancel.classList.toggle('hidden', !letter.letter);
+			const feedback = el('p', 'trainer-sheet-roll-error hidden');
+			async function submit(clear = false) {
+				if (!clear && (!recipient.value || !institution.value.trim() || !subject.value.trim())) {
+					feedback.textContent = 'Escolha o aliado e preencha a instituição e o assunto.';
+					feedback.classList.remove('hidden'); return;
+				}
+				save.disabled = true; cancel.disabled = true;
+				try {
+					await action.api('/trainer/talents/introduction-letter', { method: 'POST', body: {
+						recipientCharacterId: clear ? '' : recipient.value,
+						institution: clear ? '' : institution.value.trim(), subject: clear ? '' : subject.value.trim(),
+					} });
+					feedback.textContent = clear ? 'Carta encerrada.' : 'Carta entregue ao aliado.';
+					feedback.classList.remove('hidden');
+					window.dispatchEvent(new CustomEvent('rpg:realtime-sync',
+						{ detail: { tableId: selectedTable } }));
+					await action.refresh();
+				} catch (error) {
+					feedback.textContent = error.message || 'Não foi possível alterar a carta.';
+					feedback.classList.remove('hidden');
+				} finally { save.disabled = false; cancel.disabled = false; }
+			}
+			save.addEventListener('click', () => submit());
+			cancel.addEventListener('click', () => submit(true));
+			controls.append(save, cancel, feedback); panel.append(controls);
+		} else if (action?.cosmopolitanEtiquette) {
+			const data = action.cosmopolitanEtiquette;
+			const controls = el('div', 'trainer-sheet-archive-editor trainer-sheet-captain-editor');
+			const community = el('input'); community.type = 'text'; community.maxLength = 80;
+			community.placeholder = 'Nome da comunidade'; community.setAttribute('aria-label', 'Comunidade');
+			community.value = data.orientation?.community || '';
+			const difficulty = select([
+				['10', 'Conhecida · CD 10'], ['15', 'Pouco conhecida · CD 15'],
+				['20', 'Remota · CD 20'],
+			]);
+			difficulty.setAttribute('aria-label', 'CD definida pelo Mestre');
+			const selected = new Set((data.orientation?.recipientCharacterIds || []).filter(id =>
+				data.recipients.some(person => person.id === id)));
+			const grid = el('div', 'trainer-sheet-captain-players');
+			const feedback = el('p', 'trainer-sheet-roll-error hidden');
+			for (const person of data.recipients) {
+				const button = el('button', 'trainer-sheet-captain-player', person.name);
+				button.type = 'button'; button.setAttribute('aria-pressed', String(selected.has(person.id)));
+				button.addEventListener('click', () => {
+					if (selected.has(person.id)) selected.delete(person.id);
+					else if (selected.size < action.proficiency) selected.add(person.id);
+					else {
+						feedback.textContent = `Escolha até ${action.proficiency} aliados.`;
+						feedback.classList.remove('hidden'); return;
+					}
+					button.setAttribute('aria-pressed', String(selected.has(person.id)));
+					feedback.classList.add('hidden');
+				});
+				grid.append(button);
+			}
+			const save = el('button', 'trainer-sheet-talent-use', 'Orientar comunidade'); save.type = 'button';
+			save.addEventListener('click', async () => {
+				save.disabled = true;
+				try {
+					const result = await action.api('/trainer/talents/cosmopolitan-etiquette', { method: 'POST', body: {
+						community: community.value.trim(), dc: Number(difficulty.value),
+						recipientCharacterIds: [...selected],
+					} });
+					feedback.textContent = result.roll.success ?
+						`Sucesso: +2 nas interações sociais pertinentes em ${community.value.trim()}.` :
+						`Falha no teste (resultado ${result.roll.total}, CD ${difficulty.value}). Nenhum bônus concedido.`;
+					feedback.classList.remove('hidden');
+					window.dispatchEvent(new CustomEvent('rpg:realtime-sync', { detail: { tableId: selectedTable } }));
+					await action.refresh();
+				} catch (error) {
+					feedback.textContent = error.message || 'Não foi possível orientar o grupo.';
+					feedback.classList.remove('hidden');
+				} finally { save.disabled = false; }
+			});
+			controls.append(community, difficulty, el('strong', '',
+				`Aliados, além de você (até ${action.proficiency})`), grid, save, feedback);
+			panel.append(controls);
 		} else if (action?.captainPlan) {
 			const controls = el('div', 'trainer-sheet-archive-editor trainer-sheet-captain-editor');
 			controls.append(el('strong', '', `Participantes, incluindo você (até ${action.captainPlan.proficiency})`));
@@ -2498,64 +2759,73 @@
 			button.type = 'button'; button.setAttribute('aria-haspopup', 'dialog');
 			button.setAttribute('aria-expanded', 'false');
 			button.addEventListener('click', () => showTalentPopover(button, name, shownDescription,
-				!readOnly && id === 'detetive:parceiro-de-confianca' ?
-					{ id, api, trustedPartner: { name: sheet.trustedPartnerName || '', onSaved: saved => {
-						sheet.trustedPartnerName = saved;
-						shownDescription = `${description}\n\nParceiro: ${saved || 'não informado'}.`;
-					} } } :
-					!readOnly && id === 'detetive:parceiro-investigativo' ?
-						{ id, api, refresh, spriteUrl, investigativePartner: progression.investigativePartner } :
-						!readOnly && ['criador-pokemon:primeiros-cuidados',
-							'criador-pokemon:restaurador-pokemon'].includes(id) ?
-							{ id, api, refresh, spriteUrl, firstCare: true } :
-							!readOnly && progression.choreography && ['coreografo:ensaio-conjunto',
-								'coreografo:formacao-em-dupla', 'coreografo:formacao-em-trio', 'coreografo:diretor-convidado',
-								'coreografo:tema-unificado', 'coreografo:entrosamento-instintivo',
-								'coreografo:preparacao-corporal-conjunta', 'coreografo:conducao-de-evacuacao'].includes(id) ?
-								{ id, api, choreography: progression.choreography } :
-								!readOnly && id === 'cientista:registro-reprodutivel' ? { id, api, refresh,
-									scientistRecord: progression.scientistRecord } :
-								!readOnly && id === 'cientista:hipotese-persistente' ?
-									{ id, api, refresh, persistentHypothesis: progression.persistentHypothesis,
-										persistentHypothesisCharacterId: character.id } :
-									!readOnly && id === 'cientista:publicacao-de-referencia' ?
-										{ id, api, refresh, publication: progression.publication } :
-										!readOnly && id === 'cientista:producao-farmaceutica-pokemon' ?
-											{ id, api, refresh, pokemonPharmacy: character.id } :
-											!readOnly && id === 'cientista:farmacologia-avancada' ?
-												{ id, api, refresh, advancedPharmacy: character.id } :
-												!readOnly && id === 'cientista:mestre-de-formulacao' ?
-													{ id, api, refresh, masterPharmacy: character.id } :
-													!readOnly && id === 'arqueologo:acervo-compartilhado' ? { id, api, refresh, archive: {
-														slots: sheet.sharedArchives || [], proficiency: progression.proficiency,
-														knowledge: (sheet.skills?.trained || []).filter(skill => skill.startsWith('conhecimento:')),
-														recipients: progression.archiveRecipients || [],
-													} } : !readOnly && ['atleta:capitao-de-time', 'detetive:plano-de-captura'].includes(id) ?
-														{ id, api, refresh, ...(id === 'atleta:capitao-de-time' ?
-															{ captainPlan: { ...(progression.captainPlan || {}), proficiency: progression.proficiency } } :
-															{ capturePlan: { ...(progression.capturePlan || {}), proficiency: progression.proficiency } }) } :
-														!readOnly && sheet.classId === 'cozinheiro' && name === 'Refeição Revigorante' ?
-															{ id, api, revigoratingMeal: progression.revigoratingMeal } :
-															!readOnly && id === 'cozinheiro:petisco-de-amizade' ?
-																{ id, api, friendshipSnacks: progression.friendshipSnacks } :
-																!readOnly && id === 'criador-pokemon:rotina-de-enriquecimento' ?
-																	{ id, api, enrichmentRoutine: progression.enrichmentRoutine } :
-																	!readOnly && id === 'criador-pokemon:guardiao-de-geracoes' ?
-																		{ id, api, guardianEnrichment: progression.enrichmentRoutine } :
-																		!readOnly && id === 'criador-pokemon:preparacao-impecavel' ?
-																			{ id, api, impeccablePreparation: progression.impeccablePreparation } :
-																			!readOnly && id === 'cozinheiro:recompensa-de-treinamento' ?
-																				{ id, api, trainingReward: progression.trainingReward } :
-																				!readOnly && id === 'cozinheiro:harmonizacao-de-sabores' ?
-																					{ id, api, contestHarmonization: progression.contestHarmonization } :
-																					!readOnly && id === 'cozinheiro:racao-artesanal-pokemon' ?
-																						{ id, api, artisanRation: progression.artisanRation } :
-																						!readOnly && id === 'artista:arte-reconfortante' ? { id, api, refresh,
-																							comfortingArt: progression.comfortingArtRecipients || [] } :
-																						!readOnly && ['segundo-folego', 'sortudo', 'determinado', 'esforco-heroico'].includes(id) ?
-																							{ id, api, refresh, reroll: id !== 'segundo-folego',
-																								available: progression.rerollAvailability?.[id],
-																								used: progression.activeTalentUses?.used?.[id] === progression.activeTalentUses?.restCycle } : null));
+				!readOnly && id === 'diplomata:canal-oficial' ?
+					{ id, api, supplierOrder: progression.supplierOrder } :
+					!readOnly && id === 'detetive:parceiro-de-confianca' ?
+						{ id, api, trustedPartner: { name: sheet.trustedPartnerName || '', onSaved: saved => {
+							sheet.trustedPartnerName = saved;
+							shownDescription = `${description}\n\nParceiro: ${saved || 'não informado'}.`;
+						} } } :
+						!readOnly && id === 'detetive:parceiro-investigativo' ?
+							{ id, api, refresh, spriteUrl, investigativePartner: progression.investigativePartner } :
+							!readOnly && ['criador-pokemon:primeiros-cuidados',
+								'criador-pokemon:restaurador-pokemon'].includes(id) ?
+								{ id, api, refresh, spriteUrl, firstCare: true } :
+								!readOnly && progression.choreography && ['coreografo:ensaio-conjunto',
+									'coreografo:formacao-em-dupla', 'coreografo:formacao-em-trio', 'coreografo:diretor-convidado',
+									'coreografo:tema-unificado', 'coreografo:entrosamento-instintivo',
+									'coreografo:preparacao-corporal-conjunta', 'coreografo:conducao-de-evacuacao'].includes(id) ?
+									{ id, api, choreography: progression.choreography } :
+									!readOnly && id === 'cientista:registro-reprodutivel' ? { id, api, refresh,
+										scientistRecord: progression.scientistRecord } :
+									!readOnly && id === 'cientista:hipotese-persistente' ?
+										{ id, api, refresh, persistentHypothesis: progression.persistentHypothesis,
+											persistentHypothesisCharacterId: character.id } :
+										!readOnly && id === 'cientista:publicacao-de-referencia' ?
+											{ id, api, refresh, publication: progression.publication } :
+											!readOnly && id === 'cientista:producao-farmaceutica-pokemon' ?
+												{ id, api, refresh, pokemonPharmacy: character.id } :
+												!readOnly && id === 'cientista:farmacologia-avancada' ?
+													{ id, api, refresh, advancedPharmacy: character.id } :
+													!readOnly && id === 'cientista:mestre-de-formulacao' ?
+														{ id, api, refresh, masterPharmacy: character.id } :
+														!readOnly && id === 'diplomata:carta-de-apresentacao' ?
+															{ id, api, refresh, introductionLetter: progression.introductionLetter } :
+															!readOnly && id === 'diplomata:acordo-impossivel' ?
+																{ id, api, refresh, diplomatProxy: progression.diplomatProxy } :
+																!readOnly && id === 'diplomata:etiqueta-cosmopolita' ?
+																	{ id, api, refresh, cosmopolitanEtiquette: progression.cosmopolitanEtiquette,
+																		proficiency: progression.proficiency } :
+																	!readOnly && id === 'arqueologo:acervo-compartilhado' ? { id, api, refresh, archive: {
+																		slots: sheet.sharedArchives || [], proficiency: progression.proficiency,
+																		knowledge: (sheet.skills?.trained || []).filter(skill => skill.startsWith('conhecimento:')),
+																		recipients: progression.archiveRecipients || [],
+																	} } : !readOnly && ['atleta:capitao-de-time', 'detetive:plano-de-captura'].includes(id) ?
+																		{ id, api, refresh, ...(id === 'atleta:capitao-de-time' ?
+																			{ captainPlan: { ...(progression.captainPlan || {}), proficiency: progression.proficiency } } :
+																			{ capturePlan: { ...(progression.capturePlan || {}), proficiency: progression.proficiency } }) } :
+																		!readOnly && sheet.classId === 'cozinheiro' && name === 'Refeição Revigorante' ?
+																			{ id, api, revigoratingMeal: progression.revigoratingMeal } :
+																			!readOnly && id === 'cozinheiro:petisco-de-amizade' ?
+																				{ id, api, friendshipSnacks: progression.friendshipSnacks } :
+																				!readOnly && id === 'criador-pokemon:rotina-de-enriquecimento' ?
+																					{ id, api, enrichmentRoutine: progression.enrichmentRoutine } :
+																					!readOnly && id === 'criador-pokemon:guardiao-de-geracoes' ?
+																						{ id, api, guardianEnrichment: progression.enrichmentRoutine } :
+																						!readOnly && id === 'criador-pokemon:preparacao-impecavel' ?
+																							{ id, api, impeccablePreparation: progression.impeccablePreparation } :
+																							!readOnly && id === 'cozinheiro:recompensa-de-treinamento' ?
+																								{ id, api, trainingReward: progression.trainingReward } :
+																								!readOnly && id === 'cozinheiro:harmonizacao-de-sabores' ?
+																									{ id, api, contestHarmonization: progression.contestHarmonization } :
+																									!readOnly && id === 'cozinheiro:racao-artesanal-pokemon' ?
+																										{ id, api, artisanRation: progression.artisanRation } :
+																										!readOnly && id === 'artista:arte-reconfortante' ? { id, api, refresh,
+																											comfortingArt: progression.comfortingArtRecipients || [] } :
+																										!readOnly && ['segundo-folego', 'sortudo', 'determinado', 'esforco-heroico'].includes(id) ?
+																											{ id, api, refresh, reroll: id !== 'segundo-folego',
+																												available: progression.rerollAvailability?.[id],
+																												used: progression.activeTalentUses?.used?.[id] === progression.activeTalentUses?.restCycle } : null));
 			talentList.append(button);
 		}
 		talentSection.append(talentList);

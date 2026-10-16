@@ -39,6 +39,9 @@ describe('RPG commerce frontend', () => {
 		assert.doesNotMatch(css, /shop-directory-stock/);
 		assert.match(ui, /sprite: item\.sprite/);
 		assert.match(css, /shop-cart-grid/);
+		assert.match(ui, /shop-cart-benefit/);
+		assert.match(ui, /buyPriceBeforeTalent/);
+		assert.match(ui, /sellPriceBeforeTalent/);
 		assert.match(ui, /effectGroup/);
 		assert.match(ui, /effectType/);
 		assert.doesNotMatch(ui, /detailsPanel/);

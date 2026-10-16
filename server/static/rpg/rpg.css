@@ -1083,6 +1083,10 @@ input, select {
 .master-campaign-event.event-breeding { border-left-color: #bd6f8c; }
 .master-campaign-event.event-incubation { border-left-color: #568ca8; }
 .master-campaign-event.event-publication { border-left-color: #7360ad; }
+.master-campaign-supplier-item { grid-column: 1 / -1; display: flex; align-items: center; gap: 8px;
+	min-width: 0; color: #304c6e; font-size: 12px; font-weight: 700; }
+.master-campaign-supplier-item img, .master-campaign-supplier-item .itemicon { flex: none; }
+.master-campaign-supplier-item span:last-child { min-width: 0; overflow-wrap: anywhere; }
 .master-campaign-publication-actions { grid-column: 1 / -1; display: grid; gap: 8px; min-width: 0; }
 .master-campaign-publication-actions input { box-sizing: border-box; width: 100%; min-width: 0; padding: 6px 8px; }
 .master-campaign-publication-buttons { display: flex; gap: 8px; }

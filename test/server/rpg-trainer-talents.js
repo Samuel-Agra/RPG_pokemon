@@ -10,6 +10,7 @@ const {
 	awardRPGTrainerXP, completeRPGTrainerSheet, RPGLoginService, RPGMemoryCharacterRepository,
 } = require('../../dist/server/rpg-showdown');
 const { rpgTrainerRollTalents } = require('../../dist/server/rpg-showdown/trainer-roll-talents');
+const { RPGBagSystem } = require('../../dist/sim/rpg-showdown');
 
 function ready(classId, level = 1, overrides = {}) {
 	return {
@@ -24,6 +25,84 @@ function ready(classId, level = 1, overrides = {}) {
 }
 
 describe('RPG trainer classes and talents', () => {
+	it('preserva o identificador do ápice do Diplomata como Voz por Procuração', () => {
+		const option = rpgTrainerTalentCatalog(ready('diplomata', 10)).find(entry =>
+			entry.id === 'diplomata:acordo-impossivel');
+		assert.equal(option.name, 'Ápice — Voz por Procuração');
+		assert.equal(option.available, true);
+		assert.match(option.text, /bônus base de Persuasão do Diplomata/);
+	});
+	it('mantém o talento antigo do Diplomata sob o nome Exceção Negociada e exige salvo-conduto', () => {
+		const diplomat = ready('diplomata', 5);
+		const option = () => rpgTrainerTalentCatalog(diplomat).find(entry =>
+			entry.id === 'diplomata:licenca-facilitada');
+		assert.equal(option().name, 'Exceção Negociada');
+		assert.equal(option().available, false);
+		assert.throws(() => chooseRPGTrainerTalent(diplomat, { id: option().id }), /pré-requisito/);
+		diplomat.talents.class.push('diplomata:conhecimento-de-jurisdicao');
+		assert.equal(option().available, true);
+		assert(chooseRPGTrainerTalent(diplomat, { id: option().id }).talents.class.includes(option().id));
+		assert.match(option().text, /cláusula especial/);
+	});
+	it('concede automaticamente Carisma ao adquirir Porta-Voz Reconhecido', () => {
+		const diplomat = ready('diplomata', 3);
+		const option = rpgTrainerTalentCatalog(diplomat).find(entry =>
+			entry.id === 'diplomata:porta-voz-reconhecido');
+		assert.deepEqual(option.attributeChoices, []);
+		const chosen = chooseRPGTrainerTalent(diplomat, { id: option.id });
+		assert.equal(chosen.attributes.charisma, diplomat.attributes.charisma + 1);
+		assert.throws(() => chooseRPGTrainerTalent(diplomat,
+			{ id: option.id, attribute: 'charisma' }), /não concede aumento de atributo/);
+	});
+	it('exige Conhecimento: Regiões treinado para Etiqueta Cosmopolita', () => {
+		const diplomat = ready('diplomata', 3);
+		const option = () => rpgTrainerTalentCatalog(diplomat).find(entry =>
+			entry.id === 'diplomata:etiqueta-cosmopolita');
+		assert.equal(option().available, false);
+		assert.throws(() => chooseRPGTrainerTalent(diplomat, { id: option().id }),
+			/treinamento na perícia/);
+		diplomat.skills.trained.push('conhecimento:regioes');
+		assert.equal(option().available, true);
+		assert(chooseRPGTrainerTalent(diplomat, { id: option().id }).talents.class.includes(option().id));
+		assert.match(option().text, /CD 10:[\s\S]*CD 15:[\s\S]*CD 20:/);
+	});
+	it('orienta apenas aliados escolhidos após sucesso em Conhecimento: Regiões', () => {
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({ masterCode: 'teste', repository });
+		for (const name of ['Ana', 'Bia', 'Caio']) {
+			service.createCharacter({ characterName: name, playerName: name, avatar: 'lucas',
+				password: 'senha-rpg', initialMoney: 100, starter: { species: 'Squirtle', gender: 'M' } });
+			const record = repository.get(name.toLowerCase());
+			record.tableId = 'mesa-teste'; record.accountId = name.toLowerCase();
+			record.state.trainerSheet = ready('diplomata', 3, { skills: {
+				trained: ['conhecimento:regioes'], focused: [],
+			} });
+			repository.set(record);
+		}
+		const owner = repository.get('ana');
+		owner.state.trainerSheet.talents.class.push('diplomata:etiqueta-cosmopolita');
+		repository.set(owner);
+		service.getSession = () => ({ mode: 'player', role: 'player',
+			platformTableId: 'mesa-teste', characterId: 'ana' });
+		service.accounts.repository.getMembership = () => ({ status: 'active' });
+		service.random = () => 0.99;
+		assert.throws(() => service.setTrainerCosmopolitanEtiquette('teste', 'Vila', 10,
+			['bia', 'caio', 'outro']), /bônus de proficiência/);
+		const result = service.setTrainerCosmopolitanEtiquette('teste', 'Vila', 10, ['bia']);
+		assert.equal(result.roll.success, true);
+		assert.deepEqual(result.orientation.recipientCharacterIds, ['ana', 'bia']);
+		const own = service.getTrainerAllyRollTalents('teste', 'ana');
+		const ally = service.getTrainerAllyRollTalents('teste', 'bia');
+		const other = service.getTrainerAllyRollTalents('teste', 'caio');
+		assert.equal(own.find(entry => entry.id === 'diplomata:etiqueta-cosmopolita').bonus, 2);
+		assert.deepEqual(ally.find(entry => entry.id === 'diplomata:etiqueta-cosmopolita').targets,
+			['skill:persuasao', 'skill:enganacao', 'skill:intimidacao']);
+		assert.equal(other.some(entry => entry.id === 'diplomata:etiqueta-cosmopolita'), false);
+		service.random = () => 0;
+		const failed = service.setTrainerCosmopolitanEtiquette('teste', 'Outra Vila', 20, ['caio']);
+		assert.equal(failed.roll.success, false);
+		assert.deepEqual(failed.orientation, result.orientation);
+	});
 	it('permite ao Detetive escolher Inteligência ou Sabedoria em Perfil Investigativo', () => {
 		const original = ready('detetive', 3);
 		const option = rpgTrainerTalentCatalog(original).find(entry => entry.id === 'detetive:perfil-investigativo');
@@ -188,6 +267,144 @@ describe('RPG trainer classes and talents', () => {
 		assert.deepEqual(repository.get('ana').state.trainerSheet.capturePlan.usedRecipientIds, ['bia']);
 		assert.equal(service.setTrainerCapturePlan('teste', '', []).plan, null);
 		assert.equal(service.getTrainerAllyRollTalents('teste', 'ana').some(entry => entry.key === option.key), false);
+	});
+	it('entrega uma Carta de Apresentação a um aliado, substitui a anterior e consome o primeiro bônus', () => {
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({ masterCode: 'teste', repository });
+		for (const name of ['Ana', 'Bia']) {
+			service.createCharacter({ characterName: name, playerName: name, avatar: 'lucas',
+				password: 'senha-rpg', initialMoney: 100,
+				starter: { species: 'Squirtle', gender: 'M' } });
+			const record = repository.get(name.toLowerCase());
+			record.tableId = 'mesa-teste'; record.accountId = name.toLowerCase();
+			record.state.trainerSheet = ready(name === 'Ana' ? 'diplomata' : 'atleta', 5);
+			repository.set(record);
+		}
+		const diplomat = repository.get('ana');
+		diplomat.state.trainerSheet.talents.class.push('diplomata:carta-de-apresentacao');
+		repository.set(diplomat);
+		service.getSession = () => ({ mode: 'player', role: 'player',
+			platformTableId: 'mesa-teste', characterId: 'ana' });
+		service.trainerArchiveRecipients = () => [{ id: 'ana', name: 'Ana' }, { id: 'bia', name: 'Bia' }];
+		service.accounts.repository.getMembership = () => ({ status: 'active' });
+		assert.throws(() => service.setTrainerIntroductionLetter('teste', 'ana', 'Museu', 'Acesso'), /aliado/);
+		assert.throws(() => service.setTrainerIntroductionLetter('teste', 'intruso', 'Museu', 'Acesso'), /aliado/);
+		service.setTrainerIntroductionLetter('teste', 'bia', 'Museu', 'Pesquisa');
+		let option = service.getTrainerAllyRollTalents('teste', 'bia').find(entry =>
+			entry.id === 'diplomata:carta-de-apresentacao');
+		assert.equal(option.bonus, 2);
+		assert.deepEqual(option.targets, ['skill:persuasao']);
+		assert.equal(service.getTrainerAllyRollTalents('teste', 'ana').some(entry => entry.key === option.key), false);
+		const oldKey = option.key;
+		service.setTrainerIntroductionLetter('teste', 'bia', 'Biblioteca', 'Pesquisa histórica');
+		option = service.getTrainerAllyRollTalents('teste', 'bia').find(entry =>
+			entry.id === 'diplomata:carta-de-apresentacao');
+		assert.notEqual(option.key, oldKey);
+		service.consumeTrainerIntroductionLetterRoll('teste', 'bia', [oldKey]);
+		assert.equal(repository.get('ana').state.trainerSheet.introductionLetter.used, false);
+		assert.match(option.condition, /Biblioteca/);
+		assert.doesNotMatch(option.condition, /Museu/);
+		service.consumeTrainerIntroductionLetterRoll('teste', 'bia', [option.key]);
+		assert.equal(repository.get('ana').state.trainerSheet.introductionLetter.used, true);
+		assert.equal(service.getTrainerAllyRollTalents('teste', 'bia').some(entry => entry.key === option.key), false);
+		service.setTrainerIntroductionLetter('teste', '', '', '');
+		assert.equal(repository.get('ana').state.trainerSheet.introductionLetter, undefined);
+	});
+	it('prepara Voz por Procuração para aliados distintos, respeita o relógio e consome cada uso', () => {
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({ masterCode: 'teste', repository });
+		for (const name of ['Ana', 'Bia', 'Caio']) {
+			service.createCharacter({ characterName: name, playerName: name, avatar: 'lucas',
+				password: 'senha-rpg', initialMoney: 100,
+				starter: { species: 'Squirtle', gender: 'M' } });
+			const record = repository.get(name.toLowerCase());
+			record.tableId = 'mesa-teste'; record.accountId = name.toLowerCase();
+			record.state.trainerSheet = ready(name === 'Ana' ? 'diplomata' : 'atleta', 10);
+			repository.set(record);
+		}
+		const diplomat = repository.get('ana');
+		diplomat.state.trainerSheet.talents.apex = 'diplomata:acordo-impossivel';
+		diplomat.state.trainerSheet.attributes.charisma = 18;
+		diplomat.state.trainerSheet.skills.trained.push('persuasao');
+		diplomat.state.trainerSheet.skills.focused.push('persuasao');
+		repository.set(diplomat);
+		service.getSession = () => ({ mode: 'player', role: 'player',
+			platformTableId: 'mesa-teste', characterId: 'ana' });
+		service.trainerArchiveRecipients = () => [
+			{ id: 'ana', name: 'Ana' }, { id: 'bia', name: 'Bia' }, { id: 'caio', name: 'Caio' }];
+		service.accounts.repository.getMembership = () => ({ status: 'active' });
+		service.campaignSettings.currentDateTime = '2026-10-15T12:00:00.000Z';
+		assert.throws(() => service.setTrainerDiplomatProxy('teste', [
+			{ characterId: 'ana', proposal: 'Abrir a rota', audience: 'Guarda' }]), /Aliado indisponível/);
+		assert.throws(() => service.setTrainerDiplomatProxy('teste', [
+			{ characterId: 'bia', proposal: 'Abrir a rota', audience: 'Guarda' },
+			{ characterId: 'bia', proposal: 'Abrir a rota', audience: 'Guarda' }]), /repetido/);
+		const { preparation } = service.setTrainerDiplomatProxy('teste', [
+			{ characterId: 'bia', proposal: 'Abrir a rota', audience: 'Guarda local' },
+			{ characterId: 'caio', proposal: 'Acesso ao arquivo', audience: 'Bibliotecária' }]);
+		assert.equal(preparation.readyAt, '2026-10-15T12:10:00.000Z');
+		assert.equal(preparation.expiresAt, '2026-10-16T12:10:00.000Z');
+		assert.equal(service.getTrainerAllyRollTalents('teste', 'bia').some(entry =>
+			entry.id === 'diplomata:acordo-impossivel'), false);
+		service.campaignSettings.currentDateTime = preparation.readyAt;
+		const option = service.getTrainerAllyRollTalents('teste', 'bia').find(entry =>
+			entry.id === 'diplomata:acordo-impossivel');
+		assert.equal(option.replacesBaseWith, 12);
+		assert.equal(option.bonus, 12);
+		assert.deepEqual(option.targets, ['skill:persuasao']);
+		service.consumeTrainerDiplomatProxyRoll('teste', 'bia', [option.key]);
+		assert.equal(service.getTrainerAllyRollTalents('teste', 'bia').some(entry => entry.key === option.key), false);
+		assert(service.getTrainerAllyRollTalents('teste', 'caio').some(entry => entry.id === option.id));
+		service.campaignSettings.currentDateTime = preparation.expiresAt;
+		assert.equal(service.getTrainerAllyRollTalents('teste', 'caio').some(entry => entry.id === option.id), false);
+		assert.equal(service.setTrainerDiplomatProxy('teste', []).preparation, null);
+	});
+	it('encomenda item pela Rede de Fornecedores com aprovação atômica e cancela sem saldo', () => {
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({ masterCode: 'teste', repository });
+		service.createCharacter({ characterName: 'Ana', playerName: 'Ana', avatar: 'lucas',
+			password: 'senha-rpg', initialMoney: 1000, starter: { species: 'Squirtle', gender: 'M' } });
+		const record = repository.get('ana');
+		record.tableId = 'mesa-teste'; record.accountId = 'ana';
+		record.state.trainerSheet = ready('diplomata', 3);
+		record.state.trainerSheet.talents.class.push('diplomata:canal-oficial');
+		repository.set(record);
+		service.getSession = () => ({ mode: 'player', role: 'player',
+			platformTableId: 'mesa-teste', characterId: 'ana' });
+		service.accounts.repository.getMembership = () => ({ status: 'active' });
+		service.requireMasterRole = () => {};
+		const item = service.getSupplierCatalog('teste').items.find(entry => entry.id === 'potion');
+		assert.equal(item.orderPrice, 240);
+		assert(service.getSupplierCatalog('teste').items.some(entry => entry.id === 'faca' &&
+			entry.kind === 'equipment'));
+		assert.equal(service.getSupplierCatalog('teste').items.some(entry => entry.id === 'masterball'), false);
+		const input = { requestId: 'order-test-1', itemId: 'potion', itemKind: 'pokemon' };
+		const created = service.requestSupplierOrder('teste', input);
+		assert.equal(created.order.status, 'pending');
+		assert.equal(service.requestSupplierOrder('teste', input).repeated, true);
+		assert.throws(() => service.requestSupplierOrder('teste', { ...input, requestId: 'order-test-2' }),
+			/aguardando avaliação/);
+		assert.equal(repository.get('ana').state.money, 1000);
+		assert.equal(RPGBagSystem.getQuantity(repository.get('ana').state.inventory.bag, 'potion'), 0);
+		const approved = service.decideSupplierOrder('teste', input.requestId, true);
+		assert.equal(approved.order.status, 'accepted');
+		assert.equal(repository.get('ana').state.money, 760);
+		assert.equal(RPGBagSystem.getQuantity(repository.get('ana').state.inventory.bag, 'potion'), 1);
+		assert.equal(service.decideSupplierOrder('teste', input.requestId, true).repeated, true);
+		assert.equal(repository.get('ana').state.money, 760);
+		const broke = repository.get('ana'); broke.state.money = 0; repository.set(broke);
+		service.requestSupplierOrder('teste', { ...input, requestId: 'order-test-3' });
+		const cancelled = service.decideSupplierOrder('teste', 'order-test-3', true);
+		assert.equal(cancelled.order.status, 'rejected');
+		assert.match(cancelled.order.reason, /Pokécoins insuficientes/);
+		assert.equal(RPGBagSystem.getQuantity(repository.get('ana').state.inventory.bag, 'potion'), 1);
+		const funded = repository.get('ana'); funded.state.money = 500; repository.set(funded);
+		const equipment = service.requestSupplierOrder('teste',
+			{ requestId: 'order-test-4', itemId: 'faca', itemKind: 'equipment' });
+		assert.equal(equipment.order.price, 180);
+		assert.equal(service.decideSupplierOrder('teste', 'order-test-4', true).order.status, 'accepted');
+		assert.equal(repository.get('ana').state.money, 320);
+		assert(repository.get('ana').state.trainerInventory.items.some(entry => entry.itemId === 'faca'));
 	});
 	it('requires trained Pokémon Knowledge for Petisco de Amizade', () => {
 		const cook = ready('cozinheiro', 3);
@@ -640,7 +857,7 @@ describe('RPG trainer classes and talents', () => {
 			!talent.available));
 	});
 
-	it('requires a recorded Master approval for narrative prerequisites and controlled weapons', () => {
+	it('checks Favor Institucional for Reputação Precedente and Master approval for controlled weapons', () => {
 		const repository = new RPGMemoryCharacterRepository();
 		const service = new RPGLoginService({ masterCode: 'teste', repository });
 		service.createCharacter({ characterName: 'Ana', playerName: 'Conta', avatar: 'lucas',
@@ -651,15 +868,15 @@ describe('RPG trainer classes and talents', () => {
 		record.state.trainerSheet = ready('diplomata', 10);
 		repository.set(record);
 		assert.throws(() => service.chooseTrainerTalent(player.token,
-			{ id: 'diplomata:reputacao-precedente' }), /verificados pelo Mestre/);
+			{ id: 'diplomata:reputacao-precedente' }), /Falta um talento exigido/);
 		assert.throws(() => service.approveTrainerTalentPrerequisite(player.token, 'ana',
-			'diplomata:reputacao-precedente', 'Dois favores'), /master session required/);
-		service.approveTrainerTalentPrerequisite(master.token, 'ana',
-			'diplomata:reputacao-precedente', 'Dois favores em organizações diferentes');
+			'dominio-de-arma:armas-ranged-exoticas', 'Licença válida'), /master session required/);
+		record.state.trainerSheet.talents.class.push('diplomata:favor-institucional');
+		repository.set(record);
 		const chosen = service.chooseTrainerTalent(player.token,
 			{ id: 'diplomata:reputacao-precedente' });
 		assert.ok(chosen.talents.class.includes('diplomata:reputacao-precedente'));
-		assert.equal(chosen.talentApprovals.length, 1);
+		assert.equal(chosen.talentApprovals?.length || 0, 0);
 		assert.throws(() => service.chooseTrainerTalent(player.token,
 			{ id: 'dominio-de-arma', proficiency: 'armas-ranged-exoticas' }), /licença verificada/);
 		service.approveTrainerTalentPrerequisite(master.token, 'ana',
@@ -667,6 +884,6 @@ describe('RPG trainer classes and talents', () => {
 		const licensed = service.chooseTrainerTalent(player.token,
 			{ id: 'dominio-de-arma', proficiency: 'armas-ranged-exoticas' });
 		assert.ok(licensed.proficiencies.includes('armas-ranged-exoticas'));
-		assert.equal(licensed.talentApprovals.length, 2);
+		assert.equal(licensed.talentApprovals.length, 1);
 	});
 });

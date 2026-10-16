@@ -15,6 +15,7 @@ import {
 import { Dex } from '../../sim/dex';
 import { getRPGItemIconPath } from './item-icons';
 import { RPGBagManagement } from './bag-management';
+import type { RPGTrainerSheet } from './trainer-sheet';
 
 export const RPG_COMMERCE_VERSION = 1;
 export type RPGShopType = 'poke-mart' | 'equipment' | 'evolution' | 'tm' | 'mega-stone' | 'farm' | 'thrift';
@@ -49,8 +50,36 @@ export interface RPGCommerceCharacter {
 	id: string;
 	money: number;
 	inventory: RPGInventoryState;
+	trainerSheet?: RPGTrainerSheet;
 	shopRevision?: number;
 	shopTransactions?: RPGShopTransaction[];
+}
+
+function tradeBenefit(type: 'buy' | 'sell', character?: RPGCommerceCharacter) {
+	const sheet = character?.trainerSheet;
+	if (sheet?.status !== 'complete' || sheet.classId !== 'diplomata') return null;
+	const talents = sheet.talents.class;
+	if (sheet.talents.apex === 'diplomata:embaixador-do-mercado') {
+		return { multiplier: type === 'buy' ? 0.85 : 1.3, label: 'Ápice — Embaixador do Mercado' };
+	}
+	if (talents.includes('diplomata:barganha-refinada') &&
+		talents.includes('diplomata:negociador-comercial') &&
+		talents.includes('diplomata:vendedor-persuasivo')) {
+		return { multiplier: type === 'buy' ? 0.9 : 1.2, label: 'Barganha Refinada' };
+	}
+	if (type === 'buy' && talents.includes('diplomata:negociador-comercial')) {
+		return { multiplier: 0.95, label: 'Negociador Comercial' };
+	}
+	if (type === 'sell' && talents.includes('diplomata:vendedor-persuasivo')) {
+		return { multiplier: 1.1, label: 'Vendedor Persuasivo' };
+	}
+	return null;
+}
+
+/** Preços personalizados pertencem à transação do treinador, nunca ao estoque compartilhado. */
+function tradePrice(price: number, type: 'buy' | 'sell', character?: RPGCommerceCharacter): number {
+	const benefit = tradeBenefit(type, character);
+	return benefit ? Math.round(price * benefit.multiplier) : price;
 }
 
 export interface RPGCommerceTradeLine {
@@ -409,7 +438,7 @@ export class RPGCommerceManagement {
 		}) : [...shop.offers, ...this.craftedPlayerOffers(shop, inventory)]).sort((left, right) =>
 			compareCommerceItems(RPGItems.require(left.itemId), RPGItems.require(right.itemId), shop.type)
 		);
-		const offers = sourceOffers.map(offer => this.offerView(shop, offer, inventory)).filter(offer =>
+		const offers = sourceOffers.map(offer => this.offerView(shop, offer, inventory, character)).filter(offer =>
 			master || offer.buyEnabled || (offer.sellEnabled && offer.owned > 0)
 		);
 		return {
@@ -511,6 +540,10 @@ export class RPGCommerceManagement {
 			}
 		);
 		let catalog = this.catalog(shop, account.bag);
+		catalog = { ...catalog, offers: catalog.offers.map(offer => ({ ...offer,
+			...(offer.buyPrice === undefined ? {} : { buyPrice: tradePrice(offer.buyPrice, 'buy', character) }),
+			...(offer.sellPrice === undefined ? {} : { sellPrice: tradePrice(offer.sellPrice, 'sell', character) }),
+		})) };
 		const transactions: RPGShopTransaction[] = [];
 		for (let index = 0; index < request.lines.length; index++) {
 			const line = request.lines[index];
@@ -576,9 +609,12 @@ export class RPGCommerceManagement {
 		});
 	}
 
-	private offerView(shop: RPGCommerceShopState, offer: RPGCommerceOffer, inventory?: RPGInventoryState) {
+	private offerView(shop: RPGCommerceShopState, offer: RPGCommerceOffer, inventory?: RPGInventoryState,
+		character?: RPGCommerceCharacter) {
 		const item = RPGItems.require(offer.itemId);
 		const group = itemGroup(item);
+		const buyPrice = offer.buyPrice ?? basePrices(item).buy;
+		const sellPrice = offer.sellPrice ?? basePrices(item).sell;
 		return {
 			itemId: item.id, name: item.name, category: group.category,
 			description: RPGBagManagement.description(item), icon: getRPGItemIconPath(item.id),
@@ -589,8 +625,11 @@ export class RPGCommerceManagement {
 			sellEnabled: offer.sellEnabled ?? offer.sellPrice !== undefined,
 			buyVisible: offer.buyEnabled ?? offer.buyMode !== 'hidden',
 			buyLocked: offer.buyMode === 'locked',
-			buyPrice: offer.buyPrice ?? basePrices(item).buy,
-			sellPrice: offer.sellPrice ?? basePrices(item).sell,
+			buyPrice: tradePrice(buyPrice, 'buy', character),
+			sellPrice: tradePrice(sellPrice, 'sell', character),
+			buyPriceBeforeTalent: buyPrice, sellPriceBeforeTalent: sellPrice,
+			buyTalent: tradeBenefit('buy', character)?.label,
+			sellTalent: tradeBenefit('sell', character)?.label,
 			baseBuyPrice: basePrices(item).buy, baseSellPrice: basePrices(item).sell,
 			canBuy: !!offer.buyEnabled && offer.buyMode === 'available' && offer.buyPrice !== undefined && offer.stock > 0,
 			canSell: !!offer.sellEnabled && offer.sellPrice !== undefined,

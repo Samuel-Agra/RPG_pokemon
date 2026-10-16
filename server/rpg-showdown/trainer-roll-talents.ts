@@ -1,5 +1,6 @@
 import { RPG_TRAINER_TALENTS } from './trainer-talents-catalog';
-import { rpgTrainerProficiency, rpgTrainerSkillAttributes, type RPGTrainerAttribute } from './trainer-checks';
+import { rpgTrainerAttributeBonus, rpgTrainerProficiency, rpgTrainerSkillAttributes,
+	type RPGTrainerAttribute } from './trainer-checks';
 import type { RPGTrainerSheet } from './trainer-sheet';
 
 export type RPGTrainerRollKind = 'attribute' | 'skill' | 'resistance' | 'attack' | 'initiative';
@@ -11,6 +12,7 @@ export interface RPGTrainerRollTalent {
 	bonus: number;
 	advantage: boolean;
 	naturalFloor?: number;
+	replacesBaseWith?: number;
 	requiredAttribute?: RPGTrainerAttribute;
 	targets: readonly string[];
 }
@@ -109,7 +111,7 @@ const RULES: Readonly<Record<string, Rule>> = {
 		condition: 'Perseguir ou escapar de um alvo.' },
 	'detetive:contradicao-explorada': { targets: ['skill:persuasao', 'skill:intimidacao'], bonus: 2,
 		condition: 'Próximo teste contra depoente após expor contradição real.' },
-	'diplomata:porta-voz-reconhecido': { targets: ['skill:persuasao', 'skill:enganacao', 'skill:intimidacao'], bonus: 2,
+	'diplomata:porta-voz-reconhecido': { targets: ['skill:*'], bonus: 2, requiredAttribute: 'charisma',
 		condition: 'Próximo teste social após aliado fornecer contribuição relevante.' },
 	'encantador:espelhamento-social': { targets: ['skill:persuasao', 'skill:enganacao'], bonus: 2,
 		condition: 'Próximo teste após um minuto ajustando sua abordagem.' },
@@ -230,6 +232,12 @@ export function rpgTrainerRollTalents(sheet: RPGTrainerSheet): RPGTrainerRollTal
 			...(rule.requiredAttribute ? { requiredAttribute: rule.requiredAttribute } : {}),
 			targets: id === 'cientista:autoridade-cientifica' && variant ? [`skill:${variant}`] : rule.targets }));
 	});
+	if (sheet.status === 'complete' && sheet.classId === 'diplomata') {
+		options.push({ key: 'diplomata:mediacao-estruturada', id: 'diplomata:mediacao-estruturada',
+			name: 'Mediação Estruturada', bonus: 2, advantage: false,
+			condition: 'Concluir acordo após ouvir as partes por dez minutos e apresentar proposta que respeite suas exigências indispensáveis.',
+			targets: ['skill:persuasao'] });
+	}
 	if (sheet.comfortingArt && sheet.comfortingArt.restCycle === (sheet.talentRestCycle || 0)) {
 		options.push({ key: `artista:arte-reconfortante@${sheet.comfortingArt.sourceCharacterId}`,
 			id: 'artista:arte-reconfortante', name: `Arte Reconfortante de ${sheet.comfortingArt.sourceName}`,
@@ -347,6 +355,58 @@ export function rpgDetectiveCapturePlanOption(allyId: string, allyName: string,
 		condition: `Primeiro teste para ocupar posição, bloquear rota, seguir o alvo ou iniciar perseguição: ${plan.description}.`,
 		targets: ['skill:atletismo', 'skill:acrobacia', 'skill:furtividade', 'skill:percepcao',
 			'skill:sobrevivencia', 'skill:pilotagem:*'] };
+}
+
+/** A carta só pertence ao destinatário indicado e perde seu efeito após o primeiro uso. */
+export function rpgDiplomatIntroductionOption(allyId: string, allyName: string,
+	ally: RPGTrainerSheet, recipientId: string): RPGTrainerRollTalent | null {
+	const letter = ally.introductionLetter;
+	if (ally.status !== 'complete' || ally.classId !== 'diplomata' ||
+		!ally.talents.class.includes('diplomata:carta-de-apresentacao') ||
+		!letter || letter.used || letter.recipientCharacterId !== recipientId || allyId === recipientId) return null;
+	return { key: `diplomata:carta-de-apresentacao@${allyId}:${letter.id}`,
+		id: 'diplomata:carta-de-apresentacao', name: `Carta de Apresentação de ${allyName}`,
+		bonus: 2, advantage: false,
+		condition: `Primeiro teste para obter audiência, cooperação ou acesso em ${letter.institution}, ` +
+			`relacionado a ${letter.subject}; apresente a carta e confirme com o Mestre que a recomendação é pertinente.`,
+		targets: ['skill:persuasao'] };
+}
+
+/** Cede apenas o bônus base de Persuasão; condições e efeitos pessoais permanecem com quem rola. */
+export function rpgDiplomatProxyOption(sourceId: string, sourceName: string, source: RPGTrainerSheet,
+	recipientId: string, recipient: RPGTrainerSheet, campaignTime: string,
+	attribute: RPGTrainerAttribute = 'charisma'): RPGTrainerRollTalent | null {
+	const preparation = source.diplomatProxy;
+	if (source.status !== 'complete' || source.classId !== 'diplomata' ||
+		source.talents.apex !== 'diplomata:acordo-impossivel' || recipient.status !== 'complete' ||
+		!preparation || Date.parse(preparation.readyAt) > Date.parse(campaignTime) ||
+		Date.parse(preparation.expiresAt) <= Date.parse(campaignTime) ||
+		!rpgTrainerSkillAttributes(recipient, 'persuasao').includes(attribute)) return null;
+	const target = preparation.recipients.find(entry => entry.characterId === recipientId && !entry.used);
+	if (!target) return null;
+	const sourceBase = rpgTrainerAttributeBonus(source, 'charisma') + rpgTrainerProficiency(source.level) *
+		(source.skills.focused.includes('persuasao') ? 2 : source.skills.trained.includes('persuasao') ? 1 : 0);
+	const recipientBase = rpgTrainerAttributeBonus(recipient, attribute) + rpgTrainerProficiency(recipient.level) *
+		(recipient.skills.focused.includes('persuasao') ? 2 : recipient.skills.trained.includes('persuasao') ? 1 : 0);
+	return { key: `diplomata:acordo-impossivel@${sourceId}:${preparation.id}`,
+		id: 'diplomata:acordo-impossivel', name: `Voz por Procuração de ${sourceName}`,
+		bonus: sourceBase - recipientBase, replacesBaseWith: sourceBase, advantage: false,
+		condition: `Defender a proposta “${target.proposal}” diante de ${target.audience}; ` +
+			'uma utilização, declarada antes da rolagem.', targets: ['skill:persuasao'] };
+}
+
+export function rpgCosmopolitanEtiquetteOption(sourceId: string, sourceName: string,
+	source: RPGTrainerSheet, recipientId: string): RPGTrainerRollTalent | null {
+	const orientation = source.cosmopolitanEtiquette;
+	if (source.status !== 'complete' || source.classId !== 'diplomata' ||
+		!source.talents.class.includes('diplomata:etiqueta-cosmopolita') || !orientation ||
+		!orientation.recipientCharacterIds.includes(recipientId)) return null;
+	return { key: `diplomata:etiqueta-cosmopolita@${sourceId}`,
+		id: 'diplomata:etiqueta-cosmopolita', name: `Etiqueta Cosmopolita de ${sourceName}`,
+		bonus: 2, advantage: false,
+		condition: `Interação com membros de ${orientation.community} em que os costumes locais ajudem; ` +
+			'a orientação termina ao sair dessa comunidade.',
+		targets: ['skill:persuasao', 'skill:enganacao', 'skill:intimidacao'] };
 }
 
 export function rpgChoreographyGroupOption(allyId: string, allyName: string,

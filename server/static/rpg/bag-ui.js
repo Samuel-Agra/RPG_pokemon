@@ -217,6 +217,8 @@
 		}
 		return picker;
 	}
+	// O seletor de encomendas usa as mesmas categorias, inclusive quando o catálogo ganhar novos itens.
+	window.rpgBagCatalogCategories = { list: CATALOG_CATEGORIES, id: catalogCategoryId, name: catalogCategoryName };
 
 	async function render(options) {
 		const root = el('div', 'bag-manager');

@@ -489,6 +489,24 @@ export class RPGHttpServer {
 				this.string(body.id), body.accepted as boolean, body.payment as number));
 			return;
 		}
+		if (method === 'GET' && url.pathname === '/api/rpg/trainer/supplier/catalog') {
+			this.json(res, 200, this.login.getSupplierCatalog(this.token(req)));
+			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/supplier/orders') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.requestSupplierOrder(this.token(req), {
+				requestId: this.string(body.requestId), itemId: this.string(body.itemId),
+				itemKind: this.string(body.itemKind) as 'pokemon' | 'equipment',
+			}));
+			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/supplier/orders/decide') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.decideSupplierOrder(this.token(req),
+				this.string(body.id), body.accepted as boolean));
+			return;
+		}
 		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/use') {
 			const body = await this.body(req);
 			this.json(res, 200, this.login.useTrainerSheetTalent(this.token(req), this.string(body.talentId)));
@@ -619,10 +637,36 @@ export class RPGHttpServer {
 				body.recipientCharacterIds as string[]));
 			return;
 		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/cosmopolitan-etiquette') {
+			const body = await this.body(req);
+			const token = this.token(req);
+			const result = this.login.setTrainerCosmopolitanEtiquette(token,
+				this.string(body.community), Number(body.dc), body.recipientCharacterIds as string[]);
+			const session = this.login.getSession(token);
+			const roll = result.roll;
+			await this.login.mysqlPersistence.createTableChatMessage(session.platformTableId!, session.platformAccountId!,
+				`Etiqueta Cosmopolita — Conhecimento: Regiões: 1d20 tirou ${roll.natural} + ` +
+				`${roll.total - roll.natural} = ${roll.total} (CD ${Number(body.dc)}). ` +
+				(roll.success ? `Orientação de ${this.string(body.community)} preparada.` : 'Falha: nenhum bônus concedido.'));
+			this.json(res, 200, result);
+			return;
+		}
 		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/capture-plan') {
 			const body = await this.body(req);
 			this.json(res, 200, this.login.setTrainerCapturePlan(this.token(req),
 				this.string(body.description), body.recipientCharacterIds as string[]));
+			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/introduction-letter') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.setTrainerIntroductionLetter(this.token(req),
+				this.string(body.recipientCharacterId), this.string(body.institution), this.string(body.subject)));
+			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/diplomat-proxy') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.setTrainerDiplomatProxy(this.token(req),
+				body.recipients as Parameters<RPGLoginService['setTrainerDiplomatProxy']>[1]));
 			return;
 		}
 		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/investigative-partner') {
@@ -765,12 +809,14 @@ export class RPGHttpServer {
 			const talentEffects = rpgResolveTrainerRollTalents(character.trainerSheet!, kind,
 				rollId, selectedTalents as string[],
 				resistanceRoll || skillRoll || kind === 'attribute' ?
-					this.login.getTrainerAllyRollTalents(token, characterId!) : [],
+					this.login.getTrainerAllyRollTalents(token, characterId!, skillAttribute) : [],
 				skillAttribute);
+			const proxy = talentEffects.chosen.find(talent => talent.id === 'diplomata:acordo-impossivel');
+			const proxySourceId = proxy?.key.split('@')[1]?.split(':')[0];
 			const observedSkill = skillRoll && talentEffects.chosen.some(talent =>
 				talent.id === 'aprendizado-por-observacao');
 			if (skillRoll) rpgTrainerSkillBonus(character.trainerSheet!, skill!, skillAttribute, false, observedSkill);
-			const help = skillRoll ? this.login.consumeTrainerHelp(token, skill!) : null;
+			const help = skillRoll ? this.login.consumeTrainerHelp(token, skill!, proxySourceId) : null;
 			const helpBonus = help?.bonus || 0;
 			const options = {
 				dc: 0, bonus: talentEffects.bonus + helpBonus,
@@ -797,10 +843,12 @@ export class RPGHttpServer {
 			const effectiveNatural = 'effectiveNatural' in result &&
 				typeof result.effectiveNatural === 'number' ? result.effectiveNatural : result.natural;
 			const baseBonus = result.total - effectiveNatural - talentEffects.bonus - helpBonus;
-			const bonus = help ? [baseBonus, helpBonus, ...talentEffects.chosen
+			const shownBaseBonus = baseBonus + (proxy?.bonus || 0);
+			const shownTalents = talentEffects.chosen.filter(talent => talent !== proxy);
+			const bonus = help ? [shownBaseBonus, helpBonus, ...shownTalents
 				.filter(talent => talent.bonus !== 0).map(talent => talent.bonus)]
 				.map(value => value < 0 ? `- ${Math.abs(value)}` : `+ ${value}`).join(' ') :
-				rpgTrainerRollBonusTerms(baseBonus, talentEffects.chosen);
+				rpgTrainerRollBonusTerms(shownBaseBonus, shownTalents);
 			const rolls = result.dice.length === 1 ? '' :
 				`${result.mode === 'advantage' ? 'Vantagem' : 'Desvantagem'}\n` +
 				`1ª rolagem: ${result.dice[0]}\n2ª rolagem: ${result.dice[1]}\n`;
@@ -843,6 +891,10 @@ export class RPGHttpServer {
 			}
 			this.login.consumeTrainerChoreographyRoll(token, characterId!, talentEffects.chosen.map(talent => talent.key));
 			this.login.consumeTrainerCapturePlanRoll(token, characterId!, talentEffects.chosen.map(talent => talent.key));
+			this.login.consumeTrainerIntroductionLetterRoll(token, characterId!,
+				talentEffects.chosen.map(talent => talent.key));
+			this.login.consumeTrainerDiplomatProxyRoll(token, characterId!,
+				talentEffects.chosen.map(talent => talent.key));
 			if (kind === 'attribute' || kind === 'skill' || kind === 'resistance') {
 				this.login.recordTrainerChatRoll(token, kind, rollName, bonus, posted, { ...result,
 					mode: result.mode as 'normal' | 'advantage' | 'disadvantage' },
@@ -2910,6 +2962,7 @@ export class RPGHttpServer {
 		if (/^(?:Você precisa de um Kit Científico na Bag|Este registro exige (?:um Kit Científico de nível|\d+ carga\(s\))|Registro (?:inválido|não pertence a este treinador|científico indisponível)|Cientista indisponível nesta mesa|Esta fórmula já está em preparação|Há preparações demais em andamento|Preparação indisponível|O Registro Reprodutível foi alterado ou retirado|A preparação ainda não atingiu o tempo necessário)/.test(message)) return true;
 		if (/^(?:Registro Avançado indisponível|Espaço de registro inválido|Destinatário indisponível|Informe nome \(3–100\)|Identificador inválido|Identificador já utilizado|Já existe um registro aguardando aprovação|Registro não está pendente|Nível do kit ou cargas inválidos|Cientista ou destinatário indisponível|A biblioteca permite até dois Registros Avançados ativos)/.test(message)) return true;
 		if (/^(?:Publicação de Referência não está disponível|Identificador do artigo inválido|Informe título e resumo do artigo|Já existe um artigo aguardando avaliação|Artigo não está pendente|Decisão ou pagamento inválido|Pagamento ultrapassa o limite de Pokécoins|Entre como jogador em uma mesa para criar o artigo|Nenhum personagem selecionado|Personagem fora da mesa atual)/.test(message)) return true;
+		if (/^(?:Rede de Fornecedores indisponível|Identificador da encomenda |Já existe uma encomenda aguardando avaliação|Item indisponível para encomenda|Encomenda ou decisão inválida|Treinador indisponível para receber a encomenda|Item da encomenda não está mais disponível)/.test(message)) return true;
 		if (/^(?:Identificador de nível |Ajuste de nível )/.test(message)) return true;
 		if (['Escolha de talento inválida', 'Escolha modalidades artísticas diferentes das já selecionadas',
 			'Escolha uma variante nova e válida para este talento'].includes(message)) return true;

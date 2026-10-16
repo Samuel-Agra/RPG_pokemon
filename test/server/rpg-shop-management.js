@@ -9,6 +9,7 @@ const {
 	RPGMemoryCharacterRepository,
 	RPGMemoryCommerceRepository,
 	RPGFileCommerceRepository,
+	createRPGPendingTrainerSheet,
 } = require('../../dist/server/rpg-showdown');
 const { RPGItems, RPGBagSystem } = require('../../dist/sim/rpg-showdown');
 
@@ -34,6 +35,91 @@ function tradeRequest(view, type, lines, actionId) {
 }
 
 describe('RPG shared commerce management', () => {
+	it('applies Diplomat buy and sell talents in the cart and atomic trade without changing shared prices', () => {
+		const service = new RPGLoginService({ masterCode: '14081998',
+			repository: new RPGMemoryCharacterRepository(), commerceRepository: new RPGMemoryCommerceRepository() });
+		const master = service.loginMaster('14081998');
+		const player = createCharacter(service, 'DiplomataLoja');
+		let shop = service.getCommerceShop(master.token, 'poke-mart-central');
+		service.configureCommerceOffer(master.token, 'poke-mart-central', {
+			itemId: 'pokeball', stock: 5, buyMode: 'available', buyPrice: 200,
+			sellEnabled: true, sellPrice: 100, expectedRevision: shop.shop.revision,
+		});
+		let ordinaryView = service.getCommerceShop(player.token, 'poke-mart-central');
+		let ordinaryOffer = ordinaryView.offers.find(entry => entry.itemId === 'pokeball');
+		assert.deepEqual([ordinaryOffer.buyPrice, ordinaryOffer.sellPrice,
+			ordinaryOffer.buyTalent, ordinaryOffer.sellTalent], [200, 100, undefined, undefined]);
+		const ordinaryTrade = service.tradeCommerceShop(player.token, 'poke-mart-central',
+			tradeRequest(ordinaryView, 'buy', [{ itemId: 'pokeball', quantity: 1 }], 'ordinary-buy'));
+		assert.equal(ordinaryTrade.transactions[0].total, 200);
+		ordinaryView = service.getCommerceShop(player.token, 'poke-mart-central');
+		const ordinarySale = service.tradeCommerceShop(player.token, 'poke-mart-central',
+			tradeRequest(ordinaryView, 'sell', [{ itemId: 'pokeball', quantity: 1 }], 'ordinary-sell'));
+		assert.equal(ordinarySale.transactions[0].total, 100);
+		const record = service.repository.get('diplomataloja');
+		record.state.trainerSheet = { ...createRPGPendingTrainerSheet(), status: 'complete',
+			classId: 'diplomata', attributes: { strength: 12, dexterity: 12, constitution: 12,
+				intelligence: 12, wisdom: 12, charisma: 12 },
+			talents: { general: [], class: ['diplomata:negociador-comercial'], apex: null } };
+		service.repository.set(record);
+		ordinaryView = service.getCommerceShop(player.token, 'poke-mart-central');
+		ordinaryOffer = ordinaryView.offers.find(entry => entry.itemId === 'pokeball');
+		assert.deepEqual([ordinaryOffer.buyPrice, ordinaryOffer.sellPrice,
+			ordinaryOffer.buyTalent, ordinaryOffer.sellTalent], [190, 100, 'Negociador Comercial', undefined]);
+		record.state.trainerSheet.talents.class.push('diplomata:vendedor-persuasivo');
+		service.repository.set(record);
+		shop = service.getCommerceShop(player.token, 'poke-mart-central');
+		let offer = shop.offers.find(entry => entry.itemId === 'pokeball');
+		assert.deepEqual([offer.buyPriceBeforeTalent, offer.buyPrice, offer.buyTalent],
+			[200, 190, 'Negociador Comercial']);
+		assert.deepEqual([offer.sellPriceBeforeTalent, offer.sellPrice, offer.sellTalent],
+			[100, 110, 'Vendedor Persuasivo']);
+		const bought = service.tradeCommerceShop(player.token, 'poke-mart-central',
+			tradeRequest(shop, 'buy', [{ itemId: 'pokeball', quantity: 2 }], 'diplomat-buy'));
+		assert.equal(bought.transactions[0].total, 380);
+		assert.equal(bought.view.money, 9520);
+		shop = service.getCommerceShop(player.token, 'poke-mart-central');
+		const sold = service.tradeCommerceShop(player.token, 'poke-mart-central',
+			tradeRequest(shop, 'sell', [{ itemId: 'pokeball', quantity: 1 }], 'diplomat-sell'));
+		assert.equal(sold.transactions[0].total, 110);
+		assert.equal(sold.view.money, 9630);
+		assert.deepEqual(service.getCommerceShop(master.token, 'poke-mart-central').offers
+			.filter(entry => entry.itemId === 'pokeball').map(entry => [entry.buyPrice, entry.sellPrice]), [[200, 100]]);
+		const updatedRecord = service.repository.get('diplomataloja');
+		updatedRecord.state.trainerSheet.talents.class.push('diplomata:barganha-refinada');
+		service.repository.set(updatedRecord);
+		shop = service.getCommerceShop(player.token, 'poke-mart-central');
+		offer = shop.offers.find(entry => entry.itemId === 'pokeball');
+		assert.deepEqual([offer.buyPrice, offer.sellPrice, offer.buyTalent, offer.sellTalent],
+			[180, 120, 'Barganha Refinada', 'Barganha Refinada']);
+		const refinedPurchase = service.tradeCommerceShop(player.token, 'poke-mart-central',
+			tradeRequest(shop, 'buy', [{ itemId: 'pokeball', quantity: 1 }], 'refined-buy'));
+		assert.equal(refinedPurchase.transactions[0].total, 180);
+		assert.equal(refinedPurchase.view.money, 9450);
+		shop = service.getCommerceShop(player.token, 'poke-mart-central');
+		const refinedSale = service.tradeCommerceShop(player.token, 'poke-mart-central',
+			tradeRequest(shop, 'sell', [{ itemId: 'pokeball', quantity: 1 }], 'refined-sell'));
+		assert.equal(refinedSale.transactions[0].total, 120);
+		assert.equal(refinedSale.view.money, 9570);
+		const apexRecord = service.repository.get('diplomataloja');
+		apexRecord.state.trainerSheet.talents.apex = 'diplomata:embaixador-do-mercado';
+		service.repository.set(apexRecord);
+		shop = service.getCommerceShop(player.token, 'poke-mart-central');
+		offer = shop.offers.find(entry => entry.itemId === 'pokeball');
+		assert.deepEqual([offer.buyPriceBeforeTalent, offer.buyPrice, offer.sellPriceBeforeTalent,
+			offer.sellPrice, offer.buyTalent, offer.sellTalent],
+		[200, 170, 100, 130, 'Ápice — Embaixador do Mercado', 'Ápice — Embaixador do Mercado']);
+		const apexPurchase = service.tradeCommerceShop(player.token, 'poke-mart-central',
+			tradeRequest(shop, 'buy', [{ itemId: 'pokeball', quantity: 1 }], 'apex-buy'));
+		assert.equal(apexPurchase.transactions[0].total, 170);
+		shop = service.getCommerceShop(player.token, 'poke-mart-central');
+		const apexSale = service.tradeCommerceShop(player.token, 'poke-mart-central',
+			tradeRequest(shop, 'sell', [{ itemId: 'pokeball', quantity: 1 }], 'apex-sell'));
+		assert.equal(apexSale.transactions[0].total, 130);
+		assert.equal(apexSale.view.money, 9530);
+		assert.deepEqual(service.getCommerceShop(master.token, 'poke-mart-central').offers
+			.filter(entry => entry.itemId === 'pokeball').map(entry => [entry.buyPrice, entry.sellPrice]), [[200, 100]]);
+	});
 	it('lists eleven Scientist products last and buys creator-named medicine at component cost', () => {
 		const service = new RPGLoginService({ masterCode: '14081998',
 			repository: new RPGMemoryCharacterRepository(), commerceRepository: new RPGMemoryCommerceRepository() });

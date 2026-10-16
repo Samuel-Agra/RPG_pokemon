@@ -79,6 +79,9 @@ import {
 } from './trainer-checks';
 import { rpgArtisticInspirationOption, rpgCaptivatingDistractionOption, rpgEncouragingPresenceOption,
 	rpgDetectiveCapturePlanOption, rpgDetectiveDuoOption, rpgExcavationMasterOption, rpgExpeditionLeaderOption, rpgTeamCaptainOption,
+	rpgDiplomatIntroductionOption,
+	rpgDiplomatProxyOption,
+	rpgCosmopolitanEtiquetteOption,
 	rpgChoreographyGroupOption,
 	rpgTechnicalOpinionOption,
 	rpgResolveTrainerRollTalents, rpgSetSharedArchive, rpgUpdatePersistentHypothesis,
@@ -569,6 +572,13 @@ export interface RPGScientificPublication {
 	decidedAt?: string; payment?: number;
 }
 
+export interface RPGSupplierOrder {
+	id: string; characterId: string; characterName: string; itemId: string; itemName: string;
+	itemKind: 'pokemon' | 'equipment'; price: number; requestedAt: string;
+	icon?: string | null; sprite?: number | null;
+	status: 'pending' | 'accepted' | 'rejected'; decidedAt?: string; reason?: string;
+}
+
 export interface RPGCustomScientistRecordRequest {
 	id: string; characterId: string; characterName: string; slot: number;
 	recipientCharacterId: string; name: string; description: string; submittedAt: string;
@@ -839,6 +849,7 @@ export class RPGLoginService {
 	private campaignSettings: {
 		name: string, currentDateTime: string, quickNotes: string, events: RPGCampaignEvent[],
 		publications: RPGScientificPublication[], customRecordRequests: RPGCustomScientistRecordRequest[],
+		supplierOrders: RPGSupplierOrder[],
 		playerNotes: Record<string, string>, sceneNpcIds: string[], sceneNpcRevealed: Record<string, number[]>,
 		equipmentOffers: Record<string, Record<string, { stock: number, price: number }>>,
 		trainerHelp: { characterId: string, skill: string, total: number, bonus: number }[],
@@ -884,7 +895,7 @@ export class RPGLoginService {
 		this.campaignSettingsFile = options.campaignSettingsFile && resolve(options.campaignSettingsFile);
 		this.campaignSettings = {
 			name: 'Minha campanha', currentDateTime: new Date(this.now()).toISOString(), quickNotes: '', events: [],
-			publications: [], customRecordRequests: [],
+			publications: [], customRecordRequests: [], supplierOrders: [],
 			playerNotes: {}, sceneNpcIds: [], sceneNpcRevealed: {},
 			equipmentOffers: {}, trainerHelp: [],
 		};
@@ -917,6 +928,10 @@ export class RPGLoginService {
 			if (Array.isArray(stored.events)) this.campaignSettings.events = stored.events.slice(-200);
 			if (Array.isArray(stored.publications)) this.campaignSettings.publications = stored.publications.filter(entry =>
 				entry && typeof entry.id === 'string' && typeof entry.characterId === 'string' &&
+				['pending', 'accepted', 'rejected'].includes(entry.status));
+			if (Array.isArray(stored.supplierOrders)) this.campaignSettings.supplierOrders = stored.supplierOrders.filter(entry =>
+				entry && typeof entry.id === 'string' && typeof entry.characterId === 'string' &&
+				['pokemon', 'equipment'].includes(entry.itemKind) &&
 				['pending', 'accepted', 'rejected'].includes(entry.status));
 			if (Array.isArray(stored.customRecordRequests)) this.campaignSettings.customRecordRequests =
 				stored.customRecordRequests.filter(entry => entry && typeof entry.id === 'string' &&
@@ -1811,6 +1826,127 @@ export class RPGLoginService {
 		return { events: structuredClone(this.campaignSettings.events) };
 	}
 
+	private supplierCatalog() {
+		const pokemonItems = RPGItems.list().filter(item => item.source !== 'custom' &&
+			Number.isSafeInteger(item.price?.buy) && (item.price?.buy || 0) > 0 &&
+			!['key', 'custom'].includes(item.category) && item.id !== 'masterball' &&
+			!item.tags?.some(tag => ['mission', 'fossil', 'megastone', 'unique', 'restricted'].includes(tag)))
+			.map(item => ({ id: item.id, name: item.name, category: item.category,
+				kind: 'pokemon' as const, price: item.price!.buy!, icon: getRPGItemIconPath(item.id),
+				sprite: Number.isInteger(Dex.items.get(item.id).spritenum) ? Dex.items.get(item.id).spritenum! : null,
+				tags: item.tags || [] }));
+		const equipment = Object.values(RPG_EQUIPMENT_CATALOG).filter(item => item.rarity === 'common' &&
+			item.legality === 'free' && !item.vehicle && item.price > 0)
+			.map(item => ({ id: item.id, name: item.name, category: 'trainer-equipment',
+				kind: 'equipment' as const, price: item.price, icon: null, sprite: null, tags: ['trainer-equipment'] }));
+		return [...pokemonItems, ...equipment].map(item => ({ ...item,
+			orderPrice: Math.ceil(item.price * 1.2) }));
+	}
+
+	getSupplierCatalog(token: string) {
+		const session = this.getSession(token);
+		const characterId = session.role === 'master' ? session.viewAsCharacterId : session.characterId;
+		const record = characterId && this.requireCharacter(toID(characterId));
+		const sheet = record && record.state.trainerSheet;
+		if (session.mode !== 'player' || !session.platformTableId || record?.tableId !== session.platformTableId ||
+			sheet?.status !== 'complete' ||
+			sheet.classId !== 'diplomata' || !sheet.talents.class.includes('diplomata:canal-oficial')) {
+			throw new Error('Rede de Fornecedores indisponível');
+		}
+		return { items: this.supplierCatalog() };
+	}
+
+	requestSupplierOrder(token: string, input: { requestId: string, itemId: string, itemKind: 'pokemon' | 'equipment' }) {
+		const session = this.getSession(token);
+		if (session.mode !== 'player' || !session.platformTableId) throw new Error('Entre como jogador em uma mesa');
+		const characterId = session.role === 'master' ? session.viewAsCharacterId : session.characterId;
+		if (!characterId) throw new Error('Nenhum personagem selecionado');
+		const record = this.requireCharacter(toID(characterId));
+		const sheet = record.state.trainerSheet;
+		if (record.tableId !== session.platformTableId || sheet?.status !== 'complete' ||
+			sheet.classId !== 'diplomata' || !sheet.talents.class.includes('diplomata:canal-oficial')) {
+			throw new Error('Rede de Fornecedores indisponível');
+		}
+		if (!/^[a-zA-Z0-9_-]{8,100}$/.test(input.requestId)) throw new Error('Identificador da encomenda inválido');
+		const prior = this.campaignSettings.supplierOrders.find(entry => entry.id === input.requestId);
+		if (prior) {
+			if (prior.characterId !== record.state.id || prior.itemId !== input.itemId ||
+				prior.itemKind !== input.itemKind) throw new Error('Identificador da encomenda já utilizado');
+			return { order: structuredClone(prior), repeated: true };
+		}
+		if (this.campaignSettings.supplierOrders.some(entry => entry.characterId === record.state.id &&
+			entry.status === 'pending')) throw new Error('Já existe uma encomenda aguardando avaliação');
+		const item = this.supplierCatalog().find(entry => entry.id === input.itemId && entry.kind === input.itemKind);
+		if (!item) throw new Error('Item indisponível para encomenda');
+		const order: RPGSupplierOrder = { id: input.requestId, characterId: record.state.id,
+			characterName: record.state.characterName, itemId: item.id, itemName: item.name,
+			itemKind: item.kind, price: item.orderPrice, icon: item.icon, sprite: item.sprite,
+			requestedAt: this.campaignSettings.currentDateTime,
+			status: 'pending' };
+		this.campaignSettings.supplierOrders.push(order);
+		try { this.persistAtomically(() => this.persistCampaignSettings()); } catch (error) {
+			this.campaignSettings.supplierOrders.pop(); throw error;
+		}
+		return { order: structuredClone(order), repeated: false };
+	}
+
+	decideSupplierOrder(token: string, id: string, accepted: boolean) {
+		this.requireMasterRole(token);
+		const order = this.campaignSettings.supplierOrders.find(entry => entry.id === id);
+		if (!order || typeof accepted !== 'boolean') throw new Error('Encomenda ou decisão inválida');
+		if (order.status !== 'pending') return { order: structuredClone(order), repeated: true };
+		const record = this.requireCharacter(order.characterId);
+		const previous = structuredClone(record);
+		const working = structuredClone(record);
+		const previousOrder = structuredClone(order);
+		const active = !!record.tableId && !!record.accountId &&
+			this.accounts.repository.getMembership(record.tableId, record.accountId)?.status === 'active';
+		if (accepted && (!active || record.state.trainerSheet?.status !== 'complete' ||
+			!record.state.trainerSheet.talents.class.includes('diplomata:canal-oficial'))) {
+			throw new Error('Treinador indisponível para receber a encomenda');
+		}
+		const insufficient = accepted && record.state.money < order.price;
+		order.status = accepted && !insufficient ? 'accepted' : 'rejected';
+		order.decidedAt = this.campaignSettings.currentDateTime;
+		if (insufficient) order.reason = 'Pokécoins insuficientes; encomenda cancelada.';
+		if (order.status === 'accepted') {
+			const item = this.supplierCatalog().find(entry => entry.id === order.itemId && entry.kind === order.itemKind);
+			if (!item) {
+				Object.assign(order, previousOrder); throw new Error('Item da encomenda não está mais disponível; recuse o pedido');
+			}
+			try {
+				if (order.itemKind === 'pokemon') {
+					working.state.inventory = { ...working.state.inventory, bag: RPGBagSystem.add(
+						working.state.inventory.bag, order.itemId, 1, working.state.inventory.bag.revision).bag };
+				} else {
+					const inventory = this.ensureTrainerInventory(working);
+					const definition = rpgEquipment(order.itemId);
+					const stack = inventory.items.find(entry => entry.itemId === definition.id && entry.location === 'bag' &&
+						!entry.equipped && entry.quantity < definition.stackLimit && entry.charges === undefined);
+					if (stack) stack.quantity++;
+					else inventory.items.push({ id: secureRandomBytes(12).toString('hex'), itemId: definition.id,
+						quantity: 1, location: 'bag', equipped: false,
+						...(definition.maxCharges !== undefined ? { charges: definition.maxCharges } : {}) });
+					inventory.revision++;
+				}
+				working.state.money -= order.price;
+				working.state.updatedAt = this.now();
+				this.validateTrainerInventory(working);
+			} catch (error) { Object.assign(order, previousOrder); throw error; }
+		}
+		try {
+			this.persistAtomically(() => {
+				if (order.status === 'accepted') this.repository.set(working);
+				this.persistCampaignSettings();
+			});
+		} catch (error) {
+			Object.assign(order, previousOrder);
+			this.repository.set(previous);
+			throw error;
+		}
+		return { order: structuredClone(order), money: working.state.money };
+	}
+
 	createScientificPublication(token: string, input: { requestId: string, title: string, summary: string }) {
 		const session = this.getSession(token);
 		if (session.mode !== 'player' || !session.platformTableId) {
@@ -2663,6 +2799,24 @@ export class RPGLoginService {
 			capturePlan: sheet.talents.class.includes('detetive:plano-de-captura') ? {
 				plan: sheet.capturePlan || null,
 				recipients: this.trainerArchiveRecipients(token),
+			} : null,
+			introductionLetter: sheet.talents.class.includes('diplomata:carta-de-apresentacao') ? {
+				letter: sheet.introductionLetter || null,
+				recipients: this.trainerArchiveRecipients(token).filter(person => person.id !== state.id),
+			} : null,
+			diplomatProxy: sheet.talents.apex === 'diplomata:acordo-impossivel' ? {
+				preparation: sheet.diplomatProxy || null,
+				recipients: this.trainerArchiveRecipients(token).filter(person => person.id !== state.id),
+				proficiency: rpgTrainerProficiency(sheet.level),
+				currentDateTime: this.campaignSettings.currentDateTime,
+			} : null,
+			cosmopolitanEtiquette: sheet.talents.class.includes('diplomata:etiqueta-cosmopolita') ? {
+				orientation: sheet.cosmopolitanEtiquette || null,
+				recipients: this.trainerArchiveRecipients(token).filter(person => person.id !== state.id),
+			} : null,
+			supplierOrder: sheet.talents.class.includes('diplomata:canal-oficial') ? {
+				pending: this.campaignSettings.supplierOrders.find(entry =>
+					entry.characterId === state.id && entry.status === 'pending') || null,
 			} : null,
 			publication: sheet.talents.class.includes('cientista:publicacao-de-referencia') ? {
 				accepted: this.campaignSettings.publications.filter(entry =>
@@ -3628,6 +3782,46 @@ export class RPGLoginService {
 		return { name: sheet.trustedPartnerName };
 	}
 
+	setTrainerCosmopolitanEtiquette(token: string, community: string, dc: number,
+		recipientCharacterIds: string[]) {
+		const session = this.getSession(token);
+		if (session.mode !== 'player' || !session.platformTableId) throw new Error('Entre como jogador em uma mesa');
+		const actorId = session.role === 'master' ? session.viewAsCharacterId : session.characterId;
+		if (!actorId) throw new Error('Nenhum personagem selecionado');
+		const record = this.requireCharacter(toID(actorId));
+		if (record.tableId !== session.platformTableId) throw new Error('Personagem fora da mesa atual');
+		const sheet = record.state.trainerSheet;
+		if (sheet?.status !== 'complete' || sheet.classId !== 'diplomata' ||
+			!sheet.talents.class.includes('diplomata:etiqueta-cosmopolita') ||
+			!sheet.skills.trained.includes('conhecimento:regioes')) {
+			throw new Error('Etiqueta Cosmopolita indisponível');
+		}
+		if (typeof community !== 'string' || !community.trim() || community.trim().length > 80) {
+			throw new Error('Informe a comunidade em até 80 caracteres');
+		}
+		if (![10, 15, 20].includes(dc)) throw new Error('Escolha uma das três CDs da comunidade');
+		if (!Array.isArray(recipientCharacterIds) || recipientCharacterIds.some(id => typeof id !== 'string') ||
+			new Set(recipientCharacterIds).size !== recipientCharacterIds.length ||
+				recipientCharacterIds.length > rpgTrainerProficiency(sheet.level)) {
+			throw new Error('Escolha até seu bônus de proficiência em aliados diferentes');
+		}
+		const valid = new Set(this.trainerArchiveRecipients(token).filter(person => person.id !== record.state.id)
+			.map(person => person.id));
+		if (recipientCharacterIds.some(id => !valid.has(id))) throw new Error('Aliado indisponível nesta mesa');
+		const roll = rollRPGTrainerSkillCheck(sheet, 'conhecimento:regioes', undefined, { dc }, this.random);
+		if (roll.success) {
+			const previous = structuredClone(record);
+			sheet.cosmopolitanEtiquette = {
+				community: community.trim(), recipientCharacterIds: [record.state.id, ...recipientCharacterIds],
+			};
+			record.state.updatedAt = this.now();
+			try { this.persistAtomically(() => this.repository.set(record)); } catch (error) {
+				this.repository.set(previous); throw error;
+			}
+		}
+		return { roll, orientation: structuredClone(sheet.cosmopolitanEtiquette || null) };
+	}
+
 	setTrainerCaptainPlan(token: string, recipientCharacterIds: string[]) {
 		const session = this.getSession(token);
 		if (session.mode !== 'player' || !session.platformTableId) throw new Error('Entre como jogador em uma mesa');
@@ -3692,6 +3886,128 @@ export class RPGLoginService {
 			this.repository.set(original); throw error;
 		}
 		return { plan: structuredClone(sheet.capturePlan || null) };
+	}
+
+	setTrainerIntroductionLetter(token: string, recipientCharacterId: string, institution: string, subject: string) {
+		const session = this.getSession(token);
+		if (session.mode !== 'player' || !session.platformTableId) throw new Error('Entre como jogador em uma mesa');
+		const actorId = session.role === 'master' ? session.viewAsCharacterId : session.characterId;
+		if (!actorId) throw new Error('Nenhum personagem selecionado');
+		const record = this.requireCharacter(toID(actorId));
+		if (record.tableId !== session.platformTableId) throw new Error('Personagem fora da mesa atual');
+		const sheet = record.state.trainerSheet;
+		if (sheet?.status !== 'complete' || sheet.classId !== 'diplomata' ||
+			!sheet.talents.class.includes('diplomata:carta-de-apresentacao')) {
+			throw new Error('Este treinador não possui Carta de Apresentação');
+		}
+		if (typeof recipientCharacterId !== 'string' || typeof institution !== 'string' ||
+			typeof subject !== 'string') throw new Error('Dados da carta inválidos');
+		const recipientId = toID(recipientCharacterId);
+		if (recipientId) {
+			if (recipientId === record.state.id || !this.trainerArchiveRecipients(token)
+				.some(person => person.id === recipientId)) throw new Error('Escolha um aliado ativo nesta mesa');
+			if (!institution.trim() || institution.trim().length > 80 ||
+				!subject.trim() || subject.trim().length > 160) {
+				throw new Error('Informe a instituição e o assunto da carta nos limites indicados');
+			}
+		} else if (institution.trim() || subject.trim()) throw new Error('Escolha o destinatário da carta');
+		const previous = structuredClone(record);
+		sheet.introductionLetter = recipientId ? { id: secureRandomBytes(12).toString('hex'), recipientCharacterId: recipientId,
+			institution: institution.trim(), subject: subject.trim(), used: false } : undefined;
+		record.state.updatedAt = this.now();
+		try { this.persistAtomically(() => this.repository.set(record)); } catch (error) {
+			this.repository.set(previous); throw error;
+		}
+		return { letter: structuredClone(sheet.introductionLetter || null) };
+	}
+
+	setTrainerDiplomatProxy(token: string, recipients: {
+		characterId: string, proposal: string, audience: string,
+	}[]) {
+		const session = this.getSession(token);
+		if (session.mode !== 'player' || !session.platformTableId) throw new Error('Entre como jogador em uma mesa');
+		const actorId = session.role === 'master' ? session.viewAsCharacterId : session.characterId;
+		if (!actorId) throw new Error('Nenhum personagem selecionado');
+		const record = this.requireCharacter(toID(actorId));
+		if (record.tableId !== session.platformTableId) throw new Error('Personagem fora da mesa atual');
+		const sheet = record.state.trainerSheet;
+		if (sheet?.status !== 'complete' || sheet.classId !== 'diplomata' ||
+			sheet.talents.apex !== 'diplomata:acordo-impossivel') {
+			throw new Error('Este treinador não possui Voz por Procuração');
+		}
+		if (!Array.isArray(recipients) || recipients.length > rpgTrainerProficiency(sheet.level) ||
+			recipients.some(entry => !entry || typeof entry.characterId !== 'string' ||
+				typeof entry.proposal !== 'string' || typeof entry.audience !== 'string')) {
+			throw new Error('Escolha até seu bônus de proficiência em aliados diferentes');
+		}
+		const ids = recipients.map(entry => toID(entry.characterId));
+		const valid = new Set(this.trainerArchiveRecipients(token).filter(person => person.id !== record.state.id)
+			.map(person => person.id));
+		if (new Set(ids).size !== ids.length || ids.some(id => !id || !valid.has(id))) {
+			throw new Error('Aliado indisponível ou repetido nesta mesa');
+		}
+		if (recipients.some(entry => !entry.proposal.trim() || entry.proposal.trim().length > 160 ||
+			!entry.audience.trim() || entry.audience.trim().length > 100)) {
+			throw new Error('Informe a proposta e o interlocutor de cada aliado nos limites indicados');
+		}
+		const previous = structuredClone(record);
+		const readyAt = Date.parse(this.campaignSettings.currentDateTime) + 10 * 60_000;
+		if (!Number.isFinite(readyAt)) throw new Error('Relógio da campanha indisponível');
+		sheet.diplomatProxy = recipients.length ? {
+			id: secureRandomBytes(12).toString('hex'), readyAt: new Date(readyAt).toISOString(),
+			expiresAt: new Date(readyAt + 24 * 60 * 60_000).toISOString(),
+			recipients: recipients.map((entry, index) => ({ characterId: ids[index],
+				proposal: entry.proposal.trim(), audience: entry.audience.trim(), used: false })),
+		} : undefined;
+		record.state.updatedAt = this.now();
+		try { this.persistAtomically(() => this.repository.set(record)); } catch (error) {
+			this.repository.set(previous); throw error;
+		}
+		return { preparation: structuredClone(sheet.diplomatProxy || null) };
+	}
+
+	consumeTrainerDiplomatProxyRoll(token: string, characterId: string, keys: readonly string[]): void {
+		const session = this.getSession(token);
+		if (!session.platformTableId) return;
+		for (const key of keys.filter(value => value.startsWith('diplomata:acordo-impossivel@'))) {
+			const [sourceId, preparationId] = key.split('@')[1].split(':');
+			const original = this.repository.get(sourceId);
+			if (!original || original.tableId !== session.platformTableId || !original.accountId ||
+				this.accounts.repository.getMembership(session.platformTableId, original.accountId)?.status !== 'active') continue;
+			const source = structuredClone(original);
+			const preparation = source.state.trainerSheet?.diplomatProxy;
+			const target = preparation?.recipients.find(entry => entry.characterId === characterId && !entry.used);
+			if (!preparation || preparation.id !== preparationId || !target ||
+				Date.parse(preparation.readyAt) > Date.parse(this.campaignSettings.currentDateTime) ||
+				Date.parse(preparation.expiresAt) <= Date.parse(this.campaignSettings.currentDateTime)) continue;
+			target.used = true;
+			source.state.updatedAt = this.now();
+			try { this.persistAtomically(() => this.repository.set(source)); } catch (error) {
+				this.repository.set(original); throw error;
+			}
+		}
+	}
+
+	consumeTrainerIntroductionLetterRoll(token: string, characterId: string, keys: readonly string[]): void {
+		const session = this.getSession(token);
+		if (!session.platformTableId) return;
+		for (const key of keys.filter(value => value.startsWith('diplomata:carta-de-apresentacao@'))) {
+			const [sourceId, letterId] = key.split('@')[1].split(':');
+			const original = this.repository.get(sourceId);
+			if (!original || original.tableId !== session.platformTableId || !original.accountId ||
+				this.accounts.repository.getMembership(session.platformTableId, original.accountId)?.status !== 'active') continue;
+			const source = structuredClone(original);
+			const sheet = source.state.trainerSheet;
+			if (sheet?.classId !== 'diplomata' || !sheet.talents.class.includes('diplomata:carta-de-apresentacao') ||
+				!sheet.introductionLetter || sheet.introductionLetter.used ||
+				sheet.introductionLetter.id !== letterId ||
+				sheet.introductionLetter.recipientCharacterId !== characterId) continue;
+			sheet.introductionLetter.used = true;
+			source.state.updatedAt = this.now();
+			try { this.persistAtomically(() => this.repository.set(source)); } catch (error) {
+				this.repository.set(original); throw error;
+			}
+		}
 	}
 
 	consumeTrainerCapturePlanRoll(token: string, characterId: string, keys: readonly string[]): void {
@@ -3805,8 +4121,11 @@ export class RPGLoginService {
 	}
 
 	/** Exibe apenas treinadores de contas ativas da mesa atual; a mesma busca valida a rolagem. */
-	getTrainerAllyRollTalents(token: string, characterId: string) {
+	getTrainerAllyRollTalents(token: string, characterId: string, attribute?: RPGTrainerAttribute) {
 		return [...this.detectiveDuoOptions(token, characterId),
+			...this.diplomatProxyOptions(token, characterId, attribute),
+			...this.cosmopolitanEtiquetteOptions(token, characterId),
+			...this.diplomatIntroductionOptions(token, characterId),
 			...this.encouragingPresenceOptions(token, characterId),
 			...this.choreographyGroupOptions(token, characterId),
 			...this.teamCaptainOptions(token, characterId),
@@ -3817,6 +4136,47 @@ export class RPGLoginService {
 			...this.captivatingDistractionOptions(token, characterId),
 			...this.excavationMasterOptions(token, characterId),
 			...this.sharedArchiveOptions(token, characterId)];
+	}
+
+	private diplomatProxyOptions(token: string, characterId: string, attribute?: RPGTrainerAttribute) {
+		const session = this.getSession(token);
+		if (!session.platformTableId) return [];
+		const recipient = this.repository.get(characterId);
+		if (!recipient || recipient.tableId !== session.platformTableId || !recipient.state.trainerSheet) return [];
+		return this.repository.list().filter(record => record.state.id !== characterId &&
+			record.tableId === session.platformTableId && record.accountId &&
+			this.accounts.repository.getMembership(session.platformTableId!, record.accountId)?.status === 'active')
+			.flatMap(record => {
+				const option = record.state.trainerSheet && rpgDiplomatProxyOption(record.state.id,
+					record.state.characterName, record.state.trainerSheet, characterId,
+					recipient.state.trainerSheet!, this.campaignSettings.currentDateTime, attribute);
+				return option ? [option] : [];
+			});
+	}
+
+	private cosmopolitanEtiquetteOptions(token: string, characterId: string) {
+		const session = this.getSession(token);
+		if (!session.platformTableId) return [];
+		return this.repository.list().filter(record => record.tableId === session.platformTableId &&
+			record.accountId && this.accounts.repository.getMembership(session.platformTableId!,
+			record.accountId)?.status === 'active').flatMap(record => {
+			const option = record.state.trainerSheet && rpgCosmopolitanEtiquetteOption(record.state.id,
+				record.state.characterName, record.state.trainerSheet, characterId);
+			return option ? [option] : [];
+		});
+	}
+
+	private diplomatIntroductionOptions(token: string, characterId: string) {
+		const session = this.getSession(token);
+		if (!session.platformTableId) return [];
+		return this.repository.list().filter(record => record.state.id !== characterId &&
+			record.tableId === session.platformTableId && record.accountId &&
+			this.accounts.repository.getMembership(session.platformTableId!, record.accountId)?.status === 'active')
+			.flatMap(record => {
+				const option = record.state.trainerSheet && rpgDiplomatIntroductionOption(record.state.id,
+					record.state.characterName, record.state.trainerSheet, characterId);
+				return option ? [option] : [];
+			});
 	}
 
 	private detectiveDuoOptions(token: string, characterId: string) {
@@ -4433,18 +4793,19 @@ export class RPGLoginService {
 		return { result, bonus, talents: talents.chosen };
 	}
 
-	consumeTrainerHelp(token: string, skill: string): { bonus: number, helperName: string } | null {
+	consumeTrainerHelp(token: string, skill: string, excludedHelperId?: string):
+	{ bonus: number, helperName: string } | null {
 		const session = this.getSession(token);
 		const actorId = session.viewAsCharacterId || session.characterId;
 		if (session.mode !== 'player' || !actorId) throw new Error('Entre como jogador para receber ajuda');
 		const available = this.campaignSettings.trainerHelp.filter(entry =>
-			entry.skill === skill && entry.characterId !== actorId);
+			entry.skill === skill && entry.characterId !== actorId && entry.characterId !== excludedHelperId);
 		if (!available.length) return null;
 		const best = available.reduce((winner, entry) => entry.bonus > winner.bonus ? entry : winner);
 		const helperName = this.repository.get(best.characterId)?.state.characterName || 'Personagem';
 		this.persistAtomically(() => {
 			this.campaignSettings.trainerHelp = this.campaignSettings.trainerHelp.filter(entry =>
-				entry.skill !== skill || entry.characterId === actorId);
+				entry.skill !== skill || entry.characterId === actorId || entry.characterId === excludedHelperId);
 			this.persistCampaignSettings();
 		});
 		return { bonus: best.bonus, helperName };

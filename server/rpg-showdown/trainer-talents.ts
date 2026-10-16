@@ -27,6 +27,7 @@ const RESISTANCE_NAMES: Readonly<Record<string, RPGTrainerResistance>> = {
 };
 const TRAINED_SKILL_PREREQUISITES: Readonly<Record<string, string>> = {
 	'cozinheiro:petisco-de-amizade': 'conhecimento:pokemon',
+	'diplomata:etiqueta-cosmopolita': 'conhecimento:regioes',
 	'explorador:guia-de-montaria': 'montaria-pokemon',
 	'medico:medicina-integrada': 'medicina-pokemon',
 	'escalador-treinado': 'atletismo',
@@ -70,7 +71,7 @@ const EXPLORER_TERRAINS = new Set(['floresta', 'montanha', 'deserto', 'pantano',
 const ACCLIMATION_ENVIRONMENTS = new Set(['frio', 'calor', 'altitude', 'floresta-umida',
 	'deserto', 'regiao-costeira']);
 export const RPG_TALENT_APPROVAL_KEYS = new Set([
-	'diplomata:reputacao-precedente', 'dominio-de-arma:armas-ranged-exoticas',
+	'dominio-de-arma:armas-ranged-exoticas',
 ]);
 const REPEATABLE: Readonly<Record<string, number>> = {
 	'artista:tecnica-assinatura': 4, 'atleta:especialidade-esportiva': 4,
@@ -141,6 +142,7 @@ function validSkill(skill: string): boolean {
 function allowedAttributeChoices(talent: RPGTrainerTalentDefinition): (keyof RPGTrainerAttributes)[] {
 	// Aumentos fixos pertencem à própria regra e não exigem escolha de atributo.
 	if (['arqueologo:memoria-academica', 'cientista:hipotese-persistente', 'artista:presenca-magnetica',
+		'diplomata:porta-voz-reconhecido',
 		'artista:corpo-de-cena', 'coreografo:leitura-cinetica',
 		'criador-pokemon:incubacao-de-emergencia', 'criador-pokemon:mestre-do-bercario',
 		'coreografo:preparacao-corporal-conjunta'].includes(talent.id)) return [];
@@ -209,10 +211,6 @@ function prerequisiteError(sheet: RPGTrainerSheet, talent: RPGTrainerTalentDefin
 	}
 	if (talent.id === 'competencia-pratica' && (!choice.skill || !sheet.skills.trained.includes(choice.skill))) {
 		return 'Competência Prática exige uma perícia treinada';
-	}
-	if (talent.id === 'diplomata:reputacao-precedente' &&
-		!sheet.talentApprovals?.some(approval => approval.key === talent.id)) {
-		return 'Os favores institucionais devem ser verificados pelo Mestre antes da aquisição';
 	}
 	if (talent.id === 'cientista:producao-farmaceutica-pokemon' &&
 		!sheet.skills.trained.some(skill => skill.startsWith('conhecimento:'))) {
@@ -310,6 +308,9 @@ function applyTalentEffect(sheet: RPGTrainerSheet, talent: RPGTrainerTalentDefin
 		next.nurseryMasterWisdomApplied = true;
 	}
 	if (talent.id === 'artista:presenca-magnetica') {
+		attributes.charisma = Math.min(20, attributes.charisma + 1);
+	}
+	if (talent.id === 'diplomata:porta-voz-reconhecido') {
 		attributes.charisma = Math.min(20, attributes.charisma + 1);
 	}
 	if (talent.id === 'artista:corpo-de-cena') {

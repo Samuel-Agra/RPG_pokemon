@@ -280,9 +280,16 @@
 			const grid = el('div', 'shop-cart-grid');
 			for (const entry of lines) {
 				const price = Number(activeTab === 'buy' ? entry.offer.buyPrice : entry.offer.sellPrice);
+				const originalPrice = Number(activeTab === 'buy' ?
+					entry.offer.buyPriceBeforeTalent : entry.offer.sellPriceBeforeTalent);
+				const talent = activeTab === 'buy' ? entry.offer.buyTalent : entry.offer.sellTalent;
 				const card = el('div', 'shop-cart-item');
 				card.append(itemIcon(entry.offer), el('strong', '', entry.offer.name),
 					el('span', '', '×' + entry.quantity), el('b', '', money(price * entry.quantity)));
+				if (talent && originalPrice !== price) {
+					card.append(el('span', 'shop-cart-benefit', talent + ': ' +
+					money(originalPrice * entry.quantity) + ' → ' + money(price * entry.quantity)));
+				}
 				grid.append(card);
 			}
 			confirm.addEventListener('click', async () => {
