@@ -134,6 +134,12 @@ const RULES: Readonly<Record<string, Rule>> = {
 		condition: 'Procurar uma pessoa ou Pokémon desaparecido fora de combate.' },
 	'explorador:linha-de-vida': { targets: ['skill:atletismo', 'skill:acrobacia'], bonus: 2,
 		condition: 'Atravessar obstáculo natural com auxílio preparado pelo Explorador usando Kit de Sobrevivência.' },
+	'fotografo:sequencia-de-acao': { targets: ['skill:investigacao'], bonus: 2,
+		condition: 'Reconstruir acontecimento visível em uma sequência de imagens produzida com Registro Oportuno.' },
+	'fotografo:ampliacao-forense': { targets: ['skill:investigacao', 'skill:percepcao'], bonus: 2,
+		condition: 'Examinar por dez minutos fotografia de qualidade adequada para encontrar detalhes visuais registrados.' },
+	'fotografo:credencial-de-imprensa': { targets: ['skill:investigacao'], bonus: 2,
+		condition: 'Uma vez por evento coberto: comparar material oficial ou resposta do porta-voz com as próprias fotografias para buscar uma discrepância sustentada pelas evidências.' },
 	'fotografo:panorama-de-reconhecimento': { targets: ['skill:investigacao', 'skill:percepcao', 'skill:sobrevivencia'], bonus: 2,
 		condition: 'Primeiro teste após consultar panorama da área.' },
 	'guarda-pokemon:patrulha-atenta': { targets: ['skill:percepcao'], bonus: 2,
@@ -166,8 +172,9 @@ const RULES: Readonly<Record<string, Rule>> = {
 		condition: 'Pokémon com amizade necessária ajuda fora de combate de modo coerente.' },
 	'mestre-pokemon:pontaria-paciente': { targets: ['skill:captura'], advantage: true,
 		condition: 'Arremesso após observar o alvo; aplique apenas quando a regra de captura permitir.' },
-	'fotografo:fotografo-de-lendas': { targets: ['skill:persuasao', 'skill:enganacao', 'skill:atuacao'], bonus: 2,
-		condition: 'Conseguir acesso ou informação sobre descoberta extraordinária documentada.' },
+	'fotografo:fotografo-de-lendas': { targets: ['skill:persuasao', 'skill:enganacao',
+		'skill:intimidacao', 'skill:atuacao'], bonus: 2,
+	condition: 'Conseguir audiência, acesso ou informações diretamente relacionadas à descoberta extraordinária registrada pessoalmente em uma Fotografia Lendária.' },
 	'tecnologo:especializacao-tecnica': { targets: ['skill:tecnologia'], bonus: 2, perVariant: true,
 		condition: 'Tarefa diretamente relacionada à área técnica escolhida.' },
 	'reflexo-de-sobrevivencia': { targets: ['resistance:reflexes'], bonus: 2,
@@ -255,6 +262,12 @@ export function rpgTrainerRollTalents(sheet: RPGTrainerSheet): RPGTrainerRollTal
 			name: 'Rastreador Persistente', bonus: 2, advantage: false,
 			condition: 'Encontrar, seguir ou retomar rastros e interpretar sinais de passagem em ambiente natural.',
 			targets: ['skill:sobrevivencia'] });
+	}
+	if (sheet.status === 'complete' && sheet.classId === 'fotografo') {
+		options.push({ key: 'fotografo:olhar-pela-lente', id: 'fotografo:olhar-pela-lente',
+			name: 'Olhar pela Lente', bonus: 2, advantage: false,
+			condition: 'Percepção visual através de equipamento fotográfico apropriado; não se aplica a outros sentidos.',
+			targets: ['skill:percepcao'] });
 	}
 	if (sheet.comfortingArt && sheet.comfortingArt.restCycle === (sheet.talentRestCycle || 0)) {
 		options.push({ key: `artista:arte-reconfortante@${sheet.comfortingArt.sourceCharacterId}`,
@@ -370,6 +383,29 @@ export function rpgTechnicalOpinionOption(allyId: string, allyName: string,
 		condition: 'Um único teste diretamente relacionado a uma análise concluída com Método Científico; ' +
 			'você deve seguir a orientação específica do Cientista antes que as condições mudem.',
 		targets: ['skill:*'] };
+}
+
+/** Quem analisa a sequência feita pelo Fotógrafo pode reconstruir o acontecimento. */
+export function rpgPhotographicSequenceOption(allyId: string, allyName: string,
+	ally: RPGTrainerSheet): RPGTrainerRollTalent | null {
+	if (ally.status !== 'complete' || ally.classId !== 'fotografo' ||
+		!ally.talents.class.includes('fotografo:sequencia-de-acao')) return null;
+	return { key: `fotografo:sequencia-de-acao@${allyId}`, id: 'fotografo:sequencia-de-acao',
+		name: `Sequência de Ação de ${allyName}`, bonus: 2, advantage: false,
+		condition: 'Reconstruir acontecimento visível na sequência de imagens produzida pelo Fotógrafo com Registro Oportuno.',
+		targets: ['skill:investigacao'] };
+}
+
+/** O panorama pode orientar o primeiro teste pertinente de qualquer treinador que o consulte. */
+export function rpgPhotographicPanoramaOption(allyId: string, allyName: string,
+	ally: RPGTrainerSheet): RPGTrainerRollTalent | null {
+	if (ally.status !== 'complete' || ally.classId !== 'fotografo' ||
+		!ally.talents.class.includes('fotografo:panorama-de-reconhecimento')) return null;
+	return { key: `fotografo:panorama-de-reconhecimento@${allyId}`,
+		id: 'fotografo:panorama-de-reconhecimento',
+		name: `Panorama de Reconhecimento de ${allyName}`, bonus: 2, advantage: false,
+		condition: 'Primeiro teste de navegação ou análise visual do local após consultar o panorama produzido pelo Fotógrafo; mudanças posteriores podem torná-lo obsoleto.',
+		targets: ['skill:investigacao', 'skill:percepcao', 'skill:sobrevivencia'] };
 }
 
 export function rpgTeamCaptainOption(allyId: string, allyName: string,

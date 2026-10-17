@@ -13,6 +13,8 @@ const { rpgTrainerRollTalentOptions, rpgResolveTrainerRollTalents, rpgTrainerRol
 	rpgTechnicalOpinionOption,
 	rpgExpeditionLeaderOption,
 	rpgExplorerLifelineOption,
+	rpgPhotographicSequenceOption,
+	rpgPhotographicPanoramaOption,
 	rpgExcavationMasterOption,
 	rpgSetSharedArchive, rpgSharedArchiveOptions } =
 	require('../../dist/server/rpg-showdown/trainer-roll-talents');
@@ -65,6 +67,89 @@ describe('RPG trainer situational roll talents', () => {
 			[options[0].key]).bonus, 2);
 		assert.deepEqual(rpgTrainerRollTalentOptions(explorer, 'skill', 'percepcao'), []);
 		assert.deepEqual(rpgTrainerRollTalentOptions(sheet(), 'skill', 'sobrevivencia'), []);
+	});
+	it('oferece Olhar pela Lente apenas em Percepção visual do Fotógrafo', () => {
+		const photographer = { ...sheet(), classId: 'fotografo' };
+		const options = rpgTrainerRollTalentOptions(photographer, 'skill', 'percepcao');
+		assert.deepEqual(options.map(option => option.id), ['fotografo:olhar-pela-lente']);
+		assert.match(options[0].condition, /equipamento fotográfico apropriado/);
+		assert.equal(rpgResolveTrainerRollTalents(photographer, 'skill', 'percepcao', []).bonus, 0);
+		assert.equal(rpgResolveTrainerRollTalents(photographer, 'skill', 'percepcao',
+			[options[0].key]).bonus, 2);
+		assert.deepEqual(rpgTrainerRollTalentOptions(photographer, 'skill', 'investigacao'), []);
+		assert.deepEqual(rpgTrainerRollTalentOptions(sheet(), 'skill', 'percepcao'), []);
+	});
+	it('oferece Sequência de Ação ao Fotógrafo e aliados apenas em Investigação', () => {
+		const photographer = { ...sheet(), classId: 'fotografo', talents: { general: [],
+			class: ['fotografo:sequencia-de-acao'], apex: null } };
+		const own = rpgTrainerRollTalentOptions(photographer, 'skill', 'investigacao');
+		assert.equal(own.find(option => option.id === 'fotografo:sequencia-de-acao').bonus, 2);
+		const ally = rpgPhotographicSequenceOption('foto-1', 'Lia', photographer);
+		assert.equal(ally.bonus, 2);
+		assert.equal(rpgResolveTrainerRollTalents(sheet(), 'skill', 'investigacao', [ally.key], [ally]).bonus, 2);
+		assert.equal(rpgPhotographicSequenceOption('foto-1', 'Lia', sheet()), null);
+		assert.equal(rpgTrainerRollTalentOptions(photographer, 'skill', 'percepcao')
+			.some(option => option.id === 'fotografo:sequencia-de-acao'), false);
+	});
+	it('oferece Ampliação Forense apenas em Investigação e Percepção visual', () => {
+		const photographer = { ...sheet(), classId: 'fotografo', talents: { general: [],
+			class: ['fotografo:ampliacao-forense'], apex: null } };
+		for (const skill of ['investigacao', 'percepcao']) {
+			const option = rpgTrainerRollTalentOptions(photographer, 'skill', skill)
+				.find(entry => entry.id === 'fotografo:ampliacao-forense');
+			assert.equal(option.bonus, 2);
+			assert.equal(rpgResolveTrainerRollTalents(photographer, 'skill', skill, [option.key]).bonus, 2);
+		}
+		assert.deepEqual(rpgTrainerRollTalentOptions(photographer, 'skill', 'atletismo'), []);
+	});
+	it('oferece Credencial de Imprensa apenas na Investigação do Fotógrafo que a adquiriu', () => {
+		const photographer = { ...sheet(), classId: 'fotografo', talents: { general: [],
+			class: ['fotografo:credencial-de-imprensa'], apex: null } };
+		const option = rpgTrainerRollTalentOptions(photographer, 'skill', 'investigacao')
+			.find(entry => entry.id === 'fotografo:credencial-de-imprensa');
+		assert.equal(option.bonus, 2);
+		assert.match(option.condition, /Uma vez por evento coberto/);
+		assert.equal(rpgResolveTrainerRollTalents(photographer, 'skill', 'investigacao', []).bonus, 0);
+		assert.equal(rpgResolveTrainerRollTalents(photographer, 'skill', 'investigacao',
+			[option.key]).bonus, 2);
+		assert.deepEqual(rpgTrainerRollTalentOptions(photographer, 'skill', 'percepcao')
+			.filter(entry => entry.id === option.id), []);
+		assert.throws(() => rpgResolveTrainerRollTalents(sheet(), 'skill', 'investigacao',
+			[option.key]), /indisponível/);
+	});
+	it('oferece Panorama de Reconhecimento ao Fotógrafo e aliados nas três perícias indicadas', () => {
+		const photographer = { ...sheet(), classId: 'fotografo', talents: { general: [],
+			class: ['fotografo:panorama-de-reconhecimento'], apex: null } };
+		const ally = rpgPhotographicPanoramaOption('foto-1', 'Lia', photographer);
+		assert.equal(ally.bonus, 2);
+		assert.match(ally.condition, /Primeiro teste/);
+		for (const skill of ['investigacao', 'percepcao', 'sobrevivencia']) {
+			const own = rpgTrainerRollTalentOptions(photographer, 'skill', skill)
+				.find(option => option.id === 'fotografo:panorama-de-reconhecimento');
+			assert.equal(own.bonus, 2);
+			assert.equal(rpgResolveTrainerRollTalents(photographer, 'skill', skill, [own.key]).bonus, 2);
+			assert.equal(rpgResolveTrainerRollTalents(sheet(), 'skill', skill, [ally.key], [ally]).bonus, 2);
+		}
+		assert.equal(rpgPhotographicPanoramaOption('foto-1', 'Lia', sheet()), null);
+		assert.throws(() => rpgResolveTrainerRollTalents(sheet(), 'skill', 'atletismo',
+			[ally.key], [ally]), /indisponível/);
+	});
+	it('oferece Fotógrafo de Lendas somente em testes sociais relacionados à descoberta', () => {
+		const photographer = { ...sheet(), classId: 'fotografo', talents: { general: [],
+			class: [], apex: 'fotografo:fotografo-de-lendas' } };
+		for (const skill of ['persuasao', 'enganacao', 'intimidacao', 'atuacao']) {
+			const option = rpgTrainerRollTalentOptions(photographer, 'skill', skill)
+				.find(entry => entry.id === 'fotografo:fotografo-de-lendas');
+			assert.equal(option.bonus, 2);
+			assert.match(option.condition, /diretamente relacionadas à descoberta/);
+			assert.equal(rpgResolveTrainerRollTalents(photographer, 'skill', skill, []).bonus, 0);
+			assert.equal(rpgResolveTrainerRollTalents(photographer, 'skill', skill,
+				[option.key]).bonus, 2);
+		}
+		assert.equal(rpgTrainerRollTalentOptions(photographer, 'skill', 'investigacao')
+			.some(entry => entry.id === 'fotografo:fotografo-de-lendas'), false);
+		assert.throws(() => rpgResolveTrainerRollTalents(sheet(), 'skill', 'persuasao',
+			['fotografo:fotografo-de-lendas']), /indisponível/);
 	});
 	it('oferece Salão na Palma da Mão ao Encantador e aliados somente nas perícias sociais com Carisma', () => {
 		const enchanter = { ...sheet(), classId: 'encantador', talents: { general: [], class: [],

@@ -25,6 +25,17 @@ function ready(classId, level = 1, overrides = {}) {
 }
 
 describe('RPG trainer classes and talents', () => {
+	it('Ampliação Forense permite escolher Inteligência ou Sabedoria e aplica o aumento', () => {
+		const photographer = ready('fotografo', 3);
+		const option = rpgTrainerTalentCatalog(photographer)
+			.find(entry => entry.id === 'fotografo:ampliacao-forense');
+		assert.deepEqual(option.attributeChoices, ['intelligence', 'wisdom']);
+		assert.throws(() => chooseRPGTrainerTalent(photographer, { id: option.id }), /Escolha um atributo/);
+		for (const attribute of option.attributeChoices) {
+			const chosen = chooseRPGTrainerTalent(photographer, { id: option.id, attribute });
+			assert.equal(chosen.attributes[attribute], photographer.attributes[attribute] + 1);
+		}
+	});
 	it('exibe Mestre dos Biomas no antigo identificador sem perder escolhas salvas', () => {
 		const apex = RPG_TRAINER_TALENTS.find(entry => entry.id === 'explorador:instinto-de-descoberta');
 		assert.equal(apex.name, 'Ápice — Mestre dos Biomas');

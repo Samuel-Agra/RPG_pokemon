@@ -86,7 +86,7 @@ import { rpgArtisticInspirationOption, rpgCaptivatingDistractionOption, rpgEncou
 	rpgDiplomatProxyOption,
 	rpgCosmopolitanEtiquetteOption,
 	rpgChoreographyGroupOption,
-	rpgTechnicalOpinionOption,
+	rpgTechnicalOpinionOption, rpgPhotographicSequenceOption, rpgPhotographicPanoramaOption,
 	rpgResolveTrainerRollTalents, rpgSetSharedArchive, rpgUpdatePersistentHypothesis,
 	rpgSharedArchiveOptions, rpgTrainerRollTalents } from './trainer-roll-talents';
 import { rpgTrainerHeroicMessage, rpgTrainerRerollCandidate, rpgTrainerRerollMessage,
@@ -4664,6 +4664,8 @@ export class RPGLoginService {
 			...this.explorerLifelineOptions(token, characterId),
 			...this.artisticInspirationOptions(token, characterId),
 			...this.technicalOpinionOptions(token, characterId),
+			...this.photographicSequenceOptions(token, characterId),
+			...this.photographicPanoramaOptions(token, characterId),
 			...this.captivatingDistractionOptions(token, characterId),
 			...this.excavationMasterOptions(token, characterId),
 			...this.sharedArchiveOptions(token, characterId)];
@@ -4955,6 +4957,32 @@ export class RPGLoginService {
 			this.accounts.repository.getMembership(session.platformTableId!, record.accountId)?.status === 'active')
 			.flatMap(record => {
 				const option = record.state.trainerSheet && rpgTechnicalOpinionOption(record.state.id,
+					record.state.characterName, record.state.trainerSheet);
+				return option ? [option] : [];
+			});
+	}
+
+	private photographicSequenceOptions(token: string, characterId: string) {
+		const session = this.getSession(token);
+		if (!session.platformTableId) return [];
+		return this.repository.list().filter(record => record.state.id !== characterId &&
+			record.tableId === session.platformTableId && record.accountId &&
+			this.accounts.repository.getMembership(session.platformTableId!, record.accountId)?.status === 'active')
+			.flatMap(record => {
+				const option = record.state.trainerSheet && rpgPhotographicSequenceOption(record.state.id,
+					record.state.characterName, record.state.trainerSheet);
+				return option ? [option] : [];
+			});
+	}
+
+	private photographicPanoramaOptions(token: string, characterId: string) {
+		const session = this.getSession(token);
+		if (!session.platformTableId) return [];
+		return this.repository.list().filter(record => record.state.id !== characterId &&
+			record.tableId === session.platformTableId && record.accountId &&
+			this.accounts.repository.getMembership(session.platformTableId!, record.accountId)?.status === 'active')
+			.flatMap(record => {
+				const option = record.state.trainerSheet && rpgPhotographicPanoramaOption(record.state.id,
 					record.state.characterName, record.state.trainerSheet);
 				return option ? [option] : [];
 			});
