@@ -64,6 +64,8 @@
 .trainer-sheet-primary-stats { grid-area: stats; }
 .trainer-sheet-knowledge-sections { grid-area: knowledge; display: grid; width: 100%; min-width: 0;
 	grid-template-columns: minmax(0, 1fr) 210px; align-items: start; gap: 16px; }
+.trainer-sheet-talent-column { display: grid; gap: 16px; min-width: 0; }
+.trainer-sheet-allied-caches { display: grid; gap: 6px; }
 .trainer-sheet-domains { min-width: 0; }
 .trainer-sheet-domain-list { display: grid; grid-template-columns: minmax(0, 1fr); gap: 5px; }
 .trainer-sheet-talent-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; }
@@ -445,6 +447,15 @@ button.trainer-sheet-attribute:hover, button.trainer-sheet-attribute[aria-expand
 }
 .trainer-first-care-overlay { position: fixed; inset: 0; z-index: 10002; display: grid; place-items: center; padding: 1rem; background: #09162a99; }
 .trainer-first-care-dialog { box-sizing: border-box; width: min(48rem, 100%); max-height: 85vh; overflow: auto; padding: 1.5rem; border-radius: 1rem; border: 1px solid #b8c8df; background: #fff; color: #263653; box-shadow: 0 1rem 3rem #0b193766; }
+.trainer-sheet-support-cache-location { box-sizing: border-box; width: 100%; margin: .35rem 0 .6rem; }
+.trainer-sheet-support-cache-delete { margin-left: .5rem; border-color: #aa6262; background: #fff0f0; color: #8a3030; }
+.trainer-sheet-support-cache-delete-list { display: grid; gap: .45rem; margin-top: .75rem; }
+.trainer-sheet-support-cache-delete-list:empty { display: none; }
+.trainer-sheet-support-cache-delete-list p { margin: 0; }
+.trainer-sheet-support-cache-choice { padding: .5rem .7rem; border: 1px solid #b7c5d8; border-radius: .4rem;
+	background: #f4f7fb; color: #263e66; text-align: left; cursor: pointer; }
+.trainer-sheet-support-cache-choice.danger { border-color: #b65454; background: #a93232; color: #fff; }
+.trainer-sheet-support-cache-choice:disabled { opacity: .55; cursor: default; }
 .trainer-first-care-group { display: grid; gap: .5rem; margin-top: 1rem; }
 .trainer-first-care-pokemon-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
 .trainer-first-care-pokemon { display: flex; align-items: center; gap: 12px; width: 100%; min-width: 0;

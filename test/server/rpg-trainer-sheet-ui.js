@@ -287,7 +287,8 @@ describe('RPG trainer sheet read-only frontend', () => {
 		assert(!page.includes('trainer-sheet-summary-item'));
 		assert(page.includes("el('strong', 'trainer-sheet-attribute-modifier', signed("));
 		assert(page.includes("el('small', 'trainer-sheet-attribute-value', value)"));
-		assert(page.includes('knowledgeSections.append(talentSection, domainSection)'));
+		assert(page.includes('talentColumn.append(talentSection)'));
+		assert(page.includes('knowledgeSections.append(talentColumn, domainSection)'));
 		assert(page.includes('mainStats.append(attributes, primaryStats, knowledgeSections)'));
 		assert(style.includes("grid-template-areas: 'attributes stats' 'knowledge knowledge'"));
 		assert(style.includes('grid-template-columns: minmax(0, 1fr) 210px;'));

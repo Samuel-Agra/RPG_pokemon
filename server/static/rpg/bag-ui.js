@@ -166,7 +166,7 @@
 	function actionLabel(action, item) {
 		if (action === 'favorite') return 'Favoritar';
 		if (action === 'unfavorite') return 'Remover dos favoritos';
-		if (action === 'move-to-mission') return 'Mover para Itens de Missão';
+		if (action === 'move-to-mission') return 'Enviar para';
 		if (action === 'remove-from-mission') return 'Retirar de Itens de Missão';
 		if (action === 'edit-mission-note') return 'Alterar anotação';
 		if (action === 'discard') return 'Descartar';
@@ -227,6 +227,14 @@
 		let search = '';
 		let loading = false;
 		let lastSignature = '';
+		let sharedInventory = [];
+		let selectedSharedId = null;
+		let selectedShared = null;
+		let sharedContent = null;
+		let sharedSignature = '';
+		let sharedRequest = 0;
+		let sharedError = '';
+		let sharedLoaded = false;
 
 		async function load() {
 			if (loading) return;
@@ -394,7 +402,139 @@
 			workspace.append(renderSidebar(), main);
 			panel.append(header, workspace);
 			root.append(panel);
+			for (const title of ['Externo', 'Compartilhado']) {
+				const area = el('section', 'panel bag-ui-auxiliary-panel');
+				const areaHeader = el('header', 'bag-ui-header');
+				const areaTitle = el('div');
+				areaTitle.append(el('small', '', 'Inventário'), el('h2', '', title));
+				areaHeader.append(areaTitle);
+				const areaContent = el('div', 'bag-ui-auxiliary-content');
+				if (title === 'Compartilhado') sharedContent = areaContent;
+				area.append(areaHeader, areaContent);
+				root.append(area);
+			}
 			renderMainContent(content);
+			renderSharedInventory();
+		}
+
+		async function loadSharedInventory() {
+			const request = ++sharedRequest;
+			try {
+				const entries = await options.api('/trainer/support-caches');
+				if (request !== sharedRequest) return;
+				const selected = entries.some(entry => entry.cacheId === selectedSharedId) ?
+					selectedSharedId : entries[0]?.cacheId || null;
+				const detail = selected ? await options.api('/trainer/support-cache?cacheId=' +
+					encodeURIComponent(selected)) : null;
+				if (request !== sharedRequest) return;
+				const signature = JSON.stringify({ entries, detail });
+				if (signature === sharedSignature && !sharedError) return;
+				sharedSignature = signature;
+				sharedInventory = entries;
+				selectedSharedId = selected;
+				selectedShared = detail;
+				sharedError = '';
+				sharedLoaded = true;
+				renderSharedInventory();
+			} catch (error) {
+				if (request !== sharedRequest) return;
+				sharedError = error.message || 'Não foi possível carregar o inventário compartilhado.';
+				sharedLoaded = true;
+				renderSharedInventory();
+			}
+		}
+
+		function showSharedItemDetails(item, anchor) {
+			const dialog = createDialog('bag-ui-item-dialog', null, anchor);
+			dialogHeading(dialog.card, item.name, dialog.closeAll);
+			const summary = el('div', 'bag-ui-shared-item-summary');
+			summary.append(itemIcon(item, 'large'), el('strong', '', item.name),
+				el('b', 'bag-ui-quantity', '×' + item.quantity));
+			const form = el('form', 'bag-ui-shared-withdraw');
+			const amount = el('input'); amount.type = 'number'; amount.min = '1';
+			amount.max = String(item.quantity); amount.value = '1';
+			amount.setAttribute('aria-label', `Quantidade de ${item.name} para retirar`);
+			const withdraw = makeButton('Retirar', 'button primary'); withdraw.type = 'submit';
+			const feedback = el('p', 'bag-ui-shared-feedback');
+			form.append(amount, withdraw, feedback);
+			dialog.card.append(summary, form);
+			form.addEventListener('submit', async event => {
+				event.preventDefault();
+				const quantity = Number(amount.value);
+				if (!Number.isSafeInteger(quantity) || quantity < 1 || quantity > item.quantity) {
+					feedback.textContent = 'Escolha uma quantidade válida.'; return;
+				}
+				withdraw.disabled = true;
+				try {
+					const updated = await options.api('/trainer/support-cache', { method: 'POST', body: {
+						cacheId: selectedSharedId, action: 'withdraw', kind: item.kind,
+						itemId: item.itemId, instanceId: item.kind === 'equipment' ? item.id : undefined,
+						quantity, expectedRevision: selectedShared.revision,
+						expectedBagRevision: selectedShared.bagRevision,
+						expectedEquipmentRevision: selectedShared.equipmentRevision,
+					} });
+					dialog.closeAll();
+					selectedShared = updated; sharedSignature = '';
+					renderSharedInventory();
+					options.toast(`${quantity} × ${item.name} retirado do Ponto de Apoio.`);
+					await load();
+					void loadSharedInventory();
+					window.dispatchEvent(new CustomEvent('rpg:realtime-sync'));
+				} catch (error) {
+					feedback.textContent = error.message || 'Não foi possível retirar o item.';
+					withdraw.disabled = false;
+				}
+			});
+		}
+
+		function renderSharedInventory() {
+			if (!sharedContent) return;
+			sharedContent.replaceChildren();
+			const workspace = el('div', 'bag-ui-workspace bag-ui-shared-workspace');
+			const sidebar = el('aside', 'bag-ui-shared-sidebar');
+			sidebar.append(el('h3', '', 'Locais'));
+			const navigation = el('nav', 'bag-ui-category-list');
+			if (sharedInventory.length) navigation.append(el('h4', '', 'Pontos de Apoio'));
+			for (const entry of sharedInventory) {
+				const choice = makeButton('', 'bag-ui-category-link' +
+					(selectedSharedId === entry.cacheId ? ' active' : ''));
+				choice.append(el('strong', '', entry.location), el('small', '', entry.ownerName));
+				choice.addEventListener('click', () => {
+					if (selectedSharedId === entry.cacheId) return;
+					selectedSharedId = entry.cacheId; selectedShared = null;
+					renderSharedInventory(); void loadSharedInventory();
+				});
+				navigation.append(choice);
+			}
+			if (!sharedInventory.length) navigation.append(el('p', 'bag-ui-shared-empty', 'Nenhum local compartilhado.'));
+			sidebar.append(navigation);
+			const main = el('div', 'bag-ui-main');
+			const content = el('div', 'bag-ui-content');
+			if (sharedError) content.append(el('p', 'bag-ui-shared-error', sharedError));
+			else if (selectedShared) {
+				const heading = el('div', 'bag-ui-list-heading');
+				heading.append(el('h2', '', selectedShared.location),
+					el('small', '', `${selectedShared.ownerName} · ${selectedShared.usedSlots} / ` +
+					`${selectedShared.maxSlots} espaços`));
+				content.append(heading);
+				if (selectedShared.items.length) {
+					const list = el('div', 'bag-ui-item-grid');
+					for (const item of selectedShared.items) {
+						const card = makeButton('', 'bag-ui-item');
+						const name = el('span', 'bag-ui-item-name');
+						name.append(el('strong', '', item.name));
+						card.append(itemIcon(item), name, el('b', 'bag-ui-quantity', '×' + item.quantity));
+						card.addEventListener('click', () => showSharedItemDetails(item, card));
+						list.append(card);
+					}
+					content.append(list);
+				} else { content.append(el('p', 'empty-state bag-ui-empty', 'Nenhum item neste Ponto de Apoio.')); }
+			} else {
+				content.append(el('p', 'empty-state bag-ui-empty',
+					!sharedLoaded || sharedInventory.length ? 'Carregando os itens...' :
+					'Nenhum inventário compartilhado disponível.'));
+			}
+			main.append(content); workspace.append(sidebar, main); sharedContent.append(workspace);
 		}
 
 		async function toggleFavorite(item) {
@@ -458,6 +598,73 @@
 			actions.append(confirm, cancel);
 			content.append(quantity, actions);
 			dialog.card.append(content);
+		}
+
+		function showSupportCacheDeposit(item, cache, parentDialog) {
+			const dialog = createDialog('bag-ui-send-deposit', parentDialog);
+			const close = () => dialog.overlay.remove();
+			dialogHeading(dialog.card, 'Quantidade', close);
+			const content = el('div', 'bag-ui-transfer-content');
+			const quantity = quantityInput(Math.min(item.quantity, 99));
+			quantity.setAttribute('aria-label', `Quantidade de ${item.name} para enviar`);
+			const feedback = el('p', 'bag-ui-shared-feedback');
+			const actions = el('div', 'bag-ui-dialog-inline-actions');
+			const confirm = makeButton('Enviar', 'button primary');
+			const cancel = makeButton('Cancelar', 'button');
+			cancel.addEventListener('click', close);
+			confirm.addEventListener('click', async () => {
+				const amount = Number(quantity.value);
+				if (!Number.isSafeInteger(amount) || amount < 1 || amount > Math.min(item.quantity, 99)) {
+					feedback.textContent = 'Escolha uma quantidade válida.'; return;
+				}
+				confirm.disabled = true;
+				try {
+					const detail = await options.api('/trainer/support-cache?cacheId=' + encodeURIComponent(cache.cacheId));
+					if (!detail.canDeposit) throw new Error('Este Ponto de Apoio não aceita novos itens.');
+					await options.api('/trainer/support-cache', { method: 'POST', body: {
+						cacheId: cache.cacheId, action: 'deposit', kind: 'pokemon', itemId: item.id,
+						quantity: amount, expectedRevision: detail.revision,
+						expectedBagRevision: detail.bagRevision,
+						expectedEquipmentRevision: detail.equipmentRevision,
+					} });
+					dialog.closeAll();
+					options.toast(`${amount} × ${item.name} enviado para ${cache.location}.`);
+					await load();
+					void loadSharedInventory();
+					window.dispatchEvent(new CustomEvent('rpg:realtime-sync'));
+				} catch (error) {
+					feedback.textContent = error.message || 'Não foi possível enviar o item.';
+					confirm.disabled = false;
+				}
+			});
+			actions.append(cancel, confirm);
+			content.append(quantity, feedback, actions);
+			dialog.card.append(content);
+		}
+
+		async function showSendDestinations(item, parentDialog) {
+			const dialog = createDialog('bag-ui-send-destinations', parentDialog);
+			dialogHeading(dialog.card, 'Enviar para', () => dialog.overlay.remove());
+			const destinations = el('div', 'bag-ui-transfer-content');
+			const mission = makeButton('Itens de Missão', 'button bag-ui-transfer-target');
+			mission.addEventListener('click', () => showMoveToMission(item, dialog));
+			destinations.append(mission);
+			const status = el('p', 'bag-ui-shared-feedback', 'Carregando Pontos de Apoio...');
+			destinations.append(status);
+			dialog.card.append(destinations);
+			try {
+				const caches = await options.api('/trainer/support-caches');
+				if (!dialog.card.isConnected) return;
+				status.remove();
+				for (const cache of caches) {
+					const destination = makeButton('', 'button bag-ui-transfer-target');
+					destination.append(el('strong', '', cache.location), el('small', '', `Ponto de Apoio de ${cache.ownerName}`));
+					destination.addEventListener('click', () => showSupportCacheDeposit(item, cache, dialog));
+					destinations.append(destination);
+				}
+			} catch (error) {
+				if (dialog.card.isConnected) status.textContent = error.message || 'Não foi possível carregar os Pontos de Apoio.';
+			}
 		}
 
 		function showItemDetails(item, itemAnchor) {
@@ -531,7 +738,7 @@
 						close();
 						void toggleFavorite(item);
 					} else if (action === 'move-to-mission') {
-						showMoveToMission(item, dialog);
+						void showSendDestinations(item, dialog);
 					} else if (action === 'remove-from-mission') {
 						close();
 						void toggleMission(item, false, item.quantity);
@@ -1170,13 +1377,17 @@
 		}
 
 		await load();
+		await loadSharedInventory();
 		const synchronize = () => {
 			if (!root.isConnected) {
 				window.removeEventListener('rpg:realtime-sync', synchronize);
 				return;
 			}
-			if (document.hidden || root.contains(document.activeElement)) return;
+			if (document.hidden || activeDialogGroup ||
+				root.contains(document.activeElement) &&
+				['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) return;
 			void load();
+			void loadSharedInventory();
 		};
 		window.addEventListener('rpg:realtime-sync', synchronize);
 		return root;

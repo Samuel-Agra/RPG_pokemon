@@ -439,6 +439,28 @@ export class RPGHttpServer {
 				url.searchParams.get('characterId') || undefined));
 			return;
 		}
+		if (method === 'GET' && url.pathname === '/api/rpg/trainer/support-caches') {
+			this.json(res, 200, this.login.getSupportCaches(this.token(req)));
+			return;
+		}
+		if (url.pathname === '/api/rpg/trainer/support-cache') {
+			if (method === 'GET') {
+				this.json(res, 200, this.login.getSupportCache(this.token(req),
+					url.searchParams.get('cacheId') || ''));
+				return;
+			}
+			if (method === 'POST') {
+				const body = await this.body(req);
+				this.json(res, 200, body.action === 'create' ?
+					this.login.createSupportCache(this.token(req), body.location as string) :
+					body.action === 'delete' ?
+						this.login.deleteSupportCache(this.token(req), body as unknown as
+							Parameters<RPGLoginService['deleteSupportCache']>[1]) :
+						this.login.changeSupportCache(this.token(req), body as unknown as
+							Parameters<RPGLoginService['changeSupportCache']>[1]));
+				return;
+			}
+		}
 		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/shared-archive') {
 			const body = await this.body(req);
 			if (!Number.isInteger(body.slot)) throw new Error('Espaço de acervo inválido');
@@ -488,6 +510,17 @@ export class RPGHttpServer {
 			this.json(res, 200, this.login.requestTrainerConfidant(this.token(req), {
 				requestId: this.string(body.requestId), confidantName: this.string(body.confidantName),
 			}));
+			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/forage') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.requestTrainerForage(this.token(req), this.string(body.requestId)));
+			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/forage/decide') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.decideTrainerForage(this.token(req),
+				this.string(body.id), body.accepted as boolean));
 			return;
 		}
 		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/confidant/decide') {
@@ -3001,6 +3034,7 @@ export class RPGHttpServer {
 		if (/^(?:Registro Avançado indisponível|Espaço de registro inválido|Destinatário indisponível|Informe nome \(3–100\)|Identificador inválido|Identificador já utilizado|Já existe um registro aguardando aprovação|Registro não está pendente|Nível do kit ou cargas inválidos|Cientista ou destinatário indisponível|A biblioteca permite até dois Registros Avançados ativos)/.test(message)) return true;
 		if (/^(?:Publicação de Referência não está disponível|Identificador do artigo inválido|Informe título e resumo do artigo|Já existe um artigo aguardando avaliação|Artigo não está pendente|Decisão ou pagamento inválido|Pagamento ultrapassa o limite de Pokécoins|Entre como jogador em uma mesa para criar o artigo|Nenhum personagem selecionado|Personagem fora da mesa atual)/.test(message)) return true;
 		if (/^(?:Confidente indisponível|Identificador de confidente (?:inválido|já utilizado)|Informe o nome do confidente|Este treinador já possui um confidente confirmado|Já existe um confidente aguardando avaliação|Pedido de confidente ou decisão inválidos)/.test(message)) return true;
+		if (/^(?:Forrageador Eficiente indisponível|Identificador de forrageio (?:inválido|já utilizado)|Já existe um forrageio aguardando avaliação|Pedido de forrageio ou decisão inválidos|Explorador indisponível para receber os alimentos)/.test(message)) return true;
 		if (/^(?:Laço Verdadeiro indisponível|Identificador de Laço Verdadeiro (?:inválido|já utilizado)|Informe o nome do NPC|Este treinador já possui um Laço Verdadeiro|Já existe um Laço Verdadeiro aguardando avaliação|Pedido de Laço Verdadeiro ou decisão inválidos|Apenas o Mestre visualizando o jogador pode remover o Laço Verdadeiro|Nenhum Laço Verdadeiro para remover)/.test(message)) return true;
 		if (/^(?:Rede de Fornecedores indisponível|Identificador da encomenda |Já existe uma encomenda aguardando avaliação|Item indisponível para encomenda|Encomenda ou decisão inválida|Treinador indisponível para receber a encomenda|Item da encomenda não está mais disponível)/.test(message)) return true;
 		if (/^(?:Identificador de nível |Ajuste de nível )/.test(message)) return true;

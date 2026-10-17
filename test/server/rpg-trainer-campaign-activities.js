@@ -131,13 +131,18 @@ describe('RPG trainer campaign activities', () => {
 			alreadyConfronted: false, dc: 10 }, () => 0.5).circumstance, 2);
 	});
 
-	it('applies class foraging and shelter without minting inventory or ignoring extreme weather', () => {
+	it('preserva os benefícios de Acampamento Seguro no abrigo rápido sem ignorar clima extremo', () => {
 		const explorer = trainer();
 		explorer.talents.class.push('explorador:forrageador-eficiente', 'explorador:abrigo-de-emergencia');
 		assert.equal(forageRPGExpedition(explorer, { searchHours: 2, resourcesActuallyExist: true,
 			foodSafe: true, waterSafe: true }).peopleSustained, 3);
-		assert.equal(prepareRPGEmergencyShelter(explorer, { hasSurvivalKit: true,
-			materialsAvailable: true, minutesSpent: 10, people: 6 }).extremeWeatherProtected, false);
+		const shelter = prepareRPGEmergencyShelter(explorer, { hasSurvivalKit: true,
+			materialsAvailable: true, minutesSpent: 10, people: 6 });
+		assert.equal(shelter.extremeWeatherProtected, false);
+		assert.equal(shelter.safeCampBenefits, true);
+		assert.equal(shelter.preparationMinutes, 10);
+		assert.throws(() => prepareRPGEmergencyShelter(explorer, { hasSurvivalKit: false,
+			materialsAvailable: true, minutesSpent: 10, people: 6 }), /indisponível/);
 	});
 
 	it('plans only known recipes with kits, charges, ingredients and elapsed time', () => {

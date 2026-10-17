@@ -12,6 +12,7 @@ const { rpgTrainerRollTalentOptions, rpgResolveTrainerRollTalents, rpgTrainerRol
 	rpgDiplomatProxyOption,
 	rpgTechnicalOpinionOption,
 	rpgExpeditionLeaderOption,
+	rpgExplorerLifelineOption,
 	rpgExcavationMasterOption,
 	rpgSetSharedArchive, rpgSharedArchiveOptions } =
 	require('../../dist/server/rpg-showdown/trainer-roll-talents');
@@ -28,6 +29,43 @@ function sheet() {
 }
 
 describe('RPG trainer situational roll talents', () => {
+	it('identifica o terreno escolhido ao oferecer Especialista de Terreno', () => {
+		const explorer = { ...sheet(), classId: 'explorador', talents: { general: [],
+			class: ['explorador:especialista-de-terreno', 'explorador:especialista-de-terreno'], apex: null },
+		talentSelections: [{ id: 'explorador:especialista-de-terreno', variant: 'pantano' },
+			{ id: 'explorador:especialista-de-terreno', variant: 'urbano-em-ruinas' }] };
+		const options = rpgTrainerRollTalentOptions(explorer, 'skill', 'sobrevivencia')
+			.filter(option => option.id === 'explorador:especialista-de-terreno');
+		assert.deepEqual(options.map(option => option.name),
+			['Especialista de Terreno (Pântano)', 'Especialista de Terreno (Urbano em ruínas)']);
+		assert(options[0].condition.includes('Pântano'));
+		assert(options[1].condition.includes('Urbano em ruínas'));
+		assert.equal(rpgResolveTrainerRollTalents(explorer, 'skill', 'sobrevivencia', [options[0].key]).bonus, 2);
+		assert.equal(rpgTrainerRollTalentOptions(explorer, 'skill', 'atletismo')
+			.some(option => option.id === 'explorador:especialista-de-terreno'), false);
+	});
+	it('oferece Localizador de Desaparecidos apenas em Sobrevivência e Percepção', () => {
+		const explorer = { ...sheet(), classId: 'explorador', talents: { general: [],
+			class: ['explorador:localizador-de-desaparecidos'], apex: null } };
+		for (const skill of ['sobrevivencia', 'percepcao']) {
+			const options = rpgTrainerRollTalentOptions(explorer, 'skill', skill);
+			const option = options.find(entry => entry.id === 'explorador:localizador-de-desaparecidos');
+			assert.equal(option.bonus, 2);
+			assert.equal(rpgResolveTrainerRollTalents(explorer, 'skill', skill, [option.key]).bonus, 2);
+		}
+		assert.equal(rpgTrainerRollTalentOptions(explorer, 'skill', 'investigacao')
+			.some(entry => entry.id === 'explorador:localizador-de-desaparecidos'), false);
+	});
+	it('oferece Rastreador Persistente apenas em Sobrevivência do Explorador', () => {
+		const explorer = { ...sheet(), classId: 'explorador' };
+		const options = rpgTrainerRollTalentOptions(explorer, 'skill', 'sobrevivencia');
+		assert.deepEqual(options.map(option => option.id), ['explorador:rastreador-persistente']);
+		assert.equal(rpgResolveTrainerRollTalents(explorer, 'skill', 'sobrevivencia', []).bonus, 0);
+		assert.equal(rpgResolveTrainerRollTalents(explorer, 'skill', 'sobrevivencia',
+			[options[0].key]).bonus, 2);
+		assert.deepEqual(rpgTrainerRollTalentOptions(explorer, 'skill', 'percepcao'), []);
+		assert.deepEqual(rpgTrainerRollTalentOptions(sheet(), 'skill', 'sobrevivencia'), []);
+	});
 	it('oferece Salão na Palma da Mão ao Encantador e aliados somente nas perícias sociais com Carisma', () => {
 		const enchanter = { ...sheet(), classId: 'encantador', talents: { general: [], class: [],
 			apex: 'encantador:salao-na-palma-da-mao' } };
@@ -226,6 +264,24 @@ describe('RPG trainer situational roll talents', () => {
 		assert.throws(() => rpgResolveTrainerRollTalents(ally, 'skill', 'atletismo',
 			[option.key]), /indisponível/);
 		assert.equal(rpgExpeditionLeaderOption('other', 'Ana', ally), null);
+	});
+	it('offers Linha de Vida only for Atletismo and Acrobacia while crossing the prepared obstacle', () => {
+		const explorer = { ...sheet(), classId: 'explorador', talents: { general: [],
+			class: ['explorador:linha-de-vida'], apex: null } };
+		const allyOption = rpgExplorerLifelineOption('explorer', 'Lia', explorer);
+		for (const skill of ['atletismo', 'acrobacia']) {
+			const own = rpgTrainerRollTalentOptions(explorer, 'skill', skill)
+				.find(option => option.id === 'explorador:linha-de-vida');
+			assert.equal(own.bonus, 2);
+			assert.equal(rpgResolveTrainerRollTalents(explorer, 'skill', skill, [own.key]).bonus, 2);
+			assert.equal(rpgResolveTrainerRollTalents(sheet(), 'skill', skill,
+				[allyOption.key], [allyOption]).bonus, 2);
+		}
+		assert.equal(rpgTrainerRollTalentOptions(explorer, 'skill', 'sobrevivencia')
+			.some(option => option.id === 'explorador:linha-de-vida'), false);
+		assert.throws(() => rpgResolveTrainerRollTalents(sheet(), 'skill', 'sobrevivencia',
+			[allyOption.key], [allyOption]), /indisponível/);
+		assert.equal(rpgExplorerLifelineOption('other', 'Ana', sheet()), null);
 	});
 	it('keeps the Captain bonus available to designated participants after use', () => {
 		const athlete = { ...sheet(), classId: 'atleta', talents: { general: [],

@@ -28,6 +28,7 @@ import {
 	type RPGBoxState,
 	type RPGCapturedPokemon,
 	type RPGInventoryState,
+	type RPGBagState,
 	type RPGItemDefinition,
 	type RPGShopTransaction,
 } from "../../sim/rpg-showdown";
@@ -79,7 +80,8 @@ import {
 } from './trainer-checks';
 import { rpgArtisticInspirationOption, rpgCaptivatingDistractionOption, rpgEncouragingPresenceOption,
 	rpgEnchanterAllyOptions, rpgEnchanterSocialChemistryOption,
-	rpgDetectiveCapturePlanOption, rpgDetectiveDuoOption, rpgExcavationMasterOption, rpgExpeditionLeaderOption, rpgTeamCaptainOption,
+	rpgDetectiveCapturePlanOption, rpgDetectiveDuoOption, rpgExcavationMasterOption, rpgExpeditionLeaderOption,
+	rpgExplorerLifelineOption, rpgTeamCaptainOption,
 	rpgDiplomatIntroductionOption,
 	rpgDiplomatProxyOption,
 	rpgCosmopolitanEtiquetteOption,
@@ -579,6 +581,12 @@ export interface RPGConfidantRequest {
 	status: 'pending' | 'accepted' | 'rejected'; decidedAt?: string;
 }
 
+export interface RPGForageRequest {
+	id: string; characterId: string; characterName: string; submittedAt: string;
+	status: 'pending' | 'accepted' | 'rejected'; decidedAt?: string;
+	foodQuantity: number;
+}
+
 export interface RPGTrueBondRequest {
 	id: string; characterId: string; characterName: string; npcName: string;
 	submittedAt: string; status: 'pending' | 'accepted' | 'rejected'; decidedAt?: string;
@@ -836,6 +844,14 @@ export interface RPGLoginServiceOptions {
 	deletionStore?: RPGCharacterDeletionStore;
 }
 
+interface RPGSupportCache {
+	revision: number;
+	bag: RPGBagState;
+	equipment: RPGEquipmentInstance[];
+	ownerCharacterId?: string;
+	location?: string;
+}
+
 export class RPGLoginService {
 	readonly repository: RPGCharacterRepository;
 	readonly battleSessions: RPGBattleSessionService;
@@ -862,10 +878,12 @@ export class RPGLoginService {
 		name: string, currentDateTime: string, quickNotes: string, events: RPGCampaignEvent[],
 		publications: RPGScientificPublication[], customRecordRequests: RPGCustomScientistRecordRequest[],
 		confidantRequests: RPGConfidantRequest[],
+		forageRequests: RPGForageRequest[],
 		trueBondRequests: RPGTrueBondRequest[],
 		supplierOrders: RPGSupplierOrder[],
 		playerNotes: Record<string, string>, sceneNpcIds: string[], sceneNpcRevealed: Record<string, number[]>,
 		equipmentOffers: Record<string, Record<string, { stock: number, price: number }>>,
+		supportCaches: Record<string, RPGSupportCache>,
 		trainerHelp: { characterId: string, skill: string, total: number, bonus: number }[],
 	};
 	readonly mysqlPersistence?: RPGMySQLPersistence;
@@ -909,9 +927,9 @@ export class RPGLoginService {
 		this.campaignSettingsFile = options.campaignSettingsFile && resolve(options.campaignSettingsFile);
 		this.campaignSettings = {
 			name: 'Minha campanha', currentDateTime: new Date(this.now()).toISOString(), quickNotes: '', events: [],
-			publications: [], customRecordRequests: [], supplierOrders: [], confidantRequests: [], trueBondRequests: [],
+			publications: [], customRecordRequests: [], supplierOrders: [], confidantRequests: [], forageRequests: [], trueBondRequests: [],
 			playerNotes: {}, sceneNpcIds: [], sceneNpcRevealed: {},
-			equipmentOffers: {}, trainerHelp: [],
+			equipmentOffers: {}, supportCaches: {}, trainerHelp: [],
 		};
 		const initialCampaignSettings = options.campaignSettings || (this.campaignSettingsFile && existsSync(this.campaignSettingsFile) ?
 			JSON.parse(readFileSync(this.campaignSettingsFile, 'utf8')) as Record<string, unknown> : null);
@@ -925,6 +943,9 @@ export class RPGLoginService {
 			}
 			if (stored.equipmentOffers && typeof stored.equipmentOffers === 'object' && !Array.isArray(stored.equipmentOffers)) {
 				this.campaignSettings.equipmentOffers = structuredClone(stored.equipmentOffers);
+			}
+			if (stored.supportCaches && typeof stored.supportCaches === 'object' && !Array.isArray(stored.supportCaches)) {
+				this.campaignSettings.supportCaches = structuredClone(stored.supportCaches);
 			}
 			if (typeof stored.name === 'string' && stored.name.trim()) this.campaignSettings.name = stored.name.trim().slice(0, 80);
 			if (typeof stored.currentDateTime === 'string' && Number.isFinite(Date.parse(stored.currentDateTime))) {
@@ -947,6 +968,10 @@ export class RPGLoginService {
 				stored.confidantRequests.filter(entry => entry && typeof entry.id === 'string' &&
 					typeof entry.characterId === 'string' && typeof entry.confidantName === 'string' &&
 					['pending', 'accepted', 'rejected'].includes(entry.status));
+			if (Array.isArray(stored.forageRequests)) this.campaignSettings.forageRequests =
+				stored.forageRequests.filter(entry => entry && typeof entry.id === 'string' &&
+					typeof entry.characterId === 'string' && Number.isSafeInteger(entry.foodQuantity) &&
+					entry.foodQuantity > 0 && ['pending', 'accepted', 'rejected'].includes(entry.status));
 			if (Array.isArray(stored.trueBondRequests)) this.campaignSettings.trueBondRequests =
 				stored.trueBondRequests.filter(entry => entry && typeof entry.id === 'string' &&
 					typeof entry.characterId === 'string' && typeof entry.npcName === 'string' &&
@@ -2009,6 +2034,84 @@ export class RPGLoginService {
 		return { request: structuredClone(request), repeated: false };
 	}
 
+	requestTrainerForage(token: string, requestId: string) {
+		const session = this.getSession(token);
+		if (session.mode !== 'player' || !session.platformTableId) throw new Error('Entre como jogador em uma mesa');
+		const characterId = session.role === 'master' ? session.viewAsCharacterId : session.characterId;
+		if (!characterId) throw new Error('Nenhum personagem selecionado');
+		const record = this.requireCharacter(toID(characterId));
+		if (record.tableId !== session.platformTableId || record.state.trainerSheet?.status !== 'complete' ||
+			!record.state.trainerSheet.talents.class.includes('explorador:forrageador-eficiente')) {
+			throw new Error('Forrageador Eficiente indisponível');
+		}
+		if (!/^[a-zA-Z0-9_-]{8,100}$/.test(requestId)) throw new Error('Identificador de forrageio inválido');
+		const prior = this.campaignSettings.forageRequests.find(entry => entry.id === requestId);
+		if (prior) {
+			if (prior.characterId !== record.state.id) throw new Error('Identificador de forrageio já utilizado');
+			return { request: structuredClone(prior), repeated: true };
+		}
+		if (this.campaignSettings.forageRequests.some(entry => entry.characterId === record.state.id &&
+			entry.status === 'pending')) throw new Error('Já existe um forrageio aguardando avaliação');
+		const request: RPGForageRequest = { id: requestId, characterId: record.state.id,
+			characterName: record.state.characterName, submittedAt: this.campaignSettings.currentDateTime,
+			foodQuantity: rpgTrainerProficiency(record.state.trainerSheet.level), status: 'pending' };
+		this.campaignSettings.forageRequests.push(request);
+		try { this.persistAtomically(() => this.persistCampaignSettings()); } catch (error) {
+			this.campaignSettings.forageRequests.pop(); throw error;
+		}
+		return { request: structuredClone(request), repeated: false };
+	}
+
+	decideTrainerForage(token: string, id: string, accepted: boolean) {
+		this.requireMasterRole(token);
+		const session = this.getSession(token);
+		const request = this.campaignSettings.forageRequests.find(entry => entry.id === id);
+		if (!request || typeof accepted !== 'boolean') throw new Error('Pedido de forrageio ou decisão inválidos');
+		if (request.status !== 'pending') return { request: structuredClone(request), repeated: true };
+		const record = this.requireCharacter(request.characterId);
+		if (session.platformTableId && record.tableId !== session.platformTableId) throw new Error('Personagem fora da mesa atual');
+		if (accepted && (record.state.trainerSheet?.status !== 'complete' ||
+			!record.state.trainerSheet.talents.class.includes('explorador:forrageador-eficiente'))) {
+			throw new Error('Explorador indisponível para receber os alimentos');
+		}
+		const previousRequest = structuredClone(request);
+		const previousRecord = structuredClone(record);
+		const working = structuredClone(record);
+		if (accepted) {
+			const inventory = this.ensureTrainerInventory(working);
+			const stackLimit = rpgEquipment('alimento').stackLimit;
+			let remaining = request.foodQuantity;
+			for (const stack of inventory.items.filter(item => item.itemId === 'alimento' &&
+				item.location === 'bag' && !item.equipped && item.quantity < stackLimit)) {
+				const added = Math.min(remaining, stackLimit - stack.quantity);
+				stack.quantity += added; remaining -= added;
+				if (!remaining) break;
+			}
+			while (remaining) {
+				const quantity = Math.min(remaining, stackLimit);
+				inventory.items.push({ id: secureRandomBytes(12).toString('hex'), itemId: 'alimento',
+					quantity, location: 'bag', equipped: false });
+				remaining -= quantity;
+			}
+			inventory.revision++;
+			working.state.updatedAt = this.now();
+			this.validateTrainerInventory(working);
+		}
+		request.status = accepted ? 'accepted' : 'rejected';
+		request.decidedAt = this.campaignSettings.currentDateTime;
+		try {
+			this.persistAtomically(() => {
+				if (accepted) this.repository.set(working);
+				this.persistCampaignSettings();
+			});
+		} catch (error) {
+			Object.assign(request, previousRequest);
+			if (accepted) this.repository.set(previousRecord);
+			throw error;
+		}
+		return { request: structuredClone(request), repeated: false };
+	}
+
 	decideTrainerConfidant(token: string, id: string, accepted: boolean) {
 		this.requireMasterRole(token);
 		const session = this.getSession(token);
@@ -2518,6 +2621,201 @@ export class RPGLoginService {
 			derived };
 	}
 
+	/** Cada esconderijo pertence à mesa e a um Explorador; os membros ativos compartilham o acesso. */
+	getSupportCaches(token: string) {
+		const session = this.getSession(token);
+		if (session.mode !== 'player' || !session.platformTableId) return [];
+		return Object.entries(this.campaignSettings.supportCaches).flatMap(([cacheId, cache]) => {
+			const ownerCharacterId = cache.ownerCharacterId || cacheId;
+			const owner = this.repository.get(ownerCharacterId);
+			if (!owner || owner.tableId !== session.platformTableId || !owner.accountId ||
+				this.accounts.repository.getMembership(session.platformTableId!, owner.accountId)?.status !== 'active') return [];
+			return [{ cacheId, ownerCharacterId, ownerName: owner.state.characterName,
+				location: cache.location || 'Local não informado' }];
+		});
+	}
+
+	createSupportCache(token: string, location: string) {
+		const session = this.getSession(token);
+		if (session.mode !== 'player' || !session.characterId) {
+			throw new Error('Entre como jogador para criar um Ponto de Apoio');
+		}
+		const owner = this.requireBagRecord(token, session.viewAsCharacterId || session.characterId, 'bag:edit');
+		this.requireWorldBagItemUse(token, owner.state.id);
+		const sheet = owner.state.trainerSheet;
+		if (sheet?.status !== 'complete' || !sheet.talents.class.includes('explorador:ponto-de-apoio')) {
+			throw new Error('Este treinador não possui Ponto de Apoio');
+		}
+		const place = typeof location === 'string' ? location.trim() : '';
+		if (!place || place.length > 160) throw new Error('Informe o local do Ponto de Apoio (até 160 caracteres)');
+		const limit = Math.max(1, rpgTrainerModifier(sheet.attributes!.wisdom));
+		const owned = this.getSupportCaches(token).filter(cache => cache.ownerCharacterId === owner.state.id);
+		if (owned.length >= limit) throw new Error(`Limite de ${limit} Ponto(s) de Apoio atingido`);
+		if (owned.some(cache => cache.location.toLocaleLowerCase('pt-BR') === place.toLocaleLowerCase('pt-BR'))) {
+			throw new Error('Já existe um Ponto de Apoio com esse local');
+		}
+		const cacheId = `${owner.state.id}-${secureRandomBytes(12).toString('hex')}`;
+		try {
+			this.persistAtomically(() => {
+				this.campaignSettings.supportCaches[cacheId] = {
+					revision: 0, ownerCharacterId: owner.state.id, location: place,
+					bag: RPGBagSystem.create(`support-${cacheId}`, [], { maxSlots: 20 }), equipment: [],
+				};
+				this.persistCampaignSettings();
+			});
+		} catch (error) {
+			delete this.campaignSettings.supportCaches[cacheId];
+			throw error;
+		}
+		return this.getSupportCache(token, cacheId);
+	}
+
+	deleteSupportCache(token: string, input: { cacheId: string, expectedRevision: number, confirmContents?: boolean }) {
+		if (!input || typeof input.cacheId !== 'string' || !Number.isSafeInteger(input.expectedRevision)) {
+			throw new Error('Ponto de Apoio inválido');
+		}
+		const session = this.getSession(token);
+		if (session.mode !== 'player' || !session.characterId) {
+			throw new Error('Entre como jogador para excluir um Ponto de Apoio');
+		}
+		const actor = this.requireBagRecord(token, session.viewAsCharacterId || session.characterId, 'bag:edit');
+		this.requireWorldBagItemUse(token, actor.state.id);
+		const view = this.getSupportCache(token, input.cacheId);
+		if (view.ownerCharacterId !== actor.state.id) {
+			throw new Error('Somente o Explorador proprietário pode excluir este Ponto de Apoio');
+		}
+		const cache = this.campaignSettings.supportCaches[input.cacheId];
+		if (cache.revision !== input.expectedRevision) {
+			throw new Error('O Ponto de Apoio mudou; atualize e tente novamente');
+		}
+		if ((cache.bag.items.some(item => item.quantity > 0) || cache.equipment.some(item => item.quantity > 0)) &&
+			input.confirmContents !== true) {
+			throw new Error('O Ponto de Apoio contém itens; confirme a exclusão do local e de todo o seu conteúdo');
+		}
+		const previousCaches = structuredClone(this.campaignSettings.supportCaches);
+		try {
+			this.persistAtomically(() => {
+				delete this.campaignSettings.supportCaches[input.cacheId];
+				this.persistCampaignSettings();
+			});
+		} catch (error) {
+			this.campaignSettings.supportCaches = previousCaches;
+			throw error;
+		}
+		return { cacheId: input.cacheId, deleted: true };
+	}
+
+	getSupportCache(token: string, cacheId: string) {
+		const session = this.getSession(token);
+		const actorId = session.viewAsCharacterId || session.characterId;
+		if (session.mode !== 'player' || !actorId) throw new Error('Entre como jogador para acessar o Ponto de Apoio');
+		const actor = this.requireBagRecord(token, actorId, 'bag:read');
+		const owner = this.getSupportCaches(token).find(entry => entry.cacheId === cacheId);
+		if (!owner || actor.tableId !== session.platformTableId) throw new Error('Ponto de Apoio indisponível nesta mesa');
+		const cache = this.campaignSettings.supportCaches[cacheId];
+		const snapshot = structuredClone(actor.state);
+		snapshot.inventory = RPGInventorySystem.create(cache.bag);
+		const bagView = RPGBagManagement.view(snapshot);
+		const equipment = this.ensureTrainerInventory(actor);
+		const mapEquipment = (entries: RPGEquipmentInstance[]) => entries.map(entry => ({
+			id: entry.id, itemId: entry.itemId, name: rpgEquipment(entry.itemId).name,
+			quantity: entry.quantity, category: 'food-items', kind: 'equipment',
+			spaces: rpgEquipment(entry.itemId).spaces, charges: entry.charges,
+		}));
+		return { ...owner, revision: cache.revision, usedSlots: RPGBagSystem.getUsedSlots(cache.bag), maxSlots: 20,
+			canDeposit: !!this.repository.get(owner.ownerCharacterId)?.state.trainerSheet?.talents.class.includes('explorador:ponto-de-apoio'),
+			items: [...bagView.items.filter(item => !item.mission).map(item => ({
+				id: item.id, itemId: item.id, name: item.name, quantity: item.quantity,
+				category: item.category, kind: 'pokemon', icon: item.icon, sprite: item.sprite,
+			})), ...mapEquipment(cache.equipment)],
+			bagRevision: actor.state.inventory.bag.revision, equipmentRevision: equipment.revision };
+	}
+
+	changeSupportCache(token: string, input: { cacheId: string, action: 'deposit' | 'withdraw',
+		kind: 'pokemon' | 'equipment', itemId?: string, instanceId?: string, quantity: number,
+		expectedRevision: number, expectedBagRevision: number, expectedEquipmentRevision: number, }) {
+		if (!input || !['deposit', 'withdraw'].includes(input.action) ||
+			!['pokemon', 'equipment'].includes(input.kind) ||
+			!Number.isSafeInteger(input.quantity) || input.quantity < 1 || input.quantity > 99) {
+			throw new Error('Movimentação inválida para o Ponto de Apoio');
+		}
+		const cacheId = input.cacheId;
+		const view = this.getSupportCache(token, cacheId);
+		if (input.action === 'deposit' && !view.canDeposit) {
+			throw new Error('Este Ponto de Apoio só permite retirar itens após a perda do talento');
+		}
+		const session = this.getSession(token);
+		const actor = structuredClone(this.requireBagRecord(token,
+			session.viewAsCharacterId || session.characterId, 'bag:edit'));
+		this.requireWorldBagItemUse(token, actor.state.id);
+		const previousActor = structuredClone(actor);
+		const previousCaches = structuredClone(this.campaignSettings.supportCaches);
+		const cache = structuredClone(previousCaches[cacheId]);
+		const equipment = this.ensureTrainerInventory(actor);
+		if (cache.revision !== input.expectedRevision ||
+			actor.state.inventory.bag.revision !== input.expectedBagRevision ||
+			equipment.revision !== input.expectedEquipmentRevision) {
+			throw new Error('Os itens mudaram; atualize o Ponto de Apoio e tente novamente');
+		}
+		if (input.kind === 'pokemon') {
+			const item = RPGItems.require(input.itemId || '');
+			if (item.tags?.includes('mission')) throw new Error('Itens de missão não podem ser guardados no Ponto de Apoio');
+			if (input.action === 'deposit' && item.id === 'portableincubator' &&
+				this.portableEggProjects(actor).length) {
+				throw new Error('Incubadoras com Egg não podem ser guardadas no Ponto de Apoio');
+			}
+			if (input.action === 'deposit') {
+				if (RPGBagSystem.getRegularQuantity(actor.state.inventory.bag, item.id) < input.quantity) {
+					throw new Error('Quantidade insuficiente na Bag');
+				}
+				actor.state.inventory.bag = RPGBagSystem.remove(actor.state.inventory.bag, item.id, input.quantity).bag;
+				cache.bag = RPGBagSystem.add(cache.bag, item.id, input.quantity).bag;
+			} else {
+				cache.bag = RPGBagSystem.remove(cache.bag, item.id, input.quantity).bag;
+				actor.state.inventory.bag = RPGBagSystem.add(actor.state.inventory.bag, item.id, input.quantity).bag;
+			}
+		} else {
+			const source = input.action === 'deposit' ? equipment.items : cache.equipment;
+			const destination = input.action === 'deposit' ? cache.equipment : equipment.items;
+			const entry = source.find(item => item.id === input.instanceId);
+			if (!entry || input.quantity > entry.quantity ||
+				(input.action === 'deposit' && (entry.location !== 'bag' || entry.equipped)) ||
+				entry.charges !== undefined && input.quantity !== entry.quantity) {
+				throw new Error('Equipamento indisponível para transferência');
+			}
+			const definition = rpgEquipment(entry.itemId);
+			if (input.action === 'withdraw') rpgAssertEquipmentLicense(equipment, definition, this.now());
+			const moved: RPGEquipmentInstance = { ...entry, id: secureRandomBytes(12).toString('hex'),
+				quantity: input.quantity, location: 'bag', equipped: false, vehicleId: undefined };
+			entry.quantity -= input.quantity;
+			if (!entry.quantity) source.splice(source.indexOf(entry), 1);
+			if (definition.vehicle) throw new Error('Veículos não cabem no Ponto de Apoio');
+			const stack = moved.charges === undefined && destination.find(item => item.itemId === moved.itemId &&
+				item.location === 'bag' && !item.equipped && item.charges === undefined &&
+				item.quantity + moved.quantity <= definition.stackLimit);
+			if (stack) stack.quantity += moved.quantity;
+			else destination.push(moved);
+			equipment.revision++;
+		}
+		cache.bag.generalReservedSlots = rpgEquipmentSlots(cache.equipment);
+		if (RPGBagSystem.getUsedSlots(cache.bag) > 20) throw new Error('O Ponto de Apoio comporta no máximo 20 espaços');
+		cache.revision++;
+		this.validateTrainerInventory(actor);
+		actor.state.updatedAt = this.now();
+		try {
+			this.persistAtomically(() => {
+				this.repository.set(actor);
+				this.campaignSettings.supportCaches[cacheId] = cache;
+				this.persistCampaignSettings();
+			});
+		} catch (error) {
+			this.repository.set(previousActor);
+			this.campaignSettings.supportCaches = previousCaches;
+			throw error;
+		}
+		return this.getSupportCache(token, cacheId);
+	}
+
 	getTrainerEquipmentOffers(token: string, shopId: string, characterId?: string) {
 		const record = this.requireBagRecord(token, characterId, 'bag:read', true);
 		this.requireCommerceAccess(token, record, shopId);
@@ -2850,6 +3148,7 @@ export class RPGLoginService {
 				!Object.values(sheet.pendingChoices || {}).some(count => count > 0),
 			proficiency: rpgTrainerProficiency(sheet.level), skills, resistances, derived, attacks,
 			rollTalents: [...rpgTrainerRollTalents(sheet), ...this.getTrainerAllyRollTalents(token, state.id)],
+			supportCaches: this.getSession(token).mode === 'player' ? this.getSupportCaches(token) : [],
 			helpTalents: this.getTrainerAllyHelpTalents(token, state.id),
 			investigativePartner: sheet.talents.class.includes('detetive:parceiro-investigativo') ? {
 				pokemonId: sheet.investigativePartnerPokemonId || null,
@@ -3016,6 +3315,11 @@ export class RPGLoginService {
 				name: sheet.confidantName || null,
 				pending: this.campaignSettings.confidantRequests.find(entry =>
 					entry.characterId === state.id && entry.status === 'pending') || null,
+			} : null,
+			forage: sheet.talents.class.includes('explorador:forrageador-eficiente') ? {
+				pending: this.campaignSettings.forageRequests.find(entry =>
+					entry.characterId === state.id && entry.status === 'pending') || null,
+				foodQuantity: rpgTrainerProficiency(sheet.level),
 			} : null,
 			trueBond: sheet.talents.apex === 'encantador:laco-verdadeiro' ? {
 				name: sheet.trueBondNpcName || null,
@@ -4357,6 +4661,7 @@ export class RPGLoginService {
 			...this.teamCaptainOptions(token, characterId),
 			...this.detectiveCapturePlanOptions(token, characterId),
 			...this.expeditionLeaderOptions(token, characterId),
+			...this.explorerLifelineOptions(token, characterId),
 			...this.artisticInspirationOptions(token, characterId),
 			...this.technicalOpinionOptions(token, characterId),
 			...this.captivatingDistractionOptions(token, characterId),
@@ -4525,6 +4830,19 @@ export class RPGLoginService {
 			this.accounts.repository.getMembership(session.platformTableId!, record.accountId)?.status === 'active')
 			.flatMap(record => {
 				const option = record.state.trainerSheet && rpgExpeditionLeaderOption(record.state.id,
+					record.state.characterName, record.state.trainerSheet);
+				return option ? [option] : [];
+			});
+	}
+
+	private explorerLifelineOptions(token: string, characterId: string) {
+		const session = this.getSession(token);
+		if (!session.platformTableId) return [];
+		return this.repository.list().filter(record => record.state.id !== characterId &&
+			record.tableId === session.platformTableId && record.accountId &&
+			this.accounts.repository.getMembership(session.platformTableId!, record.accountId)?.status === 'active')
+			.flatMap(record => {
+				const option = record.state.trainerSheet && rpgExplorerLifelineOption(record.state.id,
 					record.state.characterName, record.state.trainerSheet);
 				return option ? [option] : [];
 			});

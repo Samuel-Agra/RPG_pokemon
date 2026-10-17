@@ -326,6 +326,9 @@ function applyTalentEffect(sheet: RPGTrainerSheet, talent: RPGTrainerTalentDefin
 	if (talent.id === 'coreografo:preparacao-corporal-conjunta') {
 		attributes.dexterity = Math.min(20, attributes.dexterity + 1);
 	}
+	if (talent.id === 'explorador:localizador-de-desaparecidos') {
+		attributes.wisdom = Math.min(20, attributes.wisdom + 1);
+	}
 	if (talent.id === 'resiliente') {
 		if (!choice.resistance || !Object.values(RESISTANCE_NAMES).includes(choice.resistance) ||
 			next.resistances.includes(choice.resistance)) throw new Error('Escolha uma resistência ainda não treinada');

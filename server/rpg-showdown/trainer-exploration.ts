@@ -126,6 +126,7 @@ export function prepareRPGEmergencyShelter(sheet: RPGTrainerSheet, input: {
 		!Number.isSafeInteger(input.people) || input.people < 1 || input.people > 6) {
 		throw new Error('Abrigo de emergência indisponível');
 	}
-	return { durationHours: 6, occupants: input.people, commonWeatherProtected: true,
+	return { durationHours: 6, occupants: input.people, preparationMinutes: 10,
+		safeCampBenefits: true, commonWeatherProtected: true,
 		severeWeatherFortitudeAdvantage: true, extremeWeatherProtected: false };
 }

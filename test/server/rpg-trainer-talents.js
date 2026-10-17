@@ -25,6 +25,90 @@ function ready(classId, level = 1, overrides = {}) {
 }
 
 describe('RPG trainer classes and talents', () => {
+	it('exibe Mestre dos Biomas no antigo identificador sem perder escolhas salvas', () => {
+		const apex = RPG_TRAINER_TALENTS.find(entry => entry.id === 'explorador:instinto-de-descoberta');
+		assert.equal(apex.name, 'Ápice — Mestre dos Biomas');
+		assert.equal(apex.prerequisite, 'Explorador nível 10.');
+		assert.match(apex.text, /Acampamento adaptado/);
+		assert.doesNotMatch(apex.text, /pista conclusiva/);
+	});
+	it('Leitura do Horizonte oferece somente Constituição ou Sabedoria', () => {
+		const explorer = ready('explorador', 5);
+		const option = rpgTrainerTalentCatalog(explorer)
+			.find(entry => entry.id === 'explorador:leitura-do-horizonte');
+		assert.deepEqual(option.attributeChoices, ['constitution', 'wisdom']);
+		assert.throws(() => chooseRPGTrainerTalent(explorer,
+			{ id: option.id, attribute: 'strength' }), /atributo permitido/);
+		const chosen = chooseRPGTrainerTalent(explorer, { id: option.id, attribute: 'constitution' });
+		assert.equal(chosen.attributes.constitution, explorer.attributes.constitution + 1);
+		assert.equal(chosen.attributes.wisdom, explorer.attributes.wisdom);
+	});
+	it('Vigília Perimetral usa a CD definida pelo teste de Sobrevivência', () => {
+		const talent = RPG_TRAINER_TALENTS.find(entry => entry.id === 'explorador:vigilia-perimetral');
+		assert.match(talent.text, /CD igual ao resultado de um teste de Sobrevivência/);
+		assert.doesNotMatch(talent.text, /Percepção passiva/);
+	});
+	it('Especialista de Terreno oferece oito terrenos e registra escolhas distintas', () => {
+		const explorer = ready('explorador', 5);
+		const option = rpgTrainerTalentCatalog(explorer)
+			.find(entry => entry.id === 'explorador:especialista-de-terreno');
+		assert.deepEqual(option.variantChoices, ['floresta', 'montanha', 'deserto', 'pantano',
+			'ambiente-gelado', 'litoral', 'subterraneo', 'urbano-em-ruinas']);
+		assert.throws(() => chooseRPGTrainerTalent(explorer,
+			{ id: option.id, variant: 'oceano' }), /Terreno inválido/);
+		const first = chooseRPGTrainerTalent(explorer, { id: option.id, variant: 'pantano' });
+		assert.deepEqual(rpgTrainerTalentCatalog(first).find(entry => entry.id === option.id).variantChoices,
+			option.variantChoices.filter(terrain => terrain !== 'pantano'));
+		assert.throws(() => chooseRPGTrainerTalent(first,
+			{ id: option.id, variant: 'pantano' }), /variante nova/);
+		const second = chooseRPGTrainerTalent(first, { id: option.id, variant: 'urbano-em-ruinas' });
+		assert.deepEqual(second.talentSelections.filter(entry => entry.id === option.id)
+			.map(entry => entry.variant), ['pantano', 'urbano-em-ruinas']);
+	});
+	it('forrageio exige aprovação do Mestre e entrega Alimentos uma única vez', () => {
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({ masterCode: 'teste', repository });
+		service.createCharacter({ characterName: 'Explorador', playerName: 'Ana', avatar: 'lucas',
+			password: 'senha-rpg', initialMoney: 100,
+			starter: { species: 'Squirtle', gender: 'M' } });
+		const record = repository.get('explorador');
+		record.tableId = 'mesa-teste'; record.accountId = 'ana';
+		record.state.trainerSheet = ready('explorador', 5, { talents: { general: [],
+			class: ['explorador:forrageador-eficiente'], apex: null } });
+		record.state.trainerInventory = { version: 1, revision: 0, licenses: [], pokemonStorage: [], items: [] };
+		repository.set(record);
+		let master = false;
+		service.getSession = () => master ? { role: 'master', mode: 'master', platformTableId: 'mesa-teste' } :
+			{ role: 'player', mode: 'player', platformTableId: 'mesa-teste', characterId: 'explorador' };
+		const request = service.requestTrainerForage('jogador', 'forage-test-1').request;
+		assert.equal(request.status, 'pending');
+		assert.equal(repository.get('explorador').state.trainerInventory.items.length, 0);
+		assert.throws(() => service.requestTrainerForage('jogador', 'forage-test-2'), /aguardando avaliação/);
+		master = true;
+		assert.equal(service.decideTrainerForage('mestre', request.id, true).request.status, 'accepted');
+		assert.equal(repository.get('explorador').state.trainerInventory.items
+			.filter(item => item.itemId === 'alimento').reduce((sum, item) => sum + item.quantity, 0),
+		rpgTrainerProficiency(5));
+		assert.equal(service.decideTrainerForage('mestre', request.id, true).repeated, true);
+	});
+	it('Localizador de Desaparecidos acrescenta Sabedoria ao ser aprendido', () => {
+		const explorer = ready('explorador', 3);
+		const learned = chooseRPGTrainerTalent(explorer, { id: 'explorador:localizador-de-desaparecidos' });
+		assert.equal(learned.attributes.wisdom, explorer.attributes.wisdom + 1);
+	});
+	it('move Cartografia de Campo do nível 1 para talento específico do Explorador', () => {
+		assert.deepEqual(RPG_TRAINER_CLASS_FEATURES.explorador.map(feature => feature.name),
+			['Desbravador', 'Rastreador Persistente', 'Acampamento Seguro']);
+		const explorer = ready('explorador', 3);
+		const options = rpgTrainerTalentCatalog(explorer);
+		assert.equal(options.find(entry => entry.id === 'explorador:cartografia-de-campo').available, true);
+		assert.equal(options.find(entry => entry.id === 'explorador:rota-de-retorno').available, false);
+		const learned = chooseRPGTrainerTalent(explorer, { id: 'explorador:cartografia-de-campo' });
+		assert(learned.talents.class.includes('explorador:cartografia-de-campo'));
+		assert.equal(rpgTrainerTalentCatalog(ready('explorador', 5, {
+			talents: { ...learned.talents, class: ['explorador:cartografia-de-campo'] },
+		})).find(entry => entry.id === 'explorador:rota-de-retorno').available, true);
+	});
 	it('consome uma carga real do Kit de Disfarce e explica quando o kit acaba', () => {
 		const repository = new RPGMemoryCharacterRepository();
 		const service = new RPGLoginService({ masterCode: 'teste', repository });

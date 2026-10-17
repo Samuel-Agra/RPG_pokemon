@@ -2789,13 +2789,28 @@ input, select {
 /* Gerenciador da Bag */
 .bag-manager { display: grid; gap: 12px; }
 .bag-ui-panel { overflow: hidden; }
+.bag-ui-auxiliary-panel { overflow: hidden; }
+.bag-ui-auxiliary-content { min-height: 110px; background: #f5f6f8; }
+.bag-ui-shared-sidebar { min-width: 0; padding: 16px; background: #f3f4f6; border-right: 1px solid #aeb7c2; }
+.bag-ui-shared-sidebar h3 { margin: 0 0 16px; color: #273a53; font-family: Georgia, serif; font-size: 22px; }
+.bag-ui-shared-sidebar h4 { margin: 0; padding: 8px 2px; color: #405673; font-size: 13px; }
+.bag-ui-shared-sidebar .bag-ui-category-link { display: grid; gap: 3px; width: 100%; padding: 9px 6px; }
+.bag-ui-shared-sidebar .bag-ui-category-link small { color: #60738f; font-size: 11px; }
+.bag-ui-shared-sidebar .bag-ui-category-link.active small { color: #405b7f; }
+.bag-ui-shared-empty { color: #65758a; }
+.bag-ui-shared-error, .bag-ui-shared-feedback { color: #a02f2f; }
+.bag-ui-shared-item-summary { display: flex; align-items: center; gap: 12px; padding: 12px 0; }
+.bag-ui-shared-item-summary strong { flex: 1; min-width: 0; overflow-wrap: anywhere; }
+.bag-ui-shared-withdraw { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.bag-ui-shared-withdraw input { width: 70px; }
+.bag-ui-shared-withdraw .bag-ui-shared-feedback { flex-basis: 100%; margin: 0; }
 .bag-ui-header {
 	display: flex; align-items: center; justify-content: space-between; gap: 18px;
 	padding: 16px 20px; color: #fff; background: linear-gradient(#526b92, #344d73);
 	border-bottom: 1px solid #273b5a;
 }
 .bag-ui-header small { display: block; color: #dce5f2; font-size: 10px; font-weight: bold; letter-spacing: .09em; text-transform: uppercase; }
-.bag-ui-header h1 { margin: 1px 0 0; font-family: Georgia, serif; font-size: 25px; }
+.bag-ui-header h1, .bag-ui-header h2 { margin: 1px 0 0; color: #fff; font-family: Georgia, serif; font-size: 25px; }
 .bag-ui-money { min-width: 150px; padding: 8px 13px; background: #253a59aa; border: 1px solid #8297b5; border-radius: 6px; text-align: right; }
 .bag-ui-money strong { display: block; margin-top: 2px; font-size: 17px; }
 .bag-ui-search { display: grid; grid-template-columns: auto minmax(180px, 420px); align-items: center; gap: 12px; padding: 11px 18px; background: #e9edf2; border-bottom: 1px solid #b5bec9; }
@@ -2847,6 +2862,9 @@ input, select {
 .bag-ui-window-layer { position: fixed; z-index: 160; inset: 0; pointer-events: none; }
 .bag-ui-dialog-card.bag-ui-side-window { position: fixed; width: min(500px, calc(100vw - 16px)); max-height: calc(100vh - 78px); overflow-y: auto; color: #25384f; background: #f4f5f7; border: 1px solid #718196; border-radius: 7px; box-shadow: 0 12px 32px #0008; pointer-events: auto; }
 .bag-ui-side-window.bag-ui-item-dialog { width: min(410px, calc(100vw - 16px)); }
+.bag-ui-side-window.bag-ui-send-destinations { width: min(320px, calc(100vw - 16px)); }
+.bag-ui-side-window.bag-ui-send-deposit { width: min(280px, calc(100vw - 16px)); }
+.bag-ui-send-deposit .bag-ui-shared-feedback:empty { display: none; }
 .bag-ui-dialog-heading { position: sticky; z-index: 2; top: 0; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 12px 15px; color: #fff; background: linear-gradient(#50698f, #334b70); border-bottom: 1px solid #263b59; }
 .bag-ui-dialog-heading h2 { margin: 0; font-family: Georgia, serif; font-size: 18px; }
 .bag-ui-close { min-width: 34px; padding: 0 7px 3px; color: #fff; background: transparent; border: 0; font-size: 26px; cursor: pointer; }
@@ -3122,12 +3140,14 @@ input, select {
 
 @media (max-width: 800px) {
 	.bag-ui-workspace { grid-template-columns: 320px minmax(0, 1fr); }
+	.bag-ui-shared-workspace { grid-template-columns: 240px minmax(0, 1fr); }
 	.bag-ui-sidebar { grid-template-columns: 172px minmax(120px, 1fr); }
 	.bag-ui-bag-sprite { width: 168px; height: 145px; }
 	.bag-ui-item-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 620px) {
 	.bag-ui-workspace { grid-template-columns: 1fr; }
+	.bag-ui-shared-sidebar { border-right: 0; border-bottom: 1px solid #aeb7c2; }
 	.bag-ui-sidebar { grid-template-columns: 145px minmax(0, 1fr); border-bottom: 1px solid #aeb7c2; }
 	.bag-ui-bag-sprite { width: 140px; height: 120px; }
 	.bag-ui-main { border-left: 0; }

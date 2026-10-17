@@ -19,6 +19,12 @@ export interface RPGTrainerRollTalent {
 type Rule = { targets: readonly string[], bonus?: number, advantage?: boolean, condition: string,
 	perVariant?: boolean, naturalFloor?: number, requiredAttribute?: RPGTrainerAttribute, };
 
+const EXPLORER_TERRAIN_NAMES: Readonly<Record<string, string>> = {
+	floresta: 'Floresta', montanha: 'Montanha', deserto: 'Deserto', pantano: 'Pântano',
+	'ambiente-gelado': 'Ambiente gelado', litoral: 'Litoral', subterraneo: 'Subterrâneo',
+	'urbano-em-ruinas': 'Urbano em ruínas',
+};
+
 /** Só efeitos que alteram diretamente uma rolagem do próprio treinador entram neste catálogo.
  * Requisitos narrativos são confirmados pelo jogador; posse, alvo e magnitude são validados no servidor. */
 const RULES: Readonly<Record<string, Rule>> = {
@@ -124,6 +130,10 @@ const RULES: Readonly<Record<string, Rule>> = {
 	condition: 'Teste social compatível com o tom definido para o evento.' },
 	'explorador:especialista-de-terreno': { targets: ['skill:sobrevivencia', 'skill:percepcao'], bonus: 2, perVariant: true,
 		condition: 'Orientação, perigos ou rotas no terreno escolhido.' },
+	'explorador:localizador-de-desaparecidos': { targets: ['skill:sobrevivencia', 'skill:percepcao'], bonus: 2,
+		condition: 'Procurar uma pessoa ou Pokémon desaparecido fora de combate.' },
+	'explorador:linha-de-vida': { targets: ['skill:atletismo', 'skill:acrobacia'], bonus: 2,
+		condition: 'Atravessar obstáculo natural com auxílio preparado pelo Explorador usando Kit de Sobrevivência.' },
 	'fotografo:panorama-de-reconhecimento': { targets: ['skill:investigacao', 'skill:percepcao', 'skill:sobrevivencia'], bonus: 2,
 		condition: 'Primeiro teste após consultar panorama da área.' },
 	'guarda-pokemon:patrulha-atenta': { targets: ['skill:percepcao'], bonus: 2,
@@ -224,8 +234,11 @@ export function rpgTrainerRollTalents(sheet: RPGTrainerSheet): RPGTrainerRollTal
 					[selection.variant, selection.secondVariant].filter((value): value is string => !!value) :
 					selection.variant ? [selection.variant] : []) : [null];
 		return variants.map(variant => ({ key: variant ? `${id}@${variant}` : id, id,
-			name: variant ? `${definition.name} (${variant.replace(/[-:]/g, ' ')})` : definition.name,
-			condition: rule.condition, bonus: id === 'aprendizado-por-observacao' ?
+			name: variant ? `${definition.name} (${id === 'explorador:especialista-de-terreno' ?
+				EXPLORER_TERRAIN_NAMES[variant] || variant : variant.replace(/[-:]/g, ' ')})` : definition.name,
+			condition: id === 'explorador:especialista-de-terreno' && variant ?
+				`Orientação, perigos ou rotas em ${EXPLORER_TERRAIN_NAMES[variant] || variant}.` : rule.condition,
+			bonus: id === 'aprendizado-por-observacao' ?
 				rpgTrainerProficiency(sheet.level) : rule.bonus || 0, advantage: !!rule.advantage,
 			...(rule.naturalFloor ? { naturalFloor: rule.naturalFloor } : {}),
 			...(rule.requiredAttribute ? { requiredAttribute: rule.requiredAttribute } : {}),
@@ -236,6 +249,12 @@ export function rpgTrainerRollTalents(sheet: RPGTrainerSheet): RPGTrainerRollTal
 			name: 'Mediação Estruturada', bonus: 2, advantage: false,
 			condition: 'Concluir acordo após ouvir as partes por dez minutos e apresentar proposta que respeite suas exigências indispensáveis.',
 			targets: ['skill:persuasao'] });
+	}
+	if (sheet.status === 'complete' && sheet.classId === 'explorador') {
+		options.push({ key: 'explorador:rastreador-persistente', id: 'explorador:rastreador-persistente',
+			name: 'Rastreador Persistente', bonus: 2, advantage: false,
+			condition: 'Encontrar, seguir ou retomar rastros e interpretar sinais de passagem em ambiente natural.',
+			targets: ['skill:sobrevivencia'] });
 	}
 	if (sheet.comfortingArt && sheet.comfortingArt.restCycle === (sheet.talentRestCycle || 0)) {
 		options.push({ key: `artista:arte-reconfortante@${sheet.comfortingArt.sourceCharacterId}`,
@@ -475,6 +494,16 @@ export function rpgExpeditionLeaderOption(allyId: string, allyName: string,
 		condition: 'Teste físico de deslocamento durante travessia, prova coletiva ou fuga prolongada ' +
 			'sob instruções do líder presente.',
 		targets: ['skill:atletismo', 'skill:acrobacia', 'resistance:fortitude'] };
+}
+
+/** Aliados podem aproveitar a estrutura preparada pelo Explorador na travessia. */
+export function rpgExplorerLifelineOption(allyId: string, allyName: string,
+	ally: RPGTrainerSheet): RPGTrainerRollTalent | null {
+	if (ally.status !== 'complete' || !ally.talents.class.includes('explorador:linha-de-vida')) return null;
+	return { key: `explorador:linha-de-vida@${allyId}`, id: 'explorador:linha-de-vida',
+		name: `Linha de Vida de ${allyName}`, bonus: 2, advantage: false,
+		condition: 'Atravessar obstáculo natural usando auxílio preparado pelo Explorador com Kit de Sobrevivência.',
+		targets: ['skill:atletismo', 'skill:acrobacia'] };
 }
 
 /** Até dois aliados designados podem aproveitar a distração nas perícias indicadas. */

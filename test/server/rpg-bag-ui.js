@@ -6,12 +6,38 @@ const path = require('node:path');
 
 const root = path.resolve(__dirname, '../..');
 const bagUi = fs.readFileSync(path.join(root, 'server/static/rpg/bag-ui.js'), 'utf8');
+const trainerSheetUi = fs.readFileSync(path.join(root, 'server/static/rpg/trainer-sheet-ui.js'), 'utf8');
 const rpgUi = fs.readFileSync(path.join(root, 'server/static/rpg/rpg.js'), 'utf8');
 const battleRoom = fs.readFileSync(path.join(root, 'server/static/rpg/battle-room.js'), 'utf8');
 const html = fs.readFileSync(path.join(root, 'server/static/rpg/index.html'), 'utf8');
 const css = fs.readFileSync(path.join(root, 'server/static/rpg/rpg.css'), 'utf8');
 
 describe('RPG Bag frontend', () => {
+	it('shows separate external and shared inventories and opens shared support caches', () => {
+		assert.match(bagUi, /\['Externo', 'Compartilhado'\]/);
+		assert.match(bagUi, /areaTitle\.append\(el\('small', '', 'Inventário'\), el\('h2', '', title\)\)/);
+		assert.match(bagUi, /bag-ui-auxiliary-content/);
+		assert.match(bagUi, /\/trainer\/support-caches/);
+		assert.match(bagUi, /selectedSharedId = entry\.cacheId/);
+		assert.match(bagUi, /action: 'withdraw'/);
+		assert.match(bagUi, /renderSharedInventory\(\)/);
+		assert.match(css, /\.bag-ui-auxiliary-panel/);
+		assert.match(css, /\.bag-ui-shared-sidebar/);
+	});
+	it('offers mission items and shared support caches under Enviar para without listing caches on the sheet', () => {
+		assert.match(bagUi, /if \(action === 'move-to-mission'\) return 'Enviar para'/);
+		assert.match(bagUi, /showSendDestinations\(item, dialog\)/);
+		assert.match(bagUi, /makeButton\('Itens de Missão'/);
+		assert.match(bagUi, /showSupportCacheDeposit\(item, cache, dialog\)/);
+		assert.match(bagUi, /action: 'deposit', kind: 'pokemon'/);
+		assert.match(bagUi, /createDialog\('bag-ui-send-destinations', parentDialog\)/);
+		assert.match(bagUi, /createDialog\('bag-ui-send-deposit', parentDialog\)/);
+		assert.match(css, /\.bag-ui-side-window\.bag-ui-send-destinations \{ width: min\(320px/);
+		assert.match(css, /\.bag-ui-side-window\.bag-ui-send-deposit \{ width: min\(280px/);
+		assert.doesNotMatch(trainerSheetUi, /section\('Pontos de Apoio', 'trainer-sheet-panel trainer-sheet-allied-caches'\)/);
+		assert.doesNotMatch(trainerSheetUi, /openSupportCache\(/);
+		assert.match(trainerSheetUi, /action: 'create', location: location\.value/);
+	});
 	it('lets the Master add catalogued trainer equipment and shows it without sprites', () => {
 		assert.match(bagUi, /makeButton\('Adicionar item'/);
 		assert.match(bagUi, /\['trainer-equipment', 'Itens novos'\]/);
