@@ -7,11 +7,44 @@ const path = require('path');
 const mysql = require('mysql2/promise');
 const { databaseConfig } = require('../../server/rpg-showdown/database/connection');
 const {
-	createRPGLoginServiceFromConfig, createRPGPendingTrainerSheet,
+	createRPGLoginServiceFromConfig, createRPGPendingTrainerSheet, completeRPGTrainerSheet,
 	RPGLoginService, RPGMemoryCharacterRepository,
 } = require('../../dist/server/rpg-showdown');
 
 describe('RPG version 3 trainer sheet persistence', () => {
+	it('atualiza domínios táticos de Guardas antigos sem duplicar escolhas ou perder retratos', () => {
+		const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'rpg-guard-domains-'));
+		const file = path.join(directory, 'characters.json');
+		const config = { rpgmastercode: 'teste', rpgcharacterfile: file, rpgseedtestaccount: false };
+		try {
+			const first = createRPGLoginServiceFromConfig(config);
+			first.createCharacter({ characterName: 'Guarda', playerName: 'Conta', avatar: 'lucas',
+				password: 'senha-rpg', initialMoney: 100, starter: { species: 'Squirtle', gender: 'M' } });
+			const record = first.repository.get('guarda');
+			const sheet = completeRPGTrainerSheet(createRPGPendingTrainerSheet(), {
+				classId: 'guarda-pokemon',
+				attributes: { strength: 15, dexterity: 14, constitution: 13,
+					intelligence: 12, wisdom: 10, charisma: 8 },
+				optionalSkills: ['investigacao', 'persuasao', 'sobrevivencia'], gearChoices: {},
+			}, 'standard');
+			sheet.proficiencies = ['armas-ranged-exoticas', 'armas-nao-letais', 'escudos'];
+			sheet.levelSnapshots = [{ level: 1, attributes: structuredClone(sheet.attributes),
+				hitPointsMaximum: sheet.hitPoints.maximum, skills: structuredClone(sheet.skills),
+				resistances: [...sheet.resistances], talents: structuredClone(sheet.talents),
+				proficiencies: [...sheet.proficiencies], resources: structuredClone(sheet.resources) }];
+			record.state.trainerSheet = sheet;
+			first.repository.set(record);
+			for (let reload = 0; reload < 2; reload++) {
+				const service = createRPGLoginServiceFromConfig(config);
+				const restored = service.repository.get('guarda').state.trainerSheet;
+				const expected = ['armas-ranged-exoticas', 'armas-nao-letais', 'escudos', 'armas-ranged-comuns'];
+				assert.deepEqual(restored.proficiencies, expected);
+				assert.deepEqual(restored.levelSnapshots[0].proficiencies, expected);
+			}
+		} finally {
+			fs.rmSync(directory, { recursive: true, force: true });
+		}
+	});
 	it('creates a pending sheet without inventing attributes, class or hit points', () => {
 		const repository = new RPGMemoryCharacterRepository();
 		const service = new RPGLoginService({ masterCode: 'teste', repository });

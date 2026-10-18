@@ -15,6 +15,8 @@ const { rpgTrainerRollTalentOptions, rpgResolveTrainerRollTalents, rpgTrainerRol
 	rpgExplorerLifelineOption,
 	rpgPhotographicSequenceOption,
 	rpgPhotographicPanoramaOption,
+	rpgGuardPerimeterOption,
+	rpgCommanderOperationOption,
 	rpgExcavationMasterOption,
 	rpgSetSharedArchive, rpgSharedArchiveOptions } =
 	require('../../dist/server/rpg-showdown/trainer-roll-talents');
@@ -31,6 +33,81 @@ function sheet() {
 }
 
 describe('RPG trainer situational roll talents', () => {
+	it('oferece Comandante de Operação ao Guarda e aliados em perícias e resistências', () => {
+		const guard = { ...sheet(), classId: 'guarda-pokemon', talents: { general: [], class: [],
+			apex: 'guarda-pokemon:comandante-de-operacao' } };
+		for (const [kind, id] of [['skill', 'investigacao'], ['resistance', 'fortitude']]) {
+			const own = rpgTrainerRollTalentOptions(guard, kind, id);
+			assert(own.some(option => option.id === 'guarda-pokemon:comandante-de-operacao'));
+			const ally = rpgCommanderOperationOption('guard-1', 'Lia', guard);
+			assert(ally);
+			assert.equal(rpgResolveTrainerRollTalents(sheet(), kind, id, [ally.key], [ally]).bonus, 2);
+		}
+		assert.equal(rpgCommanderOperationOption('guard-1', 'Lia', sheet()), null);
+		assert.equal(rpgTrainerRollTalentOptions(guard, 'attribute', 'strength')
+			.some(option => option.id === 'guarda-pokemon:comandante-de-operacao'), false);
+	});
+	it('limita os bônus de cadastros, busca e patrulha do Guarda às perícias indicadas', () => {
+		const idsBySkill = {
+			persuasao: ['guarda-pokemon:rede-de-cadastros'],
+			investigacao: ['guarda-pokemon:rede-de-cadastros', 'guarda-pokemon:busca-por-pokemon-desaparecido'],
+			percepcao: ['guarda-pokemon:patrulheiro-de-reserva'],
+			sobrevivencia: ['guarda-pokemon:busca-por-pokemon-desaparecido',
+				'guarda-pokemon:patrulheiro-de-reserva', 'guarda-pokemon:rastreador-de-infratores'],
+		};
+		const guard = { ...sheet(), classId: 'guarda-pokemon', talents: { general: [],
+			class: ['guarda-pokemon:rede-de-cadastros', 'guarda-pokemon:busca-por-pokemon-desaparecido',
+				'guarda-pokemon:patrulheiro-de-reserva', 'guarda-pokemon:rastreador-de-infratores',
+				'guarda-pokemon:unidade-de-resgate-pokemon', 'guarda-pokemon:desarme-de-armadilhas-de-caca'],
+			apex: null } };
+		for (const [skill, ids] of Object.entries(idsBySkill)) {
+			const options = rpgTrainerRollTalentOptions(guard, 'skill', skill);
+			assert.deepEqual(options.map(option => option.id), ids);
+			for (const option of options) {
+				assert.equal(rpgResolveTrainerRollTalents(guard, 'skill', skill, [option.key]).bonus, 2);
+			}
+		}
+		assert.deepEqual(rpgTrainerRollTalentOptions(guard, 'skill', 'ladinagem'), []);
+		assert.deepEqual(rpgTrainerRollTalentOptions(sheet(), 'skill', 'sobrevivencia'), []);
+	});
+	it('oferece os bônus de patrulha, perseguição e perímetro apenas nas perícias correspondentes', () => {
+		const guard = { ...sheet(), classId: 'guarda-pokemon', talents: { general: [],
+			class: ['guarda-pokemon:patrulha-atenta', 'guarda-pokemon:perseguicao-oficial',
+				'guarda-pokemon:perimetro-seguro', 'guarda-pokemon:procedimento-de-abordagem'], apex: null } };
+		const perception = rpgTrainerRollTalentOptions(guard, 'skill', 'percepcao');
+		assert.deepEqual(perception.map(option => option.id),
+			['guarda-pokemon:patrulha-atenta', 'guarda-pokemon:perimetro-seguro']);
+		assert.equal(rpgResolveTrainerRollTalents(guard, 'skill', 'percepcao',
+			[perception[1].key]).bonus, 2);
+		for (const skill of ['atletismo', 'pilotagem:terrestre']) {
+			assert.equal(rpgTrainerRollTalentOptions(guard, 'skill', skill)
+				.find(option => option.id === 'guarda-pokemon:perseguicao-oficial').bonus, 2);
+		}
+		assert.equal(rpgTrainerRollTalentOptions(guard, 'skill', 'persuasao')
+			.some(option => option.id === 'guarda-pokemon:procedimento-de-abordagem'), false);
+		const ally = rpgGuardPerimeterOption('guard-1', 'Lia', guard);
+		assert.equal(rpgResolveTrainerRollTalents(sheet(), 'skill', 'percepcao', [ally.key], [ally]).bonus, 2);
+		assert.equal(rpgGuardPerimeterOption('guard-1', 'Lia', sheet()), null);
+	});
+	it('oferece Mira de Contenção somente no ataque humano à distância', () => {
+		const guard = { ...sheet(), classId: 'guarda-pokemon' };
+		const options = rpgTrainerRollTalentOptions(guard, 'attack', 'ranged');
+		assert.deepEqual(options.map(option => option.id), ['guarda-pokemon:mira-de-contencao']);
+		assert.equal(rpgResolveTrainerRollTalents(guard, 'attack', 'ranged', []).bonus, 0);
+		assert.equal(rpgResolveTrainerRollTalents(guard, 'attack', 'ranged',
+			[options[0].key]).bonus, 2);
+		assert.deepEqual(rpgTrainerRollTalentOptions(guard, 'attack', 'melee'), []);
+		assert.deepEqual(rpgTrainerRollTalentOptions(sheet(), 'attack', 'ranged'), []);
+	});
+	it('oferece Contenção Treinada somente em Atletismo contra pessoas', () => {
+		const guard = { ...sheet(), classId: 'guarda-pokemon' };
+		const options = rpgTrainerRollTalentOptions(guard, 'skill', 'atletismo');
+		assert.deepEqual(options.map(option => option.id), ['guarda-pokemon:contencao-treinada']);
+		assert.equal(rpgResolveTrainerRollTalents(guard, 'skill', 'atletismo',
+			[options[0].key]).bonus, 2);
+		assert.deepEqual(rpgTrainerRollTalentOptions(guard, 'skill', 'acrobacia'), []);
+		assert.deepEqual(rpgTrainerRollTalentOptions(sheet(), 'skill', 'atletismo'), []);
+	});
 	it('identifica o terreno escolhido ao oferecer Especialista de Terreno', () => {
 		const explorer = { ...sheet(), classId: 'explorador', talents: { general: [],
 			class: ['explorador:especialista-de-terreno', 'explorador:especialista-de-terreno'], apex: null },

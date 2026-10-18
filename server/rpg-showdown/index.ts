@@ -87,6 +87,8 @@ import { rpgArtisticInspirationOption, rpgCaptivatingDistractionOption, rpgEncou
 	rpgCosmopolitanEtiquetteOption,
 	rpgChoreographyGroupOption,
 	rpgTechnicalOpinionOption, rpgPhotographicSequenceOption, rpgPhotographicPanoramaOption,
+	rpgGuardPerimeterOption,
+	rpgCommanderOperationOption,
 	rpgResolveTrainerRollTalents, rpgSetSharedArchive, rpgUpdatePersistentHypothesis,
 	rpgSharedArchiveOptions, rpgTrainerRollTalents } from './trainer-roll-talents';
 import { rpgTrainerHeroicMessage, rpgTrainerRerollCandidate, rpgTrainerRerollMessage,
@@ -4666,6 +4668,8 @@ export class RPGLoginService {
 			...this.technicalOpinionOptions(token, characterId),
 			...this.photographicSequenceOptions(token, characterId),
 			...this.photographicPanoramaOptions(token, characterId),
+			...this.guardPerimeterOptions(token, characterId),
+			...this.commanderOperationOptions(token, characterId),
 			...this.captivatingDistractionOptions(token, characterId),
 			...this.excavationMasterOptions(token, characterId),
 			...this.sharedArchiveOptions(token, characterId)];
@@ -4983,6 +4987,32 @@ export class RPGLoginService {
 			this.accounts.repository.getMembership(session.platformTableId!, record.accountId)?.status === 'active')
 			.flatMap(record => {
 				const option = record.state.trainerSheet && rpgPhotographicPanoramaOption(record.state.id,
+					record.state.characterName, record.state.trainerSheet);
+				return option ? [option] : [];
+			});
+	}
+
+	private guardPerimeterOptions(token: string, characterId: string) {
+		const session = this.getSession(token);
+		if (!session.platformTableId) return [];
+		return this.repository.list().filter(record => record.state.id !== characterId &&
+			record.tableId === session.platformTableId && record.accountId &&
+			this.accounts.repository.getMembership(session.platformTableId!, record.accountId)?.status === 'active')
+			.flatMap(record => {
+				const option = record.state.trainerSheet && rpgGuardPerimeterOption(record.state.id,
+					record.state.characterName, record.state.trainerSheet);
+				return option ? [option] : [];
+			});
+	}
+
+	private commanderOperationOptions(token: string, characterId: string) {
+		const session = this.getSession(token);
+		if (!session.platformTableId) return [];
+		return this.repository.list().filter(record => record.state.id !== characterId &&
+			record.tableId === session.platformTableId && record.accountId &&
+			this.accounts.repository.getMembership(session.platformTableId!, record.accountId)?.status === 'active')
+			.flatMap(record => {
+				const option = record.state.trainerSheet && rpgCommanderOperationOption(record.state.id,
 					record.state.characterName, record.state.trainerSheet);
 				return option ? [option] : [];
 			});
@@ -10184,6 +10214,20 @@ function migrateCharacterTrainerSheets(service: RPGLoginService): void {
 			!sheet.skills.trained.includes('acrobacia')) {
 			sheet.skills.trained.push('acrobacia');
 			corrected = true;
+		}
+		if (sheet.status === 'complete' && sheet.classId === 'guarda-pokemon') {
+			const tacticalDomains = ['armas-ranged-comuns', 'armas-ranged-exoticas', 'armas-nao-letais', 'escudos'];
+			const missing = tacticalDomains.filter(domain => !sheet.proficiencies?.includes(domain));
+			if (missing.length) {
+				sheet.proficiencies = [...(sheet.proficiencies || []), ...missing];
+				corrected = true;
+			}
+			for (const snapshot of sheet.levelSnapshots || []) {
+				const missingSnapshot = tacticalDomains.filter(domain => !snapshot.proficiencies?.includes(domain));
+				if (!missingSnapshot.length) continue;
+				snapshot.proficiencies = [...(snapshot.proficiencies || []), ...missingSnapshot];
+				corrected = true;
+			}
 		}
 		if (!sheet.academicMemoryApplied && sheet.attributes &&
 			sheet.talents.class.includes('arqueologo:memoria-academica')) {

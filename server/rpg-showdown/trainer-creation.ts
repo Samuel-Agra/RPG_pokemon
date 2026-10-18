@@ -32,7 +32,8 @@ const CLASS_PROFICIENCIES: Readonly<Record<string, string[]>> = {
 	cientista: ['kit-cientifico'], cozinheiro: ['kit-culinaria'], coreografo: ['kit-disfarce'],
 	'criador-pokemon': ['kit-medicina-pokemon'], detetive: ['kit-investigacao', 'kit-disfarce'],
 	encantador: ['kit-disfarce'], explorador: ['armas-ranged-comuns'], fotografo: ['kit-fotografia'],
-	'guarda-pokemon': ['armas-ranged-exoticas', 'armas-nao-letais', 'escudos'], ladino: ['kit-ladinagem'],
+	'guarda-pokemon': ['armas-ranged-comuns', 'armas-ranged-exoticas', 'armas-nao-letais', 'escudos'],
+	ladino: ['kit-ladinagem'],
 	medico: ['kit-medico'], mentalista: ['kit-disfarce'], tecnologo: ['kit-tecnologico'],
 };
 

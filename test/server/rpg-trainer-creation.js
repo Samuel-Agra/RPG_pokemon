@@ -11,6 +11,14 @@ const {
 const distributed = { strength: 15, dexterity: 14, constitution: 13, intelligence: 12, wisdom: 10, charisma: 8 };
 
 describe('RPG trainer creation', () => {
+	it('concede os quatro domínios táticos ao Guarda Pokémon no nível 1', () => {
+		const sheet = completeRPGTrainerSheet(createRPGPendingTrainerSheet(), {
+			classId: 'guarda-pokemon', attributes: distributed,
+			optionalSkills: ['investigacao', 'persuasao', 'sobrevivencia'], gearChoices: {},
+		}, 'standard');
+		assert.deepEqual(sheet.proficiencies,
+			['armas-ranged-comuns', 'armas-ranged-exoticas', 'armas-nao-letais', 'escudos']);
+	});
 	it('grants Athletics and Acrobatics to Athletes at level 1', () => {
 		const sheet = completeRPGTrainerSheet(createRPGPendingTrainerSheet(), {
 			classId: 'atleta', attributes: distributed,

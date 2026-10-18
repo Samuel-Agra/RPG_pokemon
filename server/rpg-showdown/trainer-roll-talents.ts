@@ -144,16 +144,20 @@ const RULES: Readonly<Record<string, Rule>> = {
 		condition: 'Primeiro teste após consultar panorama da área.' },
 	'guarda-pokemon:patrulha-atenta': { targets: ['skill:percepcao'], bonus: 2,
 		condition: 'Segurança de uma área durante patrulha.' },
+	'guarda-pokemon:perimetro-seguro': { targets: ['skill:percepcao'], bonus: 2,
+		condition: 'Vigiar um ponto designado de um perímetro preparado e ainda válido.' },
 	'guarda-pokemon:perseguicao-oficial': { targets: ['skill:atletismo', 'skill:pilotagem:*'], bonus: 2,
 		condition: 'Manter perseguição a pessoa, veículo ou montaria.' },
 	'guarda-pokemon:rede-de-cadastros': { targets: ['skill:persuasao', 'skill:investigacao'], bonus: 2,
-		condition: 'Solicitar consulta por meio da rede profissional.' },
-	'guarda-pokemon:comandante-de-operacao': { targets: ['skill:*'], bonus: 2,
-		condition: 'Primeiro teste ligado à função recebida na operação coordenada.' },
-	'guarda-pokemon:procedimento-de-abordagem': { targets: ['skill:persuasao', 'skill:intimidacao'], bonus: 2,
-		condition: 'Pedir parada ou afastamento após observar a pessoa.' },
+		condition: 'Obter autorização, localizar o setor responsável ou convencer um contato profissional a consultar um registro compatível.' },
+	'guarda-pokemon:busca-por-pokemon-desaparecido': { targets: ['skill:investigacao', 'skill:sobrevivencia'], bonus: 2,
+		condition: 'Localizar Pokémon desaparecido após obter descrição confiável ou examinar um vestígio ligado a ele.' },
+	'guarda-pokemon:patrulheiro-de-reserva': { targets: ['skill:percepcao', 'skill:sobrevivencia'], bonus: 2,
+		condition: 'Encontrar sinais de atividade ilegal, invasão, incêndio, contaminação ou dano ao habitat em área protegida.' },
+	'guarda-pokemon:comandante-de-operacao': { targets: ['skill:*', 'resistance:*'], bonus: 2,
+		condition: 'Primeiro teste diretamente ligado à função recebida na operação, enquanto puder receber as instruções.' },
 	'guarda-pokemon:rastreador-de-infratores': { targets: ['skill:sobrevivencia'], bonus: 2,
-		condition: 'Seguir vestígios de infratores.' },
+		condition: 'Seguir responsáveis por caça, captura clandestina, invasão ou dano ambiental a partir de vestígios reais.' },
 	'ladino:rota-de-fuga': { targets: ['skill:atletismo', 'skill:acrobacia', 'skill:furtividade'], bonus: 2,
 		condition: 'Escapar de perseguidores em rota previamente memorizada.' },
 	'ladino:entrada-alternativa': { targets: ['skill:acrobacia', 'skill:atletismo'], bonus: 2,
@@ -268,6 +272,16 @@ export function rpgTrainerRollTalents(sheet: RPGTrainerSheet): RPGTrainerRollTal
 			name: 'Olhar pela Lente', bonus: 2, advantage: false,
 			condition: 'Percepção visual através de equipamento fotográfico apropriado; não se aplica a outros sentidos.',
 			targets: ['skill:percepcao'] });
+	}
+	if (sheet.status === 'complete' && sheet.classId === 'guarda-pokemon') {
+		options.push({ key: 'guarda-pokemon:mira-de-contencao', id: 'guarda-pokemon:mira-de-contencao',
+			name: 'Mira de Contenção', bonus: 2, advantage: false,
+			condition: 'Após gastar uma ação mirando sem se mover, no próximo ataque à distância contra pessoa ou objeto; perder a visão do alvo ou a concentração encerra a mira. Nunca contra Pokémon em batalha.',
+			targets: ['attack:ranged'] });
+		options.push({ key: 'guarda-pokemon:contencao-treinada', id: 'guarda-pokemon:contencao-treinada',
+			name: 'Contenção Treinada', bonus: 2, advantage: false,
+			condition: 'Atletismo para agarrar, imobilizar, desarmar fisicamente, algemar ou conduzir uma pessoa contida; não se aplica a Pokémon.',
+			targets: ['skill:atletismo'] });
 	}
 	if (sheet.comfortingArt && sheet.comfortingArt.restCycle === (sheet.talentRestCycle || 0)) {
 		options.push({ key: `artista:arte-reconfortante@${sheet.comfortingArt.sourceCharacterId}`,
@@ -406,6 +420,30 @@ export function rpgPhotographicPanoramaOption(allyId: string, allyName: string,
 		name: `Panorama de Reconhecimento de ${allyName}`, bonus: 2, advantage: false,
 		condition: 'Primeiro teste de navegação ou análise visual do local após consultar o panorama produzido pelo Fotógrafo; mudanças posteriores podem torná-lo obsoleto.',
 		targets: ['skill:investigacao', 'skill:percepcao', 'skill:sobrevivencia'] };
+}
+
+/** O perímetro precisa ter sido preparado; o aliado confirma que foi designado para aquele ponto. */
+export function rpgGuardPerimeterOption(allyId: string, allyName: string,
+	ally: RPGTrainerSheet): RPGTrainerRollTalent | null {
+	if (ally.status !== 'complete' || ally.classId !== 'guarda-pokemon' ||
+		!ally.talents.class.includes('guarda-pokemon:perimetro-seguro')) return null;
+	return { key: `guarda-pokemon:perimetro-seguro@${allyId}`, id: 'guarda-pokemon:perimetro-seguro',
+		name: `Perímetro Seguro de ${allyName}`, bonus: 2, advantage: false,
+		condition: 'Vigiar um ponto para o qual foi designado no perímetro preparado pelo Guarda, enquanto ele permanecer válido.',
+		targets: ['skill:percepcao'] };
+}
+
+/** O aliado escolhe o bônus quando a rolagem corresponde à função recebida na operação. */
+export function rpgCommanderOperationOption(sourceId: string, sourceName: string,
+	source: RPGTrainerSheet): RPGTrainerRollTalent | null {
+	if (source.status !== 'complete' || source.classId !== 'guarda-pokemon' ||
+		source.talents.apex !== 'guarda-pokemon:comandante-de-operacao') return null;
+	return { key: `guarda-pokemon:comandante-de-operacao@${sourceId}`,
+		id: 'guarda-pokemon:comandante-de-operacao',
+		name: `Ápice — Comandante de Operação de ${sourceName}`,
+		bonus: 2, advantage: false,
+		condition: 'Primeiro teste diretamente ligado à função recebida na operação, enquanto puder receber as instruções.',
+		targets: ['skill:*', 'resistance:*'] };
 }
 
 export function rpgTeamCaptainOption(allyId: string, allyName: string,

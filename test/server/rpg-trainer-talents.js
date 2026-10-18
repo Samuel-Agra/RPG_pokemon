@@ -25,6 +25,15 @@ function ready(classId, level = 1, overrides = {}) {
 }
 
 describe('RPG trainer classes and talents', () => {
+	it('Interposição Protetora oferece a escolha de Constituição e a aplica na ficha', () => {
+		const guard = ready('guarda-pokemon', 3);
+		const option = rpgTrainerTalentCatalog(guard)
+			.find(entry => entry.id === 'guarda-pokemon:interposicao-protetora');
+		assert.deepEqual(option.attributeChoices, ['constitution']);
+		const learned = chooseRPGTrainerTalent(guard,
+			{ id: 'guarda-pokemon:interposicao-protetora', attribute: 'constitution' });
+		assert.equal(learned.attributes.constitution, guard.attributes.constitution + 1);
+	});
 	it('Ampliação Forense permite escolher Inteligência ou Sabedoria e aplica o aumento', () => {
 		const photographer = ready('fotografo', 3);
 		const option = rpgTrainerTalentCatalog(photographer)
