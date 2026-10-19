@@ -33,6 +33,20 @@ function sheet() {
 }
 
 describe('RPG trainer situational roll talents', () => {
+	it('oferece Entrada Alternativa como bônus opcional apenas em Acrobacia e Atletismo', () => {
+		const rogue = { ...sheet(), classId: 'ladino', talents: { general: [],
+			class: ['ladino:entrada-alternativa'], apex: null } };
+		for (const skill of ['acrobacia', 'atletismo']) {
+			const options = rpgTrainerRollTalentOptions(rogue, 'skill', skill);
+			const entry = options.find(option => option.id === 'ladino:entrada-alternativa');
+			assert(entry);
+			assert.equal(entry.bonus, 2);
+			assert.equal(rpgResolveTrainerRollTalents(rogue, 'skill', skill, []).bonus, 0);
+			assert.equal(rpgResolveTrainerRollTalents(rogue, 'skill', skill, [entry.key]).bonus, 2);
+		}
+		assert.equal(rpgTrainerRollTalentOptions(rogue, 'skill', 'furtividade')
+			.some(option => option.id === 'ladino:entrada-alternativa'), false);
+	});
 	it('oferece Comandante de Operação ao Guarda e aliados em perícias e resistências', () => {
 		const guard = { ...sheet(), classId: 'guarda-pokemon', talents: { general: [], class: [],
 			apex: 'guarda-pokemon:comandante-de-operacao' } };

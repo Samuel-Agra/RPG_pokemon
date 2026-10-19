@@ -57,6 +57,7 @@ export interface RPGManagedBagItemView {
 	id: string;
 	name: string;
 	quantity: number;
+	concealedStatus?: 'hidden';
 	/** Somente para a leitura do Mestre; a Bag do jogador continua agrupada. */
 	fossilQualities?: Partial<Record<'fragmented' | 'preserved' | 'exceptional', number>>;
 	category: RPGManagedBagCategory;
@@ -90,6 +91,7 @@ export interface RPGManagedBagView {
 	capacity: ReturnType<typeof RPGBagSystem.getCapacity>;
 	categories: RPGManagedBagCategoryView[];
 	items: RPGManagedBagItemView[];
+	canConceal?: boolean;
 	fossilAppraiser?: { characterId: string, name: string };
 	search: string;
 	selectedCategory?: RPGManagedBagCategory;

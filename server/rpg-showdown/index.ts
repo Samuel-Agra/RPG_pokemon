@@ -599,6 +599,7 @@ export interface RPGSupplierOrder {
 	itemKind: 'pokemon' | 'equipment'; price: number; requestedAt: string;
 	icon?: string | null; sprite?: number | null;
 	status: 'pending' | 'accepted' | 'rejected'; decidedAt?: string; reason?: string;
+	source?: 'parallel-market'; quantity?: number;
 }
 
 export interface RPGCustomScientistRecordRequest {
@@ -850,6 +851,8 @@ interface RPGSupportCache {
 	revision: number;
 	bag: RPGBagState;
 	equipment: RPGEquipmentInstance[];
+	concealedItem?: { ownerCharacterId: string, kind: 'pokemon' | 'equipment', itemId: string,
+		instanceId?: string, };
 	ownerCharacterId?: string;
 	location?: string;
 }
@@ -1892,6 +1895,74 @@ export class RPGLoginService {
 			orderPrice: Math.ceil(item.price * 1.2) }));
 	}
 
+	private parallelMarketCatalog() {
+		const pokemonItems = RPGItems.list().filter(item => item.source !== 'custom' &&
+			Number.isSafeInteger(item.price?.buy) && (item.price?.buy || 0) > 0 &&
+			!['key', 'custom'].includes(item.category) && item.id !== 'masterball' &&
+			!item.tags?.some(tag => ['mission', 'fossil', 'megastone', 'unique'].includes(tag)))
+			.map(item => ({ id: item.id, name: item.name, category: item.category,
+				kind: 'pokemon' as const, price: item.price!.buy!, icon: getRPGItemIconPath(item.id),
+				sprite: Number.isInteger(Dex.items.get(item.id).spritenum) ? Dex.items.get(item.id).spritenum! : null,
+				tags: item.tags || [] }));
+		const equipment = Object.values(RPG_EQUIPMENT_CATALOG).filter(item => item.price > 0 && !item.vehicle)
+			.map(item => ({ id: item.id, name: item.name, category: 'trainer-equipment',
+				kind: 'equipment' as const, price: item.price, icon: null, sprite: null,
+				tags: ['trainer-equipment'] }));
+		return [...pokemonItems, ...equipment];
+	}
+
+	getParallelMarketCatalog(token: string) {
+		const session = this.getSession(token);
+		const characterId = session.role === 'master' ? session.viewAsCharacterId : session.characterId;
+		const record = characterId ? this.requireCharacter(toID(characterId)) : null;
+		if (session.mode !== 'player' || !session.platformTableId || record?.tableId !== session.platformTableId ||
+			record.state.trainerSheet?.status !== 'complete' ||
+			!record.state.trainerSheet.talents.class.includes('ladino:mercado-paralelo')) {
+			throw new Error('Mercado Paralelo indisponível');
+		}
+		return { items: this.parallelMarketCatalog() };
+	}
+
+	requestParallelMarketOrder(token: string, input: { requestId: string, itemId: string,
+		itemKind: 'pokemon' | 'equipment', quantity: number, }) {
+		const session = this.getSession(token);
+		const characterId = session.role === 'master' ? session.viewAsCharacterId : session.characterId;
+		if (session.mode !== 'player' || !session.platformTableId || !characterId) throw new Error('Entre como jogador em uma mesa');
+		const record = this.requireCharacter(toID(characterId));
+		if (record.tableId !== session.platformTableId || record.state.trainerSheet?.status !== 'complete' ||
+			!record.state.trainerSheet.talents.class.includes('ladino:mercado-paralelo')) {
+			throw new Error('Mercado Paralelo indisponível');
+		}
+		if (!/^[a-zA-Z0-9_-]{8,100}$/.test(input.requestId)) throw new Error('Identificador da encomenda inválido');
+		if (!Number.isSafeInteger(input.quantity) || input.quantity < 1 || input.quantity > 99) throw new Error('Quantidade inválida');
+		const prior = this.campaignSettings.supplierOrders.find(entry => entry.id === input.requestId);
+		if (prior) {
+			if (prior.source !== 'parallel-market' || prior.characterId !== record.state.id ||
+				prior.itemId !== input.itemId || prior.itemKind !== input.itemKind || prior.quantity !== input.quantity) {
+				throw new Error('Identificador da encomenda já utilizado');
+			}
+			return { order: structuredClone(prior), repeated: true };
+		}
+		if (this.campaignSettings.supplierOrders.some(entry => entry.source === 'parallel-market' &&
+			entry.characterId === record.state.id && entry.status === 'pending')) {
+			throw new Error('Já existe um pedido do Mercado Paralelo aguardando avaliação');
+		}
+		const item = this.parallelMarketCatalog().find(entry => entry.id === input.itemId && entry.kind === input.itemKind);
+		if (!item) throw new Error('Item indisponível para o Mercado Paralelo');
+		const price = item.price * input.quantity;
+		if (!Number.isSafeInteger(price) || record.state.money < price) throw new Error('Pokécoins insuficientes para a compra');
+		const order: RPGSupplierOrder = { id: input.requestId, characterId: record.state.id,
+			characterName: record.state.characterName, itemId: item.id, itemName: item.name,
+			itemKind: item.kind, price, quantity: input.quantity, source: 'parallel-market',
+			icon: item.icon, sprite: item.sprite, requestedAt: this.campaignSettings.currentDateTime,
+			status: 'pending' };
+		this.campaignSettings.supplierOrders.push(order);
+		try { this.persistAtomically(() => this.persistCampaignSettings()); } catch (error) {
+			this.campaignSettings.supplierOrders.pop(); throw error;
+		}
+		return { order: structuredClone(order), repeated: false };
+	}
+
 	getSupplierCatalog(token: string) {
 		const session = this.getSession(token);
 		const characterId = session.role === 'master' ? session.viewAsCharacterId : session.characterId;
@@ -1950,8 +2021,9 @@ export class RPGLoginService {
 		const previousOrder = structuredClone(order);
 		const active = !!record.tableId && !!record.accountId &&
 			this.accounts.repository.getMembership(record.tableId, record.accountId)?.status === 'active';
+		const requiredTalent = order.source === 'parallel-market' ? 'ladino:mercado-paralelo' : 'diplomata:canal-oficial';
 		if (accepted && (!active || record.state.trainerSheet?.status !== 'complete' ||
-			!record.state.trainerSheet.talents.class.includes('diplomata:canal-oficial'))) {
+			!record.state.trainerSheet.talents.class.includes(requiredTalent))) {
 			throw new Error('Treinador indisponível para receber a encomenda');
 		}
 		const insufficient = accepted && record.state.money < order.price;
@@ -1959,23 +2031,32 @@ export class RPGLoginService {
 		order.decidedAt = this.campaignSettings.currentDateTime;
 		if (insufficient) order.reason = 'Pokécoins insuficientes; encomenda cancelada.';
 		if (order.status === 'accepted') {
-			const item = this.supplierCatalog().find(entry => entry.id === order.itemId && entry.kind === order.itemKind);
+			const item = (order.source === 'parallel-market' ? this.parallelMarketCatalog() : this.supplierCatalog())
+				.find(entry => entry.id === order.itemId && entry.kind === order.itemKind);
 			if (!item) {
 				Object.assign(order, previousOrder); throw new Error('Item da encomenda não está mais disponível; recuse o pedido');
 			}
 			try {
 				if (order.itemKind === 'pokemon') {
 					working.state.inventory = { ...working.state.inventory, bag: RPGBagSystem.add(
-						working.state.inventory.bag, order.itemId, 1, working.state.inventory.bag.revision).bag };
+						working.state.inventory.bag, order.itemId, order.quantity || 1, working.state.inventory.bag.revision).bag };
 				} else {
 					const inventory = this.ensureTrainerInventory(working);
 					const definition = rpgEquipment(order.itemId);
 					const stack = inventory.items.find(entry => entry.itemId === definition.id && entry.location === 'bag' &&
 						!entry.equipped && entry.quantity < definition.stackLimit && entry.charges === undefined);
-					if (stack) stack.quantity++;
-					else inventory.items.push({ id: secureRandomBytes(12).toString('hex'), itemId: definition.id,
-						quantity: 1, location: 'bag', equipped: false,
-						...(definition.maxCharges !== undefined ? { charges: definition.maxCharges } : {}) });
+					let remaining = order.quantity || 1;
+					if (stack) {
+						const added = Math.min(remaining, definition.stackLimit - stack.quantity);
+						stack.quantity += added; remaining -= added;
+					}
+					while (remaining) {
+						const added = Math.min(remaining, definition.stackLimit);
+						inventory.items.push({ id: secureRandomBytes(12).toString('hex'), itemId: definition.id,
+							quantity: added, location: 'bag', equipped: false,
+							...(definition.maxCharges !== undefined ? { charges: definition.maxCharges } : {}) });
+						remaining -= added;
+					}
 					inventory.revision++;
 				}
 				working.state.money -= order.price;
@@ -2534,6 +2615,9 @@ export class RPGLoginService {
 			record.state.trainerInventory = inventory;
 		}
 		record.state.trainerInventory.pokemonStorage ||= [];
+		for (const item of record.state.trainerInventory.items) {
+			if (item.itemId.startsWith('kit-ladinagem-') && item.charges === undefined) item.charges = 5;
+		}
 		record.state.inventory.bag.generalReservedSlots = rpgEquipmentSlots(record.state.trainerInventory.items);
 		return record.state.trainerInventory;
 	}
@@ -2715,6 +2799,8 @@ export class RPGLoginService {
 		const owner = this.getSupportCaches(token).find(entry => entry.cacheId === cacheId);
 		if (!owner || actor.tableId !== session.platformTableId) throw new Error('Ponto de Apoio indisponível nesta mesa');
 		const cache = this.campaignSettings.supportCaches[cacheId];
+		const concealment = cache.concealedItem;
+		const concealedStatus = concealment ? 'hidden' : undefined;
 		const snapshot = structuredClone(actor.state);
 		snapshot.inventory = RPGInventorySystem.create(cache.bag);
 		const bagView = RPGBagManagement.view(snapshot);
@@ -2723,14 +2809,93 @@ export class RPGLoginService {
 			id: entry.id, itemId: entry.itemId, name: rpgEquipment(entry.itemId).name,
 			quantity: entry.quantity, category: 'food-items', kind: 'equipment',
 			spaces: rpgEquipment(entry.itemId).spaces, charges: entry.charges,
+			...(concealment?.kind === 'equipment' && concealment.instanceId === entry.id ? { concealedStatus } : {}),
 		}));
 		return { ...owner, revision: cache.revision, usedSlots: RPGBagSystem.getUsedSlots(cache.bag), maxSlots: 20,
 			canDeposit: !!this.repository.get(owner.ownerCharacterId)?.state.trainerSheet?.talents.class.includes('explorador:ponto-de-apoio'),
 			items: [...bagView.items.filter(item => !item.mission).map(item => ({
 				id: item.id, itemId: item.id, name: item.name, quantity: item.quantity,
 				category: item.category, kind: 'pokemon', icon: item.icon, sprite: item.sprite,
+				...(concealment?.kind === 'pokemon' && concealment.itemId === item.id ? { concealedStatus } : {}),
 			})), ...mapEquipment(cache.equipment)],
+			canConceal: !!actor.state.trainerSheet?.talents.class.includes('ladino:compartimento-clandestino'),
+			concealmentOwnerId: concealment?.ownerCharacterId,
 			bagRevision: actor.state.inventory.bag.revision, equipmentRevision: equipment.revision };
+	}
+
+	setTrainerHiddenCompartment(token: string, input: { container: 'bag' | 'support-cache', cacheId?: string,
+		action: 'conceal' | 'reveal', kind?: 'pokemon' | 'equipment', itemId?: string, instanceId?: string, }) {
+		const session = this.getSession(token);
+		const actorId = session.viewAsCharacterId || session.characterId;
+		if (session.mode !== 'player' || !actorId || !session.platformTableId) {
+			throw new Error('Entre como jogador em uma mesa para preparar o compartimento');
+		}
+		if (!input || !['bag', 'support-cache'].includes(input.container) ||
+			!['conceal', 'reveal'].includes(input.action)) throw new Error('Compartimento inválido');
+		const original = this.requireBagRecord(token, actorId, 'bag:edit');
+		this.requireWorldBagItemUse(token, original.state.id);
+		const actor = structuredClone(original);
+		const sheet = actor.state.trainerSheet;
+		if (sheet?.status !== 'complete' || !sheet.talents.class.includes('ladino:compartimento-clandestino')) {
+			throw new Error('Este treinador não possui Compartimento Clandestino');
+		}
+		if (!sheet.proficiencies?.includes('kit-ladinagem') || !sheet.skills.trained.includes('ladinagem')) {
+			throw new Error('É necessário domínio do Kit de Ladinagem e treinamento em Ladinagem');
+		}
+		if (input.container === 'support-cache' && (!input.cacheId ||
+			!this.getSupportCaches(token).some(entry => entry.cacheId === input.cacheId))) {
+			throw new Error('Armazenamento compartilhado indisponível nesta mesa');
+		}
+		const previousCaches = structuredClone(this.campaignSettings.supportCaches);
+		const cache = input.container === 'support-cache' ? structuredClone(previousCaches[input.cacheId!]) : null;
+		const current = cache ? cache.concealedItem : sheet.concealedBagItem;
+		if (input.action === 'reveal') {
+			if (!current || cache?.concealedItem && cache.concealedItem.ownerCharacterId !== actor.state.id) {
+				throw new Error('Nenhum compartimento deste Ladino para desfazer');
+			}
+			if (cache) { cache.concealedItem = undefined; cache.revision++; } else sheet.concealedBagItem = undefined;
+		} else {
+			if (!['pokemon', 'equipment'].includes(input.kind || '') || !input.itemId) {
+				throw new Error('Escolha um item válido do armazenamento');
+			}
+			const bag = cache?.bag || actor.state.inventory.bag;
+			const equipment = cache?.equipment || this.ensureTrainerInventory(actor).items;
+			const kind = input.kind!;
+			const itemId = kind === 'pokemon' ? RPGItems.require(input.itemId).id : rpgEquipment(input.itemId).id;
+			if (kind === 'pokemon') {
+				if (RPGBagSystem.getRegularQuantity(bag, itemId) < 1) {
+					throw new Error('O item não está disponível neste armazenamento');
+				}
+			} else {
+				const entry = equipment.find(item => item.id === input.instanceId && item.itemId === itemId &&
+					item.quantity > 0 && !item.equipped && (cache || item.location === 'bag'));
+				if (!entry) throw new Error('O equipamento não está disponível neste armazenamento');
+				if (rpgEquipment(itemId).spaces > 1) throw new Error('O item ocupa mais de um espaço');
+			}
+			const stillPresent = current && (current.kind === 'pokemon' ?
+				RPGBagSystem.getRegularQuantity(bag, current.itemId) > 0 :
+				equipment.some(item => item.id === current.instanceId && item.quantity > 0));
+			if (stillPresent) throw new Error('Este armazenamento já possui um Compartimento Clandestino');
+			const kit = this.ensureTrainerInventory(actor).items.find(item =>
+				item.itemId.startsWith('kit-ladinagem-') && item.location === 'bag' && (item.charges || 0) > 0);
+			if (!kit) throw new Error('É necessário um Kit de Ladinagem com ao menos uma carga');
+			kit.charges!--;
+			this.ensureTrainerInventory(actor).revision++;
+			const concealed = { kind, itemId, ...(kind === 'equipment' ? { instanceId: input.instanceId } : {}) };
+			if (cache) { cache.concealedItem = { ...concealed, ownerCharacterId: actor.state.id }; cache.revision++; } else sheet.concealedBagItem = concealed;
+		}
+		actor.state.updatedAt = this.now();
+		try {
+			this.persistAtomically(() => {
+				this.repository.set(actor);
+				if (cache) { this.campaignSettings.supportCaches[input.cacheId!] = cache; this.persistCampaignSettings(); }
+			});
+		} catch (error) {
+			this.repository.set(original);
+			this.campaignSettings.supportCaches = previousCaches;
+			throw error;
+		}
+		return { hidden: !!(cache?.concealedItem || sheet.concealedBagItem) };
 	}
 
 	changeSupportCache(token: string, input: { cacheId: string, action: 'deposit' | 'withdraw',
@@ -2761,6 +2926,8 @@ export class RPGLoginService {
 		}
 		if (input.kind === 'pokemon') {
 			const item = RPGItems.require(input.itemId || '');
+			if (input.action === 'withdraw' && cache.concealedItem?.kind === 'pokemon' &&
+				cache.concealedItem.itemId === item.id) cache.concealedItem = undefined;
 			if (item.tags?.includes('mission')) throw new Error('Itens de missão não podem ser guardados no Ponto de Apoio');
 			if (input.action === 'deposit' && item.id === 'portableincubator' &&
 				this.portableEggProjects(actor).length) {
@@ -2780,6 +2947,8 @@ export class RPGLoginService {
 			const source = input.action === 'deposit' ? equipment.items : cache.equipment;
 			const destination = input.action === 'deposit' ? cache.equipment : equipment.items;
 			const entry = source.find(item => item.id === input.instanceId);
+			if (input.action === 'withdraw' && cache.concealedItem?.kind === 'equipment' &&
+				cache.concealedItem.instanceId === input.instanceId) cache.concealedItem = undefined;
 			if (!entry || input.quantity > entry.quantity ||
 				(input.action === 'deposit' && (entry.location !== 'bag' || entry.equipped)) ||
 				entry.charges !== undefined && input.quantity !== entry.quantity) {
@@ -3305,7 +3474,11 @@ export class RPGLoginService {
 			} : null,
 			supplierOrder: sheet.talents.class.includes('diplomata:canal-oficial') ? {
 				pending: this.campaignSettings.supplierOrders.find(entry =>
-					entry.characterId === state.id && entry.status === 'pending') || null,
+					entry.characterId === state.id && entry.status === 'pending' && entry.source !== 'parallel-market') || null,
+			} : null,
+			parallelMarket: sheet.talents.class.includes('ladino:mercado-paralelo') ? {
+				pending: this.campaignSettings.supplierOrders.find(entry =>
+					entry.characterId === state.id && entry.status === 'pending' && entry.source === 'parallel-market') || null,
 			} : null,
 			publication: sheet.talents.class.includes('cientista:publicacao-de-referencia') ? {
 				accepted: this.campaignSettings.publications.filter(entry =>
@@ -3381,6 +3554,44 @@ export class RPGLoginService {
 			this.repository.set(original); throw error;
 		}
 		return { sheet: structuredClone(outcome.sheet), die: outcome.die, recovered: outcome.recovered };
+	}
+
+	/** Talentos de armadilhas consomem suas cargas reais do Kit de Ladinagem. */
+	useTrainerTrapmaker(token: string, mode: 'basic' | 'combined' | 'labyrinth' = 'basic') {
+		const session = this.getSession(token);
+		if (session.mode !== 'player' || !session.platformTableId) throw new Error('Entre como jogador em uma mesa');
+		const characterId = session.role === 'master' ? session.viewAsCharacterId : session.characterId;
+		if (!characterId) throw new Error('Nenhum personagem selecionado');
+		const original = this.requireCharacter(toID(characterId));
+		if (original.tableId !== session.platformTableId) throw new Error('Personagem fora da mesa atual');
+		this.requireWorldBagItemUse(token, original.state.id);
+		const actor = structuredClone(original);
+		const talentId = mode === 'labyrinth' ? 'ladino:labirinto-de-gatilhos' :
+			mode === 'combined' ? 'ladino:armadilha-combinada' : 'ladino:armadilheiro';
+		const talentName = mode === 'labyrinth' ? 'Labirinto de Gatilhos' :
+			mode === 'combined' ? 'Armadilha Combinada' : 'Armadilheiro';
+		if (actor.state.trainerSheet?.status !== 'complete' ||
+			!(mode === 'labyrinth' ? actor.state.trainerSheet.talents.apex === talentId :
+			actor.state.trainerSheet.talents.class.includes(talentId))) {
+			throw new Error(`Este treinador não possui ${talentName}`);
+		}
+		const requiredCharges = mode === 'labyrinth' ? 4 : mode === 'combined' ? 2 : 1;
+		const inventory = this.ensureTrainerInventory(actor);
+		const kits = inventory.items.filter(item => item.itemId.startsWith('kit-ladinagem-') &&
+			item.location === 'bag' && item.quantity > 0);
+		if (!kits.length) throw new Error('Você precisa de um Kit de Ladinagem na Bag');
+		const kit = kits.find(item => (item.charges || 0) >= requiredCharges);
+		if (!kit) throw new Error(mode === 'labyrinth' ?
+			'O Kit de Ladinagem precisa de pelo menos quatro cargas' : mode === 'combined' ?
+				'O Kit de Ladinagem precisa de pelo menos duas cargas' : 'O Kit de Ladinagem está sem cargas');
+		kit.charges! -= requiredCharges;
+		inventory.revision++;
+		actor.state.updatedAt = this.now();
+		this.validateTrainerInventory(actor);
+		try { this.persistAtomically(() => this.repository.set(actor)); } catch (error) {
+			this.repository.set(original); throw error;
+		}
+		return { chargesRemaining: kit.charges, kitInstanceId: kit.id };
 	}
 
 	/** Disfarce Social gasta uma carga real do kit, sem consumir o talento. */
@@ -6828,6 +7039,21 @@ export class RPGLoginService {
 					item.fossilQualities = { ...sample.quantities };
 				}
 			}
+		}
+		if (view.context === 'world') {
+			const concealment = record.state.trainerSheet?.concealedBagItem;
+			const concealedPresent = concealment?.kind === 'equipment' ?
+				!!record.state.trainerInventory?.items.some(entry => entry.id === concealment.instanceId &&
+					entry.itemId === concealment.itemId && entry.location === 'bag' && entry.quantity > 0) :
+				concealment?.kind === 'pokemon' ?
+					RPGBagSystem.getRegularQuantity(record.state.inventory.bag, concealment.itemId) > 0 : false;
+			const concealedId = concealment?.kind === 'equipment' ? `equipment:${concealment.itemId}` : concealment?.itemId;
+			for (const item of view.items) {
+				if (concealedPresent && item.id === concealedId && !item.mission) item.concealedStatus = 'hidden';
+			}
+			view.canConceal = session.mode === 'player' &&
+				(session.viewAsCharacterId || session.characterId) === record.state.id &&
+				!itemUseLockReason && !!record.state.trainerSheet?.talents.class.includes('ladino:compartimento-clandestino');
 		}
 		return view;
 	}

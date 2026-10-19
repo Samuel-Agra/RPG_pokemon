@@ -13,6 +13,14 @@ const html = fs.readFileSync(path.join(root, 'server/static/rpg/index.html'), 'u
 const css = fs.readFileSync(path.join(root, 'server/static/rpg/rpg.css'), 'utf8');
 
 describe('RPG Bag frontend', () => {
+	it('destaca a unidade preparada e permite escolher itens da Bag própria ou do armazenamento compartilhado', () => {
+		assert.match(bagUi, /bagData\.canConceal && !item\.mission/);
+		assert.match(bagUi, /selectedShared\.canConceal/);
+		assert.match(bagUi, /\/trainer\/talents\/hidden-compartment/);
+		assert.match(bagUi, /bag-ui-concealed-item/);
+		assert.match(css, /\.bag-ui-concealed-item/);
+		assert.match(trainerSheetUi, /Sua CD atual/);
+	});
 	it('shows separate external and shared inventories and opens shared support caches', () => {
 		assert.match(bagUi, /\['Externo', 'Compartilhado'\]/);
 		assert.match(bagUi, /areaTitle\.append\(el\('small', '', 'Inventário'\), el\('h2', '', title\)\)/);

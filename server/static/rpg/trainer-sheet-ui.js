@@ -444,7 +444,7 @@
 		if (closeAttributePopover) closeAttributePopover();
 		const panel = el('div', 'trainer-sheet-talent-popover');
 		if (action?.diplomatProxy) panel.classList.add('trainer-sheet-talent-popover--archive');
-		if (action?.socialDisguise || action?.pokemonPharmacy || action?.advancedPharmacy || action?.masterPharmacy ||
+		if (action?.socialDisguise || action?.trapmaker || action?.combinedTrap || action?.trapLabyrinth || action?.pokemonPharmacy || action?.advancedPharmacy || action?.masterPharmacy ||
 			action?.choreography ||
 			action?.persistentHypothesis !== undefined) {
 			panel.dataset.preserveOnRefresh = 'true';
@@ -647,23 +647,27 @@
 				}
 			};
 			draw(); editor.append(status, controls, feedback); panel.append(editor);
-		} else if (action?.supplierOrder) {
+		} else if (action?.supplierOrder || action?.parallelMarket) {
 			const editor = el('div', 'trainer-sheet-archive-editor');
 			const feedback = el('p', 'trainer-sheet-roll-error hidden');
-			if (action.supplierOrder.pending) {
-				const order = action.supplierOrder.pending;
-				editor.append(el('p', '', `${order.itemName} · ${order.price.toLocaleString('pt-BR')} Pokécoins`),
+			const parallel = !!action.parallelMarket;
+			const activeOrder = parallel ? action.parallelMarket : action.supplierOrder;
+			if (activeOrder.pending) {
+				const order = activeOrder.pending;
+				editor.append(el('p', '', `${order.quantity || 1} × ${order.itemName} · ${order.price.toLocaleString('pt-BR')} Pokécoins`),
 					el('p', '', 'Encomenda aguardando avaliação do Mestre.'));
 			} else {
 				let selected = null;
 				const choose = el('button', 'trainer-sheet-scientist-choose', 'Escolher item');
 				choose.type = 'button'; choose.setAttribute('aria-haspopup', 'dialog');
+				const quantity = el('input'); quantity.type = 'number'; quantity.min = '1'; quantity.max = '99';
+				quantity.value = '1'; quantity.setAttribute('aria-label', 'Quantidade');
 				const order = el('button', 'trainer-sheet-talent-use', 'Encomendar');
 				order.type = 'button'; order.disabled = true;
 				choose.addEventListener('click', async () => {
 					choose.disabled = true;
 					try {
-						const data = await action.api('/trainer/supplier/catalog');
+						const data = await action.api(parallel ? '/trainer/parallel-market/catalog' : '/trainer/supplier/catalog');
 						const items = data.items || [];
 						const categories = window.rpgBagCatalogCategories;
 						const overlay = el('div', 'trainer-sheet-record-overlay');
@@ -698,10 +702,10 @@
 									const icon = window.rpgRuntimeItemIcon?.(item);
 									if (icon) { const frame = el('span', 'bag-ui-item-icon'); frame.append(icon); choice.append(frame); }
 									choice.append(el('span', '', item.name),
-										el('small', '', `${item.orderPrice.toLocaleString('pt-BR')} Pokécoins`));
+										el('small', '', `${(parallel ? item.price : item.orderPrice).toLocaleString('pt-BR')} Pokécoins`));
 									choice.addEventListener('click', () => {
 										selected = item;
-										choose.textContent = `${item.name} · ${item.orderPrice.toLocaleString('pt-BR')} Pokécoins`;
+										choose.textContent = `${item.name} · ${(parallel ? item.price : item.orderPrice).toLocaleString('pt-BR')} Pokécoins`;
 										order.disabled = false; closePicker();
 									});
 									list.append(choice);
@@ -722,13 +726,19 @@
 				});
 				order.addEventListener('click', async () => {
 					if (!selected) return;
+					const count = Number(quantity.value);
+					if (parallel && (!Number.isSafeInteger(count) || count < 1 || count > 99)) {
+						feedback.textContent = 'Escolha uma quantidade entre 1 e 99.';
+						feedback.classList.remove('hidden'); return;
+					}
 					order.disabled = true;
 					try {
-						await action.api('/trainer/supplier/orders', { method: 'POST', body: {
+						await action.api(parallel ? '/trainer/parallel-market/orders' : '/trainer/supplier/orders', { method: 'POST', body: {
 							requestId: crypto.randomUUID(), itemId: selected.id, itemKind: selected.kind,
+							...(parallel ? { quantity: count } : {}),
 						} });
 						feedback.textContent = 'Encomenda enviada para avaliação do Mestre.';
-						feedback.classList.remove('hidden'); choose.remove(); order.remove();
+						feedback.classList.remove('hidden'); choose.remove(); order.remove(); quantity.remove();
 						window.dispatchEvent(new CustomEvent('rpg:realtime-sync',
 							{ detail: { tableId: selectedTable } }));
 					} catch (error) {
@@ -736,7 +746,9 @@
 						feedback.classList.remove('hidden'); order.disabled = false;
 					}
 				});
-				editor.append(choose, order);
+				editor.append(choose);
+				if (parallel) editor.append(quantity);
+				editor.append(order);
 			}
 			editor.append(feedback); panel.append(editor);
 		} else if (action?.forage) {
@@ -1871,6 +1883,29 @@
 				controls.append(save, remove); row.append(controls, feedback); editor.append(row);
 			}
 			panel.append(editor);
+		} else if (action?.trapmaker || action?.combinedTrap || action?.trapLabyrinth) {
+			const combined = !!action.combinedTrap;
+			const labyrinth = !!action.trapLabyrinth;
+			const talentName = labyrinth ? 'Labirinto de Gatilhos' : combined ? 'Armadilha Combinada' : 'Armadilheiro';
+			const use = el('button', 'trainer-sheet-talent-use', `Usar ${talentName}`);
+			use.type = 'button';
+			const feedback = el('p', 'trainer-sheet-roll-error hidden');
+			use.addEventListener('click', async () => {
+				use.disabled = true;
+				try {
+					const result = await action.api(labyrinth ? '/trainer/talents/trap-labyrinth' :
+						combined ? '/trainer/talents/combined-trap' :
+						'/trainer/talents/trapmaker', { method: 'POST' });
+					feedback.textContent = `Carga consumida. Restam ${result.chargesRemaining} carga(s) no kit.`;
+					feedback.classList.remove('hidden');
+					window.dispatchEvent(new CustomEvent('rpg:realtime-sync',
+						{ detail: { tableId: selectedTable } }));
+				} catch (error) {
+					feedback.textContent = error.message || `Não foi possível usar ${talentName}.`;
+					feedback.classList.remove('hidden');
+				} finally { use.disabled = false; }
+			});
+			panel.append(use, feedback);
 		} else if (action?.socialDisguise) {
 			const use = el('button', 'trainer-sheet-talent-use', 'Usar Disfarce Social');
 			use.type = 'button';
@@ -3007,15 +3042,21 @@
 		const talentList = el('div', 'trainer-sheet-talent-list');
 		for (const { id, name, description } of [...classTalents, ...apexTalents, ...generalTalents]) {
 			const button = el('button', 'trainer-sheet-talent-row', name);
-			let shownDescription = id === 'detetive:voz-do-parceiro' ?
-				`${description}\n\nPokémon vinculado: ${progression.investigativePartner?.pokemonName || 'nenhum'}.` :
-				id === 'encantador:confidente' && progression.confidant?.name ?
-					`${description}\n\nConfidente: ${progression.confidant.name}.` :
-					id === 'encantador:laco-verdadeiro' && progression.trueBond?.name ?
-						`${description}\n\nNPC vinculado: ${progression.trueBond.name}.` :
-						id === 'detetive:parceiro-de-confianca' && (sheet.trustedPartnerName || readOnly) ?
-							`${description}\n\nParceiro: ${sheet.trustedPartnerName || 'não informado'}.` :
-							description;
+			const compartmentDC = id === 'ladino:compartimento-clandestino' && sheet.attributes ?
+				8 + progression.proficiency + Math.floor((sheet.attributes.intelligence - 10) / 2) : null;
+			const emptyHandsDC = id === 'ladino:maos-vazias' && sheet.attributes ?
+				8 + progression.proficiency + Math.floor((sheet.attributes.dexterity - 10) / 2) : null;
+			let shownDescription = compartmentDC !== null ? `${description}\n\nSua CD atual: ${compartmentDC}.` :
+				emptyHandsDC !== null ? `${description}\n\nSua CD atual: ${emptyHandsDC}.` :
+				id === 'detetive:voz-do-parceiro' ?
+					`${description}\n\nPokémon vinculado: ${progression.investigativePartner?.pokemonName || 'nenhum'}.` :
+					id === 'encantador:confidente' && progression.confidant?.name ?
+						`${description}\n\nConfidente: ${progression.confidant.name}.` :
+						id === 'encantador:laco-verdadeiro' && progression.trueBond?.name ?
+							`${description}\n\nNPC vinculado: ${progression.trueBond.name}.` :
+							id === 'detetive:parceiro-de-confianca' && (sheet.trustedPartnerName || readOnly) ?
+								`${description}\n\nParceiro: ${sheet.trustedPartnerName || 'não informado'}.` :
+								description;
 			if (id === 'cientista:publicacao-de-referencia' && progression.publication?.accepted) {
 				button.append(el('span', 'trainer-sheet-publication-count',
 					`${progression.publication.accepted} publicação(ões)`));
@@ -3033,77 +3074,85 @@
 						{ id, api, forage: progression.forage } :
 						!readOnly && id === 'diplomata:canal-oficial' ?
 							{ id, api, supplierOrder: progression.supplierOrder } :
-							!readOnly && id === 'encantador:confidente' ?
-								{ id, api, confidant: progression.confidant } :
-								!readOnly && id === 'encantador:laco-verdadeiro' ?
-									{ id, api, trueBond: progression.trueBond, canRemove: canRemoveTrueBond } :
-									!readOnly && id === 'detetive:parceiro-de-confianca' ?
-										{ id, api, trustedPartner: { name: sheet.trustedPartnerName || '', onSaved: saved => {
-											sheet.trustedPartnerName = saved;
-											shownDescription = `${description}\n\nParceiro: ${saved || 'não informado'}.`;
-										} } } :
-										!readOnly && id === 'detetive:parceiro-investigativo' ?
-											{ id, api, refresh, spriteUrl, investigativePartner: progression.investigativePartner } :
-											!readOnly && ['criador-pokemon:primeiros-cuidados',
-												'criador-pokemon:restaurador-pokemon'].includes(id) ?
-												{ id, api, refresh, spriteUrl, firstCare: true } :
-												!readOnly && progression.choreography && ['coreografo:ensaio-conjunto',
-													'coreografo:formacao-em-dupla', 'coreografo:formacao-em-trio', 'coreografo:diretor-convidado',
-													'coreografo:tema-unificado', 'coreografo:entrosamento-instintivo',
-													'coreografo:preparacao-corporal-conjunta', 'coreografo:conducao-de-evacuacao'].includes(id) ?
-													{ id, api, choreography: progression.choreography } :
-													!readOnly && id === 'cientista:registro-reprodutivel' ? { id, api, refresh,
-														scientistRecord: progression.scientistRecord } :
-													!readOnly && id === 'cientista:hipotese-persistente' ?
-														{ id, api, refresh, persistentHypothesis: progression.persistentHypothesis,
-															persistentHypothesisCharacterId: character.id } :
-														!readOnly && id === 'cientista:publicacao-de-referencia' ?
-															{ id, api, refresh, publication: progression.publication } :
-															!readOnly && id === 'cientista:producao-farmaceutica-pokemon' ?
-																{ id, api, refresh, pokemonPharmacy: character.id } :
-																!readOnly && id === 'cientista:farmacologia-avancada' ?
-																	{ id, api, refresh, advancedPharmacy: character.id } :
-																	!readOnly && id === 'cientista:mestre-de-formulacao' ?
-																		{ id, api, refresh, masterPharmacy: character.id } :
-																		!readOnly && id === 'diplomata:carta-de-apresentacao' ?
-																			{ id, api, refresh, introductionLetter: progression.introductionLetter } :
-																			!readOnly && id === 'diplomata:acordo-impossivel' ?
-																				{ id, api, refresh, diplomatProxy: progression.diplomatProxy } :
-																				!readOnly && id === 'diplomata:etiqueta-cosmopolita' ?
-																					{ id, api, refresh, cosmopolitanEtiquette: progression.cosmopolitanEtiquette,
-																						proficiency: progression.proficiency } :
-																					!readOnly && id === 'arqueologo:acervo-compartilhado' ? { id, api, refresh, archive: {
-																						slots: sheet.sharedArchives || [], proficiency: progression.proficiency,
-																						knowledge: (sheet.skills?.trained || []).filter(skill => skill.startsWith('conhecimento:')),
-																						recipients: progression.archiveRecipients || [],
-																					} } : !readOnly && ['atleta:capitao-de-time', 'detetive:plano-de-captura'].includes(id) ?
-																						{ id, api, refresh, ...(id === 'atleta:capitao-de-time' ?
-																							{ captainPlan: { ...(progression.captainPlan || {}), proficiency: progression.proficiency } } :
-																							{ capturePlan: { ...(progression.capturePlan || {}), proficiency: progression.proficiency } }) } :
-																						!readOnly && sheet.classId === 'cozinheiro' && name === 'Refeição Revigorante' ?
-																							{ id, api, revigoratingMeal: progression.revigoratingMeal } :
-																							!readOnly && id === 'cozinheiro:petisco-de-amizade' ?
-																								{ id, api, friendshipSnacks: progression.friendshipSnacks } :
-																								!readOnly && id === 'criador-pokemon:rotina-de-enriquecimento' ?
-																									{ id, api, enrichmentRoutine: progression.enrichmentRoutine } :
-																									!readOnly && id === 'criador-pokemon:guardiao-de-geracoes' ?
-																										{ id, api, guardianEnrichment: progression.enrichmentRoutine } :
-																										!readOnly && id === 'criador-pokemon:preparacao-impecavel' ?
-																											{ id, api, impeccablePreparation: progression.impeccablePreparation } :
-																											!readOnly && id === 'cozinheiro:recompensa-de-treinamento' ?
-																												{ id, api, trainingReward: progression.trainingReward } :
-																												!readOnly && id === 'cozinheiro:harmonizacao-de-sabores' ?
-																													{ id, api, contestHarmonization: progression.contestHarmonization } :
-																													!readOnly && id === 'cozinheiro:racao-artesanal-pokemon' ?
-																														{ id, api, artisanRation: progression.artisanRation } :
-																														!readOnly && id === 'artista:arte-reconfortante' ? { id, api, refresh,
-																															comfortingArt: progression.comfortingArtRecipients || [] } :
-																														!readOnly && id === 'encantador:disfarce-social' ?
-																															{ id, api, socialDisguise: true } :
-																															!readOnly && ['segundo-folego', 'sortudo', 'determinado', 'esforco-heroico'].includes(id) ?
-																																{ id, api, refresh, reroll: id !== 'segundo-folego',
-																																	available: progression.rerollAvailability?.[id],
-																																	used: progression.activeTalentUses?.used?.[id] === progression.activeTalentUses?.restCycle } : null));
+							!readOnly && id === 'ladino:mercado-paralelo' ?
+								{ id, api, parallelMarket: progression.parallelMarket } :
+								!readOnly && id === 'encantador:confidente' ?
+									{ id, api, confidant: progression.confidant } :
+									!readOnly && id === 'encantador:laco-verdadeiro' ?
+										{ id, api, trueBond: progression.trueBond, canRemove: canRemoveTrueBond } :
+										!readOnly && id === 'detetive:parceiro-de-confianca' ?
+											{ id, api, trustedPartner: { name: sheet.trustedPartnerName || '', onSaved: saved => {
+												sheet.trustedPartnerName = saved;
+												shownDescription = `${description}\n\nParceiro: ${saved || 'não informado'}.`;
+											} } } :
+											!readOnly && id === 'detetive:parceiro-investigativo' ?
+												{ id, api, refresh, spriteUrl, investigativePartner: progression.investigativePartner } :
+												!readOnly && ['criador-pokemon:primeiros-cuidados',
+													'criador-pokemon:restaurador-pokemon'].includes(id) ?
+													{ id, api, refresh, spriteUrl, firstCare: true } :
+													!readOnly && progression.choreography && ['coreografo:ensaio-conjunto',
+														'coreografo:formacao-em-dupla', 'coreografo:formacao-em-trio', 'coreografo:diretor-convidado',
+														'coreografo:tema-unificado', 'coreografo:entrosamento-instintivo',
+														'coreografo:preparacao-corporal-conjunta', 'coreografo:conducao-de-evacuacao'].includes(id) ?
+														{ id, api, choreography: progression.choreography } :
+														!readOnly && id === 'cientista:registro-reprodutivel' ? { id, api, refresh,
+															scientistRecord: progression.scientistRecord } :
+														!readOnly && id === 'cientista:hipotese-persistente' ?
+															{ id, api, refresh, persistentHypothesis: progression.persistentHypothesis,
+																persistentHypothesisCharacterId: character.id } :
+															!readOnly && id === 'cientista:publicacao-de-referencia' ?
+																{ id, api, refresh, publication: progression.publication } :
+																!readOnly && id === 'cientista:producao-farmaceutica-pokemon' ?
+																	{ id, api, refresh, pokemonPharmacy: character.id } :
+																	!readOnly && id === 'cientista:farmacologia-avancada' ?
+																		{ id, api, refresh, advancedPharmacy: character.id } :
+																		!readOnly && id === 'cientista:mestre-de-formulacao' ?
+																			{ id, api, refresh, masterPharmacy: character.id } :
+																			!readOnly && id === 'diplomata:carta-de-apresentacao' ?
+																				{ id, api, refresh, introductionLetter: progression.introductionLetter } :
+																				!readOnly && id === 'diplomata:acordo-impossivel' ?
+																					{ id, api, refresh, diplomatProxy: progression.diplomatProxy } :
+																					!readOnly && id === 'diplomata:etiqueta-cosmopolita' ?
+																						{ id, api, refresh, cosmopolitanEtiquette: progression.cosmopolitanEtiquette,
+																							proficiency: progression.proficiency } :
+																						!readOnly && id === 'arqueologo:acervo-compartilhado' ? { id, api, refresh, archive: {
+																							slots: sheet.sharedArchives || [], proficiency: progression.proficiency,
+																							knowledge: (sheet.skills?.trained || []).filter(skill => skill.startsWith('conhecimento:')),
+																							recipients: progression.archiveRecipients || [],
+																						} } : !readOnly && ['atleta:capitao-de-time', 'detetive:plano-de-captura'].includes(id) ?
+																							{ id, api, refresh, ...(id === 'atleta:capitao-de-time' ?
+																								{ captainPlan: { ...(progression.captainPlan || {}), proficiency: progression.proficiency } } :
+																								{ capturePlan: { ...(progression.capturePlan || {}), proficiency: progression.proficiency } }) } :
+																							!readOnly && sheet.classId === 'cozinheiro' && name === 'Refeição Revigorante' ?
+																								{ id, api, revigoratingMeal: progression.revigoratingMeal } :
+																								!readOnly && id === 'cozinheiro:petisco-de-amizade' ?
+																									{ id, api, friendshipSnacks: progression.friendshipSnacks } :
+																									!readOnly && id === 'criador-pokemon:rotina-de-enriquecimento' ?
+																										{ id, api, enrichmentRoutine: progression.enrichmentRoutine } :
+																										!readOnly && id === 'criador-pokemon:guardiao-de-geracoes' ?
+																											{ id, api, guardianEnrichment: progression.enrichmentRoutine } :
+																											!readOnly && id === 'criador-pokemon:preparacao-impecavel' ?
+																												{ id, api, impeccablePreparation: progression.impeccablePreparation } :
+																												!readOnly && id === 'cozinheiro:recompensa-de-treinamento' ?
+																													{ id, api, trainingReward: progression.trainingReward } :
+																													!readOnly && id === 'cozinheiro:harmonizacao-de-sabores' ?
+																														{ id, api, contestHarmonization: progression.contestHarmonization } :
+																														!readOnly && id === 'cozinheiro:racao-artesanal-pokemon' ?
+																															{ id, api, artisanRation: progression.artisanRation } :
+																															!readOnly && id === 'artista:arte-reconfortante' ? { id, api, refresh,
+																																comfortingArt: progression.comfortingArtRecipients || [] } :
+																															!readOnly && id === 'ladino:armadilheiro' ?
+																																{ id, api, trapmaker: true } :
+																																!readOnly && id === 'ladino:armadilha-combinada' ?
+																																	{ id, api, combinedTrap: true } :
+																																	!readOnly && id === 'ladino:labirinto-de-gatilhos' ?
+																																		{ id, api, trapLabyrinth: true } :
+																																		!readOnly && id === 'encantador:disfarce-social' ?
+																																			{ id, api, socialDisguise: true } :
+																																			!readOnly && ['segundo-folego', 'sortudo', 'determinado', 'esforco-heroico'].includes(id) ?
+																																				{ id, api, refresh, reroll: id !== 'segundo-folego',
+																																					available: progression.rerollAvailability?.[id],
+																																					used: progression.activeTalentUses?.used?.[id] === progression.activeTalentUses?.restCycle } : null));
 			talentList.append(button);
 		}
 		talentSection.append(talentList);

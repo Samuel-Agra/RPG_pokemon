@@ -124,6 +124,8 @@ export interface RPGTrainerSheet {
 	captainPlan?: { description: string, recipientCharacterIds: string[], usedRecipientIds?: string[] };
 	/** Cada participante usa o bônus do plano de abordagem somente no primeiro teste pertinente. */
 	capturePlan?: { description: string, recipientCharacterIds: string[], usedRecipientIds: string[], readyAt: string };
+	/** Um espaço da Bag preparado com Compartimento Clandestino. */
+	concealedBagItem?: { kind: 'pokemon' | 'equipment', itemId: string, instanceId?: string };
 	/** A recomendação ativa do Diplomata substitui a anterior e atende uma única rolagem do aliado. */
 	introductionLetter?: { id: string, recipientCharacterId: string, institution: string, subject: string, used: boolean };
 	/** Orientações do ápice do Diplomata; cada aliado tem uma única utilização durante o prazo. */

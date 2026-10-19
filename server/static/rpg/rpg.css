@@ -2844,6 +2844,8 @@ input, select {
 	border: 1px solid #aeb8c4; border-radius: 5px; text-align: left; cursor: pointer;
 }
 .bag-ui-item:hover { border-color: #4f709d; background: linear-gradient(#fff, #d7e3f0); }
+.bag-ui-concealed-item { border-color: #b68d36; box-shadow: inset 3px 0 #caa346; }
+.bag-ui-item-name .bag-ui-concealed-mark { color: #8a651f; font-weight: 700; }
 .bag-ui-item-name { display: grid; gap: 3px; min-width: 0; }
 .bag-ui-item-name strong, .bag-ui-item-name small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .bag-ui-item-name strong { font-size: 13px; }

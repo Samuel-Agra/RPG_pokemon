@@ -25,6 +25,52 @@ function ready(classId, level = 1, overrides = {}) {
 }
 
 describe('RPG trainer classes and talents', () => {
+	it('prepara Compartimento Clandestino somente na própria Bag ou em armazenamento compartilhado', () => {
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({ masterCode: 'teste', repository });
+		service.createCharacter({ characterName: 'Lia', playerName: 'Lia', avatar: 'lucas',
+			password: 'senha-rpg', initialMoney: 100, starter: { species: 'Squirtle', gender: 'M' } });
+		const record = repository.get('lia');
+		record.tableId = 'mesa-teste';
+		record.state.trainerSheet = ready('ladino', 5, { talents: { general: [],
+			class: ['ladino:compartimento-clandestino'], apex: null },
+		proficiencies: ['kit-ladinagem'], skills: { trained: ['ladinagem'], focused: [] } });
+		record.state.trainerInventory = { version: 1, revision: 0, licenses: [],
+			items: [{ id: 'kit1', itemId: 'kit-ladinagem-1', quantity: 1, equipped: false,
+				charges: 5, location: 'bag' }] };
+		record.state.inventory.bag = RPGBagSystem.add(record.state.inventory.bag, 'pokeball', 2).bag;
+		repository.set(record);
+		service.getSession = () => ({ mode: 'player', role: 'player',
+			platformTableId: 'mesa-teste', characterId: 'lia' });
+		service.requireBagRecord = (_token, id) => repository.get(id);
+		service.requireWorldBagItemUse = () => {};
+		service.campaignSettings.currentDateTime = '2026-10-17T12:00:00.000Z';
+		service.campaignSettings.supportCaches['cache-1'] = { revision: 0,
+			ownerCharacterId: 'lia', location: 'Abrigo', equipment: [],
+			bag: RPGBagSystem.add(RPGBagSystem.create('cache-1', [], { maxSlots: 20 }), 'potion', 1).bag };
+		service.getSupportCaches = () => [{ cacheId: 'cache-1', ownerCharacterId: 'lia',
+			ownerName: 'Lia', location: 'Abrigo' }];
+		assert.throws(() => service.setTrainerHiddenCompartment('teste', { container: 'bag',
+			action: 'conceal', kind: 'pokemon', itemId: 'potion' }), /não está disponível/);
+		const first = service.setTrainerHiddenCompartment('teste', { container: 'bag',
+			action: 'conceal', kind: 'pokemon', itemId: 'pokeball' });
+		assert.equal(first.hidden, true);
+		assert.equal(repository.get('lia').state.trainerInventory.items[0].charges, 4);
+		assert.equal(service.getBag('teste', 'lia').items.find(item => item.id === 'pokeball').concealedStatus,
+			'hidden');
+		assert.throws(() => service.setTrainerHiddenCompartment('teste', { container: 'bag',
+			action: 'conceal', kind: 'pokemon', itemId: 'pokeball' }), /já possui/);
+		service.setTrainerHiddenCompartment('teste', { container: 'support-cache', cacheId: 'cache-1',
+			action: 'conceal', kind: 'pokemon', itemId: 'potion' });
+		assert.equal(repository.get('lia').state.trainerInventory.items[0].charges, 3);
+		assert.equal(service.getSupportCache('teste', 'cache-1').items[0].concealedStatus, 'hidden');
+		assert.equal(service.getBag('teste', 'lia').items.find(item => item.id === 'pokeball').concealedStatus,
+			'hidden');
+		assert.equal(service.getSupportCache('teste', 'cache-1').items[0].concealedStatus, 'hidden');
+		service.setTrainerHiddenCompartment('teste', { container: 'support-cache', cacheId: 'cache-1',
+			action: 'reveal' });
+		assert.equal(service.getSupportCache('teste', 'cache-1').items[0].concealedStatus, undefined);
+	});
 	it('Interposição Protetora oferece a escolha de Constituição e a aplica na ficha', () => {
 		const guard = ready('guarda-pokemon', 3);
 		const option = rpgTrainerTalentCatalog(guard)
@@ -150,6 +196,79 @@ describe('RPG trainer classes and talents', () => {
 		assert.equal(service.useTrainerSocialDisguise('jogador').chargesRemaining, 0);
 		assert.equal(repository.get('encantador').state.trainerInventory.items[0].charges, 0);
 		assert.throws(() => service.useTrainerSocialDisguise('jogador'), /sem cargas/);
+	});
+	it('Armadilheiro consome uma carga do Kit de Ladinagem e preserva o saldo em falhas', () => {
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({ masterCode: 'teste', repository });
+		service.createCharacter({ characterName: 'Ladino', playerName: 'Lia', avatar: 'lucas',
+			password: 'senha-rpg', initialMoney: 100,
+			starter: { species: 'Squirtle', gender: 'M' } });
+		const record = repository.get('ladino');
+		record.tableId = 'mesa-teste'; record.accountId = 'lia';
+		record.state.trainerSheet = ready('ladino', 3, {
+			talents: { general: [], class: ['ladino:armadilheiro'], apex: null },
+		});
+		record.state.trainerInventory = { version: 1, revision: 0, licenses: [], pokemonStorage: [],
+			items: [{ id: 'kit-1', itemId: 'kit-ladinagem-1', quantity: 1,
+				equipped: false, charges: 1, location: 'bag' }] };
+		repository.set(record);
+		service.getSession = () => ({ role: 'player', mode: 'player',
+			platformTableId: 'mesa-teste', characterId: 'ladino' });
+		assert.equal(service.useTrainerTrapmaker('jogador').chargesRemaining, 0);
+		assert.equal(repository.get('ladino').state.trainerInventory.items[0].charges, 0);
+		assert.throws(() => service.useTrainerTrapmaker('jogador'), /sem cargas/);
+		assert.equal(repository.get('ladino').state.trainerInventory.items[0].charges, 0);
+	});
+	it('Armadilha Combinada consome duas cargas somente se o talento e o kit estiverem disponíveis', () => {
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({ masterCode: 'teste', repository });
+		service.createCharacter({ characterName: 'Ladino', playerName: 'Lia', avatar: 'lucas',
+			password: 'senha-rpg', initialMoney: 100,
+			starter: { species: 'Squirtle', gender: 'M' } });
+		const record = repository.get('ladino');
+		record.tableId = 'mesa-teste'; record.accountId = 'lia';
+		record.state.trainerSheet = ready('ladino', 7, {
+			talents: { general: [], class: ['ladino:armadilheiro', 'ladino:armadilha-combinada'], apex: null },
+		});
+		record.state.trainerInventory = { version: 1, revision: 0, licenses: [], pokemonStorage: [],
+			items: [{ id: 'kit-1', itemId: 'kit-ladinagem-1', quantity: 1,
+				equipped: false, charges: 3, location: 'bag' }] };
+		repository.set(record);
+		service.getSession = () => ({ role: 'player', mode: 'player',
+			platformTableId: 'mesa-teste', characterId: 'ladino' });
+		assert.equal(service.useTrainerTrapmaker('jogador', 'combined').chargesRemaining, 1);
+		assert.throws(() => service.useTrainerTrapmaker('jogador', 'combined'), /pelo menos duas cargas/);
+		assert.equal(repository.get('ladino').state.trainerInventory.items[0].charges, 1);
+		const withoutTalent = repository.get('ladino');
+		withoutTalent.state.trainerSheet.talents.class = ['ladino:armadilheiro'];
+		repository.set(withoutTalent);
+		assert.throws(() => service.useTrainerTrapmaker('jogador', 'combined'), /não possui Armadilha Combinada/);
+	});
+	it('Labirinto de Gatilhos exige o ápice e consome quatro cargas do Kit de Ladinagem', () => {
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({ masterCode: 'teste', repository });
+		service.createCharacter({ characterName: 'Ladino', playerName: 'Lia', avatar: 'lucas',
+			password: 'senha-rpg', initialMoney: 100,
+			starter: { species: 'Squirtle', gender: 'M' } });
+		const record = repository.get('ladino');
+		record.tableId = 'mesa-teste'; record.accountId = 'lia';
+		record.state.trainerSheet = ready('ladino', 10, {
+			talents: { general: [], class: ['ladino:armadilheiro', 'ladino:armadilha-combinada'],
+				apex: 'ladino:labirinto-de-gatilhos' },
+		});
+		record.state.trainerInventory = { version: 1, revision: 0, licenses: [], pokemonStorage: [],
+			items: [{ id: 'kit-1', itemId: 'kit-ladinagem-1', quantity: 1,
+				equipped: false, charges: 5, location: 'bag' }] };
+		repository.set(record);
+		service.getSession = () => ({ role: 'player', mode: 'player',
+			platformTableId: 'mesa-teste', characterId: 'ladino' });
+		assert.equal(service.useTrainerTrapmaker('jogador', 'labyrinth').chargesRemaining, 1);
+		assert.throws(() => service.useTrainerTrapmaker('jogador', 'labyrinth'), /pelo menos quatro cargas/);
+		assert.equal(repository.get('ladino').state.trainerInventory.items[0].charges, 1);
+		const withoutApex = repository.get('ladino');
+		withoutApex.state.trainerSheet.talents.apex = null;
+		repository.set(withoutApex);
+		assert.throws(() => service.useTrainerTrapmaker('jogador', 'labyrinth'), /não possui Labirinto de Gatilhos/);
 	});
 	it('aplica apenas o aumento fixo de Carisma de Presença Desarmante', () => {
 		const before = ready('encantador', 7, { talents: { general: [],
@@ -628,6 +747,44 @@ describe('RPG trainer classes and talents', () => {
 		assert.equal(service.decideSupplierOrder('teste', 'order-test-4', true).order.status, 'accepted');
 		assert.equal(repository.get('ana').state.money, 320);
 		assert(repository.get('ana').state.trainerInventory.items.some(entry => entry.itemId === 'faca'));
+	});
+	it('Mercado Paralelo valida saldo e quantidade e entrega somente após aprovação do Mestre', () => {
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({ masterCode: 'teste', repository });
+		service.createCharacter({ characterName: 'Lia', playerName: 'Lia', avatar: 'lucas',
+			password: 'senha-rpg', initialMoney: 1000, starter: { species: 'Squirtle', gender: 'F' } });
+		const record = repository.get('lia');
+		record.tableId = 'mesa-teste'; record.accountId = 'lia';
+		record.state.trainerSheet = ready('ladino', 3);
+		record.state.trainerSheet.talents.class.push('ladino:mercado-paralelo');
+		repository.set(record);
+		service.getSession = () => ({ mode: 'player', role: 'player',
+			platformTableId: 'mesa-teste', characterId: 'lia' });
+		service.accounts.repository.getMembership = () => ({ status: 'active' });
+		service.requireMasterRole = () => {};
+		const item = service.getParallelMarketCatalog('teste').items.find(entry => entry.id === 'potion');
+		assert.equal(item.price, 200);
+		assert.throws(() => service.requestParallelMarketOrder('teste',
+			{ requestId: 'market-too-many', itemId: 'potion', itemKind: 'pokemon', quantity: 6 }),
+		/insuficientes/);
+		const input = { requestId: 'market-order-1', itemId: 'potion', itemKind: 'pokemon', quantity: 3 };
+		const request = service.requestParallelMarketOrder('teste', input);
+		assert.equal(request.order.price, 600);
+		assert.equal(repository.get('lia').state.money, 1000);
+		assert.equal(service.requestParallelMarketOrder('teste', input).repeated, true);
+		assert.equal(service.decideSupplierOrder('teste', input.requestId, true).order.status, 'accepted');
+		assert.equal(repository.get('lia').state.money, 400);
+		assert.equal(RPGBagSystem.getQuantity(repository.get('lia').state.inventory.bag, 'potion'), 3);
+		assert.equal(service.decideSupplierOrder('teste', input.requestId, true).repeated, true);
+		assert.equal(repository.get('lia').state.money, 400);
+		const next = service.requestParallelMarketOrder('teste',
+			{ requestId: 'market-order-2', itemId: 'potion', itemKind: 'pokemon', quantity: 2 });
+		assert.equal(next.order.status, 'pending');
+		const spent = repository.get('lia'); spent.state.money = 0; repository.set(spent);
+		const cancelled = service.decideSupplierOrder('teste', 'market-order-2', true);
+		assert.equal(cancelled.order.status, 'rejected');
+		assert.match(cancelled.order.reason, /insuficientes/);
+		assert.equal(RPGBagSystem.getQuantity(repository.get('lia').state.inventory.bag, 'potion'), 3);
 	});
 	it('requires trained Pokémon Knowledge for Petisco de Amizade', () => {
 		const cook = ready('cozinheiro', 3);

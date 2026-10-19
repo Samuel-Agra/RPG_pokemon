@@ -2256,12 +2256,12 @@ function renderMasterCampaignEvents(container, events, publications = [], custom
 	for (const request of [...pendingOrders].reverse()) {
 		const card = createElement('article', 'master-campaign-event event-publication');
 		const heading = createElement('div', 'master-campaign-event-heading');
-		heading.append(createElement('small', '', 'Rede de Fornecedores'),
-			createElement('strong', '', request.itemName));
+		heading.append(createElement('small', '', request.source === 'parallel-market' ? 'Mercado Paralelo' : 'Rede de Fornecedores'),
+			createElement('strong', '', `${request.quantity || 1} × ${request.itemName}`));
 		const details = createElement('div', 'master-campaign-supplier-item');
 		const icon = typeof rpgRuntimeItemIcon === 'function' ? rpgRuntimeItemIcon(request) : null;
 		if (icon) details.append(icon);
-		details.append(createElement('span', '', `${request.itemName} · ${request.price.toLocaleString('pt-BR')} Pokécoins`));
+		details.append(createElement('span', '', `${request.quantity || 1} × ${request.itemName} · ${request.price.toLocaleString('pt-BR')} Pokécoins`));
 		const accept = button('Aceitar', 'button primary');
 		const reject = button('Recusar', 'button');
 		const feedback = createElement('p', 'master-campaign-publication-error');

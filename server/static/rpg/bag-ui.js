@@ -327,9 +327,10 @@
 			}
 			const list = el('div', 'bag-ui-item-grid');
 			for (const item of items) {
-				const card = makeButton('', 'bag-ui-item');
+				const card = makeButton('', 'bag-ui-item' + (item.concealedStatus ? ' bag-ui-concealed-item' : ''));
 				const name = el('span', 'bag-ui-item-name');
 				name.append(el('strong', '', item.name));
+				if (item.concealedStatus) name.append(el('small', 'bag-ui-concealed-mark', 'No compartimento · 1 unidade'));
 				if (item.category === 'talent-items') name.append(el('small', '', item.description));
 				if (item.category !== 'food-items') card.append(itemIcon(item));
 				card.append(name, el('b', 'bag-ui-quantity', '×' + item.quantity));
@@ -457,6 +458,28 @@
 			const withdraw = makeButton('Retirar', 'button primary'); withdraw.type = 'submit';
 			const feedback = el('p', 'bag-ui-shared-feedback');
 			form.append(amount, withdraw, feedback);
+			if (selectedShared.canConceal && (selectedShared.concealmentOwnerId === options.characterId &&
+				item.concealedStatus || !selectedShared.items.some(entry => entry.concealedStatus))) {
+				const conceal = makeButton(item.concealedStatus ? 'Desfazer compartimento' :
+					'Preparar compartimento', 'button');
+				conceal.addEventListener('click', async () => {
+					conceal.disabled = true;
+					try {
+						const action = item.concealedStatus ? 'reveal' : 'conceal';
+						await options.api('/trainer/talents/hidden-compartment', { method: 'POST', body: {
+							container: 'support-cache', cacheId: selectedSharedId, action,
+							kind: item.kind, itemId: item.itemId,
+							instanceId: item.kind === 'equipment' ? item.id : undefined,
+						} });
+						dialog.closeAll();
+						options.toast(action === 'conceal' ? 'Item colocado no Compartimento Clandestino.' :
+							'Compartimento desfeito.');
+						await loadSharedInventory();
+						window.dispatchEvent(new CustomEvent('rpg:realtime-sync'));
+					} catch (error) { feedback.textContent = error.message; conceal.disabled = false; }
+				});
+				form.append(conceal);
+			}
 			dialog.card.append(summary, form);
 			form.addEventListener('submit', async event => {
 				event.preventDefault();
@@ -520,9 +543,10 @@
 				if (selectedShared.items.length) {
 					const list = el('div', 'bag-ui-item-grid');
 					for (const item of selectedShared.items) {
-						const card = makeButton('', 'bag-ui-item');
+						const card = makeButton('', 'bag-ui-item' + (item.concealedStatus ? ' bag-ui-concealed-item' : ''));
 						const name = el('span', 'bag-ui-item-name');
 						name.append(el('strong', '', item.name));
+						if (item.concealedStatus) name.append(el('small', 'bag-ui-concealed-mark', 'No compartimento · 1 unidade'));
 						card.append(itemIcon(item), name, el('b', 'bag-ui-quantity', '×' + item.quantity));
 						card.addEventListener('click', () => showSharedItemDetails(item, card));
 						list.append(card);
@@ -698,6 +722,33 @@
 			const actions = el('div', 'bag-ui-detail-actions');
 			const recordFeedback = el('p', 'bag-ui-description');
 			dialog.card.append(recordFeedback);
+			if (bagData.canConceal && !item.mission && !item.fossilDisplayOnly &&
+				item.category !== 'talent-items') {
+				const conceal = makeButton(item.concealedStatus ? 'Desfazer compartimento' :
+					'Preparar compartimento', 'button');
+				conceal.addEventListener('click', async () => {
+					conceal.disabled = true;
+					try {
+						const equipmentItem = item.id.startsWith('equipment:');
+						const itemId = equipmentItem ? item.id.slice('equipment:'.length) : item.id;
+						const inventory = equipmentItem && !item.concealedStatus ? await options.api(
+							'/trainer/equipment?characterId=' + encodeURIComponent(options.characterId)) : null;
+						const instance = inventory?.inventory?.items?.find(entry => entry.itemId === itemId &&
+							entry.location === 'bag' && !entry.equipped && entry.quantity > 0);
+						await options.api('/trainer/talents/hidden-compartment', { method: 'POST', body: {
+							container: 'bag', action: item.concealedStatus ? 'reveal' : 'conceal',
+							kind: equipmentItem ? 'equipment' : 'pokemon', itemId,
+							instanceId: instance?.id,
+						} });
+						close();
+						options.toast(item.concealedStatus ? 'Compartimento desfeito.' :
+							'Item colocado no Compartimento Clandestino.');
+						await load();
+						window.dispatchEvent(new CustomEvent('rpg:realtime-sync'));
+					} catch (error) { recordFeedback.textContent = error.message; conceal.disabled = false; }
+				});
+				actions.append(conceal);
+			}
 			if (item.category === 'fossils' && !item.fossilQualities && bagData.fossilAppraiser) {
 				const identify = makeButton('Identificar com ' + bagData.fossilAppraiser.name, 'button primary');
 				identify.addEventListener('click', () => void showFossilIdentification(item, dialog));

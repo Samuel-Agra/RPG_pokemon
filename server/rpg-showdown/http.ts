@@ -443,6 +443,12 @@ export class RPGHttpServer {
 			this.json(res, 200, this.login.getSupportCaches(this.token(req)));
 			return;
 		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/hidden-compartment') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.setTrainerHiddenCompartment(this.token(req), body as unknown as
+				Parameters<RPGLoginService['setTrainerHiddenCompartment']>[1]));
+			return;
+		}
 		if (url.pathname === '/api/rpg/trainer/support-cache') {
 			if (method === 'GET') {
 				this.json(res, 200, this.login.getSupportCache(this.token(req),
@@ -556,6 +562,18 @@ export class RPGHttpServer {
 			this.json(res, 200, this.login.getSupplierCatalog(this.token(req)));
 			return;
 		}
+		if (method === 'GET' && url.pathname === '/api/rpg/trainer/parallel-market/catalog') {
+			this.json(res, 200, this.login.getParallelMarketCatalog(this.token(req)));
+			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/parallel-market/orders') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.requestParallelMarketOrder(this.token(req), {
+				requestId: this.string(body.requestId), itemId: this.string(body.itemId),
+				itemKind: this.string(body.itemKind) as 'pokemon' | 'equipment', quantity: body.quantity as number,
+			}));
+			return;
+		}
 		if (method === 'POST' && url.pathname === '/api/rpg/trainer/supplier/orders') {
 			const body = await this.body(req);
 			this.json(res, 200, this.login.requestSupplierOrder(this.token(req), {
@@ -577,6 +595,18 @@ export class RPGHttpServer {
 		}
 		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/social-disguise') {
 			this.json(res, 200, this.login.useTrainerSocialDisguise(this.token(req)));
+			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/trapmaker') {
+			this.json(res, 200, this.login.useTrainerTrapmaker(this.token(req)));
+			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/combined-trap') {
+			this.json(res, 200, this.login.useTrainerTrapmaker(this.token(req), 'combined'));
+			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/trap-labyrinth') {
+			this.json(res, 200, this.login.useTrainerTrapmaker(this.token(req), 'labyrinth'));
 			return;
 		}
 		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/comforting-art') {
@@ -3020,6 +3050,7 @@ export class RPGHttpServer {
 
 	/** Only established domain validation messages may cross the HTTP boundary. */
 	private isPublicValidationError(message: string): boolean {
+		if (/^(?:Este treinador não possui (?:Armadilheiro|Armadilha Combinada|Labirinto de Gatilhos)|Você precisa de um Kit de Ladinagem na Bag|O Kit de Ladinagem (?:está sem cargas|precisa de pelo menos (?:duas|quatro) cargas))$/.test(message)) return true;
 		if (/^(?:Este treinador não possui Disfarce Social|Domínio do Kit de Disfarce necessário|Você precisa de um Kit de Disfarce na Bag|O Kit de Disfarce está sem cargas)/.test(message)) return true;
 		if (/persisted|estado persistido|table scope|random source|repository|repositório/i.test(message)) return false;
 		if (/^(?:Amizade deve ser um número inteiro entre 0 e 255|Performance deve ser um número inteiro entre 0 e 100)$/.test(message)) return true;
