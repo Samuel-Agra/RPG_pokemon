@@ -65,6 +65,9 @@ import {
 } from './contest-scoring';
 import { RPGMySQLPersistence, rpgMySQLConfig } from './database/mysql-persistence';
 import { createRPGPendingTrainerSheet, type RPGTrainerChatRoll, type RPGTrainerSheet } from './trainer-sheet';
+import { rpgAutomaticGeneralTalentNames, rpgUsedAutomaticGeneralTalents,
+	rpgManualRestTalentOptions, rpgManualTalentUsed, rpgMarkManualTalentUsed,
+	rpgRenewManualRestTalents } from './trainer-manual-rest';
 import {
 	RPG_EQUIPMENT_CATALOG, rpgAssertEquipmentLicense, rpgEquipment, rpgEquipmentSlots,
 	rpgEquipmentWeight, rpgInitialTrainerInventory, rpgCanAcquireKitDomain, rpgEquipmentDerivedOptions, rpgKitBonus,
@@ -79,6 +82,7 @@ import {
 	type RPGTrainerAttribute, type RPGTrainerCheckOptions, type RPGTrainerResistance,
 } from './trainer-checks';
 import { rpgArtisticInspirationOption, rpgCaptivatingDistractionOption, rpgEncouragingPresenceOption,
+	rpgEmergencyAntidoteOption, rpgEmergencyExtractionOption,
 	rpgEnchanterAllyOptions, rpgEnchanterSocialChemistryOption,
 	rpgDetectiveCapturePlanOption, rpgDetectiveDuoOption, rpgExcavationMasterOption, rpgExpeditionLeaderOption,
 	rpgExplorerLifelineOption, rpgTeamCaptainOption,
@@ -90,14 +94,14 @@ import { rpgArtisticInspirationOption, rpgCaptivatingDistractionOption, rpgEncou
 	rpgGuardPerimeterOption,
 	rpgCommanderOperationOption,
 	rpgResolveTrainerRollTalents, rpgSetSharedArchive, rpgUpdatePersistentHypothesis,
-	rpgSharedArchiveOptions, rpgTrainerRollTalents } from './trainer-roll-talents';
+	rpgSharedArchiveOptions, rpgTrainerRollTalents, rpgTrainerRollBonusTerms } from './trainer-roll-talents';
 import { rpgTrainerHeroicMessage, rpgTrainerRerollCandidate, rpgTrainerRerollMessage,
 	rpgUseTrainerSheetTalent } from './trainer-active-talents';
 import {
 	rpgTrainerAddExhaustion, rpgTrainerAddWound, rpgTrainerApplyCondition, rpgTrainerConditionTick,
 	rpgTrainerDeathSave, rpgTrainerHeal, rpgTrainerReduceExhaustion, rpgTrainerRemoveCondition, rpgTrainerRest,
-	rpgTrainerStabilize, rpgTrainerStartRest, rpgTrainerTakeDamage, rpgTrainerTreatWound,
-	rpgTrainerSurvival,
+	rpgTrainerStabilize, rpgTrainerStartRest, rpgTrainerTakeDamage, rpgTrainerTreatWound, rpgTrainerReanimate,
+	rpgTrainerSurvival, RPG_TRAINER_CONDITIONS,
 	type RPGTrainerSurvivalAction,
 } from './trainer-survival';
 import { RPG_TRAINER_CLASS_FEATURES } from './trainer-class-features';
@@ -890,6 +894,8 @@ export class RPGLoginService {
 		equipmentOffers: Record<string, Record<string, { stock: number, price: number }>>,
 		supportCaches: Record<string, RPGSupportCache>,
 		trainerHelp: { characterId: string, skill: string, total: number, bonus: number }[],
+		campaignRestReceipts: { requestId: string, kind: 'short' | 'long',
+			result: { kind: 'short' | 'long', rested: number, skipped: number, recovered: number }, }[],
 	};
 	readonly mysqlPersistence?: RPGMySQLPersistence;
 	readonly accounts: RPGAccountManagement;
@@ -934,12 +940,18 @@ export class RPGLoginService {
 			name: 'Minha campanha', currentDateTime: new Date(this.now()).toISOString(), quickNotes: '', events: [],
 			publications: [], customRecordRequests: [], supplierOrders: [], confidantRequests: [], forageRequests: [], trueBondRequests: [],
 			playerNotes: {}, sceneNpcIds: [], sceneNpcRevealed: {},
-			equipmentOffers: {}, supportCaches: {}, trainerHelp: [],
+			equipmentOffers: {}, supportCaches: {}, trainerHelp: [], campaignRestReceipts: [],
 		};
 		const initialCampaignSettings = options.campaignSettings || (this.campaignSettingsFile && existsSync(this.campaignSettingsFile) ?
 			JSON.parse(readFileSync(this.campaignSettingsFile, 'utf8')) as Record<string, unknown> : null);
 		if (initialCampaignSettings) {
 			const stored = initialCampaignSettings as Partial<typeof this.campaignSettings>;
+			if (Array.isArray(stored.campaignRestReceipts)) {
+				this.campaignSettings.campaignRestReceipts = stored.campaignRestReceipts.filter(entry =>
+					entry && typeof entry.requestId === 'string' && ['short', 'long'].includes(entry.kind) &&
+					entry.result && Number.isSafeInteger(entry.result.rested) &&
+					Number.isSafeInteger(entry.result.skipped) && Number.isSafeInteger(entry.result.recovered)).slice(-50);
+			}
 			if (Array.isArray(stored.trainerHelp)) {
 				this.campaignSettings.trainerHelp = stored.trainerHelp.filter(entry =>
 					entry && typeof entry.characterId === 'string' && typeof entry.skill === 'string' &&
@@ -1322,6 +1334,141 @@ export class RPGLoginService {
 		return this.persistAtomically(() => this.advanceCampaignTimeTransaction(hours));
 	}
 
+	applyCampaignRest(token: string, kind: 'short' | 'long', requestId: string) {
+		this.requireMasterRole(token);
+		if (kind !== 'short' && kind !== 'long') throw new Error('Tipo de descanso inválido');
+		if (!/^[a-zA-Z0-9_-]{8,100}$/.test(requestId)) throw new Error('Identificador de descanso inválido');
+		const prior = this.campaignSettings.campaignRestReceipts.find(entry => entry.requestId === requestId);
+		if (prior) {
+			if (prior.kind !== kind) throw new Error('Identificador de descanso já utilizado');
+			return { ...prior.result, repeated: true };
+		}
+		const tableId = this.getSession(token).platformTableId || this.legacyTableId;
+		const campaignTime = Date.parse(this.campaignSettings.currentDateTime);
+		const extraordinaryByPatient = new Map<string, { doctorId: string, healing: number }>();
+		if (kind === 'long' && tableId) {
+			for (const doctor of this.repository.list()) {
+				const doctorSheet = doctor.state.trainerSheet;
+				if (doctor.tableId !== tableId || !doctor.accountId || doctorSheet?.status !== 'complete' ||
+					doctorSheet.talents.apex !== 'medico:recuperacao-extraordinaria' ||
+					!doctorSheet.extraordinaryRecoveryPatientId ||
+					this.accounts.repository.getMembership(tableId, doctor.accountId!)?.status !== 'active' ||
+					rpgTrainerSurvival(doctorSheet).lifeState !== 'conscious') continue;
+				const patient = this.repository.get(doctorSheet.extraordinaryRecoveryPatientId);
+				if (!patient || patient.tableId !== tableId || !patient.accountId ||
+					this.accounts.repository.getMembership(tableId, patient.accountId!)?.status !== 'active') continue;
+				const healing = Math.max(1, 2 * rpgTrainerProficiency(doctorSheet.level) +
+					Math.floor((doctorSheet.attributes!.wisdom - 10) / 2));
+				const previous = extraordinaryByPatient.get(patient.state.id);
+				if (!previous || healing > previous.healing) {
+					extraordinaryByPatient.set(patient.state.id, { doctorId: doctor.state.id, healing });
+				}
+			}
+		}
+		const updates: RPGStoredCharacter[] = [];
+		let skipped = 0;
+		let recovered = 0;
+		const renewedTalents: { characterId: string, characterName: string, talents: string[] }[] = [];
+		for (const stored of this.repository.list()) {
+			if (stored.tableId !== tableId || stored.state.trainerSheet?.status !== 'complete') continue;
+			const record = structuredClone(stored);
+			const sheet = record.state.trainerSheet!;
+			const automaticRenewed = kind === 'long' ?
+				rpgAutomaticGeneralTalentNames(rpgUsedAutomaticGeneralTalents(sheet)) : [];
+			const mealUsed = kind === 'long' && sheet.classId === 'cozinheiro' &&
+				(sheet.talentRestCycle || 0) > 0 &&
+				sheet.talentUses?.['cozinheiro:refeicao-revigorante'] === sheet.talentRestCycle;
+			const mealRenewed = mealUsed ? ['Refeição Revigorante',
+				...(sheet.talents.class.includes('cozinheiro:refeicao-reconfortante') ? ['Refeição Reconfortante'] : []),
+				...(sheet.talents.class.includes('cozinheiro:nutricao-de-recuperacao') ? ['Nutrição de Recuperação'] : [])] : [];
+			const artUsed = sheet.talents.class.includes('artista:arte-reconfortante') &&
+				sheet.comfortingArtSession?.restStartedAt === (sheet.shortRestCycle || 0) &&
+				!!sheet.comfortingArtSession.recipientCharacterIds.length;
+			if (kind === 'short') RPGBoxManagement.expireTrainingRewards(record.state);
+			const survival = rpgTrainerSurvival(sheet);
+			if (survival.lifeState === 'dead' || kind === 'short' &&
+				survival.lastShortRest?.completedAt === campaignTime || kind === 'long' &&
+				survival.lastLongRestAt !== undefined && campaignTime - survival.lastLongRestAt < 86_400_000) {
+				skipped++; continue;
+			}
+			const extraordinary = kind === 'long' ? extraordinaryByPatient.get(record.state.id) : undefined;
+			const outcome = rpgTrainerRest(sheet, kind, campaignTime,
+				{ instant: true, adequate: kind === 'long' },
+				extraordinary ? () => 0.999999999 : this.random);
+			record.state.trainerSheet = outcome.sheet;
+			recovered += outcome.recovered;
+			record.state.trainerSheet.shortRestCycle = (sheet.shortRestCycle || 0) + 1;
+			if (kind === 'short' && sheet.stagedRecoveryPending) {
+				if (campaignTime <= sheet.stagedRecoveryPending.expiresAt) {
+					const before = record.state.trainerSheet.hitPoints.current!;
+					record.state.trainerSheet = rpgTrainerHeal(record.state.trainerSheet,
+						sheet.stagedRecoveryPending.healing);
+					recovered += record.state.trainerSheet.hitPoints.current! - before;
+				}
+				delete record.state.trainerSheet.stagedRecoveryPending;
+			}
+			if (kind === 'long') {
+				delete record.state.trainerSheet.stagedRecoveryPending;
+				const pending = sheet.assistedRecoveryPending;
+				if (pending || extraordinary) {
+					const before = record.state.trainerSheet.hitPoints.current!;
+					record.state.trainerSheet = rpgTrainerHeal(record.state.trainerSheet,
+						Math.max(pending?.healing || 0, extraordinary?.healing || 0));
+					recovered += record.state.trainerSheet.hitPoints.current! - before;
+					if (pending?.exhaustionRecovery &&
+						(campaignTime - (sheet.lastExhaustionRecoveryAt ?? -Infinity) >= 86_400_000) &&
+						rpgTrainerSurvival(record.state.trainerSheet).exhaustion > 0) {
+						record.state.trainerSheet = rpgTrainerReduceExhaustion(record.state.trainerSheet);
+						record.state.trainerSheet.lastExhaustionRecoveryAt = campaignTime;
+					}
+					delete record.state.trainerSheet.assistedRecoveryPending;
+					if (pending?.staged && pending.stagedHealing) {
+						record.state.trainerSheet.stagedRecoveryPending = {
+							doctorId: pending.doctorId, healing: pending.stagedHealing,
+							expiresAt: campaignTime + 86_400_000,
+						};
+					}
+				}
+				if (extraordinary) {
+					const treatable = ['queimado', 'envenenado', 'paralisado', 'congelado', 'atordoado'] as const;
+					const condition = treatable.find(id => rpgTrainerSurvival(record.state.trainerSheet!).conditions
+						.some(entry => entry.id === id));
+					if (condition) record.state.trainerSheet = rpgTrainerRemoveCondition(record.state.trainerSheet, condition);
+				}
+				record.state.trainerSheet.talentRestCycle = (sheet.talentRestCycle || 0) + 1;
+			}
+			const renewed = [...automaticRenewed, ...mealRenewed, ...(artUsed ? ['Arte Reconfortante'] : []),
+				...rpgRenewManualRestTalents(record.state.trainerSheet, kind)]
+				.sort((a, b) => a.localeCompare(b, 'pt-BR'));
+			record.state.trainerSheet.manualTalentLastRenewal = renewed.length ?
+				{ source: kind, talents: renewed } : undefined;
+			if (renewed.length) renewedTalents.push({ characterId: record.state.id,
+				characterName: record.state.characterName, talents: renewed });
+			delete record.state.trainerSheet.preventiveProtocol;
+			record.state.updatedAt = this.now();
+			updates.push(record);
+		}
+		const result = { kind, rested: updates.length, skipped, recovered, renewedTalents };
+		const originals = updates.map(record => structuredClone(this.requireCharacter(record.state.id)));
+		const previousReceipts = this.campaignSettings.campaignRestReceipts;
+		try {
+			this.persistAtomically(() => {
+				for (const record of updates) this.repository.set(record);
+				this.campaignSettings.campaignRestReceipts = [...previousReceipts.slice(-49), { requestId, kind, result }];
+				this.persistCampaignSettings();
+			});
+		} catch (error) {
+			for (const original of originals) this.repository.set(original);
+			this.campaignSettings.campaignRestReceipts = previousReceipts;
+			throw error;
+		}
+		for (const entry of renewedTalents) this.appendTableSystemLog('trainer',
+			`${kind === 'short' ? 'Descanso curto' : 'Descanso longo'} concluído`,
+			`Talentos que voltaram a estar disponíveis:\n${entry.talents.join('\n')}`,
+			[entry.characterId]);
+		return { ...result, repeated: false };
+	}
+
 	private advanceCampaignTimeTransaction(hours: 1 | 8): RPGCampaignTimeAdvanceResult {
 		const milliseconds = hours * 60 * 60 * 1000;
 		const now = this.now();
@@ -1346,14 +1493,9 @@ export class RPGLoginService {
 			occurredAt: this.campaignSettings.currentDateTime,
 		});
 		for (const record of records) {
-			if (RPGBoxManagement.expireTrainingRewards(record.state)) changedIds.add(record.state.id);
 			if (RPGBoxManagement.expireContestHarmonizations(record.state)) changedIds.add(record.state.id);
 			if (record.state.trainerSheet?.status === 'complete') {
 				const sheet = record.state.trainerSheet;
-				if (hours === 8) {
-					sheet.talentRestCycle = (sheet.talentRestCycle || 0) + 1;
-					changedIds.add(record.state.id);
-				}
 				const eligible = rpgTrainerLevelForXP(sheet.experience);
 				if (eligible > sheet.level) {
 					if (sheet.levelUpWaitingSince === undefined) {
@@ -3293,6 +3435,7 @@ export class RPGLoginService {
 				(sheet.talentSelections || []).some(selection => selection.id === 'conhecimento-diversificado' &&
 					(selection.skill === id || selection.variant === id));
 			const observationEligible = !trained && sheet.talents.general.includes('aprendizado-por-observacao') &&
+				!rpgManualTalentUsed(sheet, 'aprendizado-por-observacao') &&
 				id !== 'conhecimento' && id !== 'oficio';
 			return { id, trained, focused: sheet.skills.focused.includes(id), halfProficiency, requiresTraining,
 				attributes: ['conhecimento', 'oficio'].includes(id) ? [] : rpgTrainerSkillAttributes(sheet, id),
@@ -3318,6 +3461,7 @@ export class RPGLoginService {
 				(sheet.levelUpReady || 0) > sheet.level &&
 				!Object.values(sheet.pendingChoices || {}).some(count => count > 0),
 			proficiency: rpgTrainerProficiency(sheet.level), skills, resistances, derived, attacks,
+			manualRestTalents: rpgManualRestTalentOptions(sheet),
 			rollTalents: [...rpgTrainerRollTalents(sheet), ...this.getTrainerAllyRollTalents(token, state.id)],
 			supportCaches: this.getSession(token).mode === 'player' ? this.getSupportCaches(token) : [],
 			helpTalents: this.getTrainerAllyHelpTalents(token, state.id),
@@ -3352,9 +3496,39 @@ export class RPGLoginService {
 					entry.characterId === state.id && entry.status === 'pending'),
 			} : null,
 			activeTalentUses: { restCycle: sheet.talentRestCycle || 0, used: sheet.talentUses || {} },
+			assistedRecovery: sheet.classId === 'medico' ? {
+				limit: Math.max(1, 1 + Math.floor((sheet.attributes!.wisdom - 10) / 2)),
+				available: sheet.talentUses?.['medico:recuperacao-assistida'] !== (sheet.talentRestCycle || 0),
+				intensiveAvailable: sheet.talents.class.includes('medico:recuperacao-intensiva'),
+				exhaustionRecoveryAvailable: sheet.level >= 5 &&
+					sheet.talents.class.includes('medico:recuperacao-da-exaustao'),
+				intensiveCharges: this.ensureTrainerInventory(this.requireCharacter(state.id)).items
+					.filter(item => item.itemId.startsWith('kit-medico-') && item.location === 'bag' && item.quantity > 0)
+					.reduce((sum, item) => sum + (item.charges || 0), 0),
+				recipients: this.trainerArchiveRecipients(token).filter(person => {
+					const target = this.repository.get(person.id)?.state.trainerSheet;
+					return target && !target.assistedRecoveryPending && rpgTrainerSurvival(target).lifeState !== 'dead';
+				}).map(person => ({ ...person,
+					exhaustion: rpgTrainerSurvival(this.repository.get(person.id)!.state.trainerSheet!).exhaustion,
+					exhaustionRecoveryReady: Date.parse(this.campaignSettings.currentDateTime) -
+						(this.repository.get(person.id)!.state.trainerSheet!.lastExhaustionRecoveryAt ?? -Infinity) >= 86_400_000,
+				})),
+			} : null,
+			extraordinaryRecovery: sheet.talents.apex === 'medico:recuperacao-extraordinaria' ? {
+				patientId: sheet.extraordinaryRecoveryPatientId || null,
+				recipients: this.trainerArchiveRecipients(token).filter(person =>
+					rpgTrainerSurvival(this.repository.get(person.id)!.state.trainerSheet!).lifeState !== 'dead'),
+			} : null,
 			comfortingArtRecipients: sheet.talents.class.includes('artista:arte-reconfortante') ?
 				this.trainerArchiveRecipients(token) : [],
+			comfortingArtUses: sheet.talents.class.includes('artista:arte-reconfortante') ? {
+				limit: rpgTrainerProficiency(sheet.level),
+				recipientIds: sheet.comfortingArtSession?.restStartedAt === (sheet.shortRestCycle || 0) ?
+					sheet.comfortingArtSession.recipientCharacterIds : [],
+			} : null,
 			revigoratingMeal: sheet.classId === 'cozinheiro' ? {
+				usedThisRest: (sheet.talentRestCycle || 0) > 0 &&
+					sheet.talentUses?.['cozinheiro:refeicao-revigorante'] === sheet.talentRestCycle,
 				available: (sheet.talentRestCycle || 0) > 0 &&
 					sheet.talentUses?.['cozinheiro:refeicao-revigorante'] !== sheet.talentRestCycle,
 				recipients: this.trainerArchiveRecipients(token).filter(person => {
@@ -3556,6 +3730,25 @@ export class RPGLoginService {
 		return { sheet: structuredClone(outcome.sheet), die: outcome.die, recovered: outcome.recovered };
 	}
 
+	markTrainerManualTalentUsed(token: string, talentId: string) {
+		const session = this.getSession(token);
+		if (session.mode !== 'player' || !session.platformTableId) {
+			throw new Error('Entre como jogador em uma mesa para marcar o talento');
+		}
+		const characterId = session.role === 'master' ? session.viewAsCharacterId : session.characterId;
+		if (!characterId) throw new Error('Nenhum personagem selecionado');
+		const record = this.requireCharacter(toID(characterId));
+		if (record.tableId !== session.platformTableId) throw new Error('Personagem fora da mesa atual');
+		const original = structuredClone(record);
+		const next = rpgMarkManualTalentUsed(record.state.trainerSheet || createRPGPendingTrainerSheet(), talentId);
+		record.state.trainerSheet = next;
+		record.state.updatedAt = this.now();
+		try { this.persistAtomically(() => this.repository.set(record)); } catch (error) {
+			this.repository.set(original); throw error;
+		}
+		return { used: true, talentId };
+	}
+
 	/** Talentos de armadilhas consomem suas cargas reais do Kit de Ladinagem. */
 	useTrainerTrapmaker(token: string, mode: 'basic' | 'combined' | 'labyrinth' = 'basic') {
 		const session = this.getSession(token);
@@ -3634,7 +3827,7 @@ export class RPGLoginService {
 			throw new Error('Este treinador não possui Arte Reconfortante');
 		}
 		if (effect !== 'will' && effect !== 'exhaustion') throw new Error('Benefício de Arte Reconfortante inválido');
-		const restStartedAt = rpgTrainerSurvival(source).lastShortRest?.completedAt ?? -1;
+		const restStartedAt = source.shortRestCycle || 0;
 		const target = this.requireCharacter(toID(recipientCharacterId));
 		if (target.tableId !== session.platformTableId || !target.accountId ||
 			this.accounts.repository.getMembership(session.platformTableId, target.accountId)?.status !== 'active' ||
@@ -4525,6 +4718,19 @@ export class RPGLoginService {
 		return { name: sheet.trustedPartnerName };
 	}
 
+	setTrainerIndividualRecoveryNote(token: string, note: string) {
+		const { actor } = this.emergencyCareContext(token);
+		if (!actor.state.trainerSheet!.talents.class.includes('medico:plano-individual-de-recuperacao')) {
+			throw new Error('Este Médico não possui Plano Individual de Recuperação');
+		}
+		if (typeof note !== 'string' || note.length > 2000) throw new Error('Anotação deve ter até 2.000 caracteres');
+		const next = structuredClone(actor);
+		next.state.trainerSheet!.individualRecoveryNote = note;
+		next.state.updatedAt = this.now();
+		this.persistAtomically(() => this.repository.set(next));
+		return { note };
+	}
+
 	setTrainerCosmopolitanEtiquette(token: string, community: string, dc: number,
 		recipientCharacterIds: string[]) {
 		const session = this.getSession(token);
@@ -4870,6 +5076,8 @@ export class RPGLoginService {
 			...this.cosmopolitanEtiquetteOptions(token, characterId),
 			...this.diplomatIntroductionOptions(token, characterId),
 			...this.encouragingPresenceOptions(token, characterId),
+			...this.emergencyAntidoteOptions(token, characterId),
+			...this.emergencyExtractionOptions(token, characterId),
 			...this.choreographyGroupOptions(token, characterId),
 			...this.teamCaptainOptions(token, characterId),
 			...this.detectiveCapturePlanOptions(token, characterId),
@@ -4884,6 +5092,43 @@ export class RPGLoginService {
 			...this.captivatingDistractionOptions(token, characterId),
 			...this.excavationMasterOptions(token, characterId),
 			...this.sharedArchiveOptions(token, characterId)];
+	}
+
+	private emergencyAntidoteOptions(token: string, characterId: string) {
+		const session = this.getSession(token);
+		if (!session.platformTableId) return [];
+		return this.repository.list().filter(record => record.state.id !== characterId &&
+			record.tableId === session.platformTableId && record.accountId &&
+			this.accounts.repository.getMembership(session.platformTableId!, record.accountId)?.status === 'active')
+			.flatMap(record => {
+				const option = record.state.trainerSheet && rpgEmergencyAntidoteOption(record.state.id,
+					record.state.characterName, record.state.trainerSheet);
+				return option ? [option] : [];
+			});
+	}
+
+	private emergencyExtractionOptions(token: string, characterId: string) {
+		const session = this.getSession(token);
+		if (!session.platformTableId) return [];
+		return this.repository.list().filter(record => record.state.id !== characterId &&
+			record.tableId === session.platformTableId && record.accountId &&
+			this.accounts.repository.getMembership(session.platformTableId!, record.accountId)?.status === 'active')
+			.flatMap(record => {
+				const option = record.state.trainerSheet && rpgEmergencyExtractionOption(record.state.id,
+					record.state.characterName, record.state.trainerSheet);
+				return option ? [option] : [];
+			});
+	}
+
+	consumePreventiveProtocol(token: string, characterId: string, selectedTalents: string[]) {
+		const record = this.requireCharacter(toID(characterId));
+		const protocol = record.state.trainerSheet?.preventiveProtocol;
+		if (!protocol || protocol.used ||
+			!selectedTalents.includes(`medico:protocolo-preventivo@${protocol.sourceCharacterId}`)) return;
+		const next = structuredClone(record);
+		next.state.trainerSheet!.preventiveProtocol!.used = true;
+		next.state.updatedAt = this.now();
+		this.repository.set(next);
 	}
 
 	private enchanterAllyOptions(token: string, characterId: string) {
@@ -5262,6 +5507,7 @@ export class RPGLoginService {
 			attributes: ['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma'],
 			skills: RPG_SKILL_ATTRIBUTES, difficulties: RPG_DIFFICULTIES,
 			resistances: ['fortitude', 'reflexes', 'will'],
+			conditions: [...RPG_TRAINER_CONDITIONS],
 			classes: structuredClone(RPG_TRAINER_CLASSES),
 			classFeatures: structuredClone(RPG_TRAINER_CLASS_FEATURES),
 			equipment: RPG_EQUIPMENT_CATALOG,
@@ -5691,9 +5937,21 @@ export class RPGLoginService {
 
 	/** Alterações da sobrevivência humana são arbitradas pelo Mestre e persistidas com a ficha. */
 	applyTrainerSurvival(token: string, characterId: string, action: RPGTrainerSurvivalAction) {
-		this.requireMasterMode(token);
+		const session = this.getSession(token);
+		if (session.mode === 'player') {
+			this.requireViewedMasterCharacter(token, characterId);
+			if (!action || !['damage', 'heal', 'exhaustion', 'exhaustion-reduce',
+				'condition-add', 'condition-remove'].includes(action.type)) {
+				throw new Error('Esta ação de sobrevivência exige o modo Mestre');
+			}
+		} else {
+			this.requireMasterMode(token);
+		}
 		this.requirePlatformTablePermission(token, 'characters.manage');
 		const record = this.requireCharacter(toID(characterId));
+		if (session.platformTableId && record.tableId !== session.platformTableId) {
+			throw new Error('Personagem fora da mesa atual');
+		}
 		const sheet = record.state.trainerSheet || createRPGPendingTrainerSheet();
 		if (!action || typeof action !== 'object') throw new Error('Ação de sobrevivência inválida');
 		let next: RPGTrainerSheet;
@@ -5711,6 +5969,15 @@ export class RPGLoginService {
 				next = rpgTrainerStabilize(sheet); break;
 			case 'exhaustion':
 				next = rpgTrainerAddExhaustion(sheet, action.levels); break;
+			case 'exhaustion-reduce': {
+				if (!Number.isSafeInteger(action.levels) || action.levels < 1 || action.levels > 6 ||
+					action.levels > rpgTrainerSurvival(sheet).exhaustion) {
+					throw new Error('Quantidade de Exaustão para reduzir inválida');
+				}
+				next = sheet;
+				for (let index = 0; index < action.levels; index++) next = rpgTrainerReduceExhaustion(next);
+				break;
+			}
 			case 'condition-add':
 				next = rpgTrainerApplyCondition(sheet, action.condition); break;
 			case 'condition-remove':
@@ -5728,7 +5995,10 @@ export class RPGLoginService {
 					Date.parse(this.campaignSettings.currentDateTime)); break;
 			case 'rest': {
 				const outcome = rpgTrainerRest(sheet, action.kind,
-					Date.parse(this.campaignSettings.currentDateTime), action, this.random);
+					Date.parse(this.campaignSettings.currentDateTime), {
+						medicalCare: action.medicalCare, medicalCheckTotal: action.medicalCheckTotal,
+						medicalProficiency: action.medicalProficiency, adequate: action.adequate,
+					}, this.random);
 				next = outcome.sheet; result = { recovered: outcome.recovered }; break;
 			}
 			default: throw new Error('Ação de sobrevivência inválida');
@@ -6262,6 +6532,751 @@ export class RPGLoginService {
 		const kit = this.ensureTrainerInventory(actor).items.find(item => item.itemId === 'kit-medicina-pokemon' &&
 			item.location === 'bag' && (item.charges || 0) > 0);
 		return { players, kitAvailable: !!kit };
+	}
+
+	private emergencyCareContext(token: string) {
+		const session = this.getSession(token);
+		const actorId = session.role === 'master' ? session.viewAsCharacterId : session.characterId;
+		if (session.mode !== 'player' || !session.platformTableId || !actorId) {
+			throw new Error('Entre como Médico em uma mesa');
+		}
+		const actor = this.requireCharacter(toID(actorId));
+		if (actor.tableId !== session.platformTableId || actor.state.trainerSheet?.status !== 'complete' ||
+			actor.state.trainerSheet.classId !== 'medico') throw new Error('Atendimento Emergencial exige um Médico nesta mesa');
+		if (rpgTrainerSurvival(actor.state.trainerSheet).lifeState !== 'conscious') {
+			throw new Error('O Médico precisa estar consciente para realizar o atendimento');
+		}
+		const patients = this.repository.list().filter(record => record.tableId === session.platformTableId &&
+			record.accountId && this.accounts.repository.getMembership(session.platformTableId!, record.accountId)?.status === 'active' &&
+			record.state.trainerSheet?.status === 'complete' && record.state.trainerSheet.hitPoints.current === 0 &&
+			rpgTrainerSurvival(record.state.trainerSheet).lifeState !== 'dead')
+			.map(record => ({ id: record.state.id, name: record.state.characterName, avatar: record.state.avatar,
+				currentHP: 0, maxHP: record.state.trainerSheet!.hitPoints.maximum!,
+				available: record.state.trainerSheet!.emergencyCareCycle !== (record.state.trainerSheet!.talentRestCycle || 0) }))
+			.sort((left, right) => left.name.localeCompare(right.name, 'pt-BR'));
+		return { actor, patients };
+	}
+
+	getEmergencyCareCandidates(token: string) {
+		const { actor, patients } = this.emergencyCareContext(token);
+		const kits = this.ensureTrainerInventory(actor).items.filter(item => item.itemId.startsWith('kit-medico-') &&
+			item.location === 'bag' && item.quantity > 0);
+		return { patients, kitAvailable: kits.some(item => (item.charges || 0) > 0),
+			revitalizingAvailable: actor.state.trainerSheet!.talents.class.includes('medico:atendimento-revitalizante'),
+			revitalizingKitAvailable: kits.some(item => (item.charges || 0) >= 3),
+			emergencyMedicineAvailable: actor.state.trainerSheet!.talents.apex === 'medico:medicina-de-emergencia',
+			emergencyMedicineKitAvailable: kits.some(item => (item.charges || 0) >= 2) };
+	}
+
+	getReanimationCandidates(token: string) {
+		const { actor } = this.emergencyCareContext(token);
+		if (actor.state.trainerSheet!.talents.apex !== 'medico:entre-a-vida-e-a-morte') {
+			throw new Error('Este Médico não possui Ápice — Entre a Vida e a Morte');
+		}
+		const patients = this.repository.list().filter(record => record.tableId === actor.tableId &&
+			record.accountId && this.accounts.repository.getMembership(actor.tableId!, record.accountId)?.status === 'active' &&
+			record.state.trainerSheet?.status === 'complete').filter(record => {
+			const sheet = record.state.trainerSheet!;
+			const state = rpgTrainerSurvival(sheet);
+			return sheet.hitPoints.current === 0 && (state.negativeHP || 0) <=
+				-Math.ceil(sheet.hitPoints.maximum! / 2) &&
+				['dying', 'stable', 'dead'].includes(state.lifeState) &&
+				!state.wounds.some(wound => wound.id.startsWith('reanimation-') && !wound.treated);
+		}).map(record => ({ id: record.state.id, name: record.state.characterName,
+			avatar: record.state.avatar, currentHP: record.state.trainerSheet!.survival!.negativeHP!,
+			maxHP: record.state.trainerSheet!.hitPoints.maximum! }))
+			.sort((left, right) => left.name.localeCompare(right.name, 'pt-BR'));
+		const kitAvailable = this.ensureTrainerInventory(actor).items.some(item =>
+			item.itemId === 'kit-medico-3' && item.location === 'bag' && item.quantity > 0 && (item.charges || 0) >= 3);
+		return { patients, kitAvailable };
+	}
+
+	performReanimation(token: string, input: { requestId: string, patientId: string,
+		mode: 'normal' | 'advantage' | 'disadvantage', talents: string[], }) {
+		if (!/^[a-zA-Z0-9_-]{8,100}$/.test(input.requestId)) throw new Error('Identificador de reanimação inválido');
+		if (!['normal', 'advantage', 'disadvantage'].includes(input.mode)) throw new Error('Modo de rolagem inválido');
+		const { actor } = this.emergencyCareContext(token);
+		const { patients, kitAvailable } = this.getReanimationCandidates(token);
+		const prior = actor.state.trainerSheet!.reanimationReceipts?.find(entry => entry.requestId === input.requestId);
+		if (prior) {
+			if (prior.patientId !== input.patientId || prior.mode !== input.mode ||
+				JSON.stringify(prior.talents) !== JSON.stringify(input.talents)) {
+				throw new Error('Identificador de reanimação já utilizado');
+			}
+			return { ...structuredClone(prior.result), repeated: true };
+		}
+		const patient = patients.find(entry => entry.id === input.patientId);
+		if (!patient) throw new Error('Paciente não atende aos critérios de reanimação nesta mesa');
+		if (!kitAvailable) throw new Error('É necessário um Kit Médico III com três cargas na Bag');
+		this.requireWorldBagItemUse(token, actor.state.id);
+		const sheet = actor.state.trainerSheet!;
+		const effects = rpgResolveTrainerRollTalents(sheet, 'skill', 'medicina', input.talents,
+			this.getTrainerAllyRollTalents(token, actor.state.id));
+		const observed = effects.chosen.some(talent => talent.id === 'aprendizado-por-observacao');
+		rpgTrainerSkillBonus(sheet, 'medicina', undefined, false, observed);
+		const roll = rollRPGTrainerSkillCheck(sheet, 'medicina', undefined, {
+			dc: 25, bonus: effects.bonus, naturalFloor: effects.naturalFloor,
+			temporarilyTrained: observed,
+			advantages: (input.mode === 'advantage' ? 1 : 0) + effects.advantages,
+			disadvantages: input.mode === 'disadvantage' ? 1 : 0,
+		}, this.random);
+		const originalActor = structuredClone(actor);
+		const nextActor = structuredClone(actor);
+		const originalPatient = patient.id === actor.state.id ? null : structuredClone(this.requireCharacter(patient.id));
+		const nextPatient = originalPatient ? structuredClone(originalPatient) : nextActor;
+		const kit = this.ensureTrainerInventory(nextActor).items.find(item => item.itemId === 'kit-medico-3' &&
+			item.location === 'bag' && item.quantity > 0 && (item.charges || 0) >= 3)!;
+		kit.charges! -= 3;
+		this.ensureTrainerInventory(nextActor).revision++;
+		if (roll.total >= 25) {
+			nextPatient.state.trainerSheet = rpgTrainerReanimate(nextPatient.state.trainerSheet!,
+				`reanimation-${input.requestId}`);
+		}
+		const base = roll.total - (roll.effectiveNatural || roll.natural) - effects.bonus;
+		const talentNames = effects.chosen.map(talent => talent.name).join('\n');
+		const dice = roll.dice.length > 1 ? `${roll.mode === 'advantage' ? 'Vantagem' : 'Desvantagem'}\n` +
+			`1ª rolagem: ${roll.dice[0]}\n2ª rolagem: ${roll.dice[1]}\n` : '';
+		const message = `${actor.state.characterName} tenta reanimar ${patient.name}.\n` +
+			(talentNames ? `${talentNames}\n` : '') + dice +
+			`Medicina (CD 25): 1d20 tirou ${roll.effectiveNatural || roll.natural} ` +
+			`${rpgTrainerRollBonusTerms(base, effects.chosen)} = ${roll.total}.\n` +
+			(roll.total >= 25 ? `${patient.name} está Estável com 0 PV e um ferimento grave.` :
+			'Reanimação sem sucesso.');
+		const result = { patientName: patient.name, success: roll.total >= 25, total: roll.total,
+			natural: roll.natural, dice: roll.dice, message, chargesRemaining: kit.charges! };
+		nextActor.state.trainerSheet!.reanimationReceipts = [
+			...(nextActor.state.trainerSheet!.reanimationReceipts || []).slice(-19),
+			{ requestId: input.requestId, patientId: patient.id, mode: input.mode, talents: [...input.talents], result }];
+		nextActor.state.updatedAt = this.now(); nextPatient.state.updatedAt = this.now();
+		this.validateTrainerInventory(nextActor);
+		try {
+			this.persistAtomically(() => {
+				this.repository.set(nextActor);
+				if (nextPatient !== nextActor) this.repository.set(nextPatient);
+			});
+		} catch (error) {
+			this.repository.set(originalActor);
+			if (originalPatient) this.repository.set(originalPatient);
+			throw error;
+		}
+		return { ...result, repeated: false };
+	}
+
+	getPreventiveProtocolCandidates(token: string) {
+		const { actor } = this.emergencyCareContext(token);
+		const sheet = actor.state.trainerSheet!;
+		if (!sheet.talents.class.includes('medico:protocolo-preventivo')) {
+			throw new Error('Este Médico não possui Protocolo Preventivo');
+		}
+		const rest = `${sheet.shortRestCycle || 0}:${sheet.talentRestCycle || 0}`;
+		return { limit: Math.max(1, 1 + Math.floor((sheet.attributes!.wisdom - 10) / 2)),
+			available: rest !== '0:0' && sheet.preventiveProtocolPreparedRest !== rest,
+			recipients: this.trainerArchiveRecipients(token).filter(person => {
+				const target = this.repository.get(person.id)?.state.trainerSheet;
+				return target?.status === 'complete' && rpgTrainerSurvival(target).lifeState !== 'dead';
+			}) };
+	}
+
+	preparePreventiveProtocol(token: string, input: { requestId: string, recipientIds: string[], risk: string }) {
+		if (!/^[a-zA-Z0-9_-]{8,100}$/.test(input.requestId)) throw new Error('Identificador de protocolo inválido');
+		const { actor } = this.emergencyCareContext(token);
+		const sheet = actor.state.trainerSheet!;
+		const risk = String(input.risk || '').trim();
+		if (!risk || risk.length > 80) throw new Error('Informe o risco previsto em até 80 caracteres');
+		const fingerprint = createHash('sha256').update(JSON.stringify([input.recipientIds, risk])).digest('hex');
+		const prior = sheet.preventiveProtocolReceipts?.find(entry => entry.requestId === input.requestId);
+		if (prior) {
+			if (prior.fingerprint !== fingerprint) throw new Error('Identificador de protocolo já utilizado');
+			return { recipients: prior.recipients, risk: prior.risk, repeated: true };
+		}
+		const choices = this.getPreventiveProtocolCandidates(token);
+		if (!choices.available) throw new Error('Protocolo Preventivo exige um novo descanso curto ou longo');
+		if (!Array.isArray(input.recipientIds) || !input.recipientIds.length ||
+			input.recipientIds.length > choices.limit || new Set(input.recipientIds).size !== input.recipientIds.length ||
+			input.recipientIds.some(id => !choices.recipients.some(person => person.id === id))) {
+			throw new Error(`Escolha de um a ${choices.limit} participantes desta mesa`);
+		}
+		const originals = [actor, ...input.recipientIds.filter(id => id !== actor.state.id)
+			.map(id => this.requireCharacter(id))].map(record => structuredClone(record));
+		const updates = originals.map(record => structuredClone(record));
+		const nextActor = updates.find(record => record.state.id === actor.state.id)!;
+		const nextSheet = nextActor.state.trainerSheet!;
+		nextSheet.preventiveProtocolPreparedRest = `${nextSheet.shortRestCycle || 0}:${nextSheet.talentRestCycle || 0}`;
+		nextSheet.preventiveProtocolReceipts = [...(nextSheet.preventiveProtocolReceipts || []).slice(-19),
+			{ requestId: input.requestId, fingerprint, recipients: input.recipientIds, risk }];
+		for (const id of input.recipientIds) {
+			const target = updates.find(record => record.state.id === id)!;
+			target.state.trainerSheet!.preventiveProtocol = {
+				sourceCharacterId: actor.state.id, sourceName: actor.state.characterName, risk, used: false };
+		}
+		for (const record of updates) record.state.updatedAt = this.now();
+		try { this.persistAtomically(() => { for (const record of updates) this.repository.set(record); }); } catch (error) { for (const record of originals) this.repository.set(record); throw error; }
+		return { recipients: input.recipientIds, risk, repeated: false };
+	}
+
+	private spendMedicalKitCharge(actor: RPGStoredCharacter, kit: RPGEquipmentInstance) {
+		const supplies = actor.state.trainerSheet!.talents.class.includes('medico:gestao-de-suprimentos-medicos');
+		const supplyRoll = supplies ? this.int(6) + 1 : null;
+		const chargeSaved = supplyRoll !== null && supplyRoll >= 5;
+		if (!chargeSaved) kit.charges!--;
+		this.ensureTrainerInventory(actor).revision++;
+		return { supplyRoll, chargeSaved, chargesRemaining: kit.charges! };
+	}
+
+	performEmergencyCare(token: string, input: { requestId: string, patientId: string,
+		revitalizing?: boolean, emergencyMedicine?: boolean, }) {
+		if (!/^[a-zA-Z0-9_-]{8,100}$/.test(input.requestId)) throw new Error('Identificador de atendimento inválido');
+		if (input.revitalizing && input.emergencyMedicine) {
+			throw new Error('Escolha apenas um aprimoramento para o Atendimento Emergencial');
+		}
+		const { actor, patients } = this.emergencyCareContext(token);
+		const prior = actor.state.trainerSheet!.emergencyCareReceipts?.find(entry => entry.requestId === input.requestId);
+		if (prior) {
+			if (prior.targetId !== input.patientId || !!prior.result.revitalizing !== !!input.revitalizing ||
+				!!prior.result.emergencyMedicine !== !!input.emergencyMedicine) {
+				throw new Error('Identificador de atendimento já utilizado');
+			}
+			return { ...structuredClone(prior.result), repeated: true };
+		}
+		const selected = patients.find(patient => patient.id === input.patientId);
+		if (!selected) throw new Error('Treinador desmaiado não encontrado nesta mesa');
+		if (!selected.available) throw new Error('Este treinador já recebeu Atendimento Emergencial neste descanso longo');
+		if (input.revitalizing && !actor.state.trainerSheet!.talents.class.includes('medico:atendimento-revitalizante')) {
+			throw new Error('Este Médico não possui Atendimento Revitalizante');
+		}
+		if (input.emergencyMedicine && actor.state.trainerSheet!.talents.apex !== 'medico:medicina-de-emergencia') {
+			throw new Error('Este Médico não possui Ápice — Medicina de Emergência');
+		}
+		this.requireWorldBagItemUse(token, actor.state.id);
+		const originalActor = structuredClone(actor);
+		const nextActor = structuredClone(actor);
+		const originalPatient = selected.id === actor.state.id ? null : structuredClone(this.requireCharacter(selected.id));
+		const nextPatient = originalPatient ? structuredClone(originalPatient) : nextActor;
+		const inventory = this.ensureTrainerInventory(nextActor);
+		const requiredCharges = input.revitalizing ? 3 : input.emergencyMedicine ? 2 : 1;
+		const kit = inventory.items.find(item => item.itemId.startsWith('kit-medico-') &&
+			item.location === 'bag' && item.quantity > 0 && (item.charges || 0) >= requiredCharges);
+		if (!kit) throw new Error(input.revitalizing ?
+			'Atendimento Revitalizante exige três cargas no mesmo Kit Médico na Bag' :
+			input.emergencyMedicine ? 'Medicina de Emergência exige duas cargas no mesmo Kit Médico na Bag' :
+			'É necessário um Kit Médico com carga na Bag');
+		const supplyRolls: (number | null)[] = [];
+		let supply = this.spendMedicalKitCharge(nextActor, kit);
+		supplyRolls.push(supply.supplyRoll);
+		if (requiredCharges > 1) {
+			for (let i = 1; i < requiredCharges; i++) {
+				supply = this.spendMedicalKitCharge(nextActor, kit);
+				supplyRolls.push(supply.supplyRoll);
+			}
+		}
+		const enhanced = input.revitalizing || input.emergencyMedicine;
+		const healingRoll = enhanced ? this.int(6) + 1 : null;
+		const healing = enhanced ? Math.max(1, healingRoll! +
+			Math.floor((nextActor.state.trainerSheet!.attributes!.wisdom - 10) / 2)) : 1;
+		const patientSheet = nextPatient.state.trainerSheet!;
+		nextPatient.state.trainerSheet = rpgTrainerHeal(patientSheet, healing);
+		const conditionsRemoved = input.emergencyMedicine ?
+			rpgTrainerSurvival(nextPatient.state.trainerSheet).conditions.map(condition => condition.id) : [];
+		if (input.emergencyMedicine) {
+			for (const condition of conditionsRemoved) {
+				nextPatient.state.trainerSheet = rpgTrainerRemoveCondition(nextPatient.state.trainerSheet, condition);
+			}
+		}
+		nextPatient.state.trainerSheet.emergencyCareCycle = patientSheet.talentRestCycle || 0;
+		const result = { patientName: selected.name, hp: nextPatient.state.trainerSheet.hitPoints.current!,
+			revitalizing: !!input.revitalizing, emergencyMedicine: !!input.emergencyMedicine,
+			conditionsRemoved, healingRoll, supplyRolls, ...supply };
+		nextActor.state.trainerSheet!.emergencyCareReceipts = [
+			...(nextActor.state.trainerSheet!.emergencyCareReceipts || []).slice(-19),
+			{ requestId: input.requestId, targetId: selected.id, result },
+		];
+		nextActor.state.updatedAt = this.now(); nextPatient.state.updatedAt = this.now();
+		this.validateTrainerInventory(nextActor);
+		try {
+			this.persistAtomically(() => {
+				this.repository.set(nextActor);
+				if (nextPatient !== nextActor) this.repository.set(nextPatient);
+			});
+		} catch (error) {
+			this.repository.set(originalActor);
+			if (originalPatient) this.repository.set(originalPatient);
+			throw error;
+		}
+		return { ...result, repeated: false };
+	}
+
+	getBurnTreatmentCandidates(token: string) {
+		const { actor } = this.emergencyCareContext(token);
+		if (!actor.state.trainerSheet!.talents.class.includes('medico:tratamento-de-queimaduras')) {
+			throw new Error('Este Médico não possui Tratamento de Queimaduras');
+		}
+		const tableId = actor.tableId;
+		const patients = this.repository.list().filter(record => record.tableId === tableId && record.accountId &&
+			this.accounts.repository.getMembership(tableId!, record.accountId)?.status === 'active' &&
+			record.state.trainerSheet?.status === 'complete' &&
+			rpgTrainerSurvival(record.state.trainerSheet).lifeState !== 'dead' &&
+			rpgTrainerSurvival(record.state.trainerSheet).conditions.some(condition => condition.id === 'queimado'))
+			.map(record => ({ id: record.state.id, name: record.state.characterName, avatar: record.state.avatar,
+				currentHP: record.state.trainerSheet!.hitPoints.current!, maxHP: record.state.trainerSheet!.hitPoints.maximum! }))
+			.sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+		const kitAvailable = this.ensureTrainerInventory(actor).items.some(item => item.itemId.startsWith('kit-medico-') &&
+			item.location === 'bag' && item.quantity > 0 && (item.charges || 0) > 0);
+		return { patients, kitAvailable };
+	}
+
+	treatTrainerBurn(token: string, input: { requestId: string, patientId: string }) {
+		if (!/^[a-zA-Z0-9_-]{8,100}$/.test(input.requestId)) throw new Error('Identificador de tratamento inválido');
+		const { actor } = this.emergencyCareContext(token);
+		const sheet = actor.state.trainerSheet!;
+		const prior = sheet.burnTreatmentReceipts?.find(entry => entry.requestId === input.requestId);
+		if (prior) {
+			if (prior.targetId !== input.patientId) throw new Error('Identificador de tratamento já utilizado');
+			return { ...structuredClone(prior.result), repeated: true };
+		}
+		const candidate = this.getBurnTreatmentCandidates(token).patients.find(entry => entry.id === input.patientId);
+		if (!candidate) throw new Error('Treinador queimado não encontrado nesta mesa');
+		this.requireWorldBagItemUse(token, actor.state.id);
+		const originalActor = structuredClone(actor);
+		const nextActor = structuredClone(actor);
+		const originalPatient = candidate.id === actor.state.id ? null : structuredClone(this.requireCharacter(candidate.id));
+		const nextPatient = originalPatient ? structuredClone(originalPatient) : nextActor;
+		const kit = this.ensureTrainerInventory(nextActor).items.find(item => item.itemId.startsWith('kit-medico-') &&
+			item.location === 'bag' && item.quantity > 0 && (item.charges || 0) > 0);
+		if (!kit) throw new Error('É necessário um Kit Médico com carga na Bag');
+		const supply = this.spendMedicalKitCharge(nextActor, kit);
+		nextPatient.state.trainerSheet = rpgTrainerRemoveCondition(nextPatient.state.trainerSheet!, 'queimado');
+		const result = { patientName: candidate.name, ...supply };
+		nextActor.state.trainerSheet!.burnTreatmentReceipts = [
+			...(nextActor.state.trainerSheet!.burnTreatmentReceipts || []).slice(-19),
+			{ requestId: input.requestId, targetId: candidate.id, result }];
+		nextActor.state.updatedAt = this.now(); nextPatient.state.updatedAt = this.now();
+		this.validateTrainerInventory(nextActor);
+		try {
+			this.persistAtomically(() => {
+				this.repository.set(nextActor);
+				if (nextPatient !== nextActor) this.repository.set(nextPatient);
+			});
+		} catch (error) {
+			this.repository.set(originalActor);
+			if (originalPatient) this.repository.set(originalPatient);
+			throw error;
+		}
+		return { ...result, repeated: false };
+	}
+
+	getNeuromuscularTreatmentCandidates(token: string) {
+		const { actor } = this.emergencyCareContext(token);
+		if (!actor.state.trainerSheet!.talents.class.includes('medico:estimulo-neuromuscular')) {
+			throw new Error('Este Médico não possui Estímulo Neuromuscular');
+		}
+		const applicable = ['paralisado', 'atordoado'];
+		const tableId = actor.tableId;
+		const patients = this.repository.list().filter(record => record.tableId === tableId && record.accountId &&
+			this.accounts.repository.getMembership(tableId!, record.accountId)?.status === 'active' &&
+			record.state.trainerSheet?.status === 'complete' &&
+			rpgTrainerSurvival(record.state.trainerSheet).lifeState !== 'dead')
+			.map(record => ({ id: record.state.id, name: record.state.characterName, avatar: record.state.avatar,
+				currentHP: record.state.trainerSheet!.hitPoints.current!, maxHP: record.state.trainerSheet!.hitPoints.maximum!,
+				conditions: rpgTrainerSurvival(record.state.trainerSheet!).conditions
+					.filter(condition => applicable.includes(condition.id)).map(condition => condition.id) }))
+			.filter(record => record.conditions.length)
+			.sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+		const kitAvailable = this.ensureTrainerInventory(actor).items.some(item => item.itemId.startsWith('kit-medico-') &&
+			item.location === 'bag' && item.quantity > 0 && (item.charges || 0) > 0);
+		return { patients, kitAvailable };
+	}
+
+	getControlledWarmingCandidates(token: string) {
+		const { actor } = this.emergencyCareContext(token);
+		if (!actor.state.trainerSheet!.talents.class.includes('medico:aquecimento-controlado')) {
+			throw new Error('Este Médico não possui Aquecimento Controlado');
+		}
+		const tableId = actor.tableId;
+		const patients = this.repository.list().filter(record => record.tableId === tableId && record.accountId &&
+			this.accounts.repository.getMembership(tableId!, record.accountId)?.status === 'active' &&
+			record.state.trainerSheet?.status === 'complete' &&
+			rpgTrainerSurvival(record.state.trainerSheet).lifeState !== 'dead' &&
+			rpgTrainerSurvival(record.state.trainerSheet).conditions.some(condition => condition.id === 'congelado'))
+			.map(record => ({ id: record.state.id, name: record.state.characterName, avatar: record.state.avatar,
+				currentHP: record.state.trainerSheet!.hitPoints.current!, maxHP: record.state.trainerSheet!.hitPoints.maximum! }))
+			.sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+		const kitAvailable = this.ensureTrainerInventory(actor).items.some(item => item.itemId.startsWith('kit-medico-') &&
+			item.location === 'bag' && item.quantity > 0 && (item.charges || 0) > 0);
+		return { patients, kitAvailable };
+	}
+
+	treatTrainerCold(token: string, input: { requestId: string, patientId: string }) {
+		if (!/^[a-zA-Z0-9_-]{8,100}$/.test(input.requestId)) throw new Error('Identificador de tratamento inválido');
+		const { actor } = this.emergencyCareContext(token);
+		const sheet = actor.state.trainerSheet!;
+		const prior = sheet.controlledWarmingReceipts?.find(entry => entry.requestId === input.requestId);
+		if (prior) {
+			if (prior.targetId !== input.patientId) throw new Error('Identificador de tratamento já utilizado');
+			return { ...structuredClone(prior.result), repeated: true };
+		}
+		const candidate = this.getControlledWarmingCandidates(token).patients.find(entry => entry.id === input.patientId);
+		if (!candidate) throw new Error('Treinador congelado não encontrado nesta mesa');
+		this.requireWorldBagItemUse(token, actor.state.id);
+		const originalActor = structuredClone(actor);
+		const nextActor = structuredClone(actor);
+		const originalPatient = candidate.id === actor.state.id ? null : structuredClone(this.requireCharacter(candidate.id));
+		const nextPatient = originalPatient ? structuredClone(originalPatient) : nextActor;
+		const kit = this.ensureTrainerInventory(nextActor).items.find(item => item.itemId.startsWith('kit-medico-') &&
+			item.location === 'bag' && item.quantity > 0 && (item.charges || 0) > 0);
+		if (!kit) throw new Error('É necessário um Kit Médico com carga na Bag');
+		const supply = this.spendMedicalKitCharge(nextActor, kit);
+		nextPatient.state.trainerSheet = rpgTrainerRemoveCondition(nextPatient.state.trainerSheet!, 'congelado');
+		const result = { patientName: candidate.name, ...supply };
+		nextActor.state.trainerSheet!.controlledWarmingReceipts = [
+			...(nextActor.state.trainerSheet!.controlledWarmingReceipts || []).slice(-19),
+			{ requestId: input.requestId, targetId: candidate.id, result }];
+		nextActor.state.updatedAt = this.now(); nextPatient.state.updatedAt = this.now();
+		this.validateTrainerInventory(nextActor);
+		try {
+			this.persistAtomically(() => {
+				this.repository.set(nextActor);
+				if (nextPatient !== nextActor) this.repository.set(nextPatient);
+			});
+		} catch (error) {
+			this.repository.set(originalActor);
+			if (originalPatient) this.repository.set(originalPatient);
+			throw error;
+		}
+		return { ...result, repeated: false };
+	}
+
+	getNeurologicalResponseCandidates(token: string) {
+		const { actor } = this.emergencyCareContext(token);
+		if (!actor.state.trainerSheet!.talents.class.includes('medico:resposta-neurologica')) {
+			throw new Error('Este Médico não possui Resposta Neurológica');
+		}
+		const applicable = ['adormecido', 'confuso'];
+		const tableId = actor.tableId;
+		const patients = this.repository.list().filter(record => record.tableId === tableId && record.accountId &&
+			this.accounts.repository.getMembership(tableId!, record.accountId)?.status === 'active' &&
+			record.state.trainerSheet?.status === 'complete' &&
+			rpgTrainerSurvival(record.state.trainerSheet).lifeState !== 'dead')
+			.map(record => ({ id: record.state.id, name: record.state.characterName, avatar: record.state.avatar,
+				currentHP: record.state.trainerSheet!.hitPoints.current!, maxHP: record.state.trainerSheet!.hitPoints.maximum!,
+				conditions: rpgTrainerSurvival(record.state.trainerSheet!).conditions
+					.filter(condition => applicable.includes(condition.id)).map(condition => condition.id) }))
+			.filter(record => record.conditions.length)
+			.sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+		const kitAvailable = this.ensureTrainerInventory(actor).items.some(item => item.itemId.startsWith('kit-medico-') &&
+			item.location === 'bag' && item.quantity > 0 && (item.charges || 0) > 0);
+		return { patients, kitAvailable };
+	}
+
+	treatTrainerNeurologicalCondition(token: string,
+		input: { requestId: string, patientId: string, conditionId: 'adormecido' | 'confuso' }) {
+		if (!/^[a-zA-Z0-9_-]{8,100}$/.test(input.requestId)) throw new Error('Identificador de tratamento inválido');
+		if (!['adormecido', 'confuso'].includes(input.conditionId)) {
+			throw new Error('Condição incompatível com Resposta Neurológica');
+		}
+		const { actor } = this.emergencyCareContext(token);
+		const sheet = actor.state.trainerSheet!;
+		const prior = sheet.neurologicalResponseReceipts?.find(entry => entry.requestId === input.requestId);
+		if (prior) {
+			if (prior.targetId !== input.patientId || prior.conditionId !== input.conditionId) {
+				throw new Error('Identificador de tratamento já utilizado');
+			}
+			return { ...structuredClone(prior.result), repeated: true };
+		}
+		const candidate = this.getNeurologicalResponseCandidates(token).patients.find(entry =>
+			entry.id === input.patientId && entry.conditions.includes(input.conditionId));
+		if (!candidate) throw new Error('Treinador com esta condição não encontrado nesta mesa');
+		this.requireWorldBagItemUse(token, actor.state.id);
+		const originalActor = structuredClone(actor);
+		const nextActor = structuredClone(actor);
+		const originalPatient = candidate.id === actor.state.id ? null : structuredClone(this.requireCharacter(candidate.id));
+		const nextPatient = originalPatient ? structuredClone(originalPatient) : nextActor;
+		const kit = this.ensureTrainerInventory(nextActor).items.find(item => item.itemId.startsWith('kit-medico-') &&
+			item.location === 'bag' && item.quantity > 0 && (item.charges || 0) > 0);
+		if (!kit) throw new Error('É necessário um Kit Médico com carga na Bag');
+		const supply = this.spendMedicalKitCharge(nextActor, kit);
+		nextPatient.state.trainerSheet = rpgTrainerRemoveCondition(nextPatient.state.trainerSheet!, input.conditionId);
+		const result = { patientName: candidate.name, conditionId: input.conditionId, ...supply };
+		nextActor.state.trainerSheet!.neurologicalResponseReceipts = [
+			...(nextActor.state.trainerSheet!.neurologicalResponseReceipts || []).slice(-19),
+			{ requestId: input.requestId, targetId: candidate.id, conditionId: input.conditionId, result }];
+		nextActor.state.updatedAt = this.now(); nextPatient.state.updatedAt = this.now();
+		this.validateTrainerInventory(nextActor);
+		try {
+			this.persistAtomically(() => {
+				this.repository.set(nextActor);
+				if (nextPatient !== nextActor) this.repository.set(nextPatient);
+			});
+		} catch (error) {
+			this.repository.set(originalActor);
+			if (originalPatient) this.repository.set(originalPatient);
+			throw error;
+		}
+		return { ...result, repeated: false };
+	}
+
+	treatTrainerNeuromuscularCondition(token: string,
+		input: { requestId: string, patientId: string, conditionId: 'paralisado' | 'atordoado' }) {
+		if (!/^[a-zA-Z0-9_-]{8,100}$/.test(input.requestId)) throw new Error('Identificador de tratamento inválido');
+		if (!['paralisado', 'atordoado'].includes(input.conditionId)) {
+			throw new Error('Condição incompatível com Estímulo Neuromuscular');
+		}
+		const { actor } = this.emergencyCareContext(token);
+		const sheet = actor.state.trainerSheet!;
+		const prior = sheet.neuromuscularTreatmentReceipts?.find(entry => entry.requestId === input.requestId);
+		if (prior) {
+			if (prior.targetId !== input.patientId || prior.conditionId !== input.conditionId) {
+				throw new Error('Identificador de tratamento já utilizado');
+			}
+			return { ...structuredClone(prior.result), repeated: true };
+		}
+		const candidate = this.getNeuromuscularTreatmentCandidates(token).patients.find(entry =>
+			entry.id === input.patientId && entry.conditions.includes(input.conditionId));
+		if (!candidate) throw new Error('Treinador com esta condição não encontrado nesta mesa');
+		this.requireWorldBagItemUse(token, actor.state.id);
+		const originalActor = structuredClone(actor);
+		const nextActor = structuredClone(actor);
+		const originalPatient = candidate.id === actor.state.id ? null : structuredClone(this.requireCharacter(candidate.id));
+		const nextPatient = originalPatient ? structuredClone(originalPatient) : nextActor;
+		const kit = this.ensureTrainerInventory(nextActor).items.find(item => item.itemId.startsWith('kit-medico-') &&
+			item.location === 'bag' && item.quantity > 0 && (item.charges || 0) > 0);
+		if (!kit) throw new Error('É necessário um Kit Médico com carga na Bag');
+		const supply = this.spendMedicalKitCharge(nextActor, kit);
+		nextPatient.state.trainerSheet = rpgTrainerRemoveCondition(nextPatient.state.trainerSheet!, input.conditionId);
+		const result = { patientName: candidate.name, conditionId: input.conditionId, ...supply };
+		nextActor.state.trainerSheet!.neuromuscularTreatmentReceipts = [
+			...(nextActor.state.trainerSheet!.neuromuscularTreatmentReceipts || []).slice(-19),
+			{ requestId: input.requestId, targetId: candidate.id, conditionId: input.conditionId, result }];
+		nextActor.state.updatedAt = this.now(); nextPatient.state.updatedAt = this.now();
+		this.validateTrainerInventory(nextActor);
+		try {
+			this.persistAtomically(() => {
+				this.repository.set(nextActor);
+				if (nextPatient !== nextActor) this.repository.set(nextPatient);
+			});
+		} catch (error) {
+			this.repository.set(originalActor);
+			if (originalPatient) this.repository.set(originalPatient);
+			throw error;
+		}
+		return { ...result, repeated: false };
+	}
+
+	private integratedMedicineCandidates(token: string) {
+		const { actor } = this.emergencyCareContext(token);
+		if (!actor.state.trainerSheet!.talents.class.includes('medico:medicina-integrada')) {
+			throw new Error('Este Médico não possui Medicina Integrada');
+		}
+		const session = this.getSession(token);
+		const players = this.repository.list().filter(record => record.tableId === session.platformTableId &&
+			record.accountId && this.accounts.repository.getMembership(session.platformTableId!,
+			record.accountId)?.status === 'active').map(record => {
+			const views = new Map(RPGBoxManagement.view(record.state).results.map(pokemon =>
+				[pokemon.pokemonId, pokemon]));
+			return { characterId: record.state.id, name: record.state.characterName,
+				pokemon: record.state.box.party.map(entry => views.get(entry.pokemonId)).filter(pokemon => !!pokemon)
+					.map(pokemon => ({ id: pokemon!.pokemonId, name: pokemon!.name, species: pokemon!.species,
+						spriteId: pokemon!.spriteId, baseSpriteId: pokemon!.baseSpriteId, shiny: pokemon!.shiny,
+						level: pokemon!.level, types: pokemon!.types, hp: pokemon!.hp,
+						maxHP: pokemon!.maxHP, status: pokemon!.status })) };
+		}).filter(player => player.pokemon.length);
+		const kitAvailable = this.ensureTrainerInventory(actor).items.some(item =>
+			item.itemId === 'kit-medicina-pokemon' && item.location === 'bag' && item.quantity > 0 &&
+			(item.charges || 0) > 0);
+		return { actor, players, kitAvailable };
+	}
+
+	getIntegratedMedicineCandidates(token: string) {
+		const { players, kitAvailable } = this.integratedMedicineCandidates(token);
+		return { players, kitAvailable };
+	}
+
+	performIntegratedMedicine(token: string, input: { requestId: string, characterId: string, pokemonId: string }) {
+		if (!/^[a-zA-Z0-9_-]{8,100}$/.test(input.requestId)) throw new Error('Identificador de tratamento inválido');
+		const { actor, players } = this.integratedMedicineCandidates(token);
+		const prior = actor.state.trainerSheet!.integratedMedicineReceipts?.find(entry => entry.requestId === input.requestId);
+		if (prior) {
+			if (prior.targetId !== input.characterId || prior.pokemonId !== input.pokemonId) {
+				throw new Error('Identificador de tratamento já utilizado');
+			}
+			return { ...structuredClone(prior.result), repeated: true };
+		}
+		const selected = players.find(player => player.characterId === input.characterId)?.pokemon
+			.find(pokemon => pokemon.id === input.pokemonId);
+		if (!selected) throw new Error('Pokémon não está na equipe de um participante desta mesa');
+		if (!selected.status) throw new Error('Este Pokémon não possui condição negativa para tratar');
+		this.requireWorldBagItemUse(token, actor.state.id);
+		const originalActor = structuredClone(actor);
+		const originalOwner = input.characterId === actor.state.id ? null : structuredClone(this.requireCharacter(input.characterId));
+		const nextActor = structuredClone(actor);
+		const nextOwner = originalOwner ? structuredClone(originalOwner) : nextActor;
+		const inventory = this.ensureTrainerInventory(nextActor);
+		const kit = inventory.items.find(item => item.itemId === 'kit-medicina-pokemon' &&
+			item.location === 'bag' && item.quantity > 0 && (item.charges || 0) > 0);
+		if (!kit) throw new Error('É necessário um Kit de Medicina Pokémon com carga na Bag');
+		const target = RPGBoxManagement.itemTarget(nextOwner.state, input.pokemonId);
+		if (!target.state.status) throw new Error('Este Pokémon não possui condição negativa para tratar');
+		const status = target.state.status;
+		target.state.status = '';
+		target.state.sleepTurns = undefined;
+		RPGBoxManagement.applyItemState(nextOwner.state, input.pokemonId, target.state, nextOwner.state.box.revision);
+		const supply = this.spendMedicalKitCharge(nextActor, kit);
+		const result = { pokemonName: selected.name, status, ...supply };
+		nextActor.state.trainerSheet!.integratedMedicineReceipts = [
+			...(nextActor.state.trainerSheet!.integratedMedicineReceipts || []).slice(-19),
+			{ requestId: input.requestId, targetId: input.characterId, pokemonId: input.pokemonId, result }];
+		nextActor.state.updatedAt = this.now(); nextOwner.state.updatedAt = this.now();
+		this.validateTrainerInventory(nextActor);
+		try {
+			this.persistAtomically(() => {
+				this.repository.set(nextActor);
+				if (nextOwner !== nextActor) this.repository.set(nextOwner);
+			});
+		} catch (error) {
+			this.repository.set(originalActor);
+			if (originalOwner) this.repository.set(originalOwner);
+			throw error;
+		}
+		return { ...result, repeated: false };
+	}
+
+	setExtraordinaryRecoveryPatient(token: string, patientId: string | null) {
+		const { actor } = this.emergencyCareContext(token);
+		const sheet = actor.state.trainerSheet!;
+		if (sheet.talents.apex !== 'medico:recuperacao-extraordinaria') {
+			throw new Error('Este Médico não possui Ápice — Recuperação Extraordinária');
+		}
+		let patientName: string | null = null;
+		if (patientId !== null) {
+			const patient = this.trainerArchiveRecipients(token).find(person => person.id === patientId);
+			if (!patient || rpgTrainerSurvival(this.requireCharacter(patient.id).state.trainerSheet!).lifeState === 'dead') {
+				throw new Error('Escolha um participante ativo e vivo nesta mesa');
+			}
+			patientName = patient.name;
+		}
+		const original = structuredClone(actor);
+		try {
+			this.persistAtomically(() => {
+				sheet.extraordinaryRecoveryPatientId = patientId || undefined;
+				actor.state.updatedAt = this.now();
+				this.repository.set(actor);
+			});
+		} catch (error) {
+			this.repository.set(original);
+			throw error;
+		}
+		return { patientId, patientName };
+	}
+
+	scheduleAssistedRecovery(token: string, input: { requestId: string, patientIds: string[], intensive?: boolean,
+		exhaustionPatientIds?: string[], }) {
+		if (!/^[a-zA-Z0-9_-]{8,100}$/.test(input.requestId)) throw new Error('Identificador de recuperação inválido');
+		const { actor } = this.emergencyCareContext(token);
+		const sheet = actor.state.trainerSheet!;
+		const exhaustionPatientIds = input.exhaustionPatientIds || [];
+		const prior = sheet.assistedRecoveryReceipts?.find(entry => entry.requestId === input.requestId);
+		if (prior) {
+			if (JSON.stringify(prior.targetIds) !== JSON.stringify(input.patientIds) ||
+				!!prior.intensive !== !!input.intensive ||
+				JSON.stringify(prior.exhaustionPatientIds || []) !== JSON.stringify(exhaustionPatientIds)) {
+				throw new Error('Identificador de recuperação já utilizado');
+			}
+			return { healing: prior.healing, patients: prior.targetIds, intensive: !!prior.intensive,
+				exhaustionPatients: prior.exhaustionPatientIds || [],
+				stagedHealing: sheet.talents.class.includes('medico:recuperacao-em-etapas') ?
+					rpgTrainerProficiency(sheet.level) : 0, repeated: true };
+		}
+		if (input.intensive && !sheet.talents.class.includes('medico:recuperacao-intensiva')) {
+			throw new Error('Este Médico não possui Recuperação Intensiva');
+		}
+		const cycle = sheet.talentRestCycle || 0;
+		if (sheet.talentUses?.['medico:recuperacao-assistida'] === cycle) {
+			throw new Error('Recuperação Assistida já preparada antes do próximo descanso longo');
+		}
+		const limit = Math.max(1, 1 + Math.floor((sheet.attributes!.wisdom - 10) / 2));
+		if (!Array.isArray(input.patientIds) || !input.patientIds.length || input.patientIds.length > limit ||
+			new Set(input.patientIds).size !== input.patientIds.length) {
+			throw new Error(`Escolha de um a ${limit} participantes diferentes`);
+		}
+		if (!Array.isArray(exhaustionPatientIds) ||
+			new Set(exhaustionPatientIds).size !== exhaustionPatientIds.length ||
+				exhaustionPatientIds.some(id => !input.patientIds.includes(id))) {
+			throw new Error('Escolha inválida de pacientes para Recuperação da Exaustão');
+		}
+		if (exhaustionPatientIds.length && (sheet.level < 5 ||
+			!sheet.talents.class.includes('medico:recuperacao-da-exaustao'))) {
+			throw new Error('Este Médico não possui Recuperação da Exaustão');
+		}
+		const valid = new Set(this.trainerArchiveRecipients(token).map(person => person.id));
+		const campaignTime = Date.parse(this.campaignSettings.currentDateTime);
+		const patients = input.patientIds.map(id => {
+			if (!valid.has(id)) throw new Error('Participante indisponível nesta mesa');
+			const target = this.requireCharacter(toID(id));
+			if (rpgTrainerSurvival(target.state.trainerSheet!).lifeState === 'dead') {
+				throw new Error('Um treinador morto não pode receber Recuperação Assistida');
+			}
+			if (target.state.trainerSheet!.assistedRecoveryPending) {
+				throw new Error(`${target.state.characterName} já possui Recuperação Assistida preparada`);
+			}
+			if (exhaustionPatientIds.includes(id)) {
+				if (rpgTrainerSurvival(target.state.trainerSheet!).exhaustion < 2) {
+					throw new Error(`${target.state.characterName} precisa de pelo menos dois níveis de Exaustão`);
+				}
+				if (campaignTime - (target.state.trainerSheet!.lastExhaustionRecoveryAt ?? -Infinity) < 86_400_000) {
+					throw new Error(`${target.state.characterName} já recebeu Recuperação da Exaustão nas últimas 24 horas`);
+				}
+			}
+			return target;
+		});
+		const healing = Math.max(1, (input.intensive ? 2 : 1) * rpgTrainerProficiency(sheet.level) +
+			Math.floor((sheet.attributes!.wisdom - 10) / 2));
+		if (input.intensive || exhaustionPatientIds.length) {
+			this.requireWorldBagItemUse(token, actor.state.id);
+			const charges = this.ensureTrainerInventory(actor).items.filter(item =>
+				item.itemId.startsWith('kit-medico-') && item.location === 'bag' && item.quantity > 0)
+				.reduce((sum, item) => sum + (item.charges || 0), 0);
+			const required = (input.intensive ? patients.length : 0) + 2 * exhaustionPatientIds.length;
+			if (charges < required) throw new Error(exhaustionPatientIds.length ?
+				`São necessárias ${required} cargas do Kit Médico para os benefícios escolhidos` :
+				'Recuperação Intensiva exige uma carga do Kit Médico por paciente');
+		}
+		const originals = [...new Set([actor, ...patients])].map(record => structuredClone(record));
+		try {
+			this.persistAtomically(() => {
+				if (input.intensive || exhaustionPatientIds.length) {
+					const inventory = this.ensureTrainerInventory(actor);
+					const required = (input.intensive ? patients.length : 0) + 2 * exhaustionPatientIds.length;
+					for (let i = 0; i < required; i++) {
+						const kit = inventory.items.find(item => item.itemId.startsWith('kit-medico-') &&
+							item.location === 'bag' && item.quantity > 0 && (item.charges || 0) > 0)!;
+						this.spendMedicalKitCharge(actor, kit);
+					}
+					this.validateTrainerInventory(actor);
+				}
+				for (const target of patients) {
+					target.state.trainerSheet!.assistedRecoveryPending = {
+						doctorId: actor.state.id, healing, preparedCycle: cycle,
+						...(exhaustionPatientIds.includes(target.state.id) ? { exhaustionRecovery: true } : {}),
+						...(sheet.talents.class.includes('medico:recuperacao-em-etapas') ?
+							{ staged: true, stagedHealing: rpgTrainerProficiency(sheet.level) } : {}),
+					};
+					target.state.updatedAt = this.now();
+					this.repository.set(target);
+				}
+				sheet.talentUses = { ...sheet.talentUses, 'medico:recuperacao-assistida': cycle };
+				sheet.assistedRecoveryReceipts = [...(sheet.assistedRecoveryReceipts || []).slice(-19),
+					{ requestId: input.requestId, targetIds: [...input.patientIds], healing,
+						intensive: !!input.intensive, exhaustionPatientIds: [...exhaustionPatientIds] }];
+				actor.state.updatedAt = this.now();
+				this.repository.set(actor);
+			});
+		} catch (error) {
+			for (const original of originals) this.repository.set(original);
+			throw error;
+		}
+		return { healing, patients: input.patientIds, intensive: !!input.intensive,
+			exhaustionPatients: exhaustionPatientIds,
+			stagedHealing: sheet.talents.class.includes('medico:recuperacao-em-etapas') ?
+				rpgTrainerProficiency(sheet.level) : 0, repeated: false };
 	}
 
 	performFirstCare(token: string, characterId: string, pokemonId: string) {

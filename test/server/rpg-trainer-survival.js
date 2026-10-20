@@ -3,6 +3,7 @@
 const assert = require('assert').strict;
 const {
 	createRPGPendingTrainerSheet, rpgTrainerTakeDamage, rpgTrainerHeal,
+	rpgTrainerReanimate,
 	rpgTrainerDeathSave, rpgTrainerStabilize, rpgTrainerAddExhaustion,
 	rpgTrainerReduceExhaustion,
 	rpgTrainerApplyCondition, rpgTrainerConditionTick, rpgTrainerRemoveCondition,
@@ -63,6 +64,23 @@ describe('RPG trainer survival', () => {
 		assert.equal(stable.survival.lifeState, 'stable');
 		assert.equal(stable.hitPoints.current, 0);
 		assert.equal(rpgTrainerTakeDamage(hurt, 40).survival.lifeState, 'dead');
+	});
+	it('records excess damage below zero and reanimates eligible patients without changing death-save rules', () => {
+		const initial = ready();
+		const shallow = rpgTrainerTakeDamage(initial, 25);
+		assert.equal(shallow.hitPoints.current, 0);
+		assert.equal(shallow.survival.negativeHP, -5);
+		assert.throws(() => rpgTrainerReanimate(shallow, 'reanimation-too-early'), /critérios/);
+		const severe = rpgTrainerTakeDamage(shallow, 5);
+		assert.equal(severe.survival.negativeHP, -10);
+		assert.equal(severe.survival.deathSaves.failures, 1);
+		const revived = rpgTrainerReanimate(severe, 'reanimation-test');
+		assert.equal(revived.hitPoints.current, 0);
+		assert.equal(revived.survival.negativeHP, 0);
+		assert.equal(revived.survival.lifeState, 'stable');
+		assert.deepEqual(revived.survival.deathSaves, { successes: 0, failures: 0 });
+		assert.equal(revived.survival.wounds[0].id, 'reanimation-test');
+		assert.equal(shallow.survival.negativeHP, -5);
 	});
 
 	it('resolves death saves, stabilization and waking after healing', () => {
@@ -147,6 +165,38 @@ describe('RPG trainer survival', () => {
 		assert.equal(repository.get('ana').state.trainerSheet.hitPoints.current, 15);
 		assert.throws(() => service.applyTrainerSurvival(master.token, 'ana',
 			{ type: 'condition-add', condition: { id: 'inválida', source: 'teste' } }), /Condição inválida/);
+	});
+
+	it('permits only the viewed Player’s PV, Exaustão and conditions in Master-as-Player mode', () => {
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({ masterCode: 'secret', repository });
+		for (const name of ['Ana', 'Bia']) {
+			service.createCharacter({ characterName: name, playerName: name, avatar: 'lucas',
+				password: 'senha-rpg', initialMoney: 100, starter: { species: 'Bulbasaur', gender: 'M' } });
+			const record = repository.get(name.toLowerCase());
+			record.tableId = 'mesa-teste'; record.state.trainerSheet = ready(); repository.set(record);
+		}
+		service.getSession = () => ({ role: 'master', mode: 'player', viewAsCharacterId: 'ana',
+			platformTableId: 'mesa-teste' });
+		assert.equal(service.applyTrainerSurvival('teste', 'ana', { type: 'damage', amount: 4 })
+			.sheet.hitPoints.current, 16);
+		assert.equal(service.applyTrainerSurvival('teste', 'ana', { type: 'heal', amount: 2 })
+			.sheet.hitPoints.current, 18);
+		assert.equal(service.applyTrainerSurvival('teste', 'ana', { type: 'exhaustion', levels: 2 })
+			.sheet.survival.exhaustion, 2);
+		assert.equal(service.applyTrainerSurvival('teste', 'ana', { type: 'exhaustion-reduce', levels: 1 })
+			.sheet.survival.exhaustion, 1);
+		assert.throws(() => service.applyTrainerSurvival('teste', 'ana',
+			{ type: 'exhaustion-reduce', levels: 2 }), /Quantidade de Exaustão/);
+		assert.equal(service.applyTrainerSurvival('teste', 'ana', { type: 'condition-add',
+			condition: { id: 'paralisado', source: 'Mestre' } }).sheet.survival.conditions[0].id, 'paralisado');
+		assert.equal(service.applyTrainerSurvival('teste', 'ana', { type: 'condition-remove',
+			conditionId: 'paralisado' }).sheet.survival.conditions.length, 0);
+		assert.throws(() => service.applyTrainerSurvival('teste', 'bia', { type: 'heal', amount: 1 }),
+			/currently being viewed/);
+		assert.throws(() => service.applyTrainerSurvival('teste', 'ana', { type: 'death-save' }),
+			/exige o modo Mestre/);
+		assert.equal(repository.get('bia').state.trainerSheet.hitPoints.current, 20);
 	});
 
 	it('lets only the dying trainer roll and preserves the result on retry', () => {

@@ -1503,7 +1503,7 @@ input, select {
 .table-system-log-category.breeding, .table-system-log-category.incubation { background: #a55d7d; }
 .table-system-log-heading time { flex: none; color: #7b8998; font-size: 8px; }
 .table-system-log-entry > strong { display: block; color: #304966; font-size: 11px; }
-.table-system-log-entry p { margin: 4px 0 0; color: #556a80; font-size: 10px; line-height: 1.38; overflow-wrap: anywhere; }
+.table-system-log-entry p { margin: 4px 0 0; color: #556a80; font-size: 10px; line-height: 1.38; overflow-wrap: anywhere; white-space: pre-line; }
 .player-roster-drawer.chat-open .table-chat-view {
 	transform: translateX(0);
 	visibility: visible;
@@ -4050,7 +4050,7 @@ input, select {
 .campaign-clock-copy small { display: block; }
 .campaign-clock-copy strong { color: #2a405e; font-size: 14px; }
 .campaign-clock-copy small { margin-top: 4px; color: var(--muted); font-size: 11px; }
-.campaign-clock-actions { display: flex; gap: 9px; flex: none; }
+.campaign-clock-actions { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; flex: none; }
 .campaign-clock-button { min-width: 88px; font-size: 15px; }
 
 .master-npc-library { display: grid; }

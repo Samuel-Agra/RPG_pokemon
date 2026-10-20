@@ -25,6 +25,8 @@ export interface RPGTrainerCondition {
 
 export interface RPGTrainerSurvival {
 	lifeState: RPGTrainerLifeState;
+	/** Excesso de dano abaixo de 0 PV, sem alterar o PV corrente legado nem as salvaguardas. */
+	negativeHP?: number;
 	exhaustion: number;
 	conditions: RPGTrainerCondition[];
 	deathSaves: { successes: number, failures: number };
@@ -109,6 +111,7 @@ function healMutable(sheet: RPGTrainerSheet, state: RPGTrainerSurvival, value: n
 		state.lifeState = 'conscious';
 		state.deathSaves = { successes: 0, failures: 0 };
 	}
+	if (sheet.hitPoints.current > 0) state.negativeHP = 0;
 }
 
 export function rpgTrainerTakeDamage(sheet: RPGTrainerSheet, damage: number,
@@ -117,6 +120,7 @@ export function rpgTrainerTakeDamage(sheet: RPGTrainerSheet, damage: number,
 	amount(damage, 'Dano');
 	if (state.lifeState === 'dead' || !damage) return next;
 	if (next.hitPoints.current === 0) {
+		state.negativeHP = Math.max(-100_000, (state.negativeHP || 0) - damage);
 		if (state.lifeState === 'stable') state.deathSaves = { successes: 0, failures: 0 };
 		state.lifeState = 'dying';
 		state.deathSaves.failures = Math.min(3, state.deathSaves.failures + (options.critical ? 2 : 1));
@@ -130,11 +134,26 @@ export function rpgTrainerTakeDamage(sheet: RPGTrainerSheet, damage: number,
 	const overflow = actual - next.hitPoints.current!;
 	next.hitPoints.current = Math.max(0, next.hitPoints.current! - actual);
 	if (next.hitPoints.current === 0) {
+		state.negativeHP = Math.max(-100_000, -(Math.max(0, overflow)));
 		state.deathSaves = { successes: 0, failures: 0 };
 		state.lifeState = options.instantDeath !== false && !options.nonlethal && overflow >= maximum ?
 			'dead' : options.nonlethal ? 'stable' : 'dying';
 	}
 	return next;
+}
+
+/** Reanimação médica: o déficit continua registrado até o sucesso e não permite cura comum de mortos. */
+export function rpgTrainerReanimate(sheet: RPGTrainerSheet, woundId: string): RPGTrainerSheet {
+	const { sheet: next, state, maximum } = complete(sheet);
+	if (next.hitPoints.current !== 0 || !state.negativeHP ||
+		state.negativeHP > -Math.ceil(maximum / 2) ||
+		!['dying', 'stable', 'dead'].includes(state.lifeState)) {
+		throw new Error('O paciente não atende aos critérios de reanimação');
+	}
+	state.lifeState = 'stable';
+	state.negativeHP = 0;
+	state.deathSaves = { successes: 0, failures: 0 };
+	return rpgTrainerAddWound(next, woundId, 'Ferimento grave após reanimação; requer tratamento especializado.');
 }
 
 export function rpgTrainerHeal(sheet: RPGTrainerSheet, value: number): RPGTrainerSheet {
@@ -281,6 +300,7 @@ export type RPGTrainerSurvivalAction =
 	{ type: 'death-save' } |
 	{ type: 'stabilize' } |
 	{ type: 'exhaustion', levels: number } |
+	{ type: 'exhaustion-reduce', levels: number } |
 	{ type: 'condition-add', condition: RPGTrainerCondition } |
 	{ type: 'condition-remove', conditionId: RPGTrainerConditionId } |
 	{ type: 'condition-tick' } |
@@ -303,21 +323,23 @@ export function rpgTrainerStartRest(sheet: RPGTrainerSheet, kind: RPGTrainerRest
 }
 
 export function rpgTrainerRest(sheet: RPGTrainerSheet, kind: RPGTrainerRestKind, campaignTime: number,
-	options: { medicalCare?: boolean, medicalCheckTotal?: number, medicalProficiency?: number, adequate?: boolean } = {},
+	options: { medicalCare?: boolean, medicalCheckTotal?: number, medicalProficiency?: number,
+		adequate?: boolean, instant?: boolean, } = {},
 	random: () => number = Math.random): { sheet: RPGTrainerSheet, recovered: number } {
 	const { sheet: next, state } = complete(sheet);
 	if (state.lifeState === 'dead') throw new Error('Treinador morto não pode descansar');
 	if (!Number.isSafeInteger(campaignTime) || campaignTime < 0) throw new Error('Horário da campanha inválido');
 	if (!['short', 'long', 'specialist-immediate', 'specialist-long'].includes(kind)) throw new Error('Descanso inválido');
 	const required = kind === 'long' || kind === 'specialist-long' ? 8 : 1;
-	if (state.rest?.kind !== kind || campaignTime - state.rest.startedAt < required * 3_600_000) {
+	if (!options.instant && (state.rest?.kind !== kind || campaignTime - state.rest.startedAt < required * 3_600_000)) {
 		throw new Error(`Descanso exige ${required} hora(s) no relógio da campanha`);
 	}
+	const startedAt = options.instant ? campaignTime : state.rest!.startedAt;
 	const prior = next.hitPoints.current!;
 	const sides = dieSides(next);
 	const constitution = rpgTrainerModifier(next.attributes!.constitution);
 	if (kind === 'short') {
-		state.lastShortRest = { startedAt: state.rest.startedAt, completedAt: campaignTime };
+		state.lastShortRest = { startedAt, completedAt: campaignTime };
 		if (options.medicalCare) {
 			if (state.shortCareUsed) throw new Error('O atendimento curto já foi recebido antes do descanso longo');
 			if (!Number.isSafeInteger(options.medicalCheckTotal)) throw new Error('Teste de Medicina necessário');

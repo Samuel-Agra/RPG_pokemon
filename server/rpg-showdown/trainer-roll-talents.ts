@@ -2,6 +2,7 @@ import { RPG_TRAINER_TALENTS } from './trainer-talents-catalog';
 import { rpgTrainerAttributeBonus, rpgTrainerProficiency, rpgTrainerSkillAttributes,
 	type RPGTrainerAttribute } from './trainer-checks';
 import type { RPGTrainerSheet } from './trainer-sheet';
+import { rpgManualTalentUsed } from './trainer-manual-rest';
 
 export type RPGTrainerRollKind = 'attribute' | 'skill' | 'resistance' | 'attack' | 'initiative';
 export interface RPGTrainerRollTalent {
@@ -107,6 +108,8 @@ const RULES: Readonly<Record<string, Rule>> = {
 	condition: 'Conduzir, transportar, examinar ou conter sem violência Pokémon assustado, ferido ou agitado fora de combate.' },
 	'criador-pokemon:ninho-intacto': { targets: ['skill:percepcao', 'skill:sobrevivencia'], bonus: 2,
 		condition: 'Localizar ninhos, filhotes ou sinais de reprodução Pokémon.' },
+	'medico:retirada-de-emergencia': { targets: ['skill:atletismo'], bonus: 2,
+		condition: 'Carregar paciente atendido pelo Médico, evitando queda ou movimento que agrave o ferimento durante o transporte.' },
 	'detetive:arquivo-de-casos': { targets: ['skill:investigacao'], bonus: 2,
 		condition: 'Investigar o assunto de um dossiê ativo, cruzando evidências já registradas.' },
 	'detetive:vigilancia-discreta': { targets: ['skill:percepcao', 'skill:furtividade'], bonus: 2,
@@ -228,7 +231,7 @@ export function rpgTrainerRollTalents(sheet: RPGTrainerSheet): RPGTrainerRollTal
 	const options = owned.flatMap(id => {
 		const rule = RULES[id];
 		const definition = RPG_TRAINER_TALENTS.find(talent => talent.id === id);
-		if (!rule || !definition || id === 'detetive:parceiro-investigativo' &&
+		if (!rule || !definition || rpgManualTalentUsed(sheet, id) || id === 'detetive:parceiro-investigativo' &&
 			(!sheet.investigativePartnerPokemonId || sheet.investigativePartnerUnavailable) ||
 			id === 'artista-marcial:reflexos-treinados' &&
 			!sheet.talentSelections?.some(selection => selection.id === id && selection.variant === 'already-trained')) {
@@ -288,6 +291,13 @@ export function rpgTrainerRollTalents(sheet: RPGTrainerSheet): RPGTrainerRollTal
 			id: 'artista:arte-reconfortante', name: `Arte Reconfortante de ${sheet.comfortingArt.sourceName}`,
 			condition: 'Próximo teste de Vontade contra medo antes do próximo descanso longo.',
 			bonus: 2, advantage: false, targets: ['resistance:will'] });
+	}
+	if (sheet.preventiveProtocol && !sheet.preventiveProtocol.used) {
+		options.push({ key: `medico:protocolo-preventivo@${sheet.preventiveProtocol.sourceCharacterId}`,
+			id: 'medico:protocolo-preventivo',
+			name: `Protocolo Preventivo de ${sheet.preventiveProtocol.sourceName}`,
+			condition: `Primeira resistência de Fortitude contra ${sheet.preventiveProtocol.risk}.`,
+			bonus: 2, advantage: false, targets: ['resistance:fortitude'] });
 	}
 	const hypothesis = sheet.persistentHypothesis;
 	if (sheet.talents.class.includes('cientista:hipotese-persistente') && hypothesis &&
@@ -363,6 +373,7 @@ export function rpgTrainerRollTalentOptions(sheet: RPGTrainerSheet, kind: RPGTra
 	attribute?: RPGTrainerAttribute) {
 	const usedAttribute = kind === 'skill' ? attribute || rpgTrainerSkillAttributes(sheet, id)[0] : undefined;
 	return rpgTrainerRollTalents(sheet).filter(talent => matches(talent.targets, kind, id) &&
+		!rpgManualTalentUsed(sheet, talent.id) &&
 		(!talent.requiredAttribute || usedAttribute === talent.requiredAttribute) &&
 		(talent.id !== 'aprendizado-por-observacao' || kind === 'skill' &&
 		id !== 'conhecimento' && id !== 'oficio' && !sheet.skills.trained.includes(id)));
@@ -375,6 +386,24 @@ export function rpgEncouragingPresenceOption(allyId: string, allyName: string, a
 		name: `Presença Encorajadora de ${allyName}`, bonus: 2, advantage: false,
 		condition: 'Primeiro teste de Vontade contra medo na cena, após ouvir o aliado por pelo menos um minuto.',
 		targets: ['resistance:will'] };
+}
+
+export function rpgEmergencyAntidoteOption(allyId: string, allyName: string, ally: RPGTrainerSheet): RPGTrainerRollTalent | null {
+	if (ally.status !== 'complete' || ally.classId !== 'medico' ||
+		!ally.talents.class.includes('medico:antidoto-de-emergencia')) return null;
+	return { key: `medico:antidoto-de-emergencia@${allyId}`, id: 'medico:antidoto-de-emergencia',
+		name: `Antídoto de Emergência de ${allyName}`, bonus: 2, advantage: false,
+		condition: 'Resistência de Fortitude adicional contra veneno ou doença após tratamento bem-sucedido do Médico; uma vez por exposição.',
+		targets: ['resistance:fortitude'] };
+}
+
+export function rpgEmergencyExtractionOption(allyId: string, allyName: string, ally: RPGTrainerSheet): RPGTrainerRollTalent | null {
+	if (ally.status !== 'complete' || ally.classId !== 'medico' ||
+		!ally.talents.class.includes('medico:retirada-de-emergencia')) return null;
+	return { key: `medico:retirada-de-emergencia@${allyId}`, id: 'medico:retirada-de-emergencia',
+		name: `Retirada de Emergência de ${allyName}`, bonus: 2, advantage: false,
+		condition: 'Carregar paciente atendido por este Médico, evitando queda ou movimento que agrave o ferimento durante o transporte.',
+		targets: ['skill:atletismo'] };
 }
 
 /** A inspiração de outro Artista pode ser marcada pelo beneficiado no primeiro teste da perícia combinada. */

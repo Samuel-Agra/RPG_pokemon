@@ -58,12 +58,49 @@ export interface RPGTrainerSheet {
 	talentApprovals?: { key: string, reason: string, approvedBy: string, approvedAt: number }[];
 	/** Contadores próprios do treinador, identificados pela regra que os concede. */
 	resources: Record<string, { current: number, maximum: number }>;
-	/** Avanços de 8 horas liberam novamente talentos de uso limitado. */
+	/** Descansos longos liberam novamente talentos de uso limitado. */
 	talentRestCycle?: number;
+	/** Descansos curtos renovam os efeitos que dependem deles. */
+	shortRestCycle?: number;
+	/** Marcação manual de talentos narrativos, independente dos usos automatizados. */
+	manualTalentShortCycle?: number;
+	manualTalentLongCycle?: number;
+	manualTalentUses?: Record<string, string>;
+	manualTalentLastRenewal?: { source: 'short' | 'long', talents: string[] };
 	/** Ciclo em que cada talento ativo foi utilizado; persistido com a ficha. */
 	talentUses?: Record<string, number>;
 	/** Evita repetir Refeição Revigorante no mesmo avanço de descanso longo. */
 	revigoratingMealCycle?: number;
+	/** Atendimento Emergencial recebido neste ciclo de descanso longo. */
+	emergencyCareCycle?: number;
+	emergencyCareReceipts?: { requestId: string, targetId: string, result: {
+		patientName: string, hp: number, chargesRemaining: number,
+		supplyRoll?: number | null, chargeSaved?: boolean,
+		revitalizing?: boolean, emergencyMedicine?: boolean, healingRoll?: number | null,
+		supplyRolls?: (number | null)[], conditionsRemoved?: string[],
+	}, }[];
+	reanimationReceipts?: { requestId: string, patientId: string, mode: string, talents: string[], result: {
+		patientName: string, success: boolean, total: number, natural: number, dice: number[],
+		message: string, chargesRemaining: number,
+	}, }[];
+	/** Cura adicional preparada pelo Médico para o próximo descanso longo. */
+	assistedRecoveryPending?: { doctorId: string, healing: number, preparedCycle: number, staged?: boolean,
+		stagedHealing?: number, exhaustionRecovery?: boolean, };
+	/** Paciente acompanhado continuamente por Ápice — Recuperação Extraordinária. */
+	extraordinaryRecoveryPatientId?: string;
+	/** Última redução adicional de Exaustão recebida por Recuperação Assistida. */
+	lastExhaustionRecoveryAt?: number;
+	/** Segunda etapa de Recuperação Assistida: primeiro descanso curto em até 24 h da etapa longa. */
+	stagedRecoveryPending?: { doctorId: string, healing: number, expiresAt: number };
+	assistedRecoveryReceipts?: { requestId: string, targetIds: string[], healing: number, intensive?: boolean,
+		exhaustionPatientIds?: string[], }[];
+	/** Orientação do Médico: apenas a primeira Fortitude pertinente, até o próximo descanso. */
+	preventiveProtocol?: { sourceCharacterId: string, sourceName: string, risk: string, used: boolean };
+	preventiveProtocolPreparedRest?: string;
+	preventiveProtocolReceipts?: { requestId: string, fingerprint: string, recipients: string[], risk: string }[];
+	integratedMedicineReceipts?: { requestId: string, targetId: string, pokemonId: string,
+		result: { pokemonName: string, status: string, chargesRemaining: number,
+			supplyRoll: number | null, chargeSaved: boolean, }, }[];
 	/** Chaves idempotentes das ações de Petisco de Amizade. */
 	friendshipSnackReceipts?: { requestId: string, fingerprint: string, result: {
 		served: { name: string, friendshipGained: number | null }[], }, }[];
@@ -110,6 +147,18 @@ export interface RPGTrainerSheet {
 	investigativePartnerUnavailable?: boolean;
 	/** Nome livre do contato recorrente de Parceiro de Confiança. */
 	trustedPartnerName?: string;
+	individualRecoveryNote?: string;
+	burnTreatmentReceipts?: { requestId: string, targetId: string, result: {
+		patientName: string, chargesRemaining: number, supplyRoll: number | null, chargeSaved: boolean, }, }[];
+	neuromuscularTreatmentReceipts?: { requestId: string, targetId: string, conditionId: string, result: {
+		patientName: string, conditionId: string, chargesRemaining: number,
+		supplyRoll: number | null, chargeSaved: boolean, }, }[];
+	controlledWarmingReceipts?: { requestId: string, targetId: string, result: {
+		patientName: string, chargesRemaining: number,
+		supplyRoll: number | null, chargeSaved: boolean, }, }[];
+	neurologicalResponseReceipts?: { requestId: string, targetId: string, conditionId: string, result: {
+		patientName: string, conditionId: string, chargesRemaining: number,
+		supplyRoll: number | null, chargeSaved: boolean, }, }[];
 	/** Cada fórmula escrita ocupa um espaço ativo e acompanha somente seu destinatário. */
 	scientistRecords?: { slot: number, formulaId: string, recipientCharacterId: string,
 		custom?: { name: string, description: string, kitTier: number, charges: number }, }[];

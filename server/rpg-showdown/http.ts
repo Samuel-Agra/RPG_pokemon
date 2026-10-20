@@ -401,6 +401,12 @@ export class RPGHttpServer {
 			this.json(res, 200, { time: this.login.advanceCampaignTime(this.token(req), Number(body.hours)) });
 			return;
 		}
+		if (method === 'POST' && url.pathname === '/api/rpg/campaign/rest') {
+			const body = await this.body(req);
+			this.json(res, 200, { rest: this.login.applyCampaignRest(this.token(req),
+				this.string(body.kind) as 'short' | 'long', this.string(body.requestId)) });
+			return;
+		}
 		if (method === 'GET' && url.pathname === '/api/rpg/characters/all') {
 			this.json(res, 200, { characters: this.login.listAllCharacters(this.token(req)) });
 			return;
@@ -593,6 +599,11 @@ export class RPGHttpServer {
 			this.json(res, 200, this.login.useTrainerSheetTalent(this.token(req), this.string(body.talentId)));
 			return;
 		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/mark-used') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.markTrainerManualTalentUsed(this.token(req), this.string(body.talentId)));
+			return;
+		}
 		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/social-disguise') {
 			this.json(res, 200, this.login.useTrainerSocialDisguise(this.token(req)));
 			return;
@@ -779,6 +790,12 @@ export class RPGHttpServer {
 			const body = await this.body(req);
 			this.json(res, 200, this.login.setTrainerTrustedPartnerName(this.token(req),
 				this.string(body.name)));
+			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/individual-recovery-note') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.setTrainerIndividualRecoveryNote(this.token(req),
+				this.string(body.note)));
 			return;
 		}
 		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/reroll') {
@@ -988,6 +1005,9 @@ export class RPGHttpServer {
 			}
 			if (talentEffects.chosen.some(talent => talent.id === 'cientista:hipotese-persistente')) {
 				this.login.consumeTrainerPersistentHypothesis(token, characterId!);
+			}
+			if (resistanceRoll && resistance === 'fortitude') {
+				this.login.consumePreventiveProtocol(token, characterId!, talentEffects.chosen.map(talent => talent.key));
 			}
 			this.login.consumeTrainerChoreographyRoll(token, characterId!, talentEffects.chosen.map(talent => talent.key));
 			this.login.consumeTrainerCapturePlanRoll(token, characterId!, talentEffects.chosen.map(talent => talent.key));
@@ -2246,6 +2266,151 @@ export class RPGHttpServer {
 			this.json(res, 200, this.login.getFirstCareCandidates(this.token(req)));
 			return;
 		}
+		if (method === 'GET' && url.pathname === '/api/rpg/trainer/emergency-care') {
+			this.json(res, 200, this.login.getEmergencyCareCandidates(this.token(req)));
+			return;
+		}
+		if (method === 'GET' && url.pathname === '/api/rpg/trainer/reanimation') {
+			this.json(res, 200, this.login.getReanimationCandidates(this.token(req)));
+			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/reanimation') {
+			const token = this.token(req);
+			const body = await this.body(req);
+			const result = this.login.performReanimation(token, {
+				requestId: this.string(body.requestId), patientId: this.string(body.patientId),
+				mode: this.string(body.mode) as 'normal' | 'advantage' | 'disadvantage',
+				talents: Array.isArray(body.talents) ? body.talents.map(value => this.string(value)) : [],
+			});
+			if (!result.repeated) {
+				const session = this.login.getSession(token);
+				if (session.platformTableId && session.platformAccountId && this.login.mysqlPersistence) {
+					await this.login.mysqlPersistence.createTableChatMessage(session.platformTableId,
+						session.platformAccountId, result.message);
+				}
+			}
+			this.json(res, 200, result);
+			return;
+		}
+		if (method === 'GET' && url.pathname === '/api/rpg/trainer/burn-treatment') {
+			this.json(res, 200, this.login.getBurnTreatmentCandidates(this.token(req)));
+			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/burn-treatment') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.treatTrainerBurn(this.token(req), {
+				requestId: this.string(body.requestId), patientId: this.string(body.patientId),
+			}));
+			return;
+		}
+		if (method === 'GET' && url.pathname === '/api/rpg/trainer/neuromuscular-treatment') {
+			this.json(res, 200, this.login.getNeuromuscularTreatmentCandidates(this.token(req)));
+			return;
+		}
+		if (method === 'GET' && url.pathname === '/api/rpg/trainer/controlled-warming') {
+			this.json(res, 200, this.login.getControlledWarmingCandidates(this.token(req)));
+			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/controlled-warming') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.treatTrainerCold(this.token(req), {
+				requestId: this.string(body.requestId), patientId: this.string(body.patientId),
+			}));
+			return;
+		}
+		if (method === 'GET' && url.pathname === '/api/rpg/trainer/neurological-response') {
+			this.json(res, 200, this.login.getNeurologicalResponseCandidates(this.token(req)));
+			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/neurological-response') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.treatTrainerNeurologicalCondition(this.token(req), {
+				requestId: this.string(body.requestId), patientId: this.string(body.patientId),
+				conditionId: this.string(body.conditionId) as 'adormecido' | 'confuso',
+			}));
+			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/neuromuscular-treatment') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.treatTrainerNeuromuscularCondition(this.token(req), {
+				requestId: this.string(body.requestId), patientId: this.string(body.patientId),
+				conditionId: this.string(body.conditionId) as 'paralisado' | 'atordoado',
+			}));
+			return;
+		}
+		if (method === 'GET' && url.pathname === '/api/rpg/trainer/preventive-protocol') {
+			this.json(res, 200, this.login.getPreventiveProtocolCandidates(this.token(req)));
+			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/preventive-protocol') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.preparePreventiveProtocol(this.token(req), {
+				requestId: this.string(body.requestId),
+				recipientIds: Array.isArray(body.recipientIds) ? body.recipientIds.map(id => this.string(id)) : [],
+				risk: this.string(body.risk),
+			}));
+			return;
+		}
+		if (method === 'GET' && url.pathname === '/api/rpg/trainer/integrated-medicine') {
+			this.json(res, 200, this.login.getIntegratedMedicineCandidates(this.token(req)));
+			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/integrated-medicine') {
+			const body = await this.body(req);
+			const token = this.token(req);
+			const result = this.login.performIntegratedMedicine(token, {
+				requestId: this.string(body.requestId), characterId: this.string(body.characterId),
+				pokemonId: this.string(body.pokemonId),
+			});
+			if (!result.repeated && result.supplyRoll !== null) {
+				const session = this.login.getSession(token);
+				if (session.platformTableId && session.platformAccountId && this.login.mysqlPersistence) {
+					await this.login.mysqlPersistence.createTableChatMessage(session.platformTableId,
+						session.platformAccountId, `Gestão de Suprimentos Médicos em ${result.pokemonName}: ` +
+						`1d6 tirou ${result.supplyRoll}. ` +
+						(result.chargeSaved ? 'Carga preservada.' : 'Carga consumida.')).catch(() => {});
+				}
+			}
+			this.json(res, 200, result);
+			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/emergency-care') {
+			const body = await this.body(req);
+			const token = this.token(req);
+			const result = this.login.performEmergencyCare(token, {
+				requestId: this.string(body.requestId), patientId: this.string(body.patientId),
+				revitalizing: body.revitalizing === true,
+				emergencyMedicine: body.emergencyMedicine === true,
+			});
+			if (!result.repeated && result.supplyRoll !== null) {
+				const session = this.login.getSession(token);
+				if (session.platformTableId && session.platformAccountId && this.login.mysqlPersistence) {
+					await this.login.mysqlPersistence.createTableChatMessage(session.platformTableId,
+						session.platformAccountId, `Gestão de Suprimentos Médicos em ${result.patientName}: ` +
+						(result.supplyRolls || [result.supplyRoll]).map(roll => `1d6 tirou ${roll}`).join('; ') +
+						`. Cargas restantes: ${result.chargesRemaining}.`).catch(() => {});
+				}
+			}
+			this.json(res, 200, result);
+			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/extraordinary-recovery') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.setExtraordinaryRecoveryPatient(this.token(req),
+				body.patientId === null ? null : this.string(body.patientId)));
+			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/assisted-recovery') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.scheduleAssistedRecovery(this.token(req), {
+				requestId: this.string(body.requestId),
+				patientIds: Array.isArray(body.patientIds) ? body.patientIds.map(id => this.string(id)) : [],
+				intensive: body.intensive === true,
+				exhaustionPatientIds: Array.isArray(body.exhaustionPatientIds) ?
+					body.exhaustionPatientIds.map(id => this.string(id)) : [],
+			}));
+			return;
+		}
 		if (method === 'POST' && url.pathname === '/api/rpg/trainer/first-care') {
 			const body = await this.body(req);
 			const token = this.token(req);
@@ -3050,6 +3215,9 @@ export class RPGHttpServer {
 
 	/** Only established domain validation messages may cross the HTTP boundary. */
 	private isPublicValidationError(message: string): boolean {
+		if (/^(?:Tipo de descanso inválido|Identificador de descanso (?:inválido|já utilizado))$/.test(message)) return true;
+		if (/^(?:Identificador de recuperação (?:inválido|já utilizado)|Recuperação Assistida já preparada antes do próximo descanso longo|Escolha de um a \d+ participantes diferentes|Escolha inválida de pacientes para Recuperação da Exaustão|Este Médico não possui Recuperação da Exaustão|São necessárias \d+ cargas do Kit Médico para os benefícios escolhidos|Recuperação Intensiva exige uma carga do Kit Médico por paciente|Participante indisponível nesta mesa|Um treinador morto não pode receber Recuperação Assistida|.* (?:já possui Recuperação Assistida preparada|precisa de pelo menos dois níveis de Exaustão|já recebeu Recuperação da Exaustão nas últimas 24 horas))$/.test(message)) return true;
+		if (/^(?:Entre como Médico em uma mesa|Atendimento Emergencial exige um Médico nesta mesa|Identificador de atendimento (?:inválido|já utilizado)|Treinador desmaiado não encontrado nesta mesa|Este treinador já recebeu Atendimento Emergencial neste descanso longo|É necessário um Kit Médico com carga na Bag)$/.test(message)) return true;
 		if (/^(?:Este treinador não possui (?:Armadilheiro|Armadilha Combinada|Labirinto de Gatilhos)|Você precisa de um Kit de Ladinagem na Bag|O Kit de Ladinagem (?:está sem cargas|precisa de pelo menos (?:duas|quatro) cargas))$/.test(message)) return true;
 		if (/^(?:Este treinador não possui Disfarce Social|Domínio do Kit de Disfarce necessário|Você precisa de um Kit de Disfarce na Bag|O Kit de Disfarce está sem cargas)/.test(message)) return true;
 		if (/persisted|estado persistido|table scope|random source|repository|repositório/i.test(message)) return false;

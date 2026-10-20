@@ -6,6 +6,8 @@
 		['intelligence', 'Inteligência'], ['wisdom', 'Sabedoria'], ['charisma', 'Carisma'],
 	];
 	const RESISTANCES = { fortitude: 'Fortitude', reflexes: 'Reflexos', will: 'Vontade' };
+	const POKEMON_STATUS = { brn: 'Queimado', par: 'Paralisado', psn: 'Envenenado',
+		tox: 'Gravemente envenenado', slp: 'Dormindo', frz: 'Congelado' };
 	const SKILLS = {
 		acrobacia: 'Acrobacia', atletismo: 'Atletismo', atuacao: 'Atuação', captura: 'Captura',
 		conhecimento: 'Conhecimento', 'empatia-pokemon': 'Empatia Pokémon', enganacao: 'Enganação',
@@ -189,7 +191,7 @@
 				return target === actual || target.endsWith('*') && actual.startsWith(target.slice(0, -1));
 			}));
 		// O talento pertence a outro membro e pode surgir após a ficha ser carregada.
-		if (kind === 'skill' || kind === 'resistance' && id === 'will') {
+		if (kind === 'skill' || kind === 'resistance' && (id === 'will' || id === 'fortitude')) {
 			api('/trainer/ally-roll-talents').then(allies => {
 				if (!panel.isConnected) return;
 				for (const talent of allies) {
@@ -452,7 +454,59 @@
 		let recordPicker = null;
 		panel.append(el('strong', 'trainer-sheet-talent-popover-title', name),
 			renderTrainerDescription(description, 'trainer-sheet-talent-description'));
-		if (action?.trustedPartner) {
+		if (action?.manualRest) {
+			const status = el('p', 'trainer-sheet-manual-rest-status', action.manualRest.used ?
+				'Usado neste descanso.' : 'Disponível para uso.');
+			const use = el('button', 'trainer-sheet-talent-use', action.manualRest.used ? 'Usado' : 'Marcar como usado');
+			use.type = 'button'; use.disabled = action.manualRest.used;
+			const feedback = el('small', 'trainer-sheet-trusted-partner-feedback');
+			use.addEventListener('click', async () => {
+				use.disabled = true;
+				try {
+					await action.api('/trainer/talents/mark-used', { method: 'POST', body: { talentId: action.id } });
+					status.textContent = 'Usado neste descanso.';
+					use.textContent = 'Usado';
+					await action.refresh();
+				} catch (error) {
+					feedback.textContent = error.message || 'Não foi possível marcar o talento.';
+					use.disabled = false;
+				}
+			});
+			panel.append(status, use, feedback);
+		} else if (action?.restStatus) {
+			panel.append(el('p', 'trainer-sheet-manual-rest-status', action.restStatus));
+		} else if (action?.individualRecoveryNote !== undefined) {
+			const editor = el('div', 'trainer-sheet-trusted-partner');
+			const note = el('textarea');
+			note.value = action.individualRecoveryNote;
+			note.maxLength = 2000;
+			note.placeholder = 'Paciente e dificuldade escolhida para o plano de recuperação';
+			note.setAttribute('aria-label', 'Anotação do Plano Individual de Recuperação');
+			const resize = () => { note.style.height = 'auto'; note.style.height = `${note.scrollHeight}px`; };
+			resize();
+			const feedback = el('small', 'trainer-sheet-trusted-partner-feedback');
+			let timer;
+			let saving = Promise.resolve();
+			const save = () => {
+				clearTimeout(timer);
+				if (note.value === action.individualRecoveryNote) return;
+				const value = note.value;
+				feedback.textContent = 'Salvando...';
+				saving = saving.catch(() => {}).then(async () => {
+					try {
+						const result = await action.api('/trainer/talents/individual-recovery-note',
+							{ method: 'POST', body: { note: value } });
+						action.individualRecoveryNote = result.note;
+						feedback.textContent = 'Salvo.';
+					} catch (error) {
+						feedback.textContent = error.message || 'Não foi possível salvar a anotação.';
+					}
+				});
+			};
+			note.addEventListener('input', () => { resize(); clearTimeout(timer); timer = setTimeout(save, 500); });
+			note.addEventListener('blur', save);
+			editor.append(note, feedback); panel.append(editor);
+		} else if (action?.trustedPartner) {
 			const editor = el('div', 'trainer-sheet-trusted-partner');
 			const nameInput = el('input');
 			nameInput.type = 'text'; nameInput.maxLength = 80;
@@ -552,6 +606,566 @@
 				});
 				panel.append(unlink);
 			}
+		} else if (action?.assistedRecovery) {
+			const data = action.assistedRecovery;
+			const editor = el('div', 'trainer-sheet-archive-editor');
+			const selected = new Set();
+			const exhaustionSelected = new Set();
+			const people = el('div', 'trainer-sheet-captain-players');
+			for (const person of data.recipients) {
+				const patient = el('div', 'trainer-sheet-recovery-patient');
+				const button = el('button', 'trainer-sheet-captain-player', person.name);
+				button.type = 'button'; button.setAttribute('aria-pressed', 'false');
+				let exhaustionChoice;
+				button.addEventListener('click', () => {
+					if (selected.has(person.id)) {
+						selected.delete(person.id); exhaustionSelected.delete(person.id);
+					} else if (selected.size < data.limit) selected.add(person.id);
+					button.setAttribute('aria-pressed', String(selected.has(person.id)));
+					if (exhaustionChoice) {
+						exhaustionChoice.disabled = !selected.has(person.id) ||
+							person.exhaustion < 2 || !person.exhaustionRecoveryReady;
+						exhaustionChoice.setAttribute('aria-pressed', String(exhaustionSelected.has(person.id)));
+					}
+				});
+				patient.append(button);
+				if (data.exhaustionRecoveryAvailable) {
+					exhaustionChoice = el('button', 'trainer-sheet-captain-player trainer-sheet-recovery-exhaustion',
+						person.exhaustion < 2 ? 'Exaustão insuficiente' :
+						!person.exhaustionRecoveryReady ? 'Já tratado nas últimas 24h' :
+						`Recuperar Exaustão (${person.exhaustion})`);
+					exhaustionChoice.type = 'button'; exhaustionChoice.disabled = true;
+					exhaustionChoice.setAttribute('aria-pressed', 'false');
+					exhaustionChoice.addEventListener('click', () => {
+						if (exhaustionSelected.has(person.id)) exhaustionSelected.delete(person.id);
+						else exhaustionSelected.add(person.id);
+						exhaustionChoice.setAttribute('aria-pressed', String(exhaustionSelected.has(person.id)));
+					});
+					patient.append(exhaustionChoice);
+				}
+				people.append(patient);
+			}
+			const use = el('button', 'trainer-sheet-talent-use', 'Preparar recuperação');
+			use.type = 'button'; use.disabled = !data.available || !data.recipients.length;
+			const feedback = el('p', 'trainer-sheet-roll-error hidden');
+			let intensive = false;
+			if (data.intensiveAvailable) {
+				const choice = el('button', 'trainer-sheet-talent-use', 'Usar Recuperação Intensiva');
+				choice.type = 'button'; choice.setAttribute('aria-pressed', 'false');
+				choice.addEventListener('click', () => {
+					intensive = !intensive;
+					choice.classList.toggle('selected', intensive);
+					choice.setAttribute('aria-pressed', String(intensive));
+				});
+				editor.append(choice, el('p', 'trainer-sheet-manual-rest-status',
+					'Consome uma carga do Kit Médico por participante; a cura adicional será 2 × proficiência + Sabedoria.'));
+			}
+			if (data.exhaustionRecoveryAvailable) editor.append(el('p', 'trainer-sheet-manual-rest-status',
+				'Para cada paciente com Exaustão, selecione Recuperar Exaustão. Consome duas cargas adicionais ' +
+				'do Kit Médico e remove um nível extra no próximo descanso longo.'));
+			if (!data.available) editor.append(el('p', 'trainer-sheet-talent-unavailable',
+				'Esta recuperação já foi preparada antes do próximo descanso longo.'));
+			use.addEventListener('click', async () => {
+				if (!selected.size) {
+					feedback.textContent = 'Escolha ao menos um participante.';
+					feedback.classList.remove('hidden'); return;
+				}
+				const requiredCharges = (intensive ? selected.size : 0) + 2 * exhaustionSelected.size;
+				if (requiredCharges > data.intensiveCharges) {
+					feedback.textContent = `São necessárias ${requiredCharges} cargas do Kit Médico para os benefícios escolhidos.`;
+					feedback.classList.remove('hidden'); return;
+				}
+				use.disabled = true;
+				try {
+					const result = await action.api('/trainer/assisted-recovery', { method: 'POST', body: {
+						requestId: crypto.randomUUID(), patientIds: [...selected], intensive,
+						exhaustionPatientIds: [...exhaustionSelected],
+					} });
+					feedback.textContent = `${result.patients.length} participante(s) receberão até ` +
+						`${result.healing} PV adicionais no próximo descanso longo.` +
+						(result.stagedHealing ? ` Depois, Recuperação em Etapas concederá até ` +
+						`${result.stagedHealing} PV no primeiro descanso curto dentro de 24 horas.` : '') +
+						(result.exhaustionPatients?.length ? ` ${result.exhaustionPatients.length} participante(s) ` +
+						'removerão um nível adicional de Exaustão nesse descanso.' : '');
+					feedback.classList.remove('hidden');
+					window.dispatchEvent(new CustomEvent('rpg:realtime-sync',
+						{ detail: { tableId: selectedTable } }));
+					await action.refresh();
+				} catch (error) {
+					feedback.textContent = error.message || 'Não foi possível preparar a recuperação.';
+					feedback.classList.remove('hidden'); use.disabled = false;
+				}
+			});
+			editor.append(el('strong', '', `Escolha até ${data.limit} participante(s)`), people, use, feedback);
+			panel.append(editor);
+		} else if (action?.extraordinaryRecovery) {
+			const data = action.extraordinaryRecovery;
+			const editor = el('div', 'trainer-sheet-archive-editor');
+			editor.append(el('strong', '', 'Paciente acompanhado nos descansos longos'));
+			let patientId = data.patientId;
+			const people = el('div', 'trainer-sheet-captain-players');
+			for (const person of data.recipients) {
+				const choice = el('button', 'trainer-sheet-captain-player', person.name);
+				choice.type = 'button'; choice.setAttribute('aria-pressed', String(person.id === patientId));
+				choice.addEventListener('click', () => {
+					patientId = person.id;
+					for (const item of people.children) item.setAttribute('aria-pressed', String(item === choice));
+				});
+				people.append(choice);
+			}
+			const feedback = el('p', 'trainer-sheet-roll-error hidden');
+			const save = el('button', 'trainer-sheet-talent-use', 'Confirmar paciente');
+			save.type = 'button';
+			save.addEventListener('click', async () => {
+				if (!patientId) {
+					feedback.textContent = 'Selecione um participante.';
+					feedback.classList.remove('hidden'); return;
+				}
+				save.disabled = true;
+				try {
+					const result = await action.api('/trainer/extraordinary-recovery', {
+						method: 'POST', body: { patientId } });
+					feedback.textContent = `${result.patientName} receberá Recuperação Extraordinária em cada descanso longo válido.`;
+					feedback.classList.remove('hidden');
+					window.dispatchEvent(new CustomEvent('rpg:realtime-sync', { detail: { tableId: selectedTable } }));
+					await action.refresh();
+				} catch (error) {
+					feedback.textContent = error.message || 'Não foi possível escolher o paciente.';
+					feedback.classList.remove('hidden');
+				} finally { save.disabled = false; }
+			});
+			editor.append(people, save);
+			if (data.patientId) {
+				const clear = el('button', 'trainer-sheet-talent-use', 'Remover escolha');
+				clear.type = 'button';
+				clear.addEventListener('click', async () => {
+					clear.disabled = true;
+					try {
+						await action.api('/trainer/extraordinary-recovery', {
+							method: 'POST', body: { patientId: null } });
+						feedback.textContent = 'Nenhum paciente selecionado para os próximos descansos longos.';
+						feedback.classList.remove('hidden');
+						for (const item of people.children) item.setAttribute('aria-pressed', 'false');
+						patientId = null;
+						window.dispatchEvent(new CustomEvent('rpg:realtime-sync', { detail: { tableId: selectedTable } }));
+						await action.refresh();
+					} catch (error) {
+						feedback.textContent = error.message || 'Não foi possível remover a escolha.';
+						feedback.classList.remove('hidden'); clear.disabled = false;
+					}
+				});
+				editor.append(clear);
+			}
+			editor.append(feedback); panel.append(editor);
+		} else if (action?.preventiveProtocol) {
+			const editor = el('div', 'trainer-sheet-archive-editor');
+			const feedback = el('p', 'trainer-sheet-roll-error hidden');
+			const load = async () => {
+				const data = await action.api('/trainer/preventive-protocol');
+				editor.replaceChildren();
+				if (!data.available) {
+					editor.append(el('p', '', 'Disponível após o próximo descanso curto ou longo.'));
+					return;
+				}
+				editor.append(el('p', '', `Escolha até ${data.limit} participantes e um risco previsto.`));
+				const risk = el('input', 'trainer-sheet-support-cache-location');
+				risk.maxLength = 80; risk.placeholder = 'Risco previsto (ex.: contaminação)';
+				const chosen = new Set();
+				const people = el('div', 'trainer-sheet-captain-players');
+				for (const person of data.recipients) {
+					const button = el('button', 'trainer-sheet-captain-player', person.name);
+					button.type = 'button'; button.setAttribute('aria-pressed', 'false');
+					button.addEventListener('click', () => {
+						if (chosen.has(person.id)) chosen.delete(person.id);
+						else if (chosen.size < data.limit) chosen.add(person.id);
+						button.setAttribute('aria-pressed', String(chosen.has(person.id)));
+					});
+					people.append(button);
+				}
+				const confirm = el('button', 'trainer-sheet-talent-use', 'Confirmar protocolo');
+				confirm.type = 'button';
+				confirm.addEventListener('click', async () => {
+					confirm.disabled = true;
+					try {
+						await action.api('/trainer/preventive-protocol', { method: 'POST', body: {
+							requestId: crypto.randomUUID(), recipientIds: [...chosen], risk: risk.value,
+						} });
+						feedback.textContent = 'Protocolo preparado. O bônus aparecerá em Fortitude dos participantes.';
+						feedback.classList.remove('hidden');
+						await action.refresh();
+						await load();
+					} catch (error) {
+						feedback.textContent = error.message || 'Não foi possível preparar o protocolo.';
+						feedback.classList.remove('hidden'); confirm.disabled = false;
+					}
+				});
+				editor.append(risk, people, confirm);
+			};
+			load().catch(error => { feedback.textContent = error.message; feedback.classList.remove('hidden'); });
+			panel.append(editor, feedback);
+		} else if (action?.integratedMedicine) {
+			const use = el('button', 'trainer-sheet-talent-use', 'Usar Medicina Integrada');
+			use.type = 'button';
+			const feedback = el('p', 'trainer-sheet-roll-error hidden');
+			use.addEventListener('click', async () => {
+				use.disabled = true;
+				try {
+					const data = await action.api('/trainer/integrated-medicine');
+					const overlay = el('div', 'trainer-first-care-overlay');
+					const dialog = el('section', 'trainer-first-care-dialog');
+					dialog.setAttribute('role', 'dialog'); dialog.setAttribute('aria-modal', 'true');
+					dialog.append(el('h2', '', 'Medicina Integrada'));
+					if (!data.kitAvailable) dialog.append(el('p', '', 'É necessário um Kit de Medicina Pokémon com carga na Bag.'));
+					if (!data.players.length) dialog.append(el('p', '', 'Nenhum Pokémon na equipe dos participantes.'));
+					for (const player of data.players) {
+						const group = el('div', 'trainer-first-care-group');
+						group.append(el('h3', '', player.name));
+						const grid = el('div', 'trainer-first-care-pokemon-grid');
+						for (const pokemon of player.pokemon) {
+							const row = el('button', 'trainer-first-care-pokemon');
+							row.type = 'button'; row.disabled = !pokemon.status || !data.kitAvailable;
+							const sprite = el('img', 'trainer-first-care-sprite');
+							sprite.src = action.spriteUrl(pokemon); sprite.alt = pokemon.species;
+							const details = el('span', 'trainer-first-care-details');
+							const heading = el('span', 'trainer-first-care-heading');
+							heading.append(el('strong', '', pokemon.name), el('span', '', 'Nv. ' + pokemon.level));
+							const types = el('span', 'trainer-first-care-types');
+							for (const type of pokemon.types) types.append(el('span', '', type));
+							const hp = el('span', 'trainer-first-care-hp');
+							const percent = pokemon.maxHP > 0 ? Math.max(0, Math.min(100, pokemon.hp / pokemon.maxHP * 100)) : 0;
+							const track = el('span', 'trainer-medical-hp-track');
+							const bar = el('span', 'trainer-medical-hp-fill');
+							bar.style.width = percent + '%';
+							bar.style.background = percent > 50 ? '#43a768' : percent > 20 ? '#e7b438' : '#d35757';
+							track.append(bar);
+							hp.append(el('span', '', `HP ${pokemon.hp} / ${pokemon.maxHP} · ` +
+							(POKEMON_STATUS[pokemon.status] || pokemon.status || 'Sem condição')), track);
+							details.append(heading, types, hp);
+							row.append(sprite, details);
+							row.addEventListener('click', async () => {
+								row.disabled = true;
+								try {
+									const result = await action.api('/trainer/integrated-medicine', { method: 'POST',
+										body: { requestId: crypto.randomUUID(), characterId: player.characterId, pokemonId: pokemon.id } });
+									pokemon.status = '';
+									hp.firstChild.textContent = `HP ${pokemon.hp} / ${pokemon.maxHP} · Sem condição`;
+									group.append(el('p', 'trainer-first-care-feedback', `${result.pokemonName} foi tratado. ` +
+									(result.supplyRoll === null ? '' : `Suprimentos: 1d6 = ${result.supplyRoll}; ` +
+										(result.chargeSaved ? 'carga preservada. ' : 'carga consumida. ')) +
+										`Cargas restantes: ${result.chargesRemaining}.`));
+									await action.refresh();
+								} catch (error) {
+									group.append(el('p', 'trainer-first-care-feedback', error.message || 'Não foi possível tratar.'));
+									row.disabled = false;
+								}
+							});
+							grid.append(row);
+						}
+						group.append(grid); dialog.append(group);
+					}
+					const closeDialog = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
+					const onKey = event => { if (event.key === 'Escape') closeDialog(); };
+					overlay.addEventListener('click', event => { if (event.target === overlay) closeDialog(); });
+					document.addEventListener('keydown', onKey);
+					overlay.append(dialog); document.body.append(overlay); close();
+				} catch (error) {
+					feedback.textContent = error.message || 'Não foi possível consultar os Pokémon.';
+					feedback.classList.remove('hidden');
+				} finally { use.disabled = false; }
+			});
+			panel.append(use, feedback);
+		} else if (action?.burnTreatment || action?.neuromuscularTreatment ||
+			action?.controlledWarming || action?.neurologicalResponse) {
+			const neuromuscular = !!action.neuromuscularTreatment;
+			const warming = !!action.controlledWarming;
+			const neurological = !!action.neurologicalResponse;
+			const endpoint = neuromuscular ? '/trainer/neuromuscular-treatment' :
+				warming ? '/trainer/controlled-warming' :
+				neurological ? '/trainer/neurological-response' : '/trainer/burn-treatment';
+			const title = neuromuscular ? 'Estímulo Neuromuscular' :
+				warming ? 'Aquecimento Controlado' :
+				neurological ? 'Resposta Neurológica' : 'Tratamento de Queimaduras';
+			const conditionNames = { paralisado: 'Paralisado', atordoado: 'Atordoado',
+				queimado: 'Queimado', congelado: 'Congelado', adormecido: 'Adormecido', confuso: 'Confuso' };
+			const use = el('button', 'trainer-sheet-talent-use', `Usar ${title}`);
+			use.type = 'button';
+			const feedback = el('p', 'trainer-sheet-roll-error hidden');
+			use.addEventListener('click', async () => {
+				use.disabled = true;
+				try {
+					const data = await action.api(endpoint);
+					const overlay = el('div', 'trainer-first-care-overlay');
+					const dialog = el('section', 'trainer-first-care-dialog');
+					dialog.setAttribute('role', 'dialog'); dialog.setAttribute('aria-modal', 'true');
+					dialog.append(el('h2', '', title));
+					if (neuromuscular) dialog.append(el('p', '',
+						'Selecione apenas condições de origem neuromuscular ou fisiológica reversível.'));
+					if (neurological) dialog.append(el('p', '',
+						'Selecione apenas condições de origem física, química, tecnológica ou Pokémon.'));
+					if (!data.kitAvailable) dialog.append(el('p', '', 'É necessário um Kit Médico com carga na Bag.'));
+					if (!data.patients.length) dialog.append(el('p', '', neuromuscular || neurological ?
+						'Nenhum treinador com condição tratável nesta mesa.' : warming ?
+							'Nenhum treinador congelado nesta mesa.' : 'Nenhum treinador queimado nesta mesa.'));
+					const grid = el('div', 'trainer-first-care-pokemon-grid');
+					for (const patient of data.patients) {
+						for (const conditionId of (neuromuscular || neurological ? patient.conditions :
+							[warming ? 'congelado' : 'queimado'])) {
+							const row = el('button', 'trainer-first-care-pokemon');
+							row.type = 'button'; row.disabled = !data.kitAvailable;
+							const sprite = el('img', 'trainer-first-care-sprite');
+							sprite.src = action.trainerSpriteUrl(patient.avatar); sprite.alt = patient.name;
+							const details = el('span', 'trainer-first-care-details');
+							details.append(el('strong', '', patient.name),
+								el('span', 'trainer-first-care-hp', `PV ${patient.currentHP} / ${patient.maxHP} · ` +
+								conditionNames[conditionId]));
+							row.append(sprite, details);
+							row.addEventListener('click', async () => {
+								row.disabled = true;
+								try {
+									const result = await action.api(endpoint, { method: 'POST',
+										body: { requestId: crypto.randomUUID(), patientId: patient.id,
+											...(neuromuscular || neurological ? { conditionId } : {}) } });
+									row.remove();
+									dialog.append(el('p', 'trainer-first-care-feedback',
+										`${result.patientName} não está mais ${conditionNames[conditionId]}. ` +
+										`Cargas restantes: ${result.chargesRemaining}.`));
+									await action.refresh();
+								} catch (error) {
+									dialog.append(el('p', 'trainer-sheet-roll-error',
+										error.message || 'Não foi possível concluir o atendimento.'));
+									row.disabled = false;
+								}
+							});
+							grid.append(row);
+						}
+					}
+					dialog.append(grid);
+					const closeDialog = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
+					const onKey = event => { if (event.key === 'Escape') closeDialog(); };
+					overlay.addEventListener('click', event => { if (event.target === overlay) closeDialog(); });
+					document.addEventListener('keydown', onKey);
+					overlay.append(dialog); document.body.append(overlay); close();
+				} catch (error) {
+					feedback.textContent = error.message || 'Não foi possível consultar os pacientes.';
+					feedback.classList.remove('hidden');
+				} finally { use.disabled = false; }
+			});
+			panel.append(use, feedback);
+		} else if (action?.reanimation) {
+			const use = el('button', 'trainer-sheet-talent-use', 'Usar');
+			use.type = 'button';
+			const feedback = el('p', 'trainer-sheet-roll-error hidden');
+			use.addEventListener('click', async () => {
+				use.disabled = true;
+				try {
+					const data = await action.api('/trainer/reanimation');
+					const overlay = el('div', 'trainer-first-care-overlay');
+					const dialog = el('section', 'trainer-first-care-dialog trainer-reanimation-dialog');
+					dialog.setAttribute('role', 'dialog'); dialog.setAttribute('aria-modal', 'true');
+					dialog.append(el('h2', '', 'Entre a Vida e a Morte'));
+					if (!data.kitAvailable) dialog.append(el('p', '', 'É necessário um Kit Médico III com três cargas na Bag.'));
+					if (!data.patients.length) dialog.append(el('p', '', 'Nenhum treinador atende aos critérios de reanimação.'));
+					let patientId = null;
+					const grid = el('div', 'trainer-first-care-pokemon-grid');
+					for (const patient of data.patients) {
+						const row = el('button', 'trainer-first-care-pokemon'); row.type = 'button';
+						const sprite = el('img', 'trainer-first-care-sprite');
+						sprite.src = action.trainerSpriteUrl(patient.avatar); sprite.alt = patient.name;
+						const details = el('span', 'trainer-first-care-details');
+						details.append(el('strong', '', patient.name),
+							el('span', 'trainer-first-care-hp', `PV ${patient.currentHP} / ${patient.maxHP}`));
+						row.append(sprite, details);
+						row.addEventListener('click', () => {
+							patientId = patient.id;
+							for (const item of grid.children) item.setAttribute('aria-pressed', String(item === row));
+						});
+						grid.append(row);
+					}
+					dialog.append(grid);
+					let mode = 'normal';
+					const modes = el('div', 'trainer-sheet-roll-modes');
+					for (const [value, title] of [['advantage', 'Vantagem'], ['normal', 'Normal'],
+						['disadvantage', 'Desvantagem']]) {
+						const choice = el('button', 'trainer-sheet-roll-choice', title); choice.type = 'button';
+						choice.setAttribute('aria-pressed', String(value === mode));
+						choice.addEventListener('click', () => {
+							mode = value;
+							for (const item of modes.children) item.setAttribute('aria-pressed', String(item === choice));
+						});
+						modes.append(choice);
+					}
+					dialog.append(modes);
+					const selectedTalents = new Set();
+					const talentChoices = el('div', 'trainer-sheet-roll-talents');
+					const availableTalents = (action.rollTalents || []).filter(talent =>
+						(talent.targets || []).some(target => target === 'skill:medicina' || target === 'skill:*') &&
+						(!talent.requiredAttribute || talent.requiredAttribute === 'wisdom') &&
+						(talent.id !== 'aprendizado-por-observacao' || !action.medicalTrained));
+					const addTalent = talent => {
+						if ([...talentChoices.children].some(item => item.dataset.talentKey === talent.key)) return;
+						const item = el('button', 'trainer-sheet-roll-talent'); item.type = 'button';
+						item.dataset.talentKey = talent.key; item.setAttribute('aria-pressed', 'false');
+						item.append(el('b', '', talent.name), el('small', '', talent.condition || ''));
+						item.addEventListener('click', () => {
+							const chosen = !selectedTalents.has(talent.key);
+							if (chosen) selectedTalents.add(talent.key); else selectedTalents.delete(talent.key);
+							item.setAttribute('aria-pressed', String(chosen));
+						});
+						talentChoices.append(item);
+					};
+					availableTalents.forEach(addTalent);
+					if (talentChoices.childElementCount) dialog.append(talentChoices);
+					action.api('/trainer/ally-roll-talents').then(allies => {
+						if (!overlay.isConnected) return;
+						for (const talent of allies) {
+							if ((talent.targets || []).some(target => target === 'skill:medicina' || target === 'skill:*') &&
+								(!talent.requiredAttribute || talent.requiredAttribute === 'wisdom')) addTalent(talent);
+						}
+						if (talentChoices.childElementCount && !talentChoices.isConnected) dialog.append(talentChoices);
+					}).catch(() => {});
+					const error = el('p', 'trainer-sheet-roll-error hidden');
+					const roll = el('button', 'trainer-sheet-talent-use', 'Rolar Medicina (CD 25)');
+					let kitAvailable = data.kitAvailable;
+					roll.type = 'button'; roll.disabled = !data.kitAvailable || !data.patients.length;
+					roll.addEventListener('click', async () => {
+						if (!patientId) {
+							error.textContent = 'Selecione um treinador para reanimar.';
+							error.classList.remove('hidden'); return;
+						}
+						roll.disabled = true;
+						try {
+							const result = await action.api('/trainer/reanimation', { method: 'POST', body: {
+								requestId: crypto.randomUUID(), patientId, mode, talents: [...selectedTalents] } });
+							error.textContent = result.success ? `${result.patientName} está estável com 0 PV.` :
+								`O teste de Medicina resultou em ${result.total}. A reanimação não teve sucesso.`;
+							error.classList.remove('hidden');
+							if (result.success) grid.querySelector('[aria-pressed="true"]')?.remove();
+							patientId = null;
+							kitAvailable = result.chargesRemaining >= 3;
+							await action.refresh();
+						} catch (failure) {
+							error.textContent = failure.message || 'Não foi possível reanimar o treinador.';
+							error.classList.remove('hidden');
+						} finally { roll.disabled = !kitAvailable || !grid.childElementCount; }
+					});
+					dialog.append(roll, error);
+					const closeDialog = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
+					const onKey = event => { if (event.key === 'Escape') closeDialog(); };
+					overlay.addEventListener('click', event => { if (event.target === overlay) closeDialog(); });
+					document.addEventListener('keydown', onKey);
+					overlay.append(dialog); document.body.append(overlay);
+					close();
+				} catch (failure) {
+					feedback.textContent = failure.message || 'Não foi possível consultar os treinadores.';
+					feedback.classList.remove('hidden');
+				} finally { use.disabled = false; }
+			});
+			panel.append(use, feedback);
+		} else if (action?.emergencyCare) {
+			const use = el('button', 'trainer-sheet-talent-use', 'Usar Atendimento Emergencial');
+			use.type = 'button';
+			const feedback = el('p', 'trainer-sheet-roll-error hidden');
+			use.addEventListener('click', async () => {
+				use.disabled = true;
+				try {
+					const data = await action.api('/trainer/emergency-care');
+					const overlay = el('div', 'trainer-first-care-overlay');
+					const dialog = el('section', 'trainer-first-care-dialog');
+					dialog.setAttribute('role', 'dialog'); dialog.setAttribute('aria-modal', 'true');
+					dialog.append(el('h2', '', 'Atendimento Emergencial'));
+					if (!data.kitAvailable) dialog.append(el('p', '', 'É necessário um Kit Médico com carga na Bag.'));
+					if (!data.patients.length) dialog.append(el('p', '', 'Nenhum treinador desmaiado nesta mesa.'));
+					let revitalizing = false;
+					let emergencyMedicine = false;
+					let revitalizingChoice = null;
+					let emergencyChoice = null;
+					if (data.revitalizingAvailable) {
+						const choice = el('button', 'trainer-sheet-talent-use', 'Usar Atendimento Revitalizante (3 cargas)');
+						revitalizingChoice = choice;
+						choice.type = 'button'; choice.disabled = !data.revitalizingKitAvailable;
+						choice.setAttribute('aria-pressed', 'false');
+						choice.addEventListener('click', () => {
+							revitalizing = !revitalizing;
+							if (revitalizing) {
+								emergencyMedicine = false;
+								emergencyChoice?.setAttribute('aria-pressed', 'false');
+								emergencyChoice?.classList.remove('selected');
+							}
+							choice.classList.toggle('selected', revitalizing);
+							choice.setAttribute('aria-pressed', String(revitalizing));
+						});
+						dialog.append(choice);
+						if (!data.revitalizingKitAvailable) dialog.append(el('p', '',
+							'Atendimento Revitalizante exige três cargas no mesmo Kit Médico.'));
+					}
+					if (data.emergencyMedicineAvailable) {
+						const choice = el('button', 'trainer-sheet-talent-use', 'Usar Medicina de Emergência (2 cargas)');
+						emergencyChoice = choice;
+						choice.type = 'button'; choice.disabled = !data.emergencyMedicineKitAvailable;
+						choice.setAttribute('aria-pressed', 'false');
+						choice.addEventListener('click', () => {
+							emergencyMedicine = !emergencyMedicine;
+							if (emergencyMedicine) {
+								revitalizing = false;
+								revitalizingChoice?.setAttribute('aria-pressed', 'false');
+								revitalizingChoice?.classList.remove('selected');
+							}
+							choice.classList.toggle('selected', emergencyMedicine);
+							choice.setAttribute('aria-pressed', String(emergencyMedicine));
+						});
+						dialog.append(choice);
+						if (!data.emergencyMedicineKitAvailable) dialog.append(el('p', '',
+							'Medicina de Emergência exige duas cargas no mesmo Kit Médico.'));
+					}
+					const grid = el('div', 'trainer-first-care-pokemon-grid');
+					for (const patient of data.patients) {
+						const row = el('button', 'trainer-first-care-pokemon'); row.type = 'button';
+						row.disabled = !patient.available || !data.kitAvailable;
+						const sprite = el('img', 'trainer-first-care-sprite');
+						sprite.src = action.trainerSpriteUrl(patient.avatar); sprite.alt = patient.name;
+						const details = el('span', 'trainer-first-care-details');
+						details.append(el('strong', '', patient.name),
+							el('span', 'trainer-first-care-hp', `PV ${patient.currentHP} / ${patient.maxHP}`));
+						if (!patient.available) details.append(el('small', 'trainer-first-care-remaining',
+							'Já atendido antes do próximo descanso longo'));
+						row.append(sprite, details);
+						row.addEventListener('click', async () => {
+							row.disabled = true;
+							try {
+								const result = await action.api('/trainer/emergency-care', { method: 'POST',
+									body: { requestId: crypto.randomUUID(), patientId: patient.id,
+										revitalizing, emergencyMedicine } });
+								row.remove();
+								dialog.append(el('p', 'trainer-first-care-feedback',
+									`${result.patientName} recuperou ${result.hp} PV` +
+									(result.revitalizing ? ` com Atendimento Revitalizante (1d6 = ${result.healingRoll}). ` :
+									result.emergencyMedicine ? ` com Medicina de Emergência (1d6 = ${result.healingRoll}). ` : '. ') +
+									(result.conditionsRemoved?.length ? `Condições removidas: ${result.conditionsRemoved.join(', ')}. ` : '') +
+									(result.supplyRoll == null ? '' : `Suprimentos: ${(result.supplyRolls || [result.supplyRoll])
+										.map(roll => `1d6 = ${roll}`).join(', ')}. `) +
+										`Cargas restantes: ${result.chargesRemaining}.`));
+								await action.refresh();
+							} catch (error) {
+								dialog.append(el('p', 'trainer-first-care-feedback',
+									error.message || 'Não foi possível realizar o atendimento.'));
+								row.disabled = false;
+							}
+						});
+						grid.append(row);
+					}
+					dialog.append(grid);
+					const closeDialog = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
+					const onKey = event => { if (event.key === 'Escape') closeDialog(); };
+					overlay.addEventListener('click', event => { if (event.target === overlay) closeDialog(); });
+					document.addEventListener('keydown', onKey);
+					overlay.append(dialog); document.body.append(overlay);
+					close();
+				} catch (error) {
+					feedback.textContent = error.message || 'Não foi possível consultar os treinadores.';
+					feedback.classList.remove('hidden');
+				} finally { use.disabled = false; }
+			});
+			panel.append(use, feedback);
 		} else if (action?.firstCare) {
 			const care = el('button', 'trainer-sheet-talent-use', 'Cuidar');
 			care.type = 'button';
@@ -1459,7 +2073,8 @@
 			use.disabled = !action.revigoratingMeal.available;
 			const feedback = el('p', 'trainer-sheet-roll-error hidden');
 			if (!action.revigoratingMeal.available) editor.append(el('p', 'trainer-sheet-talent-unavailable',
-				'Aguarde o próximo descanso longo de 8 horas no relógio da campanha.'));
+				action.revigoratingMeal.usedThisRest ? 'Usado neste descanso longo.' :
+				'Disponível após o próximo descanso longo.'));
 			use.addEventListener('click', async () => {
 				if (!selected.size) {
 					feedback.textContent = 'Escolha ao menos um participante.';
@@ -1477,6 +2092,7 @@
 					feedback.classList.remove('hidden');
 					window.dispatchEvent(new CustomEvent('rpg:realtime-sync',
 						{ detail: { tableId: selectedTable } }));
+					await action.refresh();
 				} catch (error) {
 					feedback.textContent = error.message || 'Não foi possível preparar a refeição.';
 					feedback.classList.remove('hidden'); use.disabled = false;
@@ -1808,13 +2424,17 @@
 			editor.append(use, feedback); panel.append(editor);
 		} else if (action?.comfortingArt) {
 			const controls = el('div', 'trainer-sheet-archive-editor');
+			const artUses = action.comfortingArtUses || { limit: 0, recipientIds: [] };
+			controls.append(el('p', 'trainer-sheet-manual-rest-status',
+				`${artUses.recipientIds.length} / ${artUses.limit} participantes atendidos neste descanso.`));
 			const recipient = select([['', 'Participante'], ...action.comfortingArt.map(person =>
-				[person.id, person.name])]);
+				[person.id, artUses.recipientIds.includes(person.id) ? `${person.name} (já recebeu)` : person.name])]);
 			recipient.setAttribute('aria-label', 'Participante da Arte Reconfortante');
 			const effect = select([['will', '+2 no próximo teste de Vontade contra medo'],
 				['exhaustion', 'Reduzir 1 de Exaustão']]);
 			effect.setAttribute('aria-label', 'Benefício da Arte Reconfortante');
-			const use = el('button', 'trainer-sheet-talent-use', 'Aplicar benefício'); use.type = 'button';
+			const use = el('button', 'trainer-sheet-talent-use', 'Aplicar benefício');
+			use.type = 'button'; use.disabled = artUses.recipientIds.length >= artUses.limit;
 			const feedback = el('p', 'trainer-sheet-roll-error hidden');
 			use.addEventListener('click', async () => {
 				if (!recipient.value) {
@@ -2090,6 +2710,102 @@
 			const option = el('option', '', name); option.value = String(value); control.append(option);
 		}
 		return control;
+	}
+	function showMasterSurvivalEditor(character, sheet, rules, api, refresh) {
+		if (closeSkillPopover) closeSkillPopover();
+		if (closeAttributePopover) closeAttributePopover();
+		if (closeTalentPopover) closeTalentPopover();
+		const overlay = el('div', 'trainer-sheet-master-vitals-overlay');
+		const dialog = el('section', 'trainer-sheet-panel trainer-sheet-master-vitals-dialog');
+		dialog.setAttribute('role', 'dialog'); dialog.setAttribute('aria-modal', 'true');
+		dialog.setAttribute('aria-label', 'Alterar condições do treinador');
+		const heading = el('h2', '', 'Condições e exaustão');
+		const closeButton = el('button', 'trainer-sheet-master-vitals-close', '×');
+		closeButton.type = 'button'; closeButton.setAttribute('aria-label', 'Fechar');
+		const header = el('div', 'trainer-sheet-master-vitals-header');
+		header.append(heading, closeButton); dialog.append(header);
+		const feedback = el('p', 'trainer-sheet-progression-feedback');
+		const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
+		const onKey = event => { if (event.key === 'Escape') { event.stopPropagation(); close(); } };
+		closeButton.addEventListener('click', close);
+		overlay.addEventListener('click', event => { if (event.target === overlay) close(); });
+		let busy = false;
+		const apply = async action => {
+			if (busy) return;
+			busy = true; feedback.textContent = '';
+			try {
+				await api('/trainer/survival', { method: 'POST', body: { characterId: character.id, action } });
+				close();
+				await refresh();
+				window.dispatchEvent(new CustomEvent('rpg:realtime-sync',
+					{ detail: { tableId: selectedTable } }));
+			} catch (error) {
+				feedback.textContent = error.message || 'Não foi possível alterar a ficha.';
+				busy = false;
+			}
+		};
+		{
+			const state = sheet.survival || {};
+			dialog.append(el('p', '', `Exaustão atual: ${state.exhaustion || 0} / 6`));
+			const levels = el('input', 'trainer-sheet-progression-input');
+			levels.type = 'number'; levels.min = '1'; levels.max = '6'; levels.step = '1';
+			levels.value = '1'; levels.setAttribute('aria-label', 'Níveis de exaustão');
+			const add = el('button', 'button', 'Dar Exaustão'); add.type = 'button';
+			const reduce = el('button', 'button', 'Reduzir Exaustão'); reduce.type = 'button';
+			let confirmFatalExhaustion = false;
+			levels.addEventListener('input', () => {
+				confirmFatalExhaustion = false;
+				add.textContent = 'Dar Exaustão'; add.classList.remove('trainer-sheet-danger');
+			});
+			const change = type => {
+				const value = Number(levels.value);
+				if (!Number.isSafeInteger(value) || value < 1 || value > 6) {
+					feedback.textContent = 'Informe de 1 a 6 níveis de Exaustão.'; return;
+				}
+				if (type === 'exhaustion' && (state.exhaustion || 0) + value >= 6 && !confirmFatalExhaustion) {
+					confirmFatalExhaustion = true;
+					add.textContent = 'Confirmar Exaustão fatal'; add.classList.add('trainer-sheet-danger');
+					return;
+				}
+				void apply({ type, levels: value });
+			};
+			add.addEventListener('click', () => change('exhaustion'));
+			reduce.addEventListener('click', () => change('exhaustion-reduce'));
+			const exhaustion = el('div', 'trainer-sheet-master-vitals-actions');
+			exhaustion.append(levels, add, reduce);
+			dialog.append(exhaustion, el('small', 'trainer-sheet-master-vitals-note',
+				'No 6º nível de Exaustão, o treinador morre.'));
+			const active = state.conditions || [];
+			const available = (rules?.conditions || []).filter(id => !active.some(entry => entry.id === id));
+			const condition = select([['', 'Escolha uma condição negativa'],
+				...available.map(id => [id, label(id)])]);
+			condition.setAttribute('aria-label', 'Condição negativa');
+			const source = el('input', 'trainer-sheet-progression-input');
+			source.maxLength = 200; source.placeholder = 'Origem da condição (opcional)';
+			const addCondition = el('button', 'button', 'Aplicar condição');
+			addCondition.type = 'button'; addCondition.disabled = !available.length;
+			addCondition.addEventListener('click', () => {
+				if (!condition.value) { feedback.textContent = 'Escolha uma condição negativa.'; return; }
+				void apply({ type: 'condition-add', condition: {
+					id: condition.value, source: source.value.trim() || 'Mestre',
+				} });
+			});
+			const conditionRow = el('div', 'trainer-sheet-master-vitals-actions');
+			conditionRow.append(condition, source, addCondition);
+			dialog.append(el('h3', '', 'Aplicar condição'), conditionRow);
+			if (active.length) {
+				const current = el('div', 'trainer-sheet-master-vitals-conditions');
+				for (const entry of active) {
+					const remove = el('button', 'button', `Remover ${label(entry.id)}`);
+					remove.type = 'button';
+					remove.addEventListener('click', () => void apply({ type: 'condition-remove', conditionId: entry.id }));
+					current.append(remove);
+				}
+				dialog.append(el('h3', '', 'Condições ativas'), current);
+			}
+		}
+		dialog.append(feedback); overlay.append(dialog); document.body.append(overlay);
+		document.addEventListener('keydown', onKey); closeButton.focus();
 	}
 	function skillDomainOptions(domains, family) {
 		return (domains?.[family] || []).map(id => [id, SKILL_DOMAINS[id] || label(id)]);
@@ -2676,7 +3392,8 @@
 		title.append(spriteFrame);
 	}
 	function renderSheet(root, character, sheet, progression, talents, rules, api, readOnly, refresh,
-		masterControls = false, spriteUrl = null, canRemoveTrueBond = false) {
+		masterControls = false, spriteUrl = null, canRemoveTrueBond = false, trainerSpriteUrl = null,
+		masterVitalControls = false) {
 		if (closeSkillPopover) closeSkillPopover();
 		if (closeAttributePopover) closeAttributePopover();
 		if (closeTalentPopover && (!closeTalentPopover.preserveOnRefresh ||
@@ -2861,7 +3578,48 @@
 		}
 		const primaryStats = el('div', 'trainer-sheet-primary-stats');
 		const hp = section('PV', 'trainer-sheet-panel trainer-sheet-primary-stat');
-		hp.append(el('strong', '', `${sheet.hitPoints.current ?? '—'} / ${sheet.hitPoints.maximum ?? '—'}`));
+		if (masterVitalControls) {
+			const current = sheet.hitPoints.current ?? 0;
+			const maximum = sheet.hitPoints.maximum ?? 0;
+			const value = el('div', 'trainer-sheet-hp-value');
+			const currentColumn = el('div', 'trainer-sheet-hp-current');
+			const arrows = el('div', 'trainer-sheet-hp-arrows');
+			const increase = el('button', 'trainer-sheet-hp-arrow', '▲');
+			const decrease = el('button', 'trainer-sheet-hp-arrow', '▼');
+			increase.type = decrease.type = 'button';
+			increase.setAttribute('aria-label', 'Aumentar PV atual em 1');
+			decrease.setAttribute('aria-label', 'Reduzir PV atual em 1');
+			increase.disabled = current >= maximum;
+			decrease.disabled = current <= 0;
+			const feedback = el('small', 'trainer-sheet-hp-feedback');
+			let busy = false;
+			const adjust = async type => {
+				if (busy) return;
+				busy = true; increase.disabled = decrease.disabled = true;
+				feedback.textContent = '';
+				try {
+					await api('/trainer/survival', { method: 'POST', body: {
+						characterId: character.id, action: { type, amount: 1 },
+					} });
+					await refresh();
+					window.dispatchEvent(new CustomEvent('rpg:realtime-sync',
+						{ detail: { tableId: selectedTable } }));
+				} catch (error) {
+					feedback.textContent = error.message || 'Não foi possível alterar o PV.';
+					busy = false;
+					increase.disabled = current >= maximum;
+					decrease.disabled = current <= 0;
+				}
+			};
+			increase.addEventListener('click', () => void adjust('heal'));
+			decrease.addEventListener('click', () => void adjust('damage'));
+			arrows.append(increase, decrease);
+			currentColumn.append(el('strong', '', current), arrows);
+			value.append(currentColumn, el('strong', '', `/ ${maximum}`));
+			hp.append(value, feedback);
+		} else {
+			hp.append(el('strong', '', `${sheet.hitPoints.current ?? '—'} / ${sheet.hitPoints.maximum ?? '—'}`));
+		}
 		if (sheet.hitPoints.temporary) hp.append(el('small', '', `${sheet.hitPoints.temporary} temporários`));
 		const defense = section('Defesa', 'trainer-sheet-panel trainer-sheet-primary-stat');
 		defense.append(el('strong', '', progression.derived?.defense ?? '—'));
@@ -2988,6 +3746,14 @@
 
 		const talentDefinitions = Object.fromEntries((talents?.talents || []).map(entry => [entry.id, entry]));
 		const talentSection = section('Talentos', 'trainer-sheet-panel trainer-sheet-talents');
+		const manualRestTalents = new Map((progression.manualRestTalents || []).map(entry => [entry.id, entry]));
+		if (sheet.manualTalentLastRenewal?.talents?.length) {
+			const notice = el('div', 'trainer-sheet-manual-rest-notice');
+			notice.append(el('strong', '', `Descanso ${sheet.manualTalentLastRenewal.source === 'short' ? 'curto' : 'longo'} foi feito. Talentos que voltaram a estar disponíveis:`));
+			const list = el('ul');
+			for (const renewed of sheet.manualTalentLastRenewal.talents) list.append(el('li', '', renewed));
+			notice.append(list); talentSection.append(notice);
+		}
 		const chosenByTalent = new Map();
 		for (const selection of sheet.talentSelections || []) {
 			if (!chosenByTalent.has(selection.id)) chosenByTalent.set(selection.id, []);
@@ -3033,7 +3799,9 @@
 				({ id: sheet.classId === 'cientista' && feature.name === 'Registro Reprodutível' ?
 					'cientista:registro-reprodutivel' : sheet.classId === 'coreografo' &&
 						feature.name === 'Ensaio Conjunto' ? 'coreografo:ensaio-conjunto' :
-					feature.name === 'Primeiros Cuidados' ? 'criador-pokemon:primeiros-cuidados' : undefined,
+					feature.name === 'Refeição Revigorante' ? 'cozinheiro:refeicao-revigorante' :
+					feature.name === 'Primeiros Cuidados' ? 'criador-pokemon:primeiros-cuidados' :
+					feature.name === 'Atendimento Emergencial' ? 'medico:atendimento-emergencial' : undefined,
 				name: feature.name, description: feature.text })),
 			...acquired(sheet.talents?.class),
 		]);
@@ -3042,6 +3810,17 @@
 		const talentList = el('div', 'trainer-sheet-talent-list');
 		for (const { id, name, description } of [...classTalents, ...apexTalents, ...generalTalents]) {
 			const button = el('button', 'trainer-sheet-talent-row', name);
+			const manualRest = manualRestTalents.get(id);
+			const automaticRestUsed = ['segundo-folego', 'sortudo', 'determinado', 'esforco-heroico'].includes(id) &&
+				progression.activeTalentUses?.used?.[id] === progression.activeTalentUses?.restCycle;
+			const comfortingArtUsed = id === 'artista:arte-reconfortante' &&
+				!!progression.comfortingArtUses?.recipientIds?.length;
+			const mealUsed = !!progression.revigoratingMeal?.usedThisRest &&
+				['cozinheiro:refeicao-revigorante', 'cozinheiro:refeicao-reconfortante',
+					'cozinheiro:nutricao-de-recuperacao'].includes(id);
+			if (manualRest?.used || automaticRestUsed || comfortingArtUsed || mealUsed) {
+				button.classList.add('trainer-sheet-talent-row--used');
+			}
 			const compartmentDC = id === 'ladino:compartimento-clandestino' && sheet.attributes ?
 				8 + progression.proficiency + Math.floor((sheet.attributes.intelligence - 10) / 2) : null;
 			const emptyHandsDC = id === 'ladino:maos-vazias' && sheet.attributes ?
@@ -3057,6 +3836,9 @@
 							id === 'detetive:parceiro-de-confianca' && (sheet.trustedPartnerName || readOnly) ?
 								`${description}\n\nParceiro: ${sheet.trustedPartnerName || 'não informado'}.` :
 								description;
+			if (id === 'medico:atendimento-emergencial') shownDescription = shownDescription.replace(
+				'até completar um descanso longo ou receber tratamento adequado em uma instalação médica',
+				'até o próximo descanso longo da campanha');
 			if (id === 'cientista:publicacao-de-referencia' && progression.publication?.accepted) {
 				button.append(el('span', 'trainer-sheet-publication-count',
 					`${progression.publication.accepted} publicação(ões)`));
@@ -3124,7 +3906,7 @@
 																								{ captainPlan: { ...(progression.captainPlan || {}), proficiency: progression.proficiency } } :
 																								{ capturePlan: { ...(progression.capturePlan || {}), proficiency: progression.proficiency } }) } :
 																							!readOnly && sheet.classId === 'cozinheiro' && name === 'Refeição Revigorante' ?
-																								{ id, api, revigoratingMeal: progression.revigoratingMeal } :
+																								{ id, api, refresh, revigoratingMeal: progression.revigoratingMeal } :
 																								!readOnly && id === 'cozinheiro:petisco-de-amizade' ?
 																									{ id, api, friendshipSnacks: progression.friendshipSnacks } :
 																									!readOnly && id === 'criador-pokemon:rotina-de-enriquecimento' ?
@@ -3140,7 +3922,8 @@
 																														!readOnly && id === 'cozinheiro:racao-artesanal-pokemon' ?
 																															{ id, api, artisanRation: progression.artisanRation } :
 																															!readOnly && id === 'artista:arte-reconfortante' ? { id, api, refresh,
-																																comfortingArt: progression.comfortingArtRecipients || [] } :
+																																comfortingArt: progression.comfortingArtRecipients || [],
+																																comfortingArtUses: progression.comfortingArtUses } :
 																															!readOnly && id === 'ladino:armadilheiro' ?
 																																{ id, api, trapmaker: true } :
 																																!readOnly && id === 'ladino:armadilha-combinada' ?
@@ -3152,7 +3935,34 @@
 																																			!readOnly && ['segundo-folego', 'sortudo', 'determinado', 'esforco-heroico'].includes(id) ?
 																																				{ id, api, refresh, reroll: id !== 'segundo-folego',
 																																					available: progression.rerollAvailability?.[id],
-																																					used: progression.activeTalentUses?.used?.[id] === progression.activeTalentUses?.restCycle } : null));
+																																					used: progression.activeTalentUses?.used?.[id] === progression.activeTalentUses?.restCycle } :
+																																				!readOnly && id === 'medico:protocolo-preventivo' ?
+																																					{ id, api, refresh, preventiveProtocol: true } :
+																																					!readOnly && id === 'medico:medicina-integrada' ?
+																																						{ id, api, refresh, spriteUrl, integratedMedicine: true } :
+																																						!readOnly && id === 'medico:plano-individual-de-recuperacao' ?
+																																							{ id, api, individualRecoveryNote: sheet.individualRecoveryNote || '' } :
+																																							!readOnly && id === 'medico:tratamento-de-queimaduras' ?
+																																								{ id, api, refresh, trainerSpriteUrl, burnTreatment: true } :
+																																								!readOnly && id === 'medico:estimulo-neuromuscular' ?
+																																									{ id, api, refresh, trainerSpriteUrl, neuromuscularTreatment: true } :
+																																									!readOnly && id === 'medico:aquecimento-controlado' ?
+																																										{ id, api, refresh, trainerSpriteUrl, controlledWarming: true } :
+																																										!readOnly && id === 'medico:resposta-neurologica' ?
+																																											{ id, api, refresh, trainerSpriteUrl, neurologicalResponse: true } :
+																																											!readOnly && id === 'medico:atendimento-emergencial' ?
+																																												{ id, api, refresh, trainerSpriteUrl, emergencyCare: true } :
+																																												!readOnly && id === 'medico:entre-a-vida-e-a-morte' ?
+																																													{ id, api, refresh, trainerSpriteUrl, reanimation: true, rollTalents: progression.rollTalents,
+																																														medicalTrained: sheet.skills.trained.includes('medicina') } :
+																																													!readOnly && id === 'medico:recuperacao-extraordinaria' ?
+																																														{ id, api, refresh, extraordinaryRecovery: progression.extraordinaryRecovery } :
+																																														!readOnly && sheet.classId === 'medico' && name === 'Recuperação Assistida' ?
+																																															{ id, api, assistedRecovery: progression.assistedRecovery } :
+																																															!readOnly && manualRest ? { id, api, refresh, manualRest } :
+																																															!readOnly && ['cozinheiro:refeicao-reconfortante', 'cozinheiro:nutricao-de-recuperacao'].includes(id) ?
+																																																{ restStatus: mealUsed ? 'Usado neste descanso longo junto com Refeição Revigorante.' :
+																																																'Será ativado junto com Refeição Revigorante.' } : null));
 			talentList.append(button);
 		}
 		talentSection.append(talentList);
@@ -3188,10 +3998,16 @@
 		for (const wound of survival.wounds || []) {
 			conditions.append(el('p', 'trainer-sheet-wound', wound.description + (wound.treated ? ' · tratado' : ' · não tratado')));
 		}
+		if (masterVitalControls) {
+			const edit = el('button', 'trainer-sheet-master-vitals-trigger');
+			edit.type = 'button'; edit.setAttribute('aria-label', 'Alterar condições e exaustão do treinador');
+			edit.addEventListener('click', () => showMasterSurvivalEditor(character, sheet, rules, api, refresh));
+			conditions.append(edit);
+		}
 		rightStats.append(conditions);
 	}
 
-	async function render({ api, state, master, characters = [], character, spriteUrl }) {
+	async function render({ api, state, master, characters = [], character, spriteUrl, trainerSpriteUrl }) {
 		const tableId = state.accountSession?.activeTableId || null;
 		if (selectedTable !== tableId) {
 			if (closeTalentPopover) closeTalentPopover();
@@ -3385,7 +4201,7 @@
 							renderCreationWizard(content, creation, api, refreshCreation, refreshCreation,
 								creationState, true);
 						} else renderSheet(content, target, progression.sheet, progression, null, null, api,
-							state.tableReadOnly || master, null, false, spriteUrl);
+							state.tableReadOnly || master, null, false, spriteUrl, false, trainerSpriteUrl);
 					}
 					return;
 				}
@@ -3399,7 +4215,9 @@
 					root.querySelector('.trainer-sheet-progression-controls')?.remove();
 					renderSheet(content, target, progression.sheet, progression, talents, rules, api,
 						state.tableReadOnly || master, refresh, master && !state.tableReadOnly, spriteUrl,
-						!master && state.session?.role === 'master');
+						!master && state.session?.role === 'master', trainerSpriteUrl,
+						state.session?.role === 'master' &&
+						(master || state.session?.mode === 'player') && !state.tableReadOnly);
 					const controls = content.querySelector('.trainer-sheet-progression-controls');
 					if (controls && masterSummary) root.insertBefore(controls, masterSummary);
 				}

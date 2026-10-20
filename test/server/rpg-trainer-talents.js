@@ -10,6 +10,8 @@ const {
 	awardRPGTrainerXP, completeRPGTrainerSheet, RPGLoginService, RPGMemoryCharacterRepository,
 } = require('../../dist/server/rpg-showdown');
 const { rpgTrainerRollTalents } = require('../../dist/server/rpg-showdown/trainer-roll-talents');
+const { rpgTrainerAddExhaustion, rpgTrainerApplyCondition, rpgTrainerSurvival } =
+	require('../../dist/server/rpg-showdown/trainer-survival');
 const { RPGBagSystem } = require('../../dist/sim/rpg-showdown');
 
 function ready(classId, level = 1, overrides = {}) {
@@ -25,6 +27,689 @@ function ready(classId, level = 1, overrides = {}) {
 }
 
 describe('RPG trainer classes and talents', () => {
+	it('Recuperação Extraordinária acompanha o paciente escolhido a cada descanso longo', () => {
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({ masterCode: 'teste', repository, random: () => 0 });
+		for (const name of ['Medico', 'Paciente', 'Outro']) {
+			service.createCharacter({ characterName: name, playerName: name, avatar: 'lucas',
+				password: 'senha-rpg', initialMoney: 100, starter: { species: 'Squirtle', gender: 'M' } });
+			const record = repository.get(name.toLowerCase());
+			record.tableId = 'mesa-teste'; record.accountId = name.toLowerCase();
+			record.state.trainerSheet = ready(name === 'Medico' ? 'medico' : 'atleta', name === 'Medico' ? 10 : 1,
+				{ hitPoints: { current: 1, maximum: 40, temporary: 0 } });
+			if (name === 'Medico') record.state.trainerSheet.talents.apex = 'medico:recuperacao-extraordinaria';
+			if (name === 'Paciente') {
+				record.state.trainerSheet = rpgTrainerApplyCondition(record.state.trainerSheet,
+					{ id: 'queimado', source: 'teste' });
+				record.state.trainerSheet = rpgTrainerApplyCondition(record.state.trainerSheet,
+					{ id: 'paralisado', source: 'teste' });
+			}
+			repository.set(record);
+		}
+		service.getSession = () => ({ mode: 'player', role: 'player',
+			platformTableId: 'mesa-teste', characterId: 'medico' });
+		service.accounts.repository.getMembership = () => ({ status: 'active' });
+		service.requireMasterRole = () => {};
+		service.campaignSettings.currentDateTime = '2026-10-18T12:00:00.000Z';
+		assert.deepEqual(service.setExtraordinaryRecoveryPatient('teste', 'paciente'),
+			{ patientId: 'paciente', patientName: 'Paciente' });
+		service.applyCampaignRest('teste', 'long', 'extraordinary-rest-1');
+		const treated = repository.get('paciente').state.trainerSheet;
+		const untreated = repository.get('outro').state.trainerSheet;
+		assert(treated.hitPoints.current > untreated.hitPoints.current + 8);
+		assert.deepEqual(rpgTrainerSurvival(treated).conditions.map(condition => condition.id), ['paralisado']);
+		assert.equal(repository.get('medico').state.trainerSheet.extraordinaryRecoveryPatientId, 'paciente');
+		service.campaignSettings.currentDateTime = '2026-10-19T12:00:00.000Z';
+		const patient = repository.get('paciente');
+		patient.state.trainerSheet.hitPoints.current = 1;
+		repository.set(patient);
+		service.applyCampaignRest('teste', 'long', 'extraordinary-rest-2');
+		assert(repository.get('paciente').state.trainerSheet.hitPoints.current > untreated.hitPoints.current + 8);
+		assert.deepEqual(rpgTrainerSurvival(repository.get('paciente').state.trainerSheet).conditions, []);
+		assert.deepEqual(service.setExtraordinaryRecoveryPatient('teste', null),
+			{ patientId: null, patientName: null });
+	});
+	it('Descansos não movem o relógio e a Recuperação Assistida cura no descanso longo', () => {
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({ masterCode: 'teste', repository });
+		for (const name of ['Medico', 'Paciente', 'Outro']) {
+			service.createCharacter({ characterName: name, playerName: name, avatar: 'lucas',
+				password: 'senha-rpg', initialMoney: 100, starter: { species: 'Squirtle', gender: 'M' } });
+			const record = repository.get(name.toLowerCase());
+			record.tableId = 'mesa-teste'; record.accountId = name.toLowerCase();
+			record.state.trainerSheet = ready(name === 'Medico' ? 'medico' : 'atleta', 1,
+				{ hitPoints: { current: 5, maximum: 20, temporary: 0 } });
+			repository.set(record);
+		}
+		service.getSession = () => ({ mode: 'player', role: 'player',
+			platformTableId: 'mesa-teste', characterId: 'medico' });
+		service.accounts.repository.getMembership = () => ({ status: 'active' });
+		service.requireMasterRole = () => {};
+		service.random = () => 0;
+		service.campaignSettings.currentDateTime = '2026-10-18T12:00:00.000Z';
+		const rewardOwner = repository.get('paciente');
+		rewardOwner.state.box.party[0].metadata = {
+			...rewardOwner.state.box.party[0].metadata, trainingReward: true,
+		};
+		repository.set(rewardOwner);
+		const result = service.scheduleAssistedRecovery('teste', {
+			requestId: 'recovery-test-1', patientIds: ['paciente', 'outro'],
+		});
+		assert.equal(result.healing, 3);
+		assert.equal(repository.get('paciente').state.trainerSheet.hitPoints.current, 5);
+		assert.throws(() => service.scheduleAssistedRecovery('teste',
+			{ requestId: 'recovery-test-2', patientIds: ['paciente'] }), /já preparada/);
+		assert.equal(service.scheduleAssistedRecovery('teste',
+			{ requestId: 'recovery-test-1', patientIds: ['paciente', 'outro'] }).repeated, true);
+		service.advanceCampaignTime('teste', 1);
+		assert.equal(repository.get('paciente').state.trainerSheet.hitPoints.current, 5);
+		assert.equal(repository.get('paciente').state.box.party[0].metadata.trainingReward, true);
+		service.advanceCampaignTime('teste', 8);
+		assert.equal(repository.get('paciente').state.trainerSheet.hitPoints.current, 5);
+		const beforeRest = service.campaignSettings.currentDateTime;
+		service.applyCampaignRest('teste', 'short', 'rest-test-short-1');
+		assert.equal(service.campaignSettings.currentDateTime, beforeRest);
+		assert.equal(repository.get('paciente').state.trainerSheet.hitPoints.current, 5);
+		assert.equal(repository.get('paciente').state.trainerSheet.shortRestCycle, 1);
+		assert.equal(repository.get('paciente').state.box.party[0].metadata.trainingReward, undefined);
+		assert.equal(service.applyCampaignRest('teste', 'short', 'rest-test-short-2').rested, 0);
+		service.applyCampaignRest('teste', 'long', 'rest-test-long-1');
+		assert.equal(service.campaignSettings.currentDateTime, beforeRest);
+		assert.equal(repository.get('paciente').state.trainerSheet.hitPoints.current, 10);
+		assert.equal(repository.get('outro').state.trainerSheet.hitPoints.current, 10);
+		assert.equal(repository.get('paciente').state.trainerSheet.assistedRecoveryPending, undefined);
+		assert.equal(repository.get('paciente').state.trainerSheet.talentRestCycle, 1);
+		assert.equal(service.applyCampaignRest('teste', 'long', 'rest-test-long-1').repeated, true);
+		assert.equal(service.applyCampaignRest('teste', 'long', 'rest-test-long-2').rested, 0);
+		service.advanceCampaignTime('teste', 8);
+		assert.equal(repository.get('paciente').state.trainerSheet.hitPoints.current, 10);
+		assert.equal(repository.get('paciente').state.trainerSheet.talentRestCycle, 1);
+	});
+	it('Recuperação Intensiva consome uma carga por paciente e agenda a cura maior', () => {
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({ masterCode: 'teste', repository });
+		for (const name of ['Medico', 'Paciente', 'Outro']) {
+			service.createCharacter({ characterName: name, playerName: name, avatar: 'lucas',
+				password: 'senha-rpg', initialMoney: 100, starter: { species: 'Squirtle', gender: 'M' } });
+			const record = repository.get(name.toLowerCase());
+			record.tableId = 'mesa-teste'; record.accountId = name.toLowerCase();
+			record.state.trainerSheet = ready(name === 'Medico' ? 'medico' : 'atleta', 5,
+				{ talents: { general: [], class: name === 'Medico' ?
+					['medico:recuperacao-intensiva'] : [], apex: null } });
+			repository.set(record);
+		}
+		const doctor = repository.get('medico');
+		doctor.state.trainerInventory = { version: 1, revision: 0, licenses: [],
+			items: [{ id: 'kit-medico-teste', itemId: 'kit-medico-1', quantity: 1,
+				equipped: false, charges: 1, location: 'bag' }] };
+		repository.set(doctor);
+		service.getSession = () => ({ mode: 'player', role: 'player',
+			platformTableId: 'mesa-teste', characterId: 'medico' });
+		service.accounts.repository.getMembership = () => ({ status: 'active' });
+		service.requireWorldBagItemUse = () => {};
+		assert.throws(() => service.scheduleAssistedRecovery('teste', { requestId: 'intensive-1',
+			patientIds: ['paciente', 'outro'], intensive: true }), /uma carga/);
+		const stocked = repository.get('medico');
+		stocked.state.trainerInventory.items[0].charges = 2;
+		repository.set(stocked);
+		const result = service.scheduleAssistedRecovery('teste', { requestId: 'intensive-1',
+			patientIds: ['paciente', 'outro'], intensive: true });
+		assert.equal(result.healing, 7);
+		assert.equal(repository.get('medico').state.trainerInventory.items[0].charges, 0);
+		assert.equal(repository.get('paciente').state.trainerSheet.assistedRecoveryPending.healing, 7);
+		assert.equal(service.scheduleAssistedRecovery('teste', { requestId: 'intensive-1',
+			patientIds: ['paciente', 'outro'], intensive: true }).repeated, true);
+		assert.equal(repository.get('medico').state.trainerInventory.items[0].charges, 0);
+		assert.throws(() => service.scheduleAssistedRecovery('teste', { requestId: 'intensive-1',
+			patientIds: ['paciente', 'outro'] }), /já utilizado/);
+	});
+	it('Recuperação da Exaustão integra a Assistida e reduz mais um nível no descanso longo', () => {
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({ masterCode: 'teste', repository });
+		for (const name of ['Medico', 'Paciente', 'Outro']) {
+			service.createCharacter({ characterName: name, playerName: name, avatar: 'lucas',
+				password: 'senha-rpg', initialMoney: 100, starter: { species: 'Squirtle', gender: 'M' } });
+			const record = repository.get(name.toLowerCase());
+			record.tableId = 'mesa-teste'; record.accountId = name.toLowerCase();
+			record.state.trainerSheet = ready(name === 'Medico' ? 'medico' : 'atleta', 5,
+				{ talents: { general: [], class: name === 'Medico' ?
+					['medico:recuperacao-da-exaustao'] : [], apex: null } });
+			if (name !== 'Medico') record.state.trainerSheet =
+				rpgTrainerAddExhaustion(record.state.trainerSheet, 3);
+			repository.set(record);
+		}
+		const doctor = repository.get('medico');
+		doctor.state.trainerInventory = { version: 1, revision: 0, licenses: [],
+			items: [{ id: 'kit-medico-teste', itemId: 'kit-medico-1', quantity: 1,
+				equipped: false, charges: 1, location: 'bag' }] };
+		repository.set(doctor);
+		service.getSession = () => ({ mode: 'player', role: 'player',
+			platformTableId: 'mesa-teste', characterId: 'medico' });
+		service.accounts.repository.getMembership = () => ({ status: 'active' });
+		service.requireWorldBagItemUse = () => {};
+		service.requireMasterRole = () => {};
+		service.random = () => 0;
+		service.campaignSettings.currentDateTime = '2026-10-18T12:00:00.000Z';
+		assert.throws(() => service.scheduleAssistedRecovery('teste', { requestId: 'exhaustion-0',
+			patientIds: ['paciente'], exhaustionPatientIds: ['outro'] }), /Escolha inválida/);
+		assert.throws(() => service.scheduleAssistedRecovery('teste', { requestId: 'exhaustion-1',
+			patientIds: ['paciente', 'outro'], exhaustionPatientIds: ['paciente'] }), /2 cargas/);
+		assert.equal(repository.get('paciente').state.trainerSheet.assistedRecoveryPending, undefined);
+		const stocked = repository.get('medico');
+		stocked.state.trainerInventory.items[0].charges = 2;
+		repository.set(stocked);
+		const prepared = service.scheduleAssistedRecovery('teste', { requestId: 'exhaustion-1',
+			patientIds: ['paciente', 'outro'], exhaustionPatientIds: ['paciente'] });
+		assert.deepEqual(prepared.exhaustionPatients, ['paciente']);
+		assert.equal(repository.get('medico').state.trainerInventory.items[0].charges, 0);
+		assert.equal(repository.get('paciente').state.trainerSheet.assistedRecoveryPending.exhaustionRecovery, true);
+		assert.equal(repository.get('outro').state.trainerSheet.assistedRecoveryPending.exhaustionRecovery, undefined);
+		assert.equal(service.scheduleAssistedRecovery('teste', { requestId: 'exhaustion-1',
+			patientIds: ['paciente', 'outro'], exhaustionPatientIds: ['paciente'] }).repeated, true);
+		service.applyCampaignRest('teste', 'long', 'exhaustion-rest-1');
+		assert.equal(rpgTrainerSurvival(repository.get('paciente').state.trainerSheet).exhaustion, 1);
+		assert.equal(rpgTrainerSurvival(repository.get('outro').state.trainerSheet).exhaustion, 2);
+		assert.equal(repository.get('paciente').state.trainerSheet.lastExhaustionRecoveryAt,
+			Date.parse(service.campaignSettings.currentDateTime));
+		assert.equal(service.applyCampaignRest('teste', 'long', 'exhaustion-rest-1').repeated, true);
+		assert.equal(rpgTrainerSurvival(repository.get('paciente').state.trainerSheet).exhaustion, 1);
+		assert.throws(() => service.scheduleAssistedRecovery('teste', { requestId: 'exhaustion-2',
+			patientIds: ['paciente'], exhaustionPatientIds: ['paciente'] }), /dois níveis de Exaustão/);
+		const patient = repository.get('paciente');
+		patient.state.trainerSheet = rpgTrainerAddExhaustion(patient.state.trainerSheet, 1);
+		repository.set(patient);
+		assert.throws(() => service.scheduleAssistedRecovery('teste', { requestId: 'exhaustion-3',
+			patientIds: ['paciente'], exhaustionPatientIds: ['paciente'] }), /últimas 24 horas/);
+	});
+	it('Recuperação em Etapas cura uma vez no primeiro descanso curto em até 24 horas', () => {
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({ masterCode: 'teste', repository });
+		for (const name of ['Medico', 'Paciente', 'Outro']) {
+			service.createCharacter({ characterName: name, playerName: name, avatar: 'lucas',
+				password: 'senha-rpg', initialMoney: 100, starter: { species: 'Squirtle', gender: 'M' } });
+			const record = repository.get(name.toLowerCase());
+			record.tableId = 'mesa-teste'; record.accountId = name.toLowerCase();
+			record.state.trainerSheet = ready(name === 'Medico' ? 'medico' : 'atleta', 5,
+				{ hitPoints: { current: 1, maximum: 30, temporary: 0 },
+					talents: { general: [], class: name === 'Medico' ?
+						['medico:recuperacao-em-etapas'] : [], apex: null } });
+			repository.set(record);
+		}
+		service.getSession = () => ({ mode: 'player', role: 'player',
+			platformTableId: 'mesa-teste', characterId: 'medico' });
+		service.accounts.repository.getMembership = () => ({ status: 'active' });
+		service.requireMasterRole = () => {};
+		service.random = () => 0;
+		service.campaignSettings.currentDateTime = '2026-10-18T12:00:00.000Z';
+		const prepared = service.scheduleAssistedRecovery('teste', {
+			requestId: 'stages-test-1', patientIds: ['paciente', 'outro'],
+		});
+		assert.equal(prepared.stagedHealing, 3);
+		service.applyCampaignRest('teste', 'long', 'stages-long-1');
+		assert.equal(repository.get('paciente').state.trainerSheet.stagedRecoveryPending.healing, 3);
+		const longHP = repository.get('paciente').state.trainerSheet.hitPoints.current;
+		service.advanceCampaignTime('teste', 1);
+		const delayed = repository.get('outro');
+		delayed.state.trainerSheet.survival.lastShortRest = {
+			startedAt: Date.parse(service.campaignSettings.currentDateTime),
+			completedAt: Date.parse(service.campaignSettings.currentDateTime),
+		};
+		repository.set(delayed);
+		service.applyCampaignRest('teste', 'short', 'stages-short-1');
+		assert.equal(repository.get('paciente').state.trainerSheet.hitPoints.current, longHP + 3);
+		assert.equal(repository.get('paciente').state.trainerSheet.stagedRecoveryPending, undefined);
+		const other = repository.get('outro');
+		const otherHP = other.state.trainerSheet.hitPoints.current;
+		service.advanceCampaignTime('teste', 8);
+		service.advanceCampaignTime('teste', 8);
+		service.advanceCampaignTime('teste', 8);
+		service.advanceCampaignTime('teste', 8);
+		service.applyCampaignRest('teste', 'short', 'stages-short-2');
+		assert.equal(repository.get('outro').state.trainerSheet.hitPoints.current, otherHP);
+		assert.equal(repository.get('outro').state.trainerSheet.stagedRecoveryPending, undefined);
+	});
+	it('Plano Individual salva a anotação e Tratamento de Queimaduras consome kit uma vez', () => {
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({ masterCode: 'teste', repository });
+		for (const name of ['Medico', 'Paciente', 'Saudavel']) {
+			service.createCharacter({ characterName: name, playerName: name, avatar: 'lucas',
+				password: 'senha-rpg', initialMoney: 100, starter: { species: 'Squirtle', gender: 'M' } });
+			const record = repository.get(name.toLowerCase());
+			record.tableId = 'mesa-teste'; record.accountId = name.toLowerCase();
+			record.state.trainerSheet = ready(name === 'Medico' ? 'medico' : 'atleta', 5,
+				{ talents: { general: [], class: name === 'Medico' ?
+					['medico:plano-individual-de-recuperacao', 'medico:tratamento-de-queimaduras'] : [], apex: null } });
+			if (name === 'Paciente') record.state.trainerSheet = rpgTrainerApplyCondition(
+				record.state.trainerSheet, { id: 'queimado', source: 'teste' });
+			repository.set(record);
+		}
+		const doctor = repository.get('medico');
+		doctor.state.trainerInventory = { version: 1, revision: 0, licenses: [],
+			items: [{ id: 'kit-medico-teste', itemId: 'kit-medico-1', quantity: 1,
+				equipped: false, charges: 1, location: 'bag' }] };
+		repository.set(doctor);
+		service.getSession = () => ({ mode: 'player', role: 'player',
+			platformTableId: 'mesa-teste', characterId: 'medico' });
+		service.accounts.repository.getMembership = () => ({ status: 'active' });
+		service.requireWorldBagItemUse = () => {};
+		assert.equal(service.setTrainerIndividualRecoveryNote('teste', 'Paciente: mobilidade reduzida').note,
+			'Paciente: mobilidade reduzida');
+		assert.equal(repository.get('medico').state.trainerSheet.individualRecoveryNote,
+			'Paciente: mobilidade reduzida');
+		assert.deepEqual(service.getBurnTreatmentCandidates('teste').patients.map(patient => patient.id), ['paciente']);
+		const result = service.treatTrainerBurn('teste', { requestId: 'burn-test-1', patientId: 'paciente' });
+		assert.equal(result.chargesRemaining, 0);
+		assert.equal(rpgTrainerSurvival(repository.get('paciente').state.trainerSheet).conditions.length, 0);
+		assert.equal(service.treatTrainerBurn('teste',
+			{ requestId: 'burn-test-1', patientId: 'paciente' }).repeated, true);
+		assert.equal(repository.get('medico').state.trainerInventory.items[0].charges, 0);
+		assert.throws(() => service.treatTrainerBurn('teste',
+			{ requestId: 'burn-test-2', patientId: 'paciente' }), /não encontrado/);
+	});
+	it('Estímulo Neuromuscular remove só condições elegíveis de treinadores e consome uma carga', () => {
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({ masterCode: 'teste', repository });
+		for (const name of ['Medico', 'Paciente', 'Saudavel']) {
+			service.createCharacter({ characterName: name, playerName: name, avatar: 'lucas',
+				password: 'senha-rpg', initialMoney: 100, starter: { species: 'Squirtle', gender: 'M' } });
+			const record = repository.get(name.toLowerCase());
+			record.tableId = 'mesa-teste'; record.accountId = name.toLowerCase();
+			record.state.trainerSheet = ready(name === 'Medico' ? 'medico' : 'atleta', 5,
+				{ talents: { general: [], class: name === 'Medico' ?
+					['medico:estimulo-neuromuscular'] : [], apex: null } });
+			if (name === 'Paciente') {
+				record.state.trainerSheet = rpgTrainerApplyCondition(record.state.trainerSheet,
+					{ id: 'paralisado', source: 'teste' });
+				record.state.trainerSheet = rpgTrainerApplyCondition(record.state.trainerSheet,
+					{ id: 'imobilizado', source: 'teste' });
+				record.state.trainerSheet = rpgTrainerApplyCondition(record.state.trainerSheet,
+					{ id: 'atordoado', source: 'teste' });
+			}
+			repository.set(record);
+		}
+		const doctor = repository.get('medico');
+		doctor.state.trainerInventory = { version: 1, revision: 0, licenses: [],
+			items: [{ id: 'kit-medico-teste', itemId: 'kit-medico-1', quantity: 1,
+				equipped: false, charges: 1, location: 'bag' }] };
+		repository.set(doctor);
+		service.getSession = () => ({ mode: 'player', role: 'player',
+			platformTableId: 'mesa-teste', characterId: 'medico' });
+		service.accounts.repository.getMembership = () => ({ status: 'active' });
+		service.requireWorldBagItemUse = () => {};
+		assert.deepEqual(service.getNeuromuscularTreatmentCandidates('teste').patients[0].conditions,
+			['paralisado', 'atordoado']);
+		assert.throws(() => service.treatTrainerNeuromuscularCondition('teste',
+			{ requestId: 'neuro-test-0', patientId: 'paciente', conditionId: 'queimado' }), /incompatível/);
+		assert.throws(() => service.treatTrainerNeuromuscularCondition('teste',
+			{ requestId: 'neuro-test-0b', patientId: 'paciente', conditionId: 'imobilizado' }), /incompatível/);
+		const result = service.treatTrainerNeuromuscularCondition('teste',
+			{ requestId: 'neuro-test-1', patientId: 'paciente', conditionId: 'paralisado' });
+		assert.equal(result.chargesRemaining, 0);
+		assert.deepEqual(rpgTrainerSurvival(repository.get('paciente').state.trainerSheet)
+			.conditions.map(condition => condition.id), ['imobilizado', 'atordoado']);
+		assert.equal(service.treatTrainerNeuromuscularCondition('teste',
+			{ requestId: 'neuro-test-1', patientId: 'paciente', conditionId: 'paralisado' }).repeated, true);
+		assert.equal(repository.get('medico').state.trainerInventory.items[0].charges, 0);
+		assert.throws(() => service.treatTrainerNeuromuscularCondition('teste',
+			{ requestId: 'neuro-test-1', patientId: 'paciente', conditionId: 'atordoado' }), /já utilizado/);
+	});
+	it('Aquecimento Controlado remove Congelado imediatamente e preserva outras condições', () => {
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({ masterCode: 'teste', repository });
+		for (const name of ['Medico', 'Paciente', 'Saudavel']) {
+			service.createCharacter({ characterName: name, playerName: name, avatar: 'lucas',
+				password: 'senha-rpg', initialMoney: 100, starter: { species: 'Squirtle', gender: 'M' } });
+			const record = repository.get(name.toLowerCase());
+			record.tableId = 'mesa-teste'; record.accountId = name.toLowerCase();
+			record.state.trainerSheet = ready(name === 'Medico' ? 'medico' : 'atleta', 5,
+				{ talents: { general: [], class: name === 'Medico' ?
+					['medico:aquecimento-controlado'] : [], apex: null } });
+			if (name === 'Paciente') {
+				record.state.trainerSheet = rpgTrainerApplyCondition(record.state.trainerSheet,
+					{ id: 'congelado', source: 'frio' });
+				record.state.trainerSheet = rpgTrainerApplyCondition(record.state.trainerSheet,
+					{ id: 'imobilizado', source: 'teste' });
+			}
+			repository.set(record);
+		}
+		const doctor = repository.get('medico');
+		doctor.state.trainerInventory = { version: 1, revision: 0, licenses: [],
+			items: [{ id: 'kit-medico-teste', itemId: 'kit-medico-1', quantity: 1,
+				equipped: false, charges: 1, location: 'bag' }] };
+		repository.set(doctor);
+		service.getSession = () => ({ mode: 'player', role: 'player',
+			platformTableId: 'mesa-teste', characterId: 'medico' });
+		service.accounts.repository.getMembership = () => ({ status: 'active' });
+		service.requireWorldBagItemUse = () => {};
+		assert.deepEqual(service.getControlledWarmingCandidates('teste').patients.map(patient => patient.id),
+			['paciente']);
+		const result = service.treatTrainerCold('teste',
+			{ requestId: 'warming-test-1', patientId: 'paciente' });
+		assert.equal(result.chargesRemaining, 0);
+		assert.deepEqual(rpgTrainerSurvival(repository.get('paciente').state.trainerSheet)
+			.conditions.map(condition => condition.id), ['imobilizado']);
+		assert.equal(service.treatTrainerCold('teste',
+			{ requestId: 'warming-test-1', patientId: 'paciente' }).repeated, true);
+		assert.throws(() => service.treatTrainerCold('teste',
+			{ requestId: 'warming-test-2', patientId: 'saudavel' }), /não encontrado/);
+	});
+	it('Resposta Neurológica remove Adormecido ou Confuso e consome uma carga', () => {
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({ masterCode: 'teste', repository });
+		for (const name of ['Medico', 'Paciente', 'Saudavel']) {
+			service.createCharacter({ characterName: name, playerName: name, avatar: 'lucas',
+				password: 'senha-rpg', initialMoney: 100, starter: { species: 'Squirtle', gender: 'M' } });
+			const record = repository.get(name.toLowerCase());
+			record.tableId = 'mesa-teste'; record.accountId = name.toLowerCase();
+			record.state.trainerSheet = ready(name === 'Medico' ? 'medico' : 'atleta', 5,
+				{ talents: { general: [], class: name === 'Medico' ?
+					['medico:resposta-neurologica'] : [], apex: null } });
+			if (name === 'Paciente') {
+				record.state.trainerSheet = rpgTrainerApplyCondition(record.state.trainerSheet,
+					{ id: 'adormecido', source: 'químico' });
+				record.state.trainerSheet = rpgTrainerApplyCondition(record.state.trainerSheet,
+					{ id: 'confuso', source: 'químico' });
+				record.state.trainerSheet = rpgTrainerApplyCondition(record.state.trainerSheet,
+					{ id: 'congelado', source: 'frio' });
+			}
+			repository.set(record);
+		}
+		const doctor = repository.get('medico');
+		doctor.state.trainerInventory = { version: 1, revision: 0, licenses: [],
+			items: [{ id: 'kit-medico-teste', itemId: 'kit-medico-1', quantity: 1,
+				equipped: false, charges: 1, location: 'bag' }] };
+		repository.set(doctor);
+		service.getSession = () => ({ mode: 'player', role: 'player',
+			platformTableId: 'mesa-teste', characterId: 'medico' });
+		service.accounts.repository.getMembership = () => ({ status: 'active' });
+		service.requireWorldBagItemUse = () => {};
+		assert.deepEqual(service.getNeurologicalResponseCandidates('teste').patients[0].conditions,
+			['adormecido', 'confuso']);
+		assert.throws(() => service.treatTrainerNeurologicalCondition('teste',
+			{ requestId: 'neuro-response-0', patientId: 'paciente', conditionId: 'congelado' }), /incompatível/);
+		const result = service.treatTrainerNeurologicalCondition('teste',
+			{ requestId: 'neuro-response-1', patientId: 'paciente', conditionId: 'adormecido' });
+		assert.equal(result.chargesRemaining, 0);
+		assert.deepEqual(rpgTrainerSurvival(repository.get('paciente').state.trainerSheet)
+			.conditions.map(condition => condition.id), ['confuso', 'congelado']);
+		assert.equal(service.treatTrainerNeurologicalCondition('teste',
+			{ requestId: 'neuro-response-1', patientId: 'paciente', conditionId: 'adormecido' }).repeated, true);
+		assert.throws(() => service.treatTrainerNeurologicalCondition('teste',
+			{ requestId: 'neuro-response-2', patientId: 'saudavel', conditionId: 'confuso' }), /não encontrado/);
+	});
+	it('Atendimento Emergencial cura até 1 PV e limita cada paciente por descanso longo', () => {
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({ masterCode: 'teste', repository });
+		for (const name of ['Medico', 'Paciente', 'Saudavel']) {
+			service.createCharacter({ characterName: name, playerName: name, avatar: 'lucas',
+				password: 'senha-rpg', initialMoney: 100, starter: { species: 'Squirtle', gender: 'M' } });
+			const record = repository.get(name.toLowerCase());
+			record.tableId = 'mesa-teste';
+			record.accountId = name.toLowerCase();
+			record.state.trainerSheet = ready(name === 'Medico' ? 'medico' : 'atleta', 1,
+				{ hitPoints: { current: name === 'Paciente' ? 0 : 20, maximum: 20, temporary: 0 } });
+			repository.set(record);
+		}
+		const doctor = repository.get('medico');
+		doctor.state.trainerInventory = { version: 1, revision: 0, licenses: [],
+			items: [{ id: 'kit-medico-teste', itemId: 'kit-medico-1', quantity: 1,
+				equipped: false, charges: 2, location: 'bag' }] };
+		repository.set(doctor);
+		service.getSession = () => ({ mode: 'player', role: 'player',
+			platformTableId: 'mesa-teste', characterId: 'medico' });
+		service.requireWorldBagItemUse = () => {};
+		service.accounts.repository.getMembership = () => ({ status: 'active' });
+		assert.deepEqual(service.getEmergencyCareCandidates('teste').patients.map(patient => patient.id), ['paciente']);
+		const first = service.performEmergencyCare('teste', { requestId: 'care-test-1', patientId: 'paciente' });
+		assert.equal(first.hp, 1);
+		assert.equal(repository.get('paciente').state.trainerSheet.hitPoints.current, 1);
+		assert.equal(repository.get('medico').state.trainerInventory.items[0].charges, 1);
+		assert.equal(service.performEmergencyCare('teste', { requestId: 'care-test-1', patientId: 'paciente' }).repeated, true);
+		assert.equal(repository.get('medico').state.trainerInventory.items[0].charges, 1);
+		const patient = repository.get('paciente');
+		patient.state.trainerSheet.hitPoints.current = 0;
+		repository.set(patient);
+		assert.throws(() => service.performEmergencyCare('teste',
+			{ requestId: 'care-test-2', patientId: 'paciente' }), /já recebeu Atendimento Emergencial/);
+		patient.state.trainerSheet.talentRestCycle = 1;
+		repository.set(patient);
+		service.performEmergencyCare('teste', { requestId: 'care-test-3', patientId: 'paciente' });
+		assert.equal(repository.get('medico').state.trainerInventory.items[0].charges, 0);
+	});
+	it('Entre a Vida e a Morte exige déficit grave, consome três cargas e é idempotente', () => {
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({ masterCode: 'teste', repository, random: () => 0.99 });
+		for (const name of ['Medico', 'Paciente', 'Leve']) {
+			service.createCharacter({ characterName: name, playerName: name, avatar: 'lucas',
+				password: 'senha-rpg', initialMoney: 100, starter: { species: 'Squirtle', gender: 'M' } });
+			const record = repository.get(name.toLowerCase());
+			record.tableId = 'mesa-teste'; record.accountId = name.toLowerCase();
+			record.state.trainerSheet = ready(name === 'Medico' ? 'medico' : 'atleta', name === 'Medico' ? 10 : 1,
+				{ hitPoints: { current: name === 'Medico' ? 20 : 0, maximum: 20, temporary: 0 },
+					survival: { lifeState: name === 'Medico' ? 'conscious' : 'dying',
+						negativeHP: name === 'Paciente' ? -12 : -5, exhaustion: 0, conditions: [],
+						deathSaves: { successes: 0, failures: 0 }, wounds: [], shortCareUsed: false } });
+			if (name === 'Medico') {
+				record.state.trainerSheet.talents.apex = 'medico:entre-a-vida-e-a-morte';
+				record.state.trainerSheet.skills.trained.push('medicina');
+				record.state.trainerInventory = { version: 1, revision: 0, licenses: [],
+					items: [{ id: 'kit-medico-iii', itemId: 'kit-medico-3', quantity: 1,
+						equipped: false, charges: 4, location: 'bag' }] };
+			}
+			repository.set(record);
+		}
+		service.getSession = () => ({ mode: 'player', role: 'player',
+			platformTableId: 'mesa-teste', characterId: 'medico' });
+		service.requireWorldBagItemUse = () => {};
+		service.accounts.repository.getMembership = () => ({ status: 'active' });
+		assert.deepEqual(service.getReanimationCandidates('teste').patients.map(entry => entry.id), ['paciente']);
+		const input = { requestId: 'reanimate-test-1', patientId: 'paciente', mode: 'normal', talents: [] };
+		const result = service.performReanimation('teste', input);
+		assert.equal(result.success, true);
+		assert.equal(repository.get('paciente').state.trainerSheet.survival.lifeState, 'stable');
+		assert.equal(repository.get('paciente').state.trainerSheet.survival.negativeHP, 0);
+		assert.equal(repository.get('medico').state.trainerInventory.items[0].charges, 1);
+		assert.equal(service.performReanimation('teste', input).repeated, true);
+		assert.equal(repository.get('medico').state.trainerInventory.items[0].charges, 1);
+	});
+	it('Atendimento Revitalizante cura 1d6 + Sabedoria e exige três cargas antes de começar', () => {
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({ masterCode: 'teste', repository });
+		for (const name of ['Medico', 'Paciente']) {
+			service.createCharacter({ characterName: name, playerName: name, avatar: 'lucas',
+				password: 'senha-rpg', initialMoney: 100, starter: { species: 'Squirtle', gender: 'M' } });
+			const record = repository.get(name.toLowerCase());
+			record.tableId = 'mesa-teste'; record.accountId = name.toLowerCase();
+			record.state.trainerSheet = ready(name === 'Medico' ? 'medico' : 'atleta', 3,
+				{ hitPoints: { current: name === 'Paciente' ? 0 : 20, maximum: 20, temporary: 0 },
+					talents: { general: [], class: name === 'Medico' ?
+						['medico:atendimento-revitalizante'] : [], apex: null } });
+			repository.set(record);
+		}
+		const doctor = repository.get('medico');
+		doctor.state.trainerInventory = { version: 1, revision: 0, licenses: [],
+			items: [{ id: 'kit-medico-teste', itemId: 'kit-medico-1', quantity: 1,
+				equipped: false, charges: 2, location: 'bag' }] };
+		repository.set(doctor);
+		service.getSession = () => ({ mode: 'player', role: 'player',
+			platformTableId: 'mesa-teste', characterId: 'medico' });
+		service.requireWorldBagItemUse = () => {};
+		service.accounts.repository.getMembership = () => ({ status: 'active' });
+		assert.equal(service.getEmergencyCareCandidates('teste').revitalizingAvailable, true);
+		assert.equal(service.getEmergencyCareCandidates('teste').revitalizingKitAvailable, false);
+		assert.throws(() => service.performEmergencyCare('teste',
+			{ requestId: 'revital-test-1', patientId: 'paciente', revitalizing: true }), /três cargas/);
+		assert.equal(repository.get('medico').state.trainerInventory.items[0].charges, 2);
+		const stocked = repository.get('medico');
+		stocked.state.trainerInventory.items[0].charges = 3;
+		repository.set(stocked);
+		service.int = () => 3;
+		const result = service.performEmergencyCare('teste',
+			{ requestId: 'revital-test-1', patientId: 'paciente', revitalizing: true });
+		assert.equal(result.healingRoll, 4);
+		assert.equal(result.hp, 5);
+		assert.equal(repository.get('paciente').state.trainerSheet.hitPoints.current, 5);
+		assert.equal(repository.get('medico').state.trainerInventory.items[0].charges, 0);
+		assert.equal(service.performEmergencyCare('teste',
+			{ requestId: 'revital-test-1', patientId: 'paciente', revitalizing: true }).repeated, true);
+		assert.equal(repository.get('medico').state.trainerInventory.items[0].charges, 0);
+		assert.throws(() => service.performEmergencyCare('teste',
+			{ requestId: 'revital-test-1', patientId: 'paciente' }), /já utilizado/);
+	});
+	it('Medicina de Emergência cura, remove condições e bloqueia novo atendimento até o descanso longo', () => {
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({ masterCode: 'teste', repository });
+		for (const name of ['Medico', 'Paciente']) {
+			service.createCharacter({ characterName: name, playerName: name, avatar: 'lucas',
+				password: 'senha-rpg', initialMoney: 100, starter: { species: 'Squirtle', gender: 'M' } });
+			const record = repository.get(name.toLowerCase());
+			record.tableId = 'mesa-teste'; record.accountId = name.toLowerCase();
+			record.state.trainerSheet = ready(name === 'Medico' ? 'medico' : 'atleta', name === 'Medico' ? 10 : 1,
+				{ hitPoints: { current: name === 'Paciente' ? 0 : 20, maximum: 20, temporary: 0 } });
+			if (name === 'Medico') {
+				record.state.trainerSheet.talents.apex = 'medico:medicina-de-emergencia';
+				record.state.trainerInventory = { version: 1, revision: 0, licenses: [],
+					items: [{ id: 'kit-medico-apice', itemId: 'kit-medico-1', quantity: 1,
+						equipped: false, charges: 3, location: 'bag' }] };
+			} else {
+				record.state.trainerSheet = rpgTrainerApplyCondition(record.state.trainerSheet,
+					{ id: 'queimado', source: 'teste' });
+				record.state.trainerSheet = rpgTrainerApplyCondition(record.state.trainerSheet,
+					{ id: 'paralisado', source: 'teste' });
+			}
+			repository.set(record);
+		}
+		service.getSession = () => ({ mode: 'player', role: 'player',
+			platformTableId: 'mesa-teste', characterId: 'medico' });
+		service.requireWorldBagItemUse = () => {};
+		service.accounts.repository.getMembership = () => ({ status: 'active' });
+		service.int = () => 3;
+		assert.equal(service.getEmergencyCareCandidates('teste').emergencyMedicineAvailable, true);
+		const input = { requestId: 'medicine-apex-1', patientId: 'paciente', emergencyMedicine: true };
+		const result = service.performEmergencyCare('teste', input);
+		assert.equal(result.hp, 5);
+		assert.deepEqual(result.conditionsRemoved, ['queimado', 'paralisado']);
+		assert.deepEqual(rpgTrainerSurvival(repository.get('paciente').state.trainerSheet).conditions, []);
+		assert.equal(repository.get('medico').state.trainerInventory.items[0].charges, 1);
+		assert.equal(service.performEmergencyCare('teste', input).repeated, true);
+		const patient = repository.get('paciente');
+		patient.state.trainerSheet.hitPoints.current = 0;
+		repository.set(patient);
+		assert.throws(() => service.performEmergencyCare('teste',
+			{ requestId: 'medicine-apex-2', patientId: 'paciente' }), /já recebeu Atendimento Emergencial/);
+		patient.state.trainerSheet.talentRestCycle = 1;
+		patient.state.trainerSheet.survival.lifeState = 'dying';
+		repository.set(patient);
+		assert.equal(service.getEmergencyCareCandidates('teste').patients[0].available, true);
+		const afterRest = service.performEmergencyCare('teste',
+			{ requestId: 'medicine-apex-3', patientId: 'paciente' });
+		assert.equal(afterRest.hp, 1);
+		assert.equal(repository.get('medico').state.trainerInventory.items[0].charges, 0);
+	});
+	it('Cirurgião só aplica o aumento de atributo escolhido', () => {
+		const doctor = ready('medico', 5);
+		const choice = rpgTrainerTalentCatalog(doctor).find(entry => entry.id === 'medico:cirurgiao');
+		assert.deepEqual(choice.attributeChoices, ['intelligence', 'wisdom']);
+		const improved = chooseRPGTrainerTalent(doctor, { id: choice.id, attribute: 'wisdom' });
+		assert.equal(improved.attributes.wisdom, doctor.attributes.wisdom + 1);
+		assert.equal(improved.attributes.intelligence, doctor.attributes.intelligence);
+	});
+	it('Protocolo Preventivo atende apenas membros e libera +2 uma vez em Fortitude', () => {
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({ masterCode: 'teste', repository });
+		for (const name of ['Medico', 'Paciente']) {
+			service.createCharacter({ characterName: name, playerName: name, avatar: 'lucas',
+				password: 'senha-rpg', initialMoney: 100, starter: { species: 'Squirtle', gender: 'M' } });
+			const record = repository.get(name.toLowerCase());
+			record.tableId = 'mesa-teste'; record.accountId = name.toLowerCase();
+			record.state.trainerSheet = ready(name === 'Medico' ? 'medico' : 'atleta', 3,
+				{ shortRestCycle: 1, talents: { general: [], class: name === 'Medico' ?
+					['medico:protocolo-preventivo', 'medico:antidoto-de-emergencia'] : [], apex: null } });
+			repository.set(record);
+		}
+		service.getSession = () => ({ mode: 'player', role: 'player',
+			platformTableId: 'mesa-teste', characterId: 'medico' });
+		service.accounts.repository.getMembership = () => ({ status: 'active' });
+		const result = service.preparePreventiveProtocol('teste', { requestId: 'protocol-test-1',
+			recipientIds: ['paciente'], risk: 'contaminação' });
+		assert.deepEqual(result.recipients, ['paciente']);
+		assert.equal(repository.get('paciente').state.trainerSheet.preventiveProtocol.risk, 'contaminação');
+		assert.equal(service.preparePreventiveProtocol('teste', { requestId: 'protocol-test-1',
+			recipientIds: ['paciente'], risk: 'contaminação' }).repeated, true);
+		assert.throws(() => service.preparePreventiveProtocol('teste', { requestId: 'protocol-test-2',
+			recipientIds: ['paciente'], risk: 'frio' }), /novo descanso/);
+		service.consumePreventiveProtocol('teste', 'paciente', ['medico:protocolo-preventivo@medico']);
+		assert.equal(repository.get('paciente').state.trainerSheet.preventiveProtocol.used, true);
+	});
+	it('Gestão de Suprimentos preserva carga do Kit Médico com 5 ou 6 no d6', () => {
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({ masterCode: 'teste', repository });
+		for (const name of ['Medico', 'Paciente']) {
+			service.createCharacter({ characterName: name, playerName: name, avatar: 'lucas',
+				password: 'senha-rpg', initialMoney: 100, starter: { species: 'Squirtle', gender: 'M' } });
+			const record = repository.get(name.toLowerCase());
+			record.tableId = 'mesa-teste'; record.accountId = name.toLowerCase();
+			record.state.trainerSheet = ready(name === 'Medico' ? 'medico' : 'atleta', 3,
+				{ hitPoints: { current: name === 'Paciente' ? 0 : 20, maximum: 20, temporary: 0 },
+					talents: { general: [], class: name === 'Medico' ?
+						['medico:gestao-de-suprimentos-medicos'] : [], apex: null } });
+			repository.set(record);
+		}
+		const doctor = repository.get('medico');
+		doctor.state.trainerInventory = { version: 1, revision: 0, licenses: [], items: [
+			{ id: 'kit-medico-teste', itemId: 'kit-medico-1', quantity: 1,
+				equipped: false, charges: 2, location: 'bag' }] };
+		repository.set(doctor);
+		service.getSession = () => ({ mode: 'player', role: 'player',
+			platformTableId: 'mesa-teste', characterId: 'medico' });
+		service.requireWorldBagItemUse = () => {};
+		service.accounts.repository.getMembership = () => ({ status: 'active' });
+		service.random = () => 0.8;
+		const result = service.performEmergencyCare('teste', { requestId: 'supplies-test-1', patientId: 'paciente' });
+		assert.equal(result.supplyRoll, 5);
+		assert.equal(result.chargeSaved, true);
+		assert.equal(repository.get('medico').state.trainerInventory.items[0].charges, 2);
+	});
+	it('Medicina Integrada trata status da equipe aliada e valida kit, mesa e idempotência', () => {
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({ masterCode: 'teste', repository });
+		for (const name of ['Medico', 'Paciente']) {
+			service.createCharacter({ characterName: name, playerName: name, avatar: 'lucas',
+				password: 'senha-rpg', initialMoney: 100, starter: { species: 'Squirtle', gender: 'M' } });
+			const record = repository.get(name.toLowerCase());
+			record.tableId = 'mesa-teste'; record.accountId = name.toLowerCase();
+			record.state.trainerSheet = ready(name === 'Medico' ? 'medico' : 'atleta', 3,
+				{ talents: { general: [], class: name === 'Medico' ?
+					['medico:medicina-integrada', 'medico:gestao-de-suprimentos-medicos'] : [], apex: null } });
+			repository.set(record);
+		}
+		const doctor = repository.get('medico');
+		doctor.state.trainerInventory = { version: 1, revision: 0, licenses: [], items: [
+			{ id: 'kit-pokemon-teste', itemId: 'kit-medicina-pokemon', quantity: 1,
+				equipped: false, charges: 2, location: 'bag' }] };
+		repository.set(doctor);
+		const patient = repository.get('paciente');
+		patient.state.box.party[0].pokemon.rpg.status = 'par';
+		repository.set(patient);
+		service.getSession = () => ({ mode: 'player', role: 'player',
+			platformTableId: 'mesa-teste', characterId: 'medico' });
+		service.requireWorldBagItemUse = () => {};
+		service.accounts.repository.getMembership = () => ({ status: 'active' });
+		service.random = () => 0;
+		const pokemonId = patient.state.box.party[0].pokemonId;
+		const candidate = service.getIntegratedMedicineCandidates('teste').players
+			.find(player => player.characterId === 'paciente').pokemon[0];
+		assert.equal(candidate.status, 'par');
+		const input = { requestId: 'medicine-test-1', characterId: 'paciente', pokemonId };
+		const result = service.performIntegratedMedicine('teste', input);
+		assert.equal(result.status, 'par');
+		assert.equal(result.supplyRoll, 1);
+		assert.equal(repository.get('medico').state.trainerInventory.items[0].charges, 1);
+		assert.equal(repository.get('paciente').state.box.party[0].pokemon.rpg.status, '');
+		assert.equal(service.performIntegratedMedicine('teste', input).repeated, true);
+		assert.throws(() => service.performIntegratedMedicine('teste',
+			{ ...input, requestId: 'medicine-test-2' }), /não possui condição negativa/);
+	});
 	it('prepara Compartimento Clandestino somente na própria Bag ou em armazenamento compartilhado', () => {
 		const repository = new RPGMemoryCharacterRepository();
 		const service = new RPGLoginService({ masterCode: 'teste', repository });

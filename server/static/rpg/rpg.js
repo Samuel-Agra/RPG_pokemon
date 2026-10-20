@@ -5565,6 +5565,22 @@ async function renderMasterBody(characters) {
 		});
 		clockActions.append(advance);
 	}
+	for (const [kind, label] of [['short', 'Descanso curto'], ['long', 'Descanso longo']]) {
+		const rest = button(label, 'button campaign-clock-button');
+		rest.addEventListener('click', async () => {
+			for (const control of clockActions.querySelectorAll('button')) control.disabled = true;
+			try {
+				const data = await api('/campaign/rest', { method: 'POST',
+					body: { kind, requestId: crypto.randomUUID() } });
+				showToast(`${label}: ${data.rest.rested} treinador(es) descansaram` +
+					(kind === 'long' ? ` e recuperaram ${data.rest.recovered} PV no total.` : '.') +
+					(data.rest.skipped ? ` ${data.rest.skipped} não puderam descansar.` : ''));
+				window.dispatchEvent(new CustomEvent('rpg:realtime-sync',
+					{ detail: { tableId: state.accountSession?.activeTableId } }));
+			} catch (error) { showToast(error.message, true); } finally { for (const control of clockActions.querySelectorAll('button')) control.disabled = false; }
+		});
+		clockActions.append(rest);
+	}
 	const configure = button('☀', 'button master-campaign-configure');
 	configure.setAttribute('aria-label', 'Configurar campanha');
 	configure.addEventListener('click', () => {
@@ -8222,7 +8238,8 @@ async function renderDashboard() {
 			$('#delete-character').classList.add('hidden');
 			body.replaceChildren(
 				state.dashboardView === 'trainer-sheet' ? await window.RPGTrainerSheetUI.render({ api, state, master: true, characters,
-					spriteUrl: pokemon => spriteUrl(pokemon) }) :
+					spriteUrl: pokemon => spriteUrl(pokemon),
+					trainerSpriteUrl: avatar => RPGAssets.url('sprites/trainers/' + String(avatar || '').replace(/\.png$/i, '') + '.png') }) :
 				state.dashboardView === 'battles' ? await renderMasterBattles(characters) :
 				state.dashboardView === 'contests' ? await window.RPGContestUI.render({ state, api, master: true, characters, rerender: renderDashboard }) :
 				state.dashboardView === 'npcs' ? await renderMasterNPCLibraryDashboard() :
@@ -8262,7 +8279,8 @@ async function renderDashboard() {
 			$('#delete-character').classList.toggle('hidden', !viewing);
 			const playerView = state.dashboardView === 'battles' ? await renderPlayerBattles(character) :
 				state.dashboardView === 'trainer-sheet' ? await window.RPGTrainerSheetUI.render({ api, state, master: false, character,
-					spriteUrl: pokemon => spriteUrl(pokemon) }) :
+					spriteUrl: pokemon => spriteUrl(pokemon),
+					trainerSpriteUrl: avatar => RPGAssets.url('sprites/trainers/' + String(avatar || '').replace(/\.png$/i, '') + '.png') }) :
 				state.dashboardView === 'contests' ? await window.RPGContestUI.render({ state, api, master: false, character, rerender: renderDashboard }) :
 				state.dashboardView === 'tournaments' ? await renderPlayerTournaments(character) :
 				state.dashboardView === 'box' ? await renderPlayerBox(character) :

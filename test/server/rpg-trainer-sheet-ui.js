@@ -11,6 +11,64 @@ describe('RPG trainer sheet read-only frontend', () => {
 	const page = fs.readFileSync(path.join(root, 'trainer-sheet-ui.js'), 'utf8');
 	const style = fs.readFileSync(path.join(root, 'trainer-sheet.css'), 'utf8');
 	const http = fs.readFileSync(path.resolve(root, '../../rpg-showdown/http.ts'), 'utf8');
+	it('oferece reanimação com paciente, bônus de Medicina e retorno visível', () => {
+		assert(page.includes("id === 'medico:entre-a-vida-e-a-morte'"));
+		assert(page.includes("action.api('/trainer/reanimation')"));
+		assert(page.includes("action.api('/trainer/reanimation', { method: 'POST'"));
+		assert(page.includes("action.api('/trainer/ally-roll-talents')"));
+		assert(page.includes('Selecione um treinador para reanimar.'));
+		assert(style.includes('.trainer-reanimation-dialog'));
+		assert(http.includes("'/api/rpg/trainer/reanimation'"));
+	});
+	it('oferece Medicina de Emergência como escolha exclusiva no Atendimento Emergencial', () => {
+		assert(page.includes('data.emergencyMedicineAvailable'));
+		assert(page.includes('Usar Medicina de Emergência (2 cargas)'));
+		assert(page.includes('revitalizing, emergencyMedicine'));
+		assert(page.includes('result.conditionsRemoved'));
+	});
+	it('permite ao Médico escolher o paciente recorrente de Recuperação Extraordinária', () => {
+		assert(page.includes("id === 'medico:recuperacao-extraordinaria'"));
+		assert(page.includes("action.api('/trainer/extraordinary-recovery'"));
+		assert(page.includes('Paciente acompanhado nos descansos longos'));
+		assert(http.includes("'/api/rpg/trainer/extraordinary-recovery'"));
+	});
+	it('marks limited general talents and lists those renewed by rest', () => {
+		assert(page.includes("api('/trainer/talents/mark-used'"));
+		assert(page.includes('!readOnly && manualRest ? { id, api, refresh, manualRest }'));
+		assert(page.includes('sheet.manualTalentLastRenewal?.talents?.length'));
+		assert(page.includes("list.append(el('li', '', renewed))"));
+		assert(style.includes('.trainer-sheet-talent-row--used'));
+		assert(http.includes("'/api/rpg/trainer/talents/mark-used'"));
+		assert(page.includes("['segundo-folego', 'sortudo', 'determinado', 'esforco-heroico'].includes(id)"));
+		assert(page.includes('manualRest?.used || automaticRestUsed || comfortingArtUsed'));
+		assert(page.includes("action.used ? 'Usado neste descanso' : 'Usar'"));
+	});
+	it('shows Comforting Art uses against the current rest limit', () => {
+		assert(page.includes('progression.comfortingArtUses?.recipientIds?.length'));
+		assert(page.includes('participantes atendidos neste descanso.'));
+		assert(page.includes('use.disabled = artUses.recipientIds.length >= artUses.limit'));
+	});
+	it('shows the Cook meal cycle and dependent talents as used until long rest', () => {
+		assert(page.includes("feature.name === 'Refeição Revigorante' ? 'cozinheiro:refeicao-revigorante'"));
+		assert(page.includes('progression.revigoratingMeal?.usedThisRest'));
+		assert(page.includes("'Usado neste descanso longo.'"));
+		assert(page.includes("'Será ativado junto com Refeição Revigorante.'"));
+	});
+	it('reserves interactive PV and conditions for the Master in both sheet views', () => {
+		assert(page.includes("state.session?.role === 'master' &&"));
+		assert(page.includes("(master || state.session?.mode === 'player') && !state.tableReadOnly"));
+		assert(page.includes("increase.addEventListener('click', () => void adjust('heal'))"));
+		assert(page.includes("decrease.addEventListener('click', () => void adjust('damage'))"));
+		assert(page.includes('currentColumn.append(el(\'strong\', \'\', current), arrows)'));
+		assert(style.includes('.trainer-sheet-hp-arrows { display: flex; flex-direction: column; }'));
+		assert(page.includes("showMasterSurvivalEditor(character, sheet, rules, api, refresh)"));
+		assert(!page.includes("showMasterSurvivalEditor('hp'"));
+		assert(style.includes('.trainer-sheet-hp-arrow'));
+		assert(page.includes("api('/trainer/survival', { method: 'POST'"));
+		assert(page.includes("type: 'condition-add'"));
+		assert(page.includes("type: 'condition-remove'"));
+		assert(style.includes('.trainer-sheet-master-vitals-overlay'));
+	});
 	it('shows First Care above the talent and presents fainted Pokemon as detailed sprite cards', () => {
 		assert(page.includes("'criador-pokemon:restaurador-pokemon'].includes(id)"));
 		assert.match(style, /\.trainer-first-care-overlay \{[^}]*z-index: 10002/);
@@ -76,9 +134,9 @@ describe('RPG trainer sheet read-only frontend', () => {
 	});
 	it('abre o catálogo por categorias e envia a encomenda para aprovação do Mestre', () => {
 		assert(page.includes("id === 'diplomata:canal-oficial'"));
-		assert(page.includes("action.api('/trainer/supplier/catalog')"));
+		assert(page.includes("action.api(parallel ? '/trainer/parallel-market/catalog' : '/trainer/supplier/catalog')"));
 		assert(page.includes('window.rpgBagCatalogCategories'));
-		assert(page.includes("action.api('/trainer/supplier/orders'"));
+		assert(page.includes("action.api(parallel ? '/trainer/parallel-market/orders' : '/trainer/supplier/orders'"));
 		assert(app.includes("api('/trainer/supplier/orders/decide'"));
 		assert(app.includes('request.price.toLocaleString'));
 		assert(http.includes("url.pathname === '/api/rpg/trainer/supplier/orders/decide'"));
@@ -100,7 +158,7 @@ describe('RPG trainer sheet read-only frontend', () => {
 		assert(page.includes("!readOnly && id === 'artista:arte-reconfortante'"));
 		assert(page.includes("'/trainer/talents/comforting-art'"));
 		const service = fs.readFileSync(path.resolve(root, '../../rpg-showdown/index.ts'), 'utf8');
-		assert(service.includes('rpgTrainerSurvival(source).lastShortRest?.completedAt ?? -1'));
+		assert(service.includes('source.shortRestCycle || 0'));
 		assert(!service.includes('Arte Reconfortante exige um descanso curto de uma hora no relógio da campanha'));
 	});
 	it('lets the Athlete prepare Captain bonuses for at most proficiency-many allies', () => {
@@ -337,7 +395,7 @@ describe('RPG trainer sheet read-only frontend', () => {
 		assert(style.includes('max-height: none; overflow: visible;'));
 		assert(!page.includes("entry.trained ? 'Treinada' : 'Não treinada'"));
 		assert(!page.includes('Bônus base dos ataques humanos'));
-		assert(!page.includes("'Pontos de vida'"));
+		assert(!page.includes("section('Pontos de vida'"));
 	});
 
 	it('renders all requested read-only sections and synchronizes only its content', () => {

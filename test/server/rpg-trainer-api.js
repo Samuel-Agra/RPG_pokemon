@@ -197,4 +197,20 @@ describe('RPG trainer API', () => {
 		assert.equal((await request('/api/rpg/trainer/level/master', master.token,
 			{ characterId: 'treinador', direction: 'down', requestId: 'api-level-down' })).data.sheet.level, 1);
 	});
+
+	it('reserva os botões de descanso ao Mestre sem avançar o relógio', async () => {
+		const before = service.campaignSettings.currentDateTime;
+		assert.notEqual((await request('/api/rpg/campaign/rest', player.token,
+			{ kind: 'short', requestId: 'api-rest-denied' })).status, 200);
+		const short = await request('/api/rpg/campaign/rest', master.token,
+			{ kind: 'short', requestId: 'api-rest-short-1' });
+		assert.equal(short.status, 200);
+		assert.equal(short.data.rest.kind, 'short');
+		assert.equal(service.campaignSettings.currentDateTime, before);
+		const long = await request('/api/rpg/campaign/rest', master.token,
+			{ kind: 'long', requestId: 'api-rest-long-1' });
+		assert.equal(long.status, 200);
+		assert.equal(long.data.rest.kind, 'long');
+		assert.equal(service.campaignSettings.currentDateTime, before);
+	});
 });
