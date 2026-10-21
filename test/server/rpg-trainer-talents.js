@@ -27,6 +27,16 @@ function ready(classId, level = 1, overrides = {}) {
 }
 
 describe('RPG trainer classes and talents', () => {
+	it('exige nível 7 para Indução Hipnótica do Mentalista', () => {
+		const before = ready('mentalista', 5);
+		const after = ready('mentalista', 7);
+		assert.equal(rpgTrainerTalentCatalog(before).find(entry =>
+			entry.id === 'mentalista:inducao-hipnotica').available, false);
+		assert.throws(() => chooseRPGTrainerTalent(before,
+			{ id: 'mentalista:inducao-hipnotica' }), /Nível insuficiente/);
+		assert.equal(rpgTrainerTalentCatalog(after).find(entry =>
+			entry.id === 'mentalista:inducao-hipnotica').available, true);
+	});
 	it('Recuperação Extraordinária acompanha o paciente escolhido a cada descanso longo', () => {
 		const repository = new RPGMemoryCharacterRepository();
 		const service = new RPGLoginService({ masterCode: 'teste', repository, random: () => 0 });
@@ -882,6 +892,32 @@ describe('RPG trainer classes and talents', () => {
 		assert.equal(repository.get('encantador').state.trainerInventory.items[0].charges, 0);
 		assert.throws(() => service.useTrainerSocialDisguise('jogador'), /sem cargas/);
 	});
+	it('registra nomes limitados do Palácio da Memória e gasta uma carga em Persona Preparada', () => {
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({ masterCode: 'teste', repository });
+		service.createCharacter({ characterName: 'Mentalista', playerName: 'Ana', avatar: 'lucas',
+			password: 'senha-rpg', initialMoney: 100,
+			starter: { species: 'Squirtle', gender: 'M' } });
+		const record = repository.get('mentalista');
+		record.tableId = 'mesa-teste'; record.accountId = 'ana';
+		record.state.trainerSheet = ready('mentalista', 3, {
+			talents: { general: [], class: ['mentalista:palacio-da-memoria',
+				'mentalista:persona-preparada'], apex: null },
+		});
+		record.state.trainerInventory = { version: 1, revision: 0, licenses: [], pokemonStorage: [],
+			items: [{ id: 'kit-1', itemId: 'kit-disfarce', quantity: 1,
+				equipped: false, charges: 1, location: 'bag' }] };
+		repository.set(record);
+		service.getSession = () => ({ role: 'player', mode: 'player',
+			platformTableId: 'mesa-teste', characterId: 'mentalista' });
+		assert.deepEqual(service.setTrainerMemoryPalace('jogador', ['Rota', 'Conversa']).names,
+			['Rota', 'Conversa']);
+		assert.deepEqual(repository.get('mentalista').state.trainerSheet.memoryPalaceNames,
+			['Rota', 'Conversa']);
+		assert.throws(() => service.setTrainerMemoryPalace('jogador', ['a', 'b', 'c', 'd', 'e']), /até 4 nomes/);
+		assert.equal(service.useTrainerPreparedPersona('jogador').chargesRemaining, 0);
+		assert.throws(() => service.useTrainerPreparedPersona('jogador'), /sem cargas/);
+	});
 	it('Armadilheiro consome uma carga do Kit de Ladinagem e preserva o saldo em falhas', () => {
 		const repository = new RPGMemoryCharacterRepository();
 		const service = new RPGLoginService({ masterCode: 'teste', repository });
@@ -1491,6 +1527,16 @@ describe('RPG trainer classes and talents', () => {
 		const chosen = chooseRPGTrainerTalent(cook, { id: option.id, attribute: 'wisdom' });
 		assert.equal(chosen.attributes.wisdom, cook.attributes.wisdom + 1);
 		assert.equal(chosen.attributes.intelligence, cook.attributes.intelligence);
+	});
+	it('oferece Inteligência ou Sabedoria em Assinatura Comportamental', () => {
+		const mentalist = ready('mentalista', 3);
+		const option = rpgTrainerTalentCatalog(mentalist).find(entry =>
+			entry.id === 'mentalista:assinatura-comportamental');
+		assert.deepEqual(option.attributeChoices, ['intelligence', 'wisdom']);
+		assert.throws(() => chooseRPGTrainerTalent(mentalist, { id: option.id }), /Escolha um atributo/);
+		const chosen = chooseRPGTrainerTalent(mentalist, { id: option.id, attribute: 'intelligence' });
+		assert.equal(chosen.attributes.intelligence, mentalist.attributes.intelligence + 1);
+		assert.equal(chosen.attributes.wisdom, mentalist.attributes.wisdom);
 	});
 	it('requires three distinct trained Knowledge areas for Scientific Authority', () => {
 		const scientist = ready('cientista', 10, { skills: { trained: [

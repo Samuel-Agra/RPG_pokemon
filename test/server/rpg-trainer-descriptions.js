@@ -5,6 +5,13 @@ const { RPG_TRAINER_TALENTS } = require('../../dist/server/rpg-showdown/trainer-
 const { RPG_TRAINER_CLASS_FEATURES } = require('../../dist/server/rpg-showdown/trainer-class-features');
 
 describe('RPG trainer talent descriptions', () => {
+	it('limita Quebra de Blefe a uma repetição social por cena', () => {
+		const talent = RPG_TRAINER_TALENTS.find(entry => entry.id === 'mentalista:quebra-de-blefe');
+		assert(talent);
+		assert.match(talent.text, /Persuasão, Enganação ou Intuição/);
+		assert.match(talent.text, /aceitar o segundo resultado/);
+		assert.match(talent.text, /uma vez por cena/);
+	});
 	it('descreve Laço Verdadeiro como vínculo voluntário e permanente', () => {
 		const apex = RPG_TRAINER_TALENTS.find(entry => entry.id === 'encantador:laco-verdadeiro');
 		assert(apex);

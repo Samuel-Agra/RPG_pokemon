@@ -33,6 +33,63 @@ function sheet() {
 }
 
 describe('RPG trainer situational roll talents', () => {
+	it('oferece Reação Antecipada na iniciativa e Arquiteto Social nos testes sociais', () => {
+		const mentalist = { ...sheet(), classId: 'mentalista', talents: { general: [],
+			class: ['mentalista:reacao-antecipada'], apex: 'mentalista:arquiteto-social' } };
+		const initiative = rpgTrainerRollTalentOptions(mentalist, 'initiative', '');
+		const reaction = initiative.find(entry => entry.id === 'mentalista:reacao-antecipada');
+		assert(reaction);
+		assert.equal(rpgResolveTrainerRollTalents(mentalist, 'initiative', '', [reaction.key]).bonus, 2);
+		for (const skill of ['persuasao', 'enganacao', 'intimidacao']) {
+			const architect = rpgTrainerRollTalentOptions(mentalist, 'skill', skill)
+				.find(entry => entry.id === 'mentalista:arquiteto-social');
+			assert(architect);
+			assert.equal(rpgResolveTrainerRollTalents(mentalist, 'skill', skill, []).bonus, 0);
+			assert.equal(rpgResolveTrainerRollTalents(mentalist, 'skill', skill, [architect.key]).bonus, 2);
+		}
+		assert.equal(rpgTrainerRollTalentOptions(mentalist, 'skill', 'investigacao')
+			.some(entry => entry.id === 'mentalista:arquiteto-social'), false);
+	});
+	it('oferece Mapa de Relações como +2 opcional nos testes sociais pertinentes', () => {
+		const mentalist = { ...sheet(), classId: 'mentalista', talents: { general: [],
+			class: ['mentalista:mapa-de-relacoes'], apex: null } };
+		for (const skill of ['persuasao', 'enganacao', 'intimidacao']) {
+			const option = rpgTrainerRollTalentOptions(mentalist, 'skill', skill)
+				.find(entry => entry.id === 'mentalista:mapa-de-relacoes');
+			assert(option);
+			assert.equal(option.bonus, 2);
+			assert.equal(rpgResolveTrainerRollTalents(mentalist, 'skill', skill, []).bonus, 0);
+			assert.equal(rpgResolveTrainerRollTalents(mentalist, 'skill', skill, [option.key]).bonus, 2);
+		}
+		assert.equal(rpgTrainerRollTalentOptions(mentalist, 'skill', 'investigacao')
+			.some(entry => entry.id === 'mentalista:mapa-de-relacoes'), false);
+	});
+	it('oferece Maneirismos Copiados somente em Atuação e Enganação do Mentalista', () => {
+		const mentalist = { ...sheet(), classId: 'mentalista', talents: { general: [],
+			class: ['mentalista:maneirismos-copiados'], apex: null } };
+		for (const skill of ['atuacao', 'enganacao']) {
+			const option = rpgTrainerRollTalentOptions(mentalist, 'skill', skill)
+				.find(entry => entry.id === 'mentalista:maneirismos-copiados');
+			assert(option);
+			assert.equal(option.bonus, 2);
+		}
+		assert.equal(rpgTrainerRollTalentOptions(mentalist, 'skill', 'persuasao')
+			.some(entry => entry.id === 'mentalista:maneirismos-copiados'), false);
+	});
+	it('oferece Sugestão Plausível como vantagem opcional apenas em Persuasão do Mentalista', () => {
+		const mentalist = { ...sheet(), classId: 'mentalista' };
+		const option = rpgTrainerRollTalentOptions(mentalist, 'skill', 'persuasao')
+			.find(entry => entry.id === 'mentalista:sugestao-plausivel');
+		assert(option);
+		assert.equal(option.advantage, true);
+		assert.equal(option.bonus, 0);
+		assert.equal(rpgResolveTrainerRollTalents(mentalist, 'skill', 'persuasao', []).advantages, 0);
+		assert.equal(rpgResolveTrainerRollTalents(mentalist, 'skill', 'persuasao', [option.key]).advantages, 1);
+		assert.equal(rpgTrainerRollTalentOptions(mentalist, 'skill', 'enganacao')
+			.some(entry => entry.id === option.id), false);
+		assert.equal(rpgTrainerRollTalentOptions(sheet(), 'skill', 'persuasao')
+			.some(entry => entry.id === option.id), false);
+	});
 	it('oferece Entrada Alternativa como bônus opcional apenas em Acrobacia e Atletismo', () => {
 		const rogue = { ...sheet(), classId: 'ladino', talents: { general: [],
 			class: ['ladino:entrada-alternativa'], apex: null } };

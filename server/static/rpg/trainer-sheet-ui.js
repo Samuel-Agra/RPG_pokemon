@@ -506,6 +506,42 @@
 			note.addEventListener('input', () => { resize(); clearTimeout(timer); timer = setTimeout(save, 500); });
 			note.addEventListener('blur', save);
 			editor.append(note, feedback); panel.append(editor);
+		} else if (action?.memoryPalace) {
+			const editor = el('div', 'trainer-sheet-trusted-partner');
+			const limit = Math.max(1, action.memoryPalace.limit);
+			editor.append(el('p', '', `Nomes das memórias: até ${limit}. O Mestre recorda o conteúdo quando necessário.`));
+			const list = el('div', 'trainer-sheet-memory-palace-list');
+			const feedback = el('small', 'trainer-sheet-trusted-partner-feedback');
+			let names = [...action.memoryPalace.names];
+			let saving = Promise.resolve();
+			const render = () => {
+				list.replaceChildren();
+				for (let index = 0; index < limit; index++) {
+					const input = el('input');
+					input.type = 'text'; input.maxLength = 100;
+					input.value = names[index] || '';
+					input.placeholder = `Memória ${index + 1}`;
+					input.setAttribute('aria-label', `Nome da memória ${index + 1}`);
+					let timer;
+					const save = () => {
+						clearTimeout(timer);
+						const next = [...list.querySelectorAll('input')].map(field => field.value.trim()).filter(Boolean);
+						if (JSON.stringify(next) === JSON.stringify(names)) return;
+						feedback.textContent = 'Salvando...';
+						saving = saving.catch(() => {}).then(async () => {
+							try {
+								const result = await action.api('/trainer/talents/memory-palace',
+									{ method: 'POST', body: { names: next } });
+								names = result.names; feedback.textContent = 'Salvo.';
+							} catch (error) { feedback.textContent = error.message || 'Não foi possível salvar as memórias.'; }
+						});
+					};
+					input.addEventListener('input', () => { clearTimeout(timer); timer = setTimeout(save, 500); });
+					input.addEventListener('blur', save);
+					list.append(input);
+				}
+			};
+			render(); editor.append(list, feedback); panel.append(editor);
 		} else if (action?.trustedPartner) {
 			const editor = el('div', 'trainer-sheet-trusted-partner');
 			const nameInput = el('input');
@@ -2544,6 +2580,24 @@
 				} finally { use.disabled = false; }
 			});
 			panel.append(use, feedback);
+		} else if (action?.preparedPersona) {
+			const use = el('button', 'trainer-sheet-talent-use', 'Usar Persona Preparada');
+			use.type = 'button';
+			const feedback = el('p', 'trainer-sheet-roll-error hidden');
+			use.addEventListener('click', async () => {
+				use.disabled = true;
+				try {
+					const result = await action.api('/trainer/talents/prepared-persona', { method: 'POST' });
+					feedback.textContent = `Persona preparada. Cargas restantes no kit: ${result.chargesRemaining}.`;
+					feedback.classList.remove('hidden');
+					window.dispatchEvent(new CustomEvent('rpg:realtime-sync',
+						{ detail: { tableId: selectedTable } }));
+				} catch (error) {
+					feedback.textContent = error.message || 'Não foi possível usar Persona Preparada.';
+					feedback.classList.remove('hidden');
+				} finally { use.disabled = false; }
+			});
+			panel.append(use, feedback);
 		} else if (action && !action.supportCacheCreate) {
 			const unavailable = action.reroll && !action.available;
 			const use = el('button', 'trainer-sheet-talent-use', action.used ? 'Usado neste descanso' : 'Usar');
@@ -3932,37 +3986,42 @@
 																																		{ id, api, trapLabyrinth: true } :
 																																		!readOnly && id === 'encantador:disfarce-social' ?
 																																			{ id, api, socialDisguise: true } :
-																																			!readOnly && ['segundo-folego', 'sortudo', 'determinado', 'esforco-heroico'].includes(id) ?
-																																				{ id, api, refresh, reroll: id !== 'segundo-folego',
-																																					available: progression.rerollAvailability?.[id],
-																																					used: progression.activeTalentUses?.used?.[id] === progression.activeTalentUses?.restCycle } :
-																																				!readOnly && id === 'medico:protocolo-preventivo' ?
-																																					{ id, api, refresh, preventiveProtocol: true } :
-																																					!readOnly && id === 'medico:medicina-integrada' ?
-																																						{ id, api, refresh, spriteUrl, integratedMedicine: true } :
-																																						!readOnly && id === 'medico:plano-individual-de-recuperacao' ?
-																																							{ id, api, individualRecoveryNote: sheet.individualRecoveryNote || '' } :
-																																							!readOnly && id === 'medico:tratamento-de-queimaduras' ?
-																																								{ id, api, refresh, trainerSpriteUrl, burnTreatment: true } :
-																																								!readOnly && id === 'medico:estimulo-neuromuscular' ?
-																																									{ id, api, refresh, trainerSpriteUrl, neuromuscularTreatment: true } :
-																																									!readOnly && id === 'medico:aquecimento-controlado' ?
-																																										{ id, api, refresh, trainerSpriteUrl, controlledWarming: true } :
-																																										!readOnly && id === 'medico:resposta-neurologica' ?
-																																											{ id, api, refresh, trainerSpriteUrl, neurologicalResponse: true } :
-																																											!readOnly && id === 'medico:atendimento-emergencial' ?
-																																												{ id, api, refresh, trainerSpriteUrl, emergencyCare: true } :
-																																												!readOnly && id === 'medico:entre-a-vida-e-a-morte' ?
-																																													{ id, api, refresh, trainerSpriteUrl, reanimation: true, rollTalents: progression.rollTalents,
-																																														medicalTrained: sheet.skills.trained.includes('medicina') } :
-																																													!readOnly && id === 'medico:recuperacao-extraordinaria' ?
-																																														{ id, api, refresh, extraordinaryRecovery: progression.extraordinaryRecovery } :
-																																														!readOnly && sheet.classId === 'medico' && name === 'Recuperação Assistida' ?
-																																															{ id, api, assistedRecovery: progression.assistedRecovery } :
-																																															!readOnly && manualRest ? { id, api, refresh, manualRest } :
-																																															!readOnly && ['cozinheiro:refeicao-reconfortante', 'cozinheiro:nutricao-de-recuperacao'].includes(id) ?
-																																																{ restStatus: mealUsed ? 'Usado neste descanso longo junto com Refeição Revigorante.' :
-																																																'Será ativado junto com Refeição Revigorante.' } : null));
+																																			!readOnly && id === 'mentalista:palacio-da-memoria' ?
+																																				{ id, api, memoryPalace: { names: sheet.memoryPalaceNames || [],
+																																					limit: Math.max(1, progression.proficiency + Math.floor((sheet.attributes.intelligence - 10) / 2)) } } :
+																																				!readOnly && id === 'mentalista:persona-preparada' ?
+																																					{ id, api, preparedPersona: true } :
+																																					!readOnly && ['segundo-folego', 'sortudo', 'determinado', 'esforco-heroico'].includes(id) ?
+																																						{ id, api, refresh, reroll: id !== 'segundo-folego',
+																																							available: progression.rerollAvailability?.[id],
+																																							used: progression.activeTalentUses?.used?.[id] === progression.activeTalentUses?.restCycle } :
+																																						!readOnly && id === 'medico:protocolo-preventivo' ?
+																																							{ id, api, refresh, preventiveProtocol: true } :
+																																							!readOnly && id === 'medico:medicina-integrada' ?
+																																								{ id, api, refresh, spriteUrl, integratedMedicine: true } :
+																																								!readOnly && id === 'medico:plano-individual-de-recuperacao' ?
+																																									{ id, api, individualRecoveryNote: sheet.individualRecoveryNote || '' } :
+																																									!readOnly && id === 'medico:tratamento-de-queimaduras' ?
+																																										{ id, api, refresh, trainerSpriteUrl, burnTreatment: true } :
+																																										!readOnly && id === 'medico:estimulo-neuromuscular' ?
+																																											{ id, api, refresh, trainerSpriteUrl, neuromuscularTreatment: true } :
+																																											!readOnly && id === 'medico:aquecimento-controlado' ?
+																																												{ id, api, refresh, trainerSpriteUrl, controlledWarming: true } :
+																																												!readOnly && id === 'medico:resposta-neurologica' ?
+																																													{ id, api, refresh, trainerSpriteUrl, neurologicalResponse: true } :
+																																													!readOnly && id === 'medico:atendimento-emergencial' ?
+																																														{ id, api, refresh, trainerSpriteUrl, emergencyCare: true } :
+																																														!readOnly && id === 'medico:entre-a-vida-e-a-morte' ?
+																																															{ id, api, refresh, trainerSpriteUrl, reanimation: true, rollTalents: progression.rollTalents,
+																																																medicalTrained: sheet.skills.trained.includes('medicina') } :
+																																															!readOnly && id === 'medico:recuperacao-extraordinaria' ?
+																																																{ id, api, refresh, extraordinaryRecovery: progression.extraordinaryRecovery } :
+																																																!readOnly && sheet.classId === 'medico' && name === 'Recuperação Assistida' ?
+																																																	{ id, api, assistedRecovery: progression.assistedRecovery } :
+																																																	!readOnly && manualRest ? { id, api, refresh, manualRest } :
+																																																	!readOnly && ['cozinheiro:refeicao-reconfortante', 'cozinheiro:nutricao-de-recuperacao'].includes(id) ?
+																																																		{ restStatus: mealUsed ? 'Usado neste descanso longo junto com Refeição Revigorante.' :
+																																																		'Será ativado junto com Refeição Revigorante.' } : null));
 			talentList.append(button);
 		}
 		talentSection.append(talentList);

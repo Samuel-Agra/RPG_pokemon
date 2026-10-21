@@ -608,6 +608,15 @@ export class RPGHttpServer {
 			this.json(res, 200, this.login.useTrainerSocialDisguise(this.token(req)));
 			return;
 		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/prepared-persona') {
+			this.json(res, 200, this.login.useTrainerPreparedPersona(this.token(req)));
+			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/memory-palace') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.setTrainerMemoryPalace(this.token(req), body.names as string[]));
+			return;
+		}
 		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/trapmaker') {
 			this.json(res, 200, this.login.useTrainerTrapmaker(this.token(req)));
 			return;

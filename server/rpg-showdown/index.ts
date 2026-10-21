@@ -3815,6 +3815,58 @@ export class RPGLoginService {
 		return { chargesRemaining: kit.charges, kitInstanceId: kit.id };
 	}
 
+	setTrainerMemoryPalace(token: string, names: string[]) {
+		const session = this.getSession(token);
+		if (session.mode !== 'player' || !session.platformTableId) throw new Error('Entre como jogador em uma mesa');
+		const characterId = session.role === 'master' ? session.viewAsCharacterId : session.characterId;
+		if (!characterId) throw new Error('Nenhum personagem selecionado');
+		const previous = this.requireCharacter(toID(characterId));
+		if (previous.tableId !== session.platformTableId) throw new Error('Personagem fora da mesa atual');
+		const sheet = previous.state.trainerSheet;
+		if (sheet?.status !== 'complete' || sheet.classId !== 'mentalista' ||
+			!sheet.talents.class.includes('mentalista:palacio-da-memoria')) {
+			throw new Error('Este treinador não possui Palácio da Memória');
+		}
+		const limit = Math.max(1, rpgTrainerProficiency(sheet.level) +
+			Math.floor((sheet.attributes.intelligence - 10) / 2));
+		if (!Array.isArray(names) || names.length > limit || names.some(name =>
+			typeof name !== 'string' || !name.trim() || name.trim().length > 100)) {
+			throw new Error(`Informe até ${limit} nomes de memórias, com no máximo 100 caracteres cada`);
+		}
+		const next = structuredClone(previous);
+		next.state.trainerSheet!.memoryPalaceNames = names.map(name => name.trim());
+		next.state.updatedAt = this.now();
+		this.persistAtomically(() => this.repository.set(next));
+		return { names: next.state.trainerSheet!.memoryPalaceNames, limit };
+	}
+
+	useTrainerPreparedPersona(token: string) {
+		const session = this.getSession(token);
+		if (session.mode !== 'player' || !session.platformTableId) throw new Error('Entre como jogador em uma mesa');
+		const characterId = session.role === 'master' ? session.viewAsCharacterId : session.characterId;
+		if (!characterId) throw new Error('Nenhum personagem selecionado');
+		const previous = this.requireCharacter(toID(characterId));
+		if (previous.tableId !== session.platformTableId) throw new Error('Personagem fora da mesa atual');
+		this.requireWorldBagItemUse(token, previous.state.id);
+		const actor = structuredClone(previous);
+		const sheet = actor.state.trainerSheet;
+		if (sheet?.status !== 'complete' || sheet.classId !== 'mentalista' ||
+			!sheet.talents.class.includes('mentalista:persona-preparada')) {
+			throw new Error('Este treinador não possui Persona Preparada');
+		}
+		const inventory = this.ensureTrainerInventory(actor);
+		const kits = inventory.items.filter(item => item.itemId === 'kit-disfarce' && item.location === 'bag');
+		if (!kits.length) throw new Error('Você precisa de um Kit de Disfarce na Bag');
+		const kit = kits.find(item => (item.charges || 0) > 0);
+		if (!kit) throw new Error('O Kit de Disfarce está sem cargas');
+		kit.charges!--;
+		inventory.revision++;
+		actor.state.updatedAt = this.now();
+		this.validateTrainerInventory(actor);
+		this.persistAtomically(() => this.repository.set(actor));
+		return { chargesRemaining: kit.charges, kitInstanceId: kit.id };
+	}
+
 	/** O Artista distribui o benefício; cada descanso curto renova o limite de participantes. */
 	useTrainerComfortingArt(token: string, recipientCharacterId: string, effect: 'will' | 'exhaustion') {
 		const session = this.getSession(token);

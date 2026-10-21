@@ -148,6 +148,8 @@ export interface RPGTrainerSheet {
 	/** Nome livre do contato recorrente de Parceiro de Confiança. */
 	trustedPartnerName?: string;
 	individualRecoveryNote?: string;
+	/** Apenas os nomes das memórias; o conteúdo é lembrado pelo Mestre. */
+	memoryPalaceNames?: string[];
 	burnTreatmentReceipts?: { requestId: string, targetId: string, result: {
 		patientName: string, chargesRemaining: number, supplyRoll: number | null, chargeSaved: boolean, }, }[];
 	neuromuscularTreatmentReceipts?: { requestId: string, targetId: string, conditionId: string, result: {

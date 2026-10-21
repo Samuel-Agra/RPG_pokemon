@@ -112,6 +112,8 @@ const RULES: Readonly<Record<string, Rule>> = {
 		condition: 'Carregar paciente atendido pelo Médico, evitando queda ou movimento que agrave o ferimento durante o transporte.' },
 	'detetive:arquivo-de-casos': { targets: ['skill:investigacao'], bonus: 2,
 		condition: 'Investigar o assunto de um dossiê ativo, cruzando evidências já registradas.' },
+	'mentalista:maneirismos-copiados': { targets: ['skill:atuacao', 'skill:enganacao'], bonus: 2,
+		condition: 'Disfarçado como a pessoa observada por uma hora, diante de quem a conhece apenas superficial ou profissionalmente.' },
 	'detetive:vigilancia-discreta': { targets: ['skill:percepcao', 'skill:furtividade'], bonus: 2,
 		condition: 'Acompanhar à distância pessoa, veículo ou local sem ser percebido.' },
 	'detetive:parceiro-investigativo': { targets: ['skill:investigacao', 'skill:percepcao'], bonus: 2,
@@ -262,6 +264,12 @@ export function rpgTrainerRollTalents(sheet: RPGTrainerSheet): RPGTrainerRollTal
 		options.push({ key: 'diplomata:mediacao-estruturada', id: 'diplomata:mediacao-estruturada',
 			name: 'Mediação Estruturada', bonus: 2, advantage: false,
 			condition: 'Concluir acordo após ouvir as partes por dez minutos e apresentar proposta que respeite suas exigências indispensáveis.',
+			targets: ['skill:persuasao'] });
+	}
+	if (sheet.status === 'complete' && sheet.classId === 'mentalista') {
+		options.push({ key: 'mentalista:sugestao-plausivel', id: 'mentalista:sugestao-plausivel',
+			name: 'Sugestão Plausível', bonus: 0, advantage: true,
+			condition: 'Sugerir uma ação possível e razoável, sem causar dano evidente, colocar o alvo em perigo ou contrariar seus princípios, vínculos ou deveres importantes.',
 			targets: ['skill:persuasao'] });
 	}
 	if (sheet.status === 'complete' && sheet.classId === 'explorador') {
