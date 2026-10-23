@@ -5326,6 +5326,7 @@ function openMasterInviteDialog(tableId, inviteList) {
 	document.body.append(layer); role.focus();
 }
 
+const masterCaptureDrafts = new Map();
 async function openMasterPlayerPokemonGift(character) {
 	document.querySelector('.master-player-pokemon-gift-backdrop')?.remove();
 	const backdrop = createElement('div', 'modal-backdrop master-player-pokemon-gift-backdrop');
@@ -5343,12 +5344,17 @@ async function openMasterPlayerPokemonGift(character) {
 	editor.append(createElement('div', 'empty-state', 'Selecione um Pokémon para configurar.'));
 	body.append(browser, editor); dialog.append(header, body); backdrop.append(dialog); document.body.append(backdrop);
 	let catalog = [];
+	const previousDraft = masterCaptureDrafts.get(character.id);
 	let selected = null;
 	let natureDismiss = null;
+	let capturePopover = null;
+	let capturePopoverDismiss = null;
 	const natures = ['Hardy', 'Lonely', 'Brave', 'Adamant', 'Naughty', 'Bold', 'Docile', 'Relaxed', 'Impish', 'Lax', 'Timid', 'Hasty', 'Serious', 'Jolly', 'Naive', 'Modest', 'Mild', 'Quiet', 'Bashful', 'Rash', 'Calm', 'Gentle', 'Sassy', 'Careful', 'Quirky'];
 	const close = () => {
 		document.removeEventListener('keydown', onKeyDown);
 		if (natureDismiss) document.removeEventListener('pointerdown', natureDismiss, true);
+		if (capturePopoverDismiss) document.removeEventListener('pointerdown', capturePopoverDismiss, true);
+		capturePopover?.remove();
 		backdrop.remove();
 	};
 	const onKeyDown = event => { if (event.key === 'Escape') close(); };
@@ -5357,6 +5363,8 @@ async function openMasterPlayerPokemonGift(character) {
 	document.addEventListener('keydown', onKeyDown);
 	const drawEditor = pokemon => {
 		selected = pokemon;
+		if (capturePopoverDismiss) document.removeEventListener('pointerdown', capturePopoverDismiss, true);
+		capturePopover?.remove(); capturePopover = null; capturePopoverDismiss = null;
 		backdrop.querySelector('.master-player-gift-nature-panel')?.remove();
 		if (natureDismiss) document.removeEventListener('pointerdown', natureDismiss, true);
 		natureDismiss = null;
@@ -5430,21 +5438,126 @@ async function openMasterPlayerPokemonGift(character) {
 		shiny.addEventListener('change', drawSprite);
 		fields.append(control('Level', level), control('Gênero', gender), control('Habilidade', ability), abilityDescription,
 			naturePicker);
+		const captureToggle = createElement('input'); captureToggle.type = 'checkbox';
+		const captureLabel = createElement('label', 'master-player-gift-capture-toggle');
+		captureLabel.append(captureToggle, createElement('span', '', 'Tentativa de captura'));
+		const captureFields = createElement('div', 'master-player-gift-capture-fields hidden');
+		const hpPercent = createElement('input'); hpPercent.type = 'range'; hpPercent.min = '1'; hpPercent.max = '100'; hpPercent.value = '100';
+		const status = { value: '' };
+		const statusChoices = [['', 'Normal'], ['brn', 'BRN'], ['par', 'PAR'], ['psn', 'PSN'],
+			['tox', 'TOX'], ['slp', 'SLP'], ['frz', 'FRZ']];
+		const closeCapturePopover = () => {
+			if (capturePopoverDismiss) document.removeEventListener('pointerdown', capturePopoverDismiss, true);
+			capturePopover?.remove(); capturePopover = null; capturePopoverDismiss = null;
+		};
+		const openCapturePopover = (anchor, panel, width) => {
+			closeCapturePopover();
+			naturePanel.classList.add('hidden');
+			capturePopover = panel; backdrop.append(panel);
+			const bounds = anchor.getBoundingClientRect();
+			panel.style.width = Math.min(width, window.innerWidth - 24) + 'px';
+			panel.style.left = Math.max(12, Math.min(bounds.left, window.innerWidth - panel.offsetWidth - 12)) + 'px';
+			panel.style.top = Math.max(12, Math.min(bounds.bottom + 5, window.innerHeight - panel.offsetHeight - 12)) + 'px';
+			capturePopoverDismiss = event => {
+				if (panel.contains(event.target) || anchor.contains(event.target)) return;
+				closeCapturePopover();
+			};
+			setTimeout(() => { if (capturePopover === panel) document.addEventListener('pointerdown', capturePopoverDismiss, true); }, 0);
+		};
+		const vital = createElement('div', 'master-player-gift-capture-vital');
+		const statusRow = createElement('div', 'team-builder-type-status-row master-player-gift-status-row');
+		statusRow.append(createElement('strong', '', 'Status'));
+		const statusBadge = createElement('span', 'box-condition status-normal team-builder-healing-trigger', 'Normal');
+		statusBadge.tabIndex = 0; statusBadge.setAttribute('role', 'button');
+		statusBadge.setAttribute('aria-label', 'Definir status do Pokémon');
+		const updateStatus = () => {
+			statusBadge.className = 'box-condition status-' + (status.value || 'normal') + ' team-builder-healing-trigger';
+			statusBadge.textContent = statusChoices.find(([id]) => id === status.value)?.[1] || 'Normal';
+		};
+		const showStatusChoices = () => {
+			const panel = createElement('div', 'team-builder-healing-popover team-builder-master-state-popover team-builder-master-status-popover master-player-gift-capture-popover');
+			const header = createElement('div', 'team-builder-master-status-header');
+			const grid = createElement('div', 'team-builder-master-status-grid');
+			const makeChoice = ([id, name]) => {
+				const choice = button('', 'team-builder-healing-choice team-builder-master-status-choice' + (status.value === id ? ' selected' : ''));
+				choice.append(createElement('span', 'box-condition status-' + (id || 'normal'), id ? name : 'OK'));
+				choice.addEventListener('click', () => { status.value = id; updateStatus(); closeCapturePopover(); });
+				return choice;
+			};
+			header.append(createElement('strong', 'team-builder-popover-title', 'Status'), makeChoice(statusChoices[0]));
+			for (const choice of statusChoices.slice(1)) grid.append(makeChoice(choice));
+			panel.append(header, grid); openCapturePopover(statusBadge, panel, 132);
+		};
+		statusBadge.addEventListener('click', showStatusChoices);
+		statusBadge.addEventListener('keydown', event => {
+			if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); showStatusChoices(); }
+		});
+		statusRow.append(statusBadge);
+		const hpPanel = createElement('div', 'team-builder-main-hp master-player-gift-capture-hp');
+		const hpTop = createElement('div');
+		const hpValue = createElement('span');
+		hpTop.append(createElement('strong', '', 'PV'), hpValue);
+		const hpTrack = createElement('span', 'master-player-gift-inline-hp-track');
+		const hpInside = createElement('strong', 'master-player-gift-hp-inside');
+		hpPercent.className = 'team-builder-master-hp-slider';
+		hpPercent.setAttribute('aria-label', 'Porcentagem de PV do Pokémon');
+		hpTrack.append(hpPercent, hpInside);
+		hpPanel.append(hpTop, hpTrack);
+		const updateHP = () => {
+			const value = Number(hpPercent.value);
+			hpPercent.className = 'team-builder-master-hp-slider ' +
+				(value <= 20 ? 'critical' : value <= 50 ? 'warning' : 'healthy');
+			hpPercent.style.setProperty('--hp-fill', value + '%');
+			hpValue.textContent = value + '%'; hpInside.textContent = value + '%';
+		};
+		hpPercent.addEventListener('input', updateHP);
+		vital.append(statusRow, hpPanel);
+		const environment = createElement('select');
+		for (const [id, name] of [['normal', 'Sem condição especial'], ['night', 'À noite'], ['cave', 'Em caverna'], ['water', 'Na água']]) environment.append(new Option(name, id));
+		const captureExtras = createElement('div', 'master-player-gift-capture-extras');
+		captureExtras.append(control('Condição para a Poké Bola', environment));
+		captureFields.append(vital, captureExtras);
+		captureToggle.addEventListener('change', () => {
+			captureFields.classList.toggle('hidden', !captureToggle.checked);
+			if (!captureToggle.checked) closeCapturePopover();
+		});
+		if (previousDraft?.species === pokemon.name) {
+			level.value = previousDraft.level; gender.value = previousDraft.gender;
+			ability.value = previousDraft.ability; nature.value = previousDraft.nature; natureValue.textContent = nature.value;
+			shiny.checked = previousDraft.shiny; drawSprite();
+			captureToggle.checked = true; hpPercent.value = previousDraft.hpPercent;
+			status.value = previousDraft.status; environment.value = previousDraft.environment;
+			captureFields.classList.remove('hidden');
+		}
+		updateStatus(); updateHP();
 		const rules = createElement('div', 'master-player-pokemon-gift-rules');
 		rules.append(createElement('strong', '', 'Configuração automática'),
 			createElement('span', '', '508 EVs aleatórios · IVs em 0 · até 4 golpes aleatórios aprendidos por level'));
 		const actions = createElement('div', 'form-actions');
 		const cancel = button('Cancelar'); const submit = button('Dar Pokémon', 'button primary'); submit.type = 'submit';
 		cancel.addEventListener('click', close); actions.append(cancel, submit);
-		editor.append(portrait, fields, rules, actions);
+		editor.append(portrait, fields, captureLabel, captureFields, rules, actions);
 		editor.onsubmit = async event => {
 			event.preventDefault(); submit.disabled = true;
 			try {
+				const encounterId = previousDraft?.species === selected.name ?
+					previousDraft.encounterId : crypto.randomUUID();
+				const draft = { species: selected.name, level: Number(level.value), gender: gender.value,
+					ability: ability.value, nature: nature.value, shiny: shiny.checked,
+					hpPercent: Number(hpPercent.value), status: status.value, environment: environment.value,
+					encounterId };
 				const response = await api('/characters/pokemon', { method: 'POST', body: {
 					characterId: character.id, species: selected.name, level: Number(level.value),
 					gender: gender.value, ability: ability.value, nature: nature.value, shiny: shiny.checked,
+					capture: captureToggle.checked, encounterId, hpPercent: Number(hpPercent.value), status: status.value,
+					conditions: { isNight: environment.value === 'night',
+						isCave: environment.value === 'cave', isInWater: environment.value === 'water' },
 				} });
+				if (captureToggle.checked) masterCaptureDrafts.set(character.id, draft);
+				else masterCaptureDrafts.delete(character.id);
 				close();
+				if (response.pending) { showToast('Aguardando a rolagem de Captura de ' + character.characterName + '.');
+					await renderDashboard(); return; }
 				showToast(selected.name + ' foi enviado para ' + character.characterName +
 					(response.destination === 'party' ? ' e entrou na equipe.' : ' e foi guardado na Box.'));
 				await renderDashboard();
@@ -5461,7 +5574,13 @@ async function openMasterPlayerPokemonGift(character) {
 	};
 	search.addEventListener('input', drawResults);
 	results.append(createElement('div', 'loading-block', 'Carregando Pokémon...'));
-	try { catalog = await rpgLoadBattlePokemon(); drawResults(); search.focus(); } catch (error) {
+	try {
+		catalog = await rpgLoadBattlePokemon();
+		drawResults();
+		const saved = catalog.find(entry => entry.name === previousDraft?.species);
+		if (saved) { drawEditor(saved); drawResults(); }
+		search.focus();
+	} catch (error) {
 		results.replaceChildren(createElement('div', 'empty-state', error.message));
 	}
 }

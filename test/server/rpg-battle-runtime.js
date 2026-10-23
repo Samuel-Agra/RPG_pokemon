@@ -1339,10 +1339,163 @@ describe('RPG residual damage animations', () => {
 		});
 		const state = manager.action(session.id, { master: true }, { type: 'move', move: 1 });
 		assert.equal(state.lastAction.reason, 'throw-missed');
+		assert.match(state.log.join(' '), /Arremesso de Master Ball: 1 = 1 \(CD 17\).*errou o alvo/);
 		assert.equal(state.lastAction.shakes, 0);
 		const event = state.animations.find(entry => entry.type === 'capture');
 		assert.equal(event.feedback, 'miss');
 		assert.deepEqual(event.throwRoll, { dice: [1], natural: 1, total: 1, dc: 17 });
+	});
+
+	it('returns a Pokemon Master ball immediately only when the throw misses by at most four', () => {
+		for (const [natural, expectedQuantity] of [[10, 1], [8, 0]]) {
+			const { session, launch, character } = setup();
+			session.id = `runtime-controlled-throw-${natural}`;
+			launch.sessionId = session.id;
+			character.trainerSheet = {
+				version: 1, status: 'complete', level: 1, experience: 0, classId: 'mestre-pokemon',
+				attributes: { strength: 10, dexterity: 10, constitution: 10,
+					intelligence: 10, wisdom: 10, charisma: 10 },
+				hitPoints: { current: 20, maximum: 20, temporary: 0 },
+				skills: { trained: ['captura'], focused: [] }, resistances: [],
+				talents: { general: [], class: [], apex: null }, resources: {},
+			};
+			character.inventory = RPGInventorySystem.create(RPGBagSystem.createForTier('hero', 'starter', [
+				{ itemId: 'masterball', quantity: 1 },
+			]));
+			const manager = new RPGBattleRuntimeManager();
+			manager.start(session, launch, () => character);
+			const runtime = manager.runtimes.get(session.id.replaceAll('-', ''));
+			runtime.battle.random = () => Math.floor((natural - 1) / 20 * 0x1000000);
+			manager.ready(session.id, { master: false, characterId: 'hero' });
+			manager.ready(session.id, { master: true });
+			manager.action(session.id, { master: false, characterId: 'hero' }, {
+				type: 'turn', choices: [{ type: 'capture', ball: 'masterball', target: 0,
+					actionId: `controlled-${natural}` }],
+			});
+			const state = manager.action(session.id, { master: true }, { type: 'move', move: 1 });
+			assert.equal(state.lastAction.reason, 'throw-missed');
+			assert.match(state.log.join(' '), new RegExp(`Arremesso de Master Ball: ${natural - 1} \\+ 4 = ${natural + 3} \\(CD 17\\).*errou o alvo`));
+			assert.equal(RPGBagSystem.getQuantity(runtime.characters.get('hero').inventory.bag, 'masterball'),
+				expectedQuantity);
+			assert.equal(runtime.recoverableBalls.length, 0);
+		}
+	});
+
+	it('applies Perfect Throw only ten points above the target DC and excludes Expert Captor in battle', () => {
+		const run = (classTalents, dexterity) => {
+			const { session, launch, character } = setup();
+			session.id = `runtime-capture-bonus-${classTalents.join('-') || 'none'}-${dexterity}`;
+			launch.sessionId = session.id;
+			character.trainerSheet = {
+				version: 1, status: 'complete', level: 5, experience: 0, classId: 'mestre-pokemon',
+				attributes: { strength: 10, dexterity, constitution: 10,
+					intelligence: 10, wisdom: 10, charisma: 10 },
+				hitPoints: { current: 20, maximum: 20, temporary: 0 },
+				skills: { trained: ['captura'], focused: [] }, resistances: [],
+				talents: { general: [], class: classTalents, apex: null }, resources: {},
+			};
+			character.inventory = RPGInventorySystem.create(RPGBagSystem.createForTier('hero', 'starter', [
+				{ itemId: 'pokeball', quantity: 1 },
+			]));
+			const manager = new RPGBattleRuntimeManager();
+			manager.start(session, launch, () => character);
+			manager.runtimes.get(session.id.replace(/[^a-z0-9]/g, '')).battle.random = count => count - 1;
+			manager.ready(session.id, { master: false, characterId: 'hero' });
+			manager.ready(session.id, { master: true });
+			manager.action(session.id, { master: false, characterId: 'hero' }, {
+				type: 'turn', choices: [{ type: 'capture', ball: 'pokeball', target: 0,
+					actionId: `bonus-${dexterity}` }],
+			});
+			const state = manager.action(session.id, { master: true }, { type: 'move', move: 1 });
+			return { probability: state.lastAction.probability,
+				roll: state.animations.find(entry => entry.type === 'capture').throwRoll };
+		};
+		const baseline = run([], 10);
+		const insufficientMargin = run(['mestre-pokemon:arremesso-perfeito'], 10);
+		assert.ok(insufficientMargin.roll.total - insufficientMargin.roll.dc < 10);
+		assert.equal(insufficientMargin.probability, baseline.probability);
+		const expert = run(['mestre-pokemon:capturador-especialista'], 10);
+		assert.equal(expert.probability, baseline.probability);
+		const highBaseline = run([], 20);
+		const perfect = run(['mestre-pokemon:arremesso-perfeito'], 20);
+		assert.ok(perfect.roll.total - perfect.roll.dc >= 10);
+		assert.ok(perfect.probability > highBaseline.probability);
+		assert.ok(perfect.probability <= 0.95);
+	});
+
+	it('uses Master of Capture only after a successful throw in a wild battle, spending one ball', () => {
+		const { session, launch, character } = setup();
+		session.id = 'runtime-master-capture-apex'; launch.sessionId = session.id;
+		character.trainerSheet = {
+			version: 1, status: 'complete', level: 10, experience: 200000000, classId: 'mestre-pokemon',
+			attributes: { strength: 10, dexterity: 10, constitution: 10,
+				intelligence: 10, wisdom: 10, charisma: 10 },
+			hitPoints: { current: 20, maximum: 20, temporary: 0 },
+			skills: { trained: ['captura'], focused: [] }, resistances: [],
+			talents: { general: [], class: [], apex: 'mestre-pokemon:mestre-da-captura' }, resources: {},
+		};
+		character.inventory = RPGInventorySystem.create(RPGBagSystem.createForTier('hero', 'starter', [
+			{ itemId: 'pokeball', quantity: 1 },
+		]));
+		const manager = new RPGBattleRuntimeManager();
+		manager.start(session, launch, () => character);
+		const runtime = manager.runtimes.get('runtimemastercaptureapex');
+		const shakes = [65535, 0, 0, 0, 0];
+		runtime.battle.random = count => count === 0x1000000 ? 0xf00000 : shakes.shift();
+		manager.ready(session.id, { master: false, characterId: 'hero' });
+		manager.ready(session.id, { master: true });
+		manager.action(session.id, { master: false, characterId: 'hero' }, {
+			type: 'turn', choices: [{ type: 'capture', ball: 'pokeball', target: 0,
+				actionId: 'master-capture-apex' }],
+		});
+		const state = manager.action(session.id, { master: true }, { type: 'move', move: 1 });
+		assert.equal(state.lastAction.firstShakes, 0);
+		assert.equal(state.lastAction.secondChanceUsed, true);
+		assert.equal(state.lastAction.success, true);
+		const captureAnimation = state.animations.find(event => event.type === 'capture');
+		assert.equal(captureAnimation.feedback, undefined);
+		assert.equal(captureAnimation.firstShakes, 0);
+		assert.equal(captureAnimation.secondChanceUsed, true);
+		assert.equal(captureAnimation.shakes, 4);
+		assert.equal(shakes.length, 0);
+		assert.equal(RPGBagSystem.getQuantity(runtime.characters.get('hero').inventory.bag, 'pokeball'), 0);
+		assert.equal(runtime.itemEvents.filter(event => event.item === 'pokeball').length, 1);
+		assert.match(state.log.join(' '), /Ápice — Mestre da Captura: a primeira chance falhou/);
+	});
+
+	it('returns every missed ball with Risk-Free Capture only when the battle ends', () => {
+		const { session, launch, character } = setup();
+		session.id = 'runtime-risk-free-miss'; launch.sessionId = session.id;
+		character.trainerSheet = {
+			version: 1, status: 'complete', level: 5, experience: 0, classId: 'mestre-pokemon',
+			attributes: { strength: 10, dexterity: 10, constitution: 10,
+				intelligence: 10, wisdom: 10, charisma: 10 },
+			hitPoints: { current: 20, maximum: 20, temporary: 0 },
+			skills: { trained: ['captura'], focused: [] }, resistances: [],
+			talents: { general: [], class: ['mestre-pokemon:captura-sem-risco'], apex: null }, resources: {},
+		};
+		character.inventory = RPGInventorySystem.create(RPGBagSystem.createForTier('hero', 'starter', [
+			{ itemId: 'pokeball', quantity: 1 },
+		]));
+		const manager = new RPGBattleRuntimeManager();
+		manager.start(session, launch, () => character);
+		const runtime = manager.runtimes.get('runtimeriskfreemiss');
+		runtime.battle.random = () => 0;
+		manager.ready(session.id, { master: false, characterId: 'hero' });
+		manager.ready(session.id, { master: true });
+		manager.action(session.id, { master: false, characterId: 'hero' }, {
+			type: 'turn', choices: [{ type: 'capture', ball: 'pokeball', target: 0,
+				actionId: 'risk-free-miss' }],
+		});
+		const state = manager.action(session.id, { master: true }, { type: 'move', move: 1 });
+		assert.equal(state.lastAction.reason, 'throw-missed');
+		assert.equal(RPGBagSystem.getQuantity(runtime.characters.get('hero').inventory.bag, 'pokeball'), 0);
+		assert.equal(runtime.recoverableBalls.length, 1);
+		runtime.battle.tie();
+		let saved;
+		manager.settleRecoverableBalls(session.id, (_id, inventory) => { saved = inventory; });
+		assert.equal(RPGBagSystem.getQuantity(saved.bag, 'pokeball'), 1);
+		assert.equal(runtime.recoverableBalls.length, 0);
 	});
 
 	it('never lets a Master Ball hit a mythical Pokemon even with a perfect throw', () => {
@@ -1402,8 +1555,9 @@ describe('RPG residual damage animations', () => {
 					intelligence: 10, wisdom: 10, charisma: 10 },
 				hitPoints: { current: 20, maximum: 20, temporary: 0 },
 				skills: { trained: ['captura'], focused: [] }, resistances: [],
-				talents: { general: [], class: angled ? ['mestre-pokemon:arremesso-angulado'] :
-				['mestre-pokemon:captura-sem-risco'], apex: null }, resources: {},
+				talents: { general: [], class: angled ?
+					['mestre-pokemon:arremesso-angulado', 'mestre-pokemon:pontaria-paciente'] :
+					['mestre-pokemon:captura-sem-risco'], apex: null }, resources: {},
 			};
 			character.inventory = RPGInventorySystem.create(RPGBagSystem.createForTier('hero', 'starter', [
 				{ itemId: 'masterball', quantity: 1 },
@@ -1424,6 +1578,7 @@ describe('RPG residual damage animations', () => {
 		};
 		const angled = run(true);
 		assert.equal(angled.state.lastAction.success, true);
+		assert.equal(angled.state.animations.find(entry => entry.type === 'capture').throwRoll.dice.length, 2);
 		assert.equal(angled.state.status, 'ended');
 		const safe = run(false);
 		assert.equal(safe.state.lastAction.reason, 'reflect-blocked');

@@ -257,6 +257,9 @@ export interface RPGCaptureResult {
 	modifiedCatchRate: number;
 	shakeThreshold: number;
 	shakes: number;
+	/** Primeira tentativa percentual, antes da segunda chance na mesma Poké Bola. */
+	firstShakes?: number;
+	secondChanceUsed?: boolean;
 	/** Probabilidade final entre zero e um. */
 	probability: number;
 	target: { side: SideID, position: number };

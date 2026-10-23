@@ -40,6 +40,8 @@ export interface RPGTrainerSheet {
 	skills: { trained: string[], focused: string[] };
 	resistances: string[];
 	talents: { general: string[], class: string[], apex: string | null };
+	/** Atributo padrão dos arremessos de captura durante batalhas. */
+	captureCombatAttribute?: 'dexterity' | 'wisdom';
 	/** Confidente confirmado pelo Mestre; um vínculo ativo por Encantador. */
 	confidantName?: string;
 	/** NPC do Laço Verdadeiro confirmado pelo Mestre; somente o Mestre pode desfazer o vínculo. */

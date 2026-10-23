@@ -186,6 +186,8 @@ export interface RPGRuntimeCaptureAnimationEvent {
 	ball: { id: string, name: string, sprite: number | null };
 	success: boolean;
 	shakes: number;
+	firstShakes?: number;
+	secondChanceUsed?: boolean;
 }
 export type RPGRuntimeAnimationEvent = RPGRuntimeMoveAnimationEvent | RPGRuntimeMegaAnimationEvent |
 	RPGRuntimeFaintAnimationEvent | RPGRuntimeResidualAnimationEvent | RPGRuntimeEntryAnimationEvent |
@@ -389,6 +391,7 @@ interface RuntimeRecord {
 	readyViewers: Set<string>;
 	characters: Map<string, RPGCharacterState>;
 	customAnimations: (RPGRuntimeItemAnimationEvent | RPGRuntimeCaptureAnimationEvent)[];
+	captureLog: { sequence: number, text: string }[];
 	itemTurns: Set<string>;
 	pendingBagActions: Map<string, QueuedBagAction>;
 	pendingSideTurns: Map<SideID, PendingSideTurn>;
@@ -440,7 +443,8 @@ export class RPGBattleRuntimeManager {
 			lastAction: runtime.lastAction, trainers: runtime.trainers,
 			revealed: runtime.revealed.map(values => [...values].map(pokemonRef)),
 			readyViewers: [...runtime.readyViewers], characters: [...runtime.characters],
-			customAnimations: runtime.customAnimations, itemTurns: [...runtime.itemTurns],
+			customAnimations: runtime.customAnimations, captureLog: runtime.captureLog,
+			itemTurns: [...runtime.itemTurns],
 			pendingBagActions: [...runtime.pendingBagActions].map(([id, pending]) => [id, {
 				side: pending.side.id, actor: pokemonRef(pending.actor), choice: pending.choice,
 				itemTurnKey: pending.itemTurnKey,
@@ -473,7 +477,8 @@ export class RPGBattleRuntimeManager {
 				new Map(battle.p2.pokemon.map((entry, index) => [entry, index])),
 			],
 			readyViewers: new Set(value.readyViewers), characters: new Map(value.characters),
-			customAnimations: value.customAnimations, itemTurns: new Set(value.itemTurns),
+			customAnimations: value.customAnimations, captureLog: value.captureLog || [],
+			itemTurns: new Set(value.itemTurns),
 			pendingBagActions: new Map((value.pendingBagActions || []).map(([id, pending]: [string, any]) => [id, {
 				id, side: battle.getSide(pending.side), actor: pokemon(pending.actor), choice: pending.choice,
 				persistInventory, itemTurnKey: pending.itemTurnKey,
@@ -542,7 +547,7 @@ export class RPGBattleRuntimeManager {
 				new Map(battle.p1.pokemon.map((pokemon, index) => [pokemon, index])),
 				new Map(battle.p2.pokemon.map((pokemon, index) => [pokemon, index])),
 			],
-			readyViewers: new Set(), characters, customAnimations: [], itemTurns: new Set(),
+			readyViewers: new Set(), characters, customAnimations: [], captureLog: [], itemTurns: new Set(),
 			pendingBagActions: new Map(), pendingSideTurns: new Map(), itemEvents: [], recoverableBalls: [],
 			initialPokemon: new Map(battle.getAllPokemon().map(pokemon => [pokemon, {
 				hp: pokemon.hp, status: pokemon.status, item: pokemon.item,
@@ -616,7 +621,7 @@ export class RPGBattleRuntimeManager {
 					effects: this.sideEffectsSnapshot(battle, side),
 				};
 			}),
-			log: this.readableLog(battle.log),
+			log: this.readableLog(battle.log, runtime.captureLog),
 			animations: [...this.animationEvents(battle.log), ...runtime.customAnimations]
 				.filter(event => event.type !== 'faint' || !runtime.customAnimations.some(custom =>
 					custom.type === 'capture' && custom.success && Math.ceil(custom.sequence) === event.sequence &&
@@ -1116,7 +1121,8 @@ export class RPGBattleRuntimeManager {
 		const legendaryBlocked = throwDifficulty.dc === null;
 		const throwRandom = () => runtime.battle.random(0x1000000) / 0x1000000;
 		const throwCheck = reflectBlocked || legendaryBlocked ? null : sheet?.status === 'complete' ?
-			rollRPGTrainerSkillCheck(sheet, 'captura', undefined, {
+			rollRPGTrainerSkillCheck(sheet, 'captura', sheet.classId === 'mestre-pokemon' ?
+				sheet.captureCombatAttribute === 'wisdom' ? 'wisdom' : 'dexterity' : undefined, {
 				dc: throwDifficulty.dc!,
 				advantages: talents.has('mestre-pokemon:pontaria-paciente') ? 1 : 0,
 			}, throwRandom) : (() => {
@@ -1127,8 +1133,22 @@ export class RPGBattleRuntimeManager {
 			dice: [...throwCheck.dice], natural: throwCheck.natural,
 			total: throwCheck.total, dc: throwDifficulty.dc!,
 		} : undefined;
+		const throwLog = throwRoll ?
+			`Arremesso de ${item.name}: ${throwRoll.dice.join(' / ')}${throwRoll.total !== throwRoll.natural ?
+				` + ${throwRoll.total - throwRoll.natural}` : ''} = ${throwRoll.total} (CD ${throwRoll.dc}). ` +
+				(throwCheck?.success ? 'Poké Bola acertou o alvo.' : 'Poké Bola errou o alvo.') :
+			reflectBlocked ? `Arremesso de ${item.name}: Reflect desviou a Poké Bola.` :
+			`Arremesso de ${item.name}: Pokémon lendário ou mítico não pode ser atingido.`;
+		runtime.captureLog.push({ sequence: runtime.battle.log.length - 0.5, text: throwLog });
 		if (reflectBlocked || legendaryBlocked || !throwCheck?.success) {
-			if (talents.has('mestre-pokemon:captura-sem-risco')) {
+			const controlledThrow = !reflectBlocked && !legendaryBlocked && !!throwCheck &&
+				throwDifficulty.dc! - throwCheck.total <= 4;
+			if (controlledThrow && sheet?.classId === 'mestre-pokemon') {
+				const restored = RPGInventorySystem.migrate(character.inventory);
+				restored.bag = RPGBagSystem.add(restored.bag, item.id, 1, restored.bag.revision).bag;
+				persistInventory?.(character.id, restored);
+				character.inventory = restored;
+			} else if (talents.has('mestre-pokemon:captura-sem-risco')) {
 				runtime.recoverableBalls.push({ characterId: character.id, ball: item.id });
 			}
 			const miss: RPGCaptureResult = {
@@ -1153,9 +1173,8 @@ export class RPGBattleRuntimeManager {
 			});
 			return;
 		}
-		const trainerProbabilityBonus = Math.min(0.10,
-			(talents.has('mestre-pokemon:arremesso-perfeito') && throwCheck && throwCheck.total >= 25 ? 0.05 : 0) +
-			(talents.has('mestre-pokemon:capturador-especialista') && runtime.battle.turn > 1 ? 0.05 : 0));
+		const trainerProbabilityBonus = talents.has('mestre-pokemon:arremesso-perfeito') &&
+			throwCheck && throwDifficulty.dc !== null && throwCheck.total >= throwDifficulty.dc + 10 ? 0.05 : 0;
 		const capture = CaptureSystem.attempt(target, {
 			captorSide: side.id, ball: item.id,
 			trainerProbabilityBonus,
@@ -1169,6 +1188,12 @@ export class RPGBattleRuntimeManager {
 		if (!capture.allowed) {
 			throw new Error(`Capture is not allowed: ${capture.reason || 'invalid target'}`);
 		}
+		if (capture.secondChanceUsed) {
+			runtime.captureLog.push({
+				sequence: runtime.battle.log.length - 0.5,
+				text: `Ápice — Mestre da Captura: a primeira chance falhou; a mesma ${item.name} fez uma segunda tentativa de captura.`,
+			});
+		}
 		runtime.lastAction = capture;
 		runtime.itemEvents.push({
 			side: side.id, position: actor.position, item: item.id, itemName: item.name, quantity: 1,
@@ -1178,6 +1203,7 @@ export class RPGBattleRuntimeManager {
 			sequence: runtime.battle.log.length - 0.5, type: 'capture', actor: this.pokemonRef(actor),
 			targets: [this.pokemonRef(target)], ball: this.itemPresentation(item.id, item.name),
 			throwRoll, success: capture.success, shakes: capture.shakes,
+			firstShakes: capture.firstShakes, secondChanceUsed: capture.secondChanceUsed,
 			updates: capture.success ? [{ target: this.pokemonRef(target), active: false }] : [],
 		});
 	}
@@ -1687,9 +1713,13 @@ export class RPGBattleRuntimeManager {
 		if (moveSlot?.disabledSource) return `Indisponível por ${moveSlot.disabledSource}.`;
 		return typeof move.disabled === 'string' ? move.disabled : 'Indisponível nas condições atuais.';
 	}
-	private readableLog(lines: string[]): string[] {
+	private readableLog(lines: string[], captureLog: RuntimeRecord['captureLog'] = []): string[] {
 		const result: string[] = [];
+		let captureIndex = 0;
 		for (let index = 0; index < lines.length; index++) {
+			while (captureLog[captureIndex] && captureLog[captureIndex].sequence < index) {
+				result.push(captureLog[captureIndex++].text);
+			}
 			const line = lines[index];
 			const parts = line.split('|');
 			// O protocolo |split| grava em seguida uma linha privada e uma
@@ -1709,6 +1739,7 @@ export class RPGBattleRuntimeManager {
 			if (parts[1] === 'tie') result.push('A batalha terminou empatada.');
 			if (parts[1] === '-status') result.push(`${this.logName(parts[2])} recebeu o status ${parts[3]}.`);
 		}
+		while (captureLog[captureIndex]) result.push(captureLog[captureIndex++].text);
 		return result.slice(-80);
 	}
 

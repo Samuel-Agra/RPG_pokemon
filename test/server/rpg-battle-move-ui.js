@@ -97,8 +97,8 @@ describe('RPG battle move controls', () => {
 			'ground', 'flying', 'psychic', 'bug', 'rock', 'ghost', 'dragon', 'dark', 'steel', 'fairy']) {
 			assert(style.includes('.rpg-type-badge.type-' + type), 'missing type badge for ' + type);
 		}
-		assert(html.includes('battle-room.css?v=20260828-6'));
-		assert(html.includes('battle-room.js?v=20260914-11'));
+		assert(html.includes('battle-room.css?v=20261022-1'));
+		assert(html.includes('battle-room.js?v=20261022-2'));
 	});
 	it('uses target sprite ids, typed tooltip borders, provider weather assets, and queued switching', () => {
 		const analysis = fs.readFileSync(path.join(root, 'server/rpg-showdown/battle-move-analysis.ts'), 'utf8');
@@ -123,9 +123,9 @@ describe('RPG battle move controls', () => {
 		assert(script.includes('const ownFormationSize = Math.max'));
 		assert(script.includes('foeFormationSize, pokemon.activeSlot ?? index'));
 		assert(adapter.includes('async function recall(field, pokemonElement'));
-		assert(html.includes('showdown-animation-adapter.js?v=20260801-4'));
-		assert(html.includes('battle-room.css?v=20260828-6'));
-		assert(html.includes('battle-room.js?v=20260914-11'));
+		assert(html.includes('showdown-animation-adapter.js?v=20261022-2'));
+		assert(html.includes('battle-room.css?v=20261022-1'));
+		assert(html.includes('battle-room.js?v=20261022-2'));
 	});
 	it('plays voluntary switches before move animations and forced replacements after fainting', () => {
 		const scheduling = script.slice(

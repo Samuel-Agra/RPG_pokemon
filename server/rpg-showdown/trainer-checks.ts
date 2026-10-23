@@ -75,6 +75,7 @@ export function rpgTrainerSkillAttributes(sheet: RPGTrainerSheet, skill: string)
 	const standard = RPG_SKILL_ATTRIBUTES[family];
 	const classOptions = family === 'atuacao' && hasTalent(sheet, 'artista:corpo-de-cena') ?
 		(['dexterity'] as RPGTrainerAttribute[]) : [];
+	if (family === 'captura' && sheet.classId === 'mestre-pokemon') classOptions.push('wisdom');
 	const selected = sheet.talents.general.includes('competencia-pratica') ?
 		(sheet.talentSelections || []).filter(choice => choice.id === 'competencia-pratica' && choice.skill === skill)
 			.map(choice => choice.variant as RPGTrainerAttribute).filter(attribute =>
@@ -123,10 +124,12 @@ export function rpgTrainerSkillBonus(sheet: RPGTrainerSheet, skill: string,
 		(selection.skill === skill || selection.variant === skill)) ?
 		Math.floor(rpgTrainerProficiency(sheet.level) / 2) : 0;
 	const precisionThrowBonus = skill === 'captura' && hasTalent(sheet, 'atleta:arremesso-de-precisao') ? 2 : 0;
+	const calculatedCaptureBonus = skill === 'captura' && sheet.classId === 'mestre-pokemon' ? 2 : 0;
 	const completeAthleteBonus = (skill === 'atletismo' || skill === 'acrobacia') &&
 		hasTalent(sheet, 'atleta:atleta-completo') ? 2 : 0;
 	return modifier + (sheet.skills.focused.includes(skill) ? 2 : trained ? 1 : 0) * rpgTrainerProficiency(sheet.level) +
-		conductorBonus + scientistBonus + publicationBonus + diverseKnowledgeBonus + precisionThrowBonus + completeAthleteBonus -
+		conductorBonus + scientistBonus + publicationBonus + diverseKnowledgeBonus + precisionThrowBonus +
+		calculatedCaptureBonus + completeAthleteBonus -
 		rpgTrainerSurvivalEffects(sheet).checkPenalty;
 }
 

@@ -99,6 +99,15 @@ describe('RPG official Showdown animation vendor', () => {
 		assert(source.includes('new RPGShowdownScene(field, actorElement, [targetElement])'));
 		assert(source.includes('window.BattleOtherAnims.shiny.anim(scene, [scene.defender])'));
 	});
+	it('anchors persistent sleep and freeze effects to the rendered Pokemon image', () => {
+		const room = fs.readFileSync(path.resolve(__dirname, '../../server/static/rpg/battle-room.js'), 'utf8');
+		const css = fs.readFileSync(path.resolve(__dirname, '../../server/static/rpg/battle-room.css'), 'utf8');
+		assert(room.includes('const imageRect = image.getBoundingClientRect();'));
+		assert(room.includes('const scaleX = spriteRect.width / (sprite.offsetWidth || spriteRect.width);'));
+		assert(room.includes('image.addEventListener(\'load\', alignToImage'));
+		assert(css.includes('transform: translate(20px, -30px) scale(1.18)'));
+		assert(/\.rpg-freeze-overlay \{\r?\n\s*position: absolute; z-index: 6; inset: auto;/.test(css));
+	});
 	it('animates a missed or Reflect-blocked throw without absorbing the wild Pokémon', () => {
 		const adapter = fs.readFileSync(path.resolve(__dirname, '../../server/static/rpg/showdown-animation-adapter.js'), 'utf8');
 		const room = fs.readFileSync(path.resolve(__dirname, '../../server/static/rpg/battle-room.js'), 'utf8');
@@ -108,6 +117,22 @@ describe('RPG official Showdown animation vendor', () => {
 		assert(!miss.includes('target.sprite.animate'));
 		assert(room.includes('await window.RPGShowdownAnimations?.captureMiss?.(field, attacker, target'));
 		assert(room.includes('throwRoll.dice.join'));
+	});
+	it('keeps the capture field mounted until the queued ball animation finishes', () => {
+		const room = fs.readFileSync(path.resolve(__dirname, '../../server/static/rpg/battle-room.js'), 'utf8');
+		assert(room.includes('if (animationPlaying) {'));
+		assert(room.includes('animationPlaying = true;'));
+		assert(room.includes('animationPlaying = false;'));
+		assert(room.includes('deferredRender = true;'));
+		assert(room.includes('requestedAfterAction === actionSequence'));
+	});
+	it('lands the capture ball upright and visibly rocks even after zero calculated shakes', () => {
+		const adapter = fs.readFileSync(path.resolve(__dirname, '../../server/static/rpg/showdown-animation-adapter.js'), 'utf8');
+		const capture = adapter.slice(adapter.indexOf('async function capture('), adapter.indexOf('window.RPGShowdownAnimations ='));
+		assert(!capture.includes("transform: 'rotate(95deg)'"));
+		assert(capture.includes("transform: 'rotate(0deg)'"));
+		assert(capture.includes('shake < Math.max(1, count)'));
+		assert(capture.includes('if (shake < count) options.onShake?.(shake)'));
 	});
 	it('shows a terminal result even when flee ends the battle without move animations', () => {
 		const source = fs.readFileSync(path.resolve(__dirname, '../../server/static/rpg/battle-room.js'), 'utf8');

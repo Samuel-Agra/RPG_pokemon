@@ -6,7 +6,9 @@ const { RPGHttpServer } = require('../../dist/server/rpg-showdown/http');
 const {
 	RPGLoginService,
 	RPGMemoryCharacterRepository,
+	getRPGBattlePokemonCatalog,
 } = require('../../dist/server/rpg-showdown');
+const { RPGBagSystem } = require('../../dist/sim/rpg-showdown');
 
 function createService(options = {}) {
 	let byte = 0;
@@ -16,10 +18,10 @@ function createService(options = {}) {
 		repository: options.repository || new RPGMemoryCharacterRepository(),
 		sessionStore: options.sessionStore,
 		deletionStore: options.deletionStore,
-		random: () => {
+		random: options.random || (() => {
 			randomState = (1664525 * randomState + 1013904223) >>> 0;
 			return randomState / 0x100000000;
-		},
+		}),
 		randomBytes: size => Buffer.alloc(size, ++byte),
 		now: () => 1_800_000_000_000,
 	});
@@ -380,5 +382,175 @@ describe('RPG Box management backend', () => {
 		const character = service.repository.get('samuel').state;
 		assert.equal(character.team.length, 2);
 		assert(character.profile.pokedex.caught.includes('bulbasaur'));
+	});
+	it('consumes one Ball and transfers a Pokemon only after a successful capture attempt', () => {
+		const service = createService({ random: () => 0.999 });
+		createCharacter(service, 'Samuel', 'Squirtle', 'senha-rpg');
+		const master = service.loginMaster('14081998');
+		const player = service.loginPlayer('samuel', 'senha-rpg');
+		const record = service.repository.get('samuel');
+		record.state.inventory.bag = RPGBagSystem.add(record.state.inventory.bag, 'masterball', 1).bag;
+		service.repository.set(record);
+		const before = record.state.box.party.length;
+		const result = service.masterCreatePlayerPokemon(master.token, 'samuel', {
+			species: 'Bulbasaur', level: 5, gender: 'M', ability: 'Overgrow', nature: 'Serious',
+			capture: { hpPercent: 100, status: '', encounterId: 'encounter-success' },
+		});
+		assert.equal(result.pending, true);
+		assert.equal(service.repository.get('samuel').state.box.party.length, before);
+		assert.equal(RPGBagSystem.getRegularQuantity(service.repository.get('samuel').state.inventory.bag, 'masterball'), 1);
+		assert.throws(() => service.resolveTrainerPendingCapture(player.token, 'samuel', 'pokeball',
+			{ natural: 20, total: 20 }), /não possui/);
+		assert.equal(service.trainerPendingCapture(player.token, 'samuel').balls[0].id, 'masterball');
+		const caught = service.resolveTrainerPendingCapture(player.token, 'samuel', 'masterball', { natural: 20, total: 20 });
+		assert.equal(caught.capture.success, true);
+		assert.equal(service.repository.get('samuel').state.box.party.length, before + 1);
+		assert.equal(RPGBagSystem.getRegularQuantity(service.repository.get('samuel').state.inventory.bag, 'masterball'), 0);
+		assert.equal(caught.pokemon.rpg.captureBall, 'masterball');
+		assert.equal(service.trainerPendingCapture(player.token, 'samuel'), null);
+	});
+	it('spends a Ball on a failed attempt without adding the Pokemon', () => {
+		const service = createService({ random: () => 0.999 });
+		createCharacter(service, 'Samuel', 'Squirtle', 'senha-rpg');
+		const master = service.loginMaster('14081998');
+		const player = service.loginPlayer('samuel', 'senha-rpg');
+		const record = service.repository.get('samuel');
+		record.state.inventory.bag = RPGBagSystem.add(record.state.inventory.bag, 'pokeball', 1).bag;
+		service.repository.set(record);
+		const before = record.state.box.party.length;
+		const result = service.masterCreatePlayerPokemon(master.token, 'samuel', {
+			species: 'Bulbasaur', level: 5, gender: 'M', ability: 'Overgrow', nature: 'Serious',
+			capture: { hpPercent: 100, status: '', encounterId: 'encounter-failure' },
+		});
+		assert.equal(result.pending, true);
+		const failed = service.resolveTrainerPendingCapture(player.token, 'samuel', 'pokeball', { natural: 1, total: 1 });
+		assert.equal(failed.capture.success, false);
+		assert.equal(service.repository.get('samuel').state.box.party.length, before);
+		assert.equal(RPGBagSystem.getRegularQuantity(service.repository.get('samuel').state.inventory.bag, 'pokeball'), 0);
+		assert.equal(service.trainerPendingCapture(player.token, 'samuel'), null);
+		const retry = service.masterCreatePlayerPokemon(master.token, 'samuel', {
+			species: 'Charmander', level: 5, gender: 'M', ability: 'Blaze', nature: 'Serious',
+			capture: { hpPercent: 100, status: '', encounterId: 'encounter-failure' },
+		});
+		assert.equal(retry.pending, true);
+		assert.equal(service.trainerPendingCapture(player.token, 'samuel').species, 'Charmander');
+		const newer = service.masterCreatePlayerPokemon(master.token, 'samuel', {
+			species: 'Squirtle', level: 5, gender: 'M', ability: 'Torrent', nature: 'Serious',
+			capture: { hpPercent: 100, status: '', encounterId: 'encounter-squirtle' },
+		});
+		assert.equal(newer.pending, true);
+		assert.equal(service.trainerPendingCapture(player.token, 'samuel').species, 'Squirtle');
+	});
+	it('permite Weedle do catálogo após uma tentativa frustrada contra Dragonite', () => {
+		const service = createService({ random: () => 0.999 });
+		createCharacter(service, 'Samuel', 'Squirtle', 'senha-rpg');
+		const master = service.loginMaster('14081998');
+		const player = service.loginPlayer('samuel', 'senha-rpg');
+		const record = service.repository.get('samuel');
+		record.state.inventory.bag = RPGBagSystem.add(record.state.inventory.bag, 'pokeball', 2).bag;
+		service.repository.set(record);
+		for (const [species, ability, encounterId] of [
+			['Dragonite', 'Inner Focus', 'encounter-dragonite'],
+			['Weedle', 'Shield Dust', 'encounter-weedle'],
+		]) {
+			const prepared = service.masterCreatePlayerPokemon(master.token, 'samuel', {
+				species, level: 5, gender: 'M', ability, nature: 'Serious',
+				capture: { hpPercent: 100, status: '', encounterId },
+			});
+			assert.equal(prepared.pending, true);
+			assert.equal(service.trainerPendingCapture(player.token, 'samuel').species, species);
+			const result = service.resolveTrainerPendingCapture(player.token, 'samuel', 'pokeball',
+				{ natural: 1, total: 1 });
+			assert.equal(result.capture.success, false);
+		}
+	});
+	it('permite dar Weedle diretamente com golpes de nível de sua geração disponível', () => {
+		const service = createService();
+		createCharacter(service, 'Samuel', 'Squirtle', 'senha-rpg');
+		const master = service.loginMaster('14081998');
+		const result = service.masterCreatePlayerPokemon(master.token, 'samuel', {
+			species: 'Weedle', level: 5, gender: 'M', ability: 'Shield Dust', nature: 'Serious',
+		});
+		assert.equal(result.pokemon.species, 'Weedle');
+		assert(result.pokemon.moves.length > 0);
+	});
+	it('prepara e resolve capturas de todas as espécies, formas, habilidades e níveis extremos do catálogo', function () {
+		this.timeout(60000);
+		const service = createService({ random: () => 0.999 });
+		createCharacter(service, 'Samuel', 'Squirtle', 'senha-rpg');
+		const master = service.loginMaster('14081998');
+		const player = service.loginPlayer('samuel', 'senha-rpg');
+		const catalog = getRPGBattlePokemonCatalog();
+		for (const pokemon of catalog) {
+			for (const level of [1, 5, 100]) {
+				const record = service.repository.get('samuel');
+				record.state.inventory.bag = RPGBagSystem.add(record.state.inventory.bag, 'pokeball', 1).bag;
+				service.repository.set(record);
+				for (const [index, ability] of pokemon.abilities.entries()) {
+					const prepared = service.masterCreatePlayerPokemon(master.token, 'samuel', {
+						species: pokemon.name, level, gender: pokemon.genders[level % pokemon.genders.length],
+						ability, nature: 'Serious',
+						capture: { hpPercent: 100, status: '', encounterId: `catalog-${pokemon.id}-${level}-${index}` },
+					});
+					assert.equal(prepared.pending, true, `${pokemon.name} ${ability} nível ${level}`);
+				}
+				const result = service.resolveTrainerPendingCapture(player.token, 'samuel', 'pokeball',
+					{ natural: 1, total: 0 });
+				assert.equal(result.capture.success, false, `${pokemon.name} nível ${level}`);
+				assert.equal(service.trainerPendingCapture(player.token, 'samuel'), null, pokemon.name);
+			}
+		}
+		assert(catalog.length > 1000);
+	});
+	it('entrega diretamente cada espécie e forma exibida ao Mestre', function () {
+		this.timeout(30000);
+		const service = createService();
+		createCharacter(service, 'Samuel', 'Squirtle', 'senha-rpg');
+		const master = service.loginMaster('14081998');
+		const initial = structuredClone(service.repository.get('samuel'));
+		for (const pokemon of getRPGBattlePokemonCatalog()) {
+			service.repository.set(structuredClone(initial));
+			const result = service.masterCreatePlayerPokemon(master.token, 'samuel', {
+				species: pokemon.name, level: 5, gender: pokemon.genders[0],
+				ability: pokemon.abilities[0], nature: 'Serious',
+			});
+			assert.equal(result.pokemon.species, pokemon.name);
+			assert(result.pokemon.moves.length > 0, pokemon.name);
+		}
+	});
+	it('aplica Captura Inesperada em cada captura fora de batalha sem alterar os PV reais', () => {
+		const service = createService({ random: () => 0.999 });
+		createCharacter(service, 'Samuel', 'Squirtle', 'senha-rpg');
+		const master = service.loginMaster('14081998');
+		const player = service.loginPlayer('samuel', 'senha-rpg');
+		const record = service.repository.get('samuel');
+		record.state.inventory.bag = RPGBagSystem.add(record.state.inventory.bag, 'pokeball', 4).bag;
+		record.state.trainerSheet.status = 'complete';
+		record.state.trainerSheet.classId = 'mestre-pokemon';
+		record.state.trainerSheet.level = 5;
+		record.state.trainerSheet.attributes = { strength: 10, dexterity: 10, constitution: 10,
+			intelligence: 10, wisdom: 10, charisma: 10 };
+		record.state.trainerSheet.talents.class.push('mestre-pokemon:captura-inesperada');
+		service.repository.set(record);
+		const attempt = (hpPercent, encounterId) => {
+			service.masterCreatePlayerPokemon(master.token, 'samuel', {
+				species: 'Bulbasaur', level: 5, gender: 'M', ability: 'Overgrow', nature: 'Serious',
+				capture: { hpPercent, status: '', encounterId },
+			});
+			return service.resolveTrainerPendingCapture(player.token, 'samuel', 'pokeball',
+				{ natural: 20, total: 30 }).capture;
+		};
+		const fullHP = attempt(100, 'surprise-same-encounter');
+		const repeated = attempt(80, 'surprise-same-encounter');
+		const lowHP = attempt(25, 'surprise-low-hp');
+		assert.equal(fullHP.success, false);
+		assert.equal(fullHP.probability, repeated.probability);
+		assert(lowHP.probability > fullHP.probability);
+		const withoutTalent = service.repository.get('samuel');
+		withoutTalent.state.trainerSheet.talents.class = [];
+		service.repository.set(withoutTalent);
+		assert(attempt(100, 'ordinary-capture').probability < fullHP.probability);
+		assert.equal(RPGBagSystem.getRegularQuantity(service.repository.get('samuel').state.inventory.bag,
+			'pokeball'), 0);
 	});
 });

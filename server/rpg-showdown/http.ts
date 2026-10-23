@@ -608,6 +608,10 @@ export class RPGHttpServer {
 			this.json(res, 200, this.login.useTrainerSocialDisguise(this.token(req)));
 			return;
 		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/ecological-bait') {
+			this.json(res, 200, this.login.useTrainerEcologicalBait(this.token(req)));
+			return;
+		}
 		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/prepared-persona') {
 			this.json(res, 200, this.login.useTrainerPreparedPersona(this.token(req)));
 			return;
@@ -615,6 +619,12 @@ export class RPGHttpServer {
 		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/memory-palace') {
 			const body = await this.body(req);
 			this.json(res, 200, this.login.setTrainerMemoryPalace(this.token(req), body.names as string[]));
+			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/capture-attribute') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.setTrainerCaptureCombatAttribute(this.token(req),
+				this.string(body.attribute) as 'dexterity' | 'wisdom'));
 			return;
 		}
 		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/trapmaker') {
@@ -923,6 +933,12 @@ export class RPGHttpServer {
 				throw new Error('Entre como esse jogador para rolar seus atributos');
 			}
 			const character = this.login.getCharacter(token, characterId);
+			const pendingCapture = skillRoll && skill === 'captura' ?
+				this.login.trainerPendingCapture(token, characterId!) : null;
+			const captureBall = pendingCapture ? this.string(body.captureBall) : '';
+			if (pendingCapture && !pendingCapture.balls.some(ball => ball.id === captureBall)) {
+				throw new Error('Escolha uma Poké Bola disponível na sua Bag para esta captura');
+			}
 			if (skillRoll && skillAttribute &&
 				!rpgTrainerSkillAttributes(character.trainerSheet!, skill!).includes(skillAttribute)) {
 				throw new Error('Atributo incompatível com a perícia');
@@ -1007,8 +1023,19 @@ export class RPGHttpServer {
 				`${result.natural} no dado vale ${effectiveNatural}.\n` : '';
 			const message = `${helpLine}${talentLines}${floorLine}${rolls}${rollName}: 1d20 tirou ` +
 				`${effectiveNatural} ${bonus} = ${result.total}`;
+			const captureOutcome = pendingCapture ? this.login.resolveTrainerPendingCapture(token,
+				characterId!, captureBall, { natural: result.natural, total: result.total }) : null;
 			const posted = await persistence.createTableChatMessage(
 				session.platformTableId, session.platformAccountId, message);
+			if (captureOutcome?.capture) {
+				const ballName = pendingCapture!.balls.find(ball => ball.id === captureBall)?.name || captureBall;
+				const outcomeText = !captureOutcome.capture.throwHit ?
+					`O arremesso passou longe de ${pendingCapture!.species}. ${character.characterName} errou o alvo!` :
+					captureOutcome.capture.success ?
+						`${character.characterName} capturou ${pendingCapture!.species} com ${ballName}!` :
+						`${pendingCapture!.species} escapou da ${ballName} de ${character.characterName}!`;
+				await persistence.createTableChatMessage(session.platformTableId, session.platformAccountId, outcomeText);
+			}
 			if (talentEffects.chosen.some(talent => talent.id === 'artista:arte-reconfortante')) {
 				this.login.consumeTrainerComfortingArt(token, characterId!);
 			}
@@ -1208,13 +1235,41 @@ export class RPGHttpServer {
 		}
 		if (method === 'POST' && url.pathname === '/api/rpg/characters/pokemon') {
 			const body = await this.body(req);
-			this.json(res, 201, this.login.masterCreatePlayerPokemon(
+			const giftSession = this.login.getSession(this.token(req));
+			if (body.capture === true && (!this.login.mysqlPersistence ||
+				!giftSession.platformTableId || !giftSession.platformAccountId)) {
+				throw new RPGHttpError(503, 'A tentativa de captura requer o chat da mesa');
+			}
+			const result = this.login.masterCreatePlayerPokemon(
 				this.token(req), this.string(body.characterId), {
 					species: this.string(body.species), level: Number(body.level),
 					gender: this.string(body.gender) as RPGCharacterGender,
 					ability: this.string(body.ability), nature: this.string(body.nature), shiny: body.shiny === true,
+					capture: body.capture === true ? {
+						hpPercent: Number(body.hpPercent), status: this.string(body.status),
+						encounterId: this.string(body.encounterId),
+						conditions: body.conditions as { isNight?: boolean, isCave?: boolean, isInWater?: boolean },
+					} : undefined,
 				}
-			));
+			);
+			if (result.pending) {
+				const character = this.login.getCharacter(this.token(req), this.string(body.characterId));
+				await this.login.mysqlPersistence!.createTableChatMessage(giftSession.platformTableId!,
+					giftSession.platformAccountId!, `${character.characterName}, ${this.string(body.species)} apareceu! ` +
+					'Escolha uma Poké Bola na ficha e faça seu teste de Captura.');
+			}
+			this.json(res, 201, result);
+			return;
+		}
+		if (method === 'GET' && url.pathname === '/api/rpg/trainer/pending-capture') {
+			this.json(res, 200, { capture: this.login.trainerPendingCapture(this.token(req),
+				this.string(url.searchParams.get('characterId'))) });
+			return;
+		}
+		if (method === 'GET' && url.pathname === '/api/rpg/characters/pokemon/capture-balls') {
+			this.json(res, 200, { balls: this.login.masterCaptureBalls(
+				this.token(req), this.string(url.searchParams.get('characterId')),
+			) });
 			return;
 		}
 		if (method === 'PUT' && url.pathname === '/api/rpg/characters/page-access') {
@@ -3224,11 +3279,13 @@ export class RPGHttpServer {
 
 	/** Only established domain validation messages may cross the HTTP boundary. */
 	private isPublicValidationError(message: string): boolean {
+		if (/^(?:Escolha uma espécie de Pokémon válida|Escolha uma natureza válida|Escolha um status válido para a captura|Escolha uma Poké Bola válida|Escolha uma Poké Bola disponível na sua Bag para esta captura|A habilidade selecionada não está disponível para essa espécie|O gênero selecionado não está disponível para essa espécie|O nível deve estar entre 1 e 100|A vida do Pokémon deve estar entre 1% e 100%|Identificador da tentativa de captura inválido|Condições da captura inválidas|Este treinador já tem uma captura aguardando sua rolagem|Não há uma captura aguardando esta rolagem)$/.test(message)) return true;
 		if (/^(?:Tipo de descanso inválido|Identificador de descanso (?:inválido|já utilizado))$/.test(message)) return true;
 		if (/^(?:Identificador de recuperação (?:inválido|já utilizado)|Recuperação Assistida já preparada antes do próximo descanso longo|Escolha de um a \d+ participantes diferentes|Escolha inválida de pacientes para Recuperação da Exaustão|Este Médico não possui Recuperação da Exaustão|São necessárias \d+ cargas do Kit Médico para os benefícios escolhidos|Recuperação Intensiva exige uma carga do Kit Médico por paciente|Participante indisponível nesta mesa|Um treinador morto não pode receber Recuperação Assistida|.* (?:já possui Recuperação Assistida preparada|precisa de pelo menos dois níveis de Exaustão|já recebeu Recuperação da Exaustão nas últimas 24 horas))$/.test(message)) return true;
 		if (/^(?:Entre como Médico em uma mesa|Atendimento Emergencial exige um Médico nesta mesa|Identificador de atendimento (?:inválido|já utilizado)|Treinador desmaiado não encontrado nesta mesa|Este treinador já recebeu Atendimento Emergencial neste descanso longo|É necessário um Kit Médico com carga na Bag)$/.test(message)) return true;
 		if (/^(?:Este treinador não possui (?:Armadilheiro|Armadilha Combinada|Labirinto de Gatilhos)|Você precisa de um Kit de Ladinagem na Bag|O Kit de Ladinagem (?:está sem cargas|precisa de pelo menos (?:duas|quatro) cargas))$/.test(message)) return true;
 		if (/^(?:Este treinador não possui Disfarce Social|Domínio do Kit de Disfarce necessário|Você precisa de um Kit de Disfarce na Bag|O Kit de Disfarce está sem cargas)/.test(message)) return true;
+		if (/^Este treinador não possui Isca Ecológica$/.test(message)) return true;
 		if (/persisted|estado persistido|table scope|random source|repository|repositório/i.test(message)) return false;
 		if (/^(?:Amizade deve ser um número inteiro entre 0 e 255|Performance deve ser um número inteiro entre 0 e 100)$/.test(message)) return true;
 		if (/^(?:Ovo (?:sem incubadora válida|desconhecido ou pertencente a outro treinador)|O ovo (?:ainda não está pronto para chocar|pronto não está nesta incubadora|pronto está na incubadora portátil)|Não há espaço livre na equipe para resgatar o Pokémon chocado|É necessário ter ao menos uma Poké Ball na Bag para o Pokémon nascer)$/.test(message)) return true;

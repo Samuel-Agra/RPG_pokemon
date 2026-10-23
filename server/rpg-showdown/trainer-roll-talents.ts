@@ -175,10 +175,10 @@ const RULES: Readonly<Record<string, Rule>> = {
 		condition: 'Ação imediata segue reação corretamente prevista.' },
 	'mestre-pokemon:registro-de-campo': { targets: ['skill:conhecimento:pokemon', 'skill:natureza', 'skill:sobrevivencia'], bonus: 2,
 		condition: 'Primeira busca da espécie registrada na região.' },
+	'mestre-pokemon:rastreador-de-especies': { targets: ['skill:conhecimento:pokemon', 'skill:sobrevivencia'], bonus: 2,
+		condition: 'Seguir a trilha de uma espécie já registrada no Registro de Campo.' },
 	'mestre-pokemon:observador-de-formas': { targets: ['skill:percepcao', 'skill:sobrevivencia', 'skill:conhecimento:pokemon'], bonus: 2,
 		condition: 'Busca deliberada por espécie existente na região.' },
-	'mestre-pokemon:auxiliar-pokemon': { targets: ['skill:*'], bonus: 2,
-		condition: 'Pokémon com amizade necessária ajuda fora de combate de modo coerente.' },
 	'mestre-pokemon:pontaria-paciente': { targets: ['skill:captura'], advantage: true,
 		condition: 'Arremesso após observar o alvo; aplique apenas quando a regra de captura permitir.' },
 	'fotografo:fotografo-de-lendas': { targets: ['skill:persuasao', 'skill:enganacao',
@@ -385,6 +385,17 @@ export function rpgTrainerRollTalentOptions(sheet: RPGTrainerSheet, kind: RPGTra
 		(!talent.requiredAttribute || usedAttribute === talent.requiredAttribute) &&
 		(talent.id !== 'aprendizado-por-observacao' || kind === 'skill' &&
 		id !== 'conhecimento' && id !== 'oficio' && !sheet.skills.trained.includes(id)));
+}
+
+/** A posse do talento e a amizade na equipe são verificadas pelo serviço antes de expor esta opção. */
+export function rpgPokemonAssistantOption(sheet: RPGTrainerSheet, hasEligiblePartyPokemon: boolean):
+	RPGTrainerRollTalent | null {
+	if (sheet.status !== 'complete' || sheet.classId !== 'mestre-pokemon' ||
+		!sheet.talents.class.includes('mestre-pokemon:auxiliar-pokemon') || !hasEligiblePartyPokemon) return null;
+	return { key: 'mestre-pokemon:auxiliar-pokemon', id: 'mestre-pokemon:auxiliar-pokemon',
+		name: 'Auxiliar Pokémon', bonus: 2, advantage: false,
+		condition: 'Fora de batalha, um Pokémon da equipe com mais de 50 de Amizade ajuda de modo coerente.',
+		targets: ['skill:*'] };
 }
 
 /** Efeito concedido por outro treinador; a identidade do aliado é validada pela mesa no servidor. */

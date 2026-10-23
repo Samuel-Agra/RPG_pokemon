@@ -3272,6 +3272,28 @@ input, select {
 .master-player-pokemon-gift-fields { display: grid; gap: 9px; }
 .master-player-pokemon-gift-fields label { display: grid; gap: 4px; color: #50647d; font-size: 11px; font-weight: bold; }
 .master-player-pokemon-gift-fields input:not([type="checkbox"]), .master-player-pokemon-gift-fields select { width: 100%; }
+.master-player-gift-capture-toggle { grid-column: 1 / -1; display: flex; align-items: center; gap: 9px; font-size: 13px; font-weight: 700; color: #344d68; cursor: pointer; }
+.master-player-gift-capture-toggle input { width: 18px; height: 18px; accent-color: #527db1; }
+.master-player-gift-capture-fields { grid-column: 1 / -1; display: grid; gap: 14px; padding: 12px; background: #edf4fb; border: 1px solid #b9cadc; border-radius: 5px; }
+.master-player-gift-capture-fields.hidden { display: none; }
+.master-player-gift-capture-fields label { display: grid; gap: 4px; min-width: 0; color: #405976; font-size: 11px; font-weight: bold; }
+.master-player-gift-capture-fields input, .master-player-gift-capture-fields select { width: 100%; min-width: 0; }
+.master-player-gift-capture-vital { display: grid; gap: 8px; min-width: 0; }
+.master-player-gift-status-row { min-height: 30px; }
+.master-player-gift-status-row > strong { color: #304a68; font-size: 11px; }
+.master-player-gift-status-row .box-condition { cursor: pointer; }
+.master-player-gift-capture-hp { min-width: 0; }
+.master-player-gift-inline-hp-track { position: relative; display: block; height: 34px; }
+.master-player-gift-inline-hp-track .team-builder-master-hp-slider { display: block; width: 100%; min-width: 0; height: 34px; min-height: 0; padding: 0; border: 0; box-shadow: none; background: transparent; }
+.master-player-gift-inline-hp-track .team-builder-master-hp-slider::-webkit-slider-runnable-track { height: 24px; border-radius: 13px; }
+.master-player-gift-inline-hp-track .team-builder-master-hp-slider::-moz-range-track,
+.master-player-gift-inline-hp-track .team-builder-master-hp-slider::-moz-range-progress { height: 24px; border-radius: 13px; }
+.master-player-gift-inline-hp-track .team-builder-master-hp-slider::-webkit-slider-thumb { width: 28px; height: 28px; margin-top: -3px; }
+.master-player-gift-inline-hp-track .team-builder-master-hp-slider::-moz-range-thumb { width: 28px; height: 28px; }
+.master-player-gift-hp-inside { position: absolute; inset: 0; display: grid; place-items: center; color: #fff; font-size: 12px; line-height: 1; text-shadow: 0 1px 2px #26394d; pointer-events: none; }
+.master-player-gift-capture-popover { z-index: 1900; }
+.master-player-gift-capture-extras { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; padding-top: 12px; border-top: 1px solid #c4d1df; }
+@media (max-width: 560px) { .master-player-gift-capture-extras { grid-template-columns: 1fr; } }
 .master-player-pokemon-ability-description { margin-top: -5px; color: #6a798b; line-height: 1.35; }
 .master-player-gift-nature-picker > select { display: none; }
 .master-player-gift-nature-picker .contest-nature-button { width: 100%; }

@@ -102,7 +102,9 @@ export class CaptureSystem {
 			return count;
 		};
 		let shakes = rollShakes();
-		if (shakes < 4 && options.secondChance) shakes = rollShakes();
+		const firstShakes = shakes;
+		const secondChanceUsed = shakes < 4 && !!options.secondChance;
+		if (secondChanceUsed) shakes = rollShakes();
 		const success = shakes === 4;
 		const result: RPGCaptureResult = {
 			allowed: true,
@@ -118,6 +120,8 @@ export class CaptureSystem {
 			modifiedCatchRate: calculation.modifiedCatchRate,
 			shakeThreshold: calculation.shakeThreshold,
 			shakes,
+			firstShakes,
+			secondChanceUsed,
 			probability: trainerBonus ? probability : calculation.probability,
 			target: { side: target.side.id, position: target.position },
 		};

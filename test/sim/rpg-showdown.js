@@ -705,6 +705,39 @@ describe('RPG Showdown', () => {
 		assert.equal(wildBattle.ended, false);
 	});
 
+	it('retries the capture roll in the same ball only after a failed wild capture', () => {
+		const makeBattle = () => common.createBattle({ rpg: { battleType: 'wild' } }, rpgTeams);
+		const battle = makeBattle();
+		const rolls = [65535, 0, 0, 0, 0];
+		battle.random = () => rolls.shift();
+		const result = CaptureSystem.attempt(battle.p2.pokemon[0], {
+			catchRate: 45, captorSide: 'p1', ball: 'pokeball', secondChance: true,
+		});
+		assert.equal(result.allowed, true);
+		assert.equal(result.firstShakes, 0);
+		assert.equal(result.secondChanceUsed, true);
+		assert.equal(result.shakes, 4);
+		assert.equal(result.success, true);
+		assert.equal(rolls.length, 0);
+
+		const noApex = makeBattle();
+		const singleRolls = [65535, 0, 0, 0, 0];
+		noApex.random = () => singleRolls.shift();
+		const single = CaptureSystem.attempt(noApex.p2.pokemon[0], {
+			catchRate: 45, captorSide: 'p1', ball: 'pokeball',
+		});
+		assert.equal(single.success, false);
+		assert.equal(single.secondChanceUsed, false);
+		assert.equal(singleRolls.length, 4);
+
+		const trainer = common.createBattle({ rpg: { battleType: 'trainer' } }, rpgTeams);
+		const rejected = CaptureSystem.attempt(trainer.p2.pokemon[0], {
+			catchRate: 45, captorSide: 'p1', ball: 'pokeball', secondChance: true,
+		});
+		assert.equal(rejected.reason, 'not-wild-battle');
+		assert.equal(rejected.secondChanceUsed, undefined);
+	});
+
 	it('should end a wild battle and return an independent captured Pokemon after success', () => {
 		const battle = common.createBattle({ rpg: { battleType: 'wild' } }, [
 			[{ species: 'Squirtle', ability: 'Torrent', moves: ['Water Gun'], rpg: {} }],

@@ -4,6 +4,7 @@ const assert = require('assert').strict;
 const {
 	completeRPGTrainerSheet, createRPGPendingTrainerSheet, rpgTrainerProficiency,
 	rpgTrainerSkillBonus, rpgTrainerResistanceBonus, rollRPGD20, rpgCheckDegree,
+	rpgTrainerSkillAttributes,
 	rpgHelpBonus, rpgBestHelpBonus, rollRPGTrainerSkillCheck, rollRPGTrainerResistance,
 	rpgOpposedCheck, rpgGroupCheck, rpgPassiveScore, rpgTrainerEffectDC,
 	rpgPokemonEffectDC, rpgTrainerDerivedStatistics, rollRPGTrainerAttack, rollRPGTrainerDamage,
@@ -26,6 +27,19 @@ function sequence(...values) {
 }
 
 describe('RPG trainer checks engine', () => {
+	it('lets Pokemon Masters choose Wisdom for Capture while retaining the +2 throw bonus', () => {
+		const sheet = completeRPGTrainerSheet(createRPGPendingTrainerSheet(), {
+			classId: 'mestre-pokemon',
+			attributes: { strength: 8, dexterity: 12, constitution: 10, intelligence: 13, wisdom: 15, charisma: 14 },
+			optionalSkills: ['percepcao', 'sobrevivencia', 'intuicao'],
+			gearChoices: {},
+		}, 'standard');
+		assert.deepEqual(rpgTrainerSkillAttributes(sheet, 'captura'), ['dexterity', 'wisdom']);
+		assert.equal(rpgTrainerSkillBonus(sheet, 'captura', 'wisdom') -
+			rpgTrainerSkillBonus(sheet, 'captura', 'dexterity'), 1);
+		assert.equal(rollRPGTrainerSkillCheck(sheet, 'captura', 'wisdom', { dc: 20 }, sequence(10)).total,
+			10 + rpgTrainerSkillBonus(sheet, 'captura', 'wisdom'));
+	});
 	it('automatically adds Precision Throw only to the Capture skill and its repeated rolls', () => {
 		const athlete = trainer();
 		const baseCapture = rpgTrainerSkillBonus(athlete, 'captura');

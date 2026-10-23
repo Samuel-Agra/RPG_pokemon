@@ -148,6 +148,17 @@ describe('RPG version 2 account authentication frontend', () => {
 		assert(script.includes('master-player-gift-nature-panel'));
 		assert(script.includes("createElement('div', 'contest-nature-grid')"));
 		assert(script.includes("createElement('label', 'master-player-pokemon-gift-shiny')"));
+		assert(script.includes("hpPercent.type = 'range'"));
+		assert(script.includes("createElement('div', 'team-builder-main-hp master-player-gift-capture-hp')"));
+		assert(script.includes("createElement('div', 'team-builder-type-status-row master-player-gift-status-row')"));
+		assert(script.includes("createElement('div', 'team-builder-master-status-grid')"));
+		assert(script.includes("hpTrack.append(hpPercent, hpInside)"));
+		assert(script.includes("hpPercent.addEventListener('input', updateHP)"));
+		assert(!script.includes('showHPControls'));
+		assert(script.includes("createElement('div', 'master-player-gift-capture-extras')"));
+		assert(style.includes('.master-player-gift-inline-hp-track .team-builder-master-hp-slider'));
+		assert(style.includes('.master-player-gift-inline-hp-track .team-builder-master-hp-slider { display: block; width: 100%;'));
+		assert(style.includes('slider-runnable-track { height: 24px; border-radius: 13px; }'));
 		assert(script.includes("event.target === backdrop"));
 		assert(style.includes('.master-player-pokemon-gift-dialog'));
 		assert(style.includes('height: min(665px, calc(92vh - 60px))'));

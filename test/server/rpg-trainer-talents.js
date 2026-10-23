@@ -9,7 +9,8 @@ const {
 	rpgTrainerSkillAttributes,
 	awardRPGTrainerXP, completeRPGTrainerSheet, RPGLoginService, RPGMemoryCharacterRepository,
 } = require('../../dist/server/rpg-showdown');
-const { rpgTrainerRollTalents } = require('../../dist/server/rpg-showdown/trainer-roll-talents');
+const { rpgTrainerRollTalents, rpgResolveTrainerRollTalents } =
+	require('../../dist/server/rpg-showdown/trainer-roll-talents');
 const { rpgTrainerAddExhaustion, rpgTrainerApplyCondition, rpgTrainerSurvival } =
 	require('../../dist/server/rpg-showdown/trainer-survival');
 const { RPGBagSystem } = require('../../dist/sim/rpg-showdown');
@@ -27,6 +28,129 @@ function ready(classId, level = 1, overrides = {}) {
 }
 
 describe('RPG trainer classes and talents', () => {
+	it('oferece Registro de Campo e Rastreador de Espécies nas perícias adequadas', () => {
+		const master = ready('mestre-pokemon', 5);
+		master.talents.class.push('mestre-pokemon:registro-de-campo',
+			'mestre-pokemon:rastreador-de-especies');
+		const options = rpgTrainerRollTalents(master);
+		const fieldRecord = options.find(option => option.id === 'mestre-pokemon:registro-de-campo');
+		const tracker = options.find(option => option.id === 'mestre-pokemon:rastreador-de-especies');
+		assert.deepEqual(fieldRecord.targets,
+			['skill:conhecimento:pokemon', 'skill:natureza', 'skill:sobrevivencia']);
+		assert.equal(fieldRecord.bonus, 2);
+		assert.deepEqual(tracker.targets, ['skill:conhecimento:pokemon', 'skill:sobrevivencia']);
+		assert.equal(tracker.bonus, 2);
+	});
+	it('Observador de Formas oferece bônus opcional nas perícias de busca', () => {
+		const master = ready('mestre-pokemon', 5);
+		master.talents.class.push('mestre-pokemon:observador-de-formas');
+		const option = rpgTrainerRollTalents(master)
+			.find(entry => entry.id === 'mestre-pokemon:observador-de-formas');
+		assert.equal(option.bonus, 2);
+		assert.deepEqual(option.targets,
+			['skill:percepcao', 'skill:sobrevivencia', 'skill:conhecimento:pokemon']);
+	});
+	it('Auxiliar Pokémon só aparece com Pokémon da equipe acima de 50 de Amizade', () => {
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({ masterCode: 'teste', repository });
+		service.createCharacter({ characterName: 'MestrePokemon', playerName: 'Ana', avatar: 'lucas',
+			password: 'senha-rpg', initialMoney: 100,
+			starter: { species: 'Squirtle', gender: 'M' } });
+		const record = repository.get('mestrepokemon');
+		record.tableId = 'mesa-teste'; record.accountId = 'ana';
+		record.state.trainerSheet = ready('mestre-pokemon', 5, {
+			talents: { general: [], class: ['mestre-pokemon:auxiliar-pokemon'], apex: null },
+		});
+		record.state.box.party[0].pokemon.rpg.friendship = 50;
+		repository.set(record);
+		service.getSession = () => ({ role: 'player', mode: 'player',
+			platformTableId: 'mesa-teste', characterId: 'mestrepokemon' });
+		service.accounts.repository.getMembership = () => ({ status: 'active' });
+		const options = () => service.getTrainerAllyRollTalents('jogador', 'mestrepokemon');
+		assert.equal(options().some(entry => entry.id === 'mestre-pokemon:auxiliar-pokemon'), false);
+		assert.throws(() => rpgResolveTrainerRollTalents(record.state.trainerSheet, 'skill',
+			'percepcao', ['mestre-pokemon:auxiliar-pokemon'], options()), /indisponível/);
+		const friendlier = repository.get('mestrepokemon');
+		friendlier.state.box.party[0].pokemon.rpg.friendship = 51;
+		repository.set(friendlier);
+		const assistant = options().find(entry => entry.id === 'mestre-pokemon:auxiliar-pokemon');
+		assert.equal(assistant.bonus, 2);
+		assert.deepEqual(assistant.targets, ['skill:*']);
+		assert.equal(rpgResolveTrainerRollTalents(friendlier.state.trainerSheet, 'skill',
+			'percepcao', [assistant.key], options()).bonus, 2);
+		assert.equal(rpgResolveTrainerRollTalents(friendlier.state.trainerSheet, 'skill',
+			'captura', [assistant.key], options()).bonus, 2);
+		friendlier.state.box.party[0].pokemon.rpg.friendship = 50;
+		repository.set(friendlier);
+		assert.equal(options().some(entry => entry.id === assistant.id), false);
+	});
+	it('Rotina Confortável aumenta a Amizade da equipe só no primeiro descanso longo em 24 horas', () => {
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({ masterCode: 'teste', repository, random: () => 0 });
+		service.createCharacter({ characterName: 'MestrePokemon', playerName: 'Ana', avatar: 'lucas',
+			password: 'senha-rpg', initialMoney: 100,
+			starter: { species: 'Squirtle', gender: 'M' } });
+		const record = repository.get('mestrepokemon');
+		record.tableId = 'mesa-teste'; record.accountId = 'ana';
+		record.state.trainerSheet = ready('mestre-pokemon', 5, {
+			talents: { general: [], class: ['mestre-pokemon:rotina-confortavel'], apex: null },
+		});
+		record.state.box.party[0].pokemon.rpg.friendship = 252;
+		repository.set(record);
+		service.getSession = () => ({ role: 'master', mode: 'master', platformTableId: 'mesa-teste' });
+		service.requireMasterRole = () => {};
+		service.campaignSettings.currentDateTime = '2026-10-18T12:00:00.000Z';
+		service.applyCampaignRest('teste', 'long', 'comfort-rest-1');
+		assert.equal(repository.get('mestrepokemon').state.box.party[0].pokemon.rpg.friendship, 254);
+		service.applyCampaignRest('teste', 'long', 'comfort-rest-2');
+		assert.equal(repository.get('mestrepokemon').state.box.party[0].pokemon.rpg.friendship, 254);
+		service.campaignSettings.currentDateTime = '2026-10-19T12:00:00.000Z';
+		service.applyCampaignRest('teste', 'long', 'comfort-rest-3');
+		assert.equal(repository.get('mestrepokemon').state.box.party[0].pokemon.rpg.friendship, 255);
+		assert.equal(service.applyCampaignRest('teste', 'long', 'comfort-rest-3').repeated, true);
+		assert.equal(repository.get('mestrepokemon').state.box.party[0].pokemon.rpg.friendship, 255);
+	});
+	it('Companheiros de Jornada concede +5 de Amizade no descanso longo e acumula com Rotina Confortável', () => {
+		for (const [hasRoutine, expected] of [[false, 252], [true, 254]]) {
+			const repository = new RPGMemoryCharacterRepository();
+			const service = new RPGLoginService({ masterCode: 'teste', repository, random: () => 0 });
+			service.createCharacter({ characterName: 'MestrePokemon', playerName: 'Ana', avatar: 'lucas',
+				password: 'senha-rpg', initialMoney: 100,
+				starter: { species: 'Squirtle', gender: 'M' } });
+			const record = repository.get('mestrepokemon');
+			record.tableId = 'mesa-teste'; record.accountId = 'ana';
+			record.state.trainerSheet = ready('mestre-pokemon', 10, {
+				talents: { general: [], class: hasRoutine ? ['mestre-pokemon:rotina-confortavel'] : [],
+					apex: 'mestre-pokemon:companheiros-de-jornada' },
+			});
+			record.state.box.party[0].pokemon.rpg.friendship = 247;
+			repository.set(record);
+			service.getSession = () => ({ role: 'master', mode: 'master', platformTableId: 'mesa-teste' });
+			service.requireMasterRole = () => {};
+			service.campaignSettings.currentDateTime = '2026-10-18T12:00:00.000Z';
+			service.applyCampaignRest('teste', 'short', 'journey-short-rest');
+			assert.equal(repository.get('mestrepokemon').state.box.party[0].pokemon.rpg.friendship, 247);
+			service.applyCampaignRest('teste', 'long', 'journey-rest-1');
+			assert.equal(repository.get('mestrepokemon').state.box.party[0].pokemon.rpg.friendship, expected);
+			assert.equal(service.applyCampaignRest('teste', 'long', 'journey-rest-1').repeated, true);
+			service.applyCampaignRest('teste', 'long', 'journey-rest-2');
+			assert.equal(repository.get('mestrepokemon').state.box.party[0].pokemon.rpg.friendship, expected);
+			service.campaignSettings.currentDateTime = '2026-10-19T12:00:00.000Z';
+			service.applyCampaignRest('teste', 'long', 'journey-rest-3');
+			assert.equal(repository.get('mestrepokemon').state.box.party[0].pokemon.rpg.friendship, 255);
+		}
+	});
+	it('Capturador Especialista oferece apenas a escolha de Destreza ou Sabedoria na ficha', () => {
+		const master = ready('mestre-pokemon', 5);
+		const option = rpgTrainerTalentCatalog(master)
+			.find(entry => entry.id === 'mestre-pokemon:capturador-especialista');
+		assert.deepEqual(option.attributeChoices, ['dexterity', 'wisdom']);
+		assert.throws(() => chooseRPGTrainerTalent(master, { id: option.id }), /Escolha um atributo/);
+		for (const attribute of option.attributeChoices) {
+			const chosen = chooseRPGTrainerTalent(master, { id: option.id, attribute });
+			assert.equal(chosen.attributes[attribute], master.attributes[attribute] + 1);
+		}
+	});
 	it('exige nível 7 para Indução Hipnótica do Mentalista', () => {
 		const before = ready('mentalista', 5);
 		const after = ready('mentalista', 7);
@@ -891,6 +1015,32 @@ describe('RPG trainer classes and talents', () => {
 		assert.equal(service.useTrainerSocialDisguise('jogador').chargesRemaining, 0);
 		assert.equal(repository.get('encantador').state.trainerInventory.items[0].charges, 0);
 		assert.throws(() => service.useTrainerSocialDisguise('jogador'), /sem cargas/);
+	});
+	it('Isca Ecológica consome uma ração da Bag e exige o talento', () => {
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({ masterCode: 'teste', repository });
+		service.createCharacter({ characterName: 'Iscador', playerName: 'Ana', avatar: 'lucas',
+			password: 'senha-rpg', initialMoney: 100,
+			starter: { species: 'Squirtle', gender: 'M' } });
+		const record = repository.get('iscador');
+		record.tableId = 'mesa-teste'; record.accountId = 'ana';
+		record.state.trainerSheet = ready('mestre-pokemon', 5, {
+			talents: { general: [], class: ['mestre-pokemon:isca-ecologica'], apex: null },
+		});
+		record.state.trainerInventory = { version: 1, revision: 0, licenses: [], pokemonStorage: [],
+			items: [{ id: 'racao-1', itemId: 'racao-pokemon', quantity: 2,
+				equipped: false, location: 'bag' }] };
+		repository.set(record);
+		service.getSession = () => ({ role: 'player', mode: 'player',
+			platformTableId: 'mesa-teste', characterId: 'iscador' });
+		assert.equal(service.useTrainerEcologicalBait('jogador').remaining, 1);
+		assert.equal(repository.get('iscador').state.trainerInventory.items[0].quantity, 1);
+		service.useTrainerEcologicalBait('jogador');
+		assert.throws(() => service.useTrainerEcologicalBait('jogador'), /Ração Pokémon na Bag/);
+		const withoutTalent = repository.get('iscador');
+		withoutTalent.state.trainerSheet.talents.class = [];
+		repository.set(withoutTalent);
+		assert.throws(() => service.useTrainerEcologicalBait('jogador'), /não possui Isca Ecológica/);
 	});
 	it('registra nomes limitados do Palácio da Memória e gasta uma carga em Persona Preparada', () => {
 		const repository = new RPGMemoryCharacterRepository();

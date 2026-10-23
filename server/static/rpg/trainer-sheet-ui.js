@@ -210,6 +210,32 @@
 			});
 		}
 		const choices = el('div', 'trainer-sheet-roll-modes');
+		let pendingCapture = null;
+		let selectedCaptureBall = '';
+		const captureChoices = el('div', 'trainer-sheet-roll-balls hidden');
+		if (kind === 'skill' && id === 'captura') {
+			api('/trainer/pending-capture?characterId=' + encodeURIComponent(characterId)).then(data => {
+				if (!panel.isConnected || !data.capture) return;
+				pendingCapture = data.capture;
+				captureChoices.classList.remove('hidden');
+				captureChoices.append(el('strong', '', `Poké Bola para ${pendingCapture.species}`));
+				if (!pendingCapture.balls.length) captureChoices.append(el('span', '', 'Você não possui Poké Bolas na Bag.'));
+				for (const ball of pendingCapture.balls) {
+					const option = el('button', 'trainer-sheet-roll-talent', `${ball.name} ×${ball.quantity}`);
+					option.type = 'button'; option.setAttribute('aria-pressed', 'false');
+					option.addEventListener('click', () => {
+						selectedCaptureBall = ball.id;
+						for (const item of captureChoices.querySelectorAll('button'))
+							item.setAttribute('aria-pressed', String(item === option));
+					});
+					captureChoices.append(option);
+				}
+			}).catch(failure => {
+				if (!panel.isConnected) return;
+				error.textContent = failure.message || 'Não foi possível consultar a captura pendente.';
+				error.classList.remove('hidden');
+			});
+		}
 		if (kind === 'skill' && attributeOptions.length > 1) {
 			const attributeChoice = select(attributeOptions.map(attribute => [attribute,
 				ATTRIBUTES.find(entry => entry[0] === attribute)?.[1] || label(attribute)]));
@@ -302,10 +328,15 @@
 			const choice = el('button', 'trainer-sheet-roll-choice', caption);
 			choice.type = 'button';
 			choice.addEventListener('click', async () => {
+				if (pendingCapture && !selectedCaptureBall) {
+					error.textContent = 'Escolha uma Poké Bola da sua Bag antes de rolar Captura.';
+					error.classList.remove('hidden'); return;
+				}
 				panel.querySelectorAll('button').forEach(item => { item.disabled = true; });
 				try {
 					await api(`/trainer/${kind}-roll`, { method: 'POST',
 						body: { characterId, [kind]: id, mode, talents: [...selectedTalents],
+							...(pendingCapture ? { captureBall: selectedCaptureBall } : {}),
 							...(selectedAttribute ? { attribute: selectedAttribute } : {}) } });
 					close();
 					window.dispatchEvent(new CustomEvent('rpg:realtime-sync', { detail: { tableId: selectedTable } }));
@@ -337,7 +368,7 @@
 			});
 			choices.append(helpButton);
 		}
-		content.append(choices);
+		content.append(captureChoices, choices);
 		if (availableTalents.length) content.append(talentChoices);
 		if (helpTalentButtons.size) { content.append(helpTalentChoices); updateTalentVisibility(); }
 		panel.append(content, error);
@@ -446,7 +477,7 @@
 		if (closeAttributePopover) closeAttributePopover();
 		const panel = el('div', 'trainer-sheet-talent-popover');
 		if (action?.diplomatProxy) panel.classList.add('trainer-sheet-talent-popover--archive');
-		if (action?.socialDisguise || action?.trapmaker || action?.combinedTrap || action?.trapLabyrinth || action?.pokemonPharmacy || action?.advancedPharmacy || action?.masterPharmacy ||
+		if (action?.socialDisguise || action?.ecologicalBait || action?.trapmaker || action?.combinedTrap || action?.trapLabyrinth || action?.pokemonPharmacy || action?.advancedPharmacy || action?.masterPharmacy ||
 			action?.choreography ||
 			action?.persistentHypothesis !== undefined) {
 			panel.dataset.preserveOnRefresh = 'true';
@@ -454,7 +485,28 @@
 		let recordPicker = null;
 		panel.append(el('strong', 'trainer-sheet-talent-popover-title', name),
 			renderTrainerDescription(description, 'trainer-sheet-talent-description'));
-		if (action?.manualRest) {
+		if (action?.captureCombatAttribute) {
+			panel.append(el('p', '', 'Atributo usado nos arremessos durante batalhas:'));
+			const choices = el('div', 'trainer-sheet-roll-modes');
+			const feedback = el('small', 'trainer-sheet-trusted-partner-feedback');
+			for (const [attribute, title] of [['dexterity', 'Destreza'], ['wisdom', 'Sabedoria']]) {
+				const choice = el('button', 'trainer-sheet-talent-use', title);
+				choice.type = 'button';
+				choice.setAttribute('aria-pressed', String(action.captureCombatAttribute === attribute));
+				choice.addEventListener('click', async () => {
+					if (action.captureCombatAttribute === attribute) return;
+					choice.disabled = true;
+					try {
+						await action.api('/trainer/talents/capture-attribute', { method: 'POST', body: { attribute } });
+						action.captureCombatAttribute = attribute;
+						for (const button of choices.children) button.setAttribute('aria-pressed', String(button === choice));
+						feedback.textContent = `${title} selecionada para os arremessos em batalha.`;
+					} catch (error) { feedback.textContent = error.message || 'Não foi possível salvar a escolha.'; } finally { choice.disabled = false; }
+				});
+				choices.append(choice);
+			}
+			panel.append(choices, feedback);
+		} else if (action?.manualRest) {
 			const status = el('p', 'trainer-sheet-manual-rest-status', action.manualRest.used ?
 				'Usado neste descanso.' : 'Disponível para uso.');
 			const use = el('button', 'trainer-sheet-talent-use', action.manualRest.used ? 'Usado' : 'Marcar como usado');
@@ -2562,6 +2614,24 @@
 				} finally { use.disabled = false; }
 			});
 			panel.append(use, feedback);
+		} else if (action?.ecologicalBait) {
+			const use = el('button', 'trainer-sheet-talent-use', 'Usar Isca Ecológica');
+			use.type = 'button';
+			const feedback = el('p', 'trainer-sheet-roll-error hidden');
+			use.addEventListener('click', async () => {
+				use.disabled = true;
+				try {
+					await action.api('/trainer/talents/ecological-bait', { method: 'POST' });
+					feedback.textContent = 'Isca preparada. Uma Ração Pokémon foi consumida.';
+					feedback.classList.remove('hidden');
+					window.dispatchEvent(new CustomEvent('rpg:realtime-sync',
+						{ detail: { tableId: selectedTable } }));
+				} catch (error) {
+					feedback.textContent = error.message || 'Não foi possível preparar a isca.';
+					feedback.classList.remove('hidden');
+				} finally { use.disabled = false; }
+			});
+			panel.append(use, feedback);
 		} else if (action?.socialDisguise) {
 			const use = el('button', 'trainer-sheet-talent-use', 'Usar Disfarce Social');
 			use.type = 'button';
@@ -3850,12 +3920,13 @@
 			left.name.localeCompare(right.name, 'pt-BR', { sensitivity: 'base' }));
 		const classTalents = sortTalents([
 			...(rules?.classFeatures?.[sheet.classId] || []).map(feature =>
-				({ id: sheet.classId === 'cientista' && feature.name === 'Registro Reprodutível' ?
+				({ id: sheet.classId === 'mestre-pokemon' && feature.name === 'Captura Calculada' ?
+					'mestre-pokemon:captura-calculada' : sheet.classId === 'cientista' && feature.name === 'Registro Reprodutível' ?
 					'cientista:registro-reprodutivel' : sheet.classId === 'coreografo' &&
-						feature.name === 'Ensaio Conjunto' ? 'coreografo:ensaio-conjunto' :
-					feature.name === 'Refeição Revigorante' ? 'cozinheiro:refeicao-revigorante' :
-					feature.name === 'Primeiros Cuidados' ? 'criador-pokemon:primeiros-cuidados' :
-					feature.name === 'Atendimento Emergencial' ? 'medico:atendimento-emergencial' : undefined,
+							feature.name === 'Ensaio Conjunto' ? 'coreografo:ensaio-conjunto' :
+						feature.name === 'Refeição Revigorante' ? 'cozinheiro:refeicao-revigorante' :
+						feature.name === 'Primeiros Cuidados' ? 'criador-pokemon:primeiros-cuidados' :
+						feature.name === 'Atendimento Emergencial' ? 'medico:atendimento-emergencial' : undefined,
 				name: feature.name, description: feature.text })),
 			...acquired(sheet.talents?.class),
 		]);
@@ -4018,10 +4089,14 @@
 																																																{ id, api, refresh, extraordinaryRecovery: progression.extraordinaryRecovery } :
 																																																!readOnly && sheet.classId === 'medico' && name === 'Recuperação Assistida' ?
 																																																	{ id, api, assistedRecovery: progression.assistedRecovery } :
-																																																	!readOnly && manualRest ? { id, api, refresh, manualRest } :
-																																																	!readOnly && ['cozinheiro:refeicao-reconfortante', 'cozinheiro:nutricao-de-recuperacao'].includes(id) ?
-																																																		{ restStatus: mealUsed ? 'Usado neste descanso longo junto com Refeição Revigorante.' :
-																																																		'Será ativado junto com Refeição Revigorante.' } : null));
+																																																	!readOnly && id === 'mestre-pokemon:captura-calculada' ?
+																																																		{ id, api, captureCombatAttribute: sheet.captureCombatAttribute || 'dexterity' } :
+																																								!readOnly && id === 'mestre-pokemon:isca-ecologica' ?
+																																									{ id, api, ecologicalBait: true } :
+																																																		!readOnly && manualRest ? { id, api, refresh, manualRest } :
+																																																		!readOnly && ['cozinheiro:refeicao-reconfortante', 'cozinheiro:nutricao-de-recuperacao'].includes(id) ?
+																																																			{ restStatus: mealUsed ? 'Usado neste descanso longo junto com Refeição Revigorante.' :
+																																																			'Será ativado junto com Refeição Revigorante.' } : null));
 			talentList.append(button);
 		}
 		talentSection.append(talentList);

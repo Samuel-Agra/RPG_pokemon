@@ -80,16 +80,38 @@ function rpgRuntimeSyncStatusVisual(fieldPokemon, status) {
 	if (!sprite) return;
 	for (const previous of sprite.querySelectorAll('.rpg-sleep-zs, .rpg-freeze-overlay')) previous.remove();
 	const statusId = rpgRuntimeEffectId(status);
+	let overlay;
 	if (statusId === 'slp' || statusId === 'sleep') {
 		const sleeping = createElement('span', 'rpg-sleep-zs');
 		sleeping.setAttribute('aria-hidden', 'true');
 		for (let index = 1; index <= 3; index++) sleeping.append(createElement('i', `rpg-sleep-z rpg-sleep-z-${index}`, 'Z'));
 		sprite.append(sleeping);
+		overlay = sleeping;
 	} else if (statusId === 'frz' || statusId === 'freeze' || statusId === 'frozen') {
 		const frozen = createElement('span', 'rpg-freeze-overlay');
 		frozen.setAttribute('aria-hidden', 'true');
 		sprite.append(frozen);
+		overlay = frozen;
 	}
+	if (!overlay) return;
+	overlay.style.visibility = 'hidden';
+	const image = sprite.querySelector('img');
+	if (!image) return;
+	const alignToImage = () => {
+		if (!overlay.isConnected) return;
+		const imageRect = image.getBoundingClientRect();
+		if (!imageRect.width || !imageRect.height) return;
+		const spriteRect = sprite.getBoundingClientRect();
+		const scaleX = spriteRect.width / (sprite.offsetWidth || spriteRect.width);
+		const scaleY = spriteRect.height / (sprite.offsetHeight || spriteRect.height);
+		overlay.style.left = `${(imageRect.left - spriteRect.left) / scaleX}px`;
+		overlay.style.top = `${(imageRect.top - spriteRect.top) / scaleY}px`;
+		overlay.style.width = `${imageRect.width / scaleX}px`;
+		overlay.style.height = `${imageRect.height / scaleY}px`;
+		overlay.style.visibility = 'visible';
+	};
+	image.addEventListener('load', alignToImage, { once: true });
+	requestAnimationFrame(alignToImage);
 }
 
 function rpgRuntimePlayShinyEntry(fieldPokemon) {
@@ -1266,6 +1288,7 @@ function rpgRuntimeCommands(session, side, foe, submit, observer, moveDetails, r
 				const targetButton = button('', 'rpg-bag-capture-target');
 				targetButton.append(rpgRuntimeSprite(pokemon, false, true, true), createElement('strong', '', pokemon.name));
 				const insight = ballInsights?.[pokemon.activeSlot]?.[item.id];
+				if (insight?.active) targetButton.classList.add('rpg-bag-ball-benefited');
 				if (insight) targetButton.append(createElement('span', 'rpg-bag-ball-insight',
 					ballInsightText(item, insight)));
 				targetButton.addEventListener('click', () => captureTarget(item, pokemon));
@@ -1297,6 +1320,7 @@ function rpgRuntimeCommands(session, side, foe, submit, observer, moveDetails, r
 				const targets = (foe?.pokemon || []).filter(pokemon => pokemon.active && !pokemon.fainted);
 				const insight = item.category === 'ball' && targets.length === 1 ?
 					ballInsights?.[targets[0].activeSlot]?.[item.id] : null;
+				if (insight?.active) use.classList.add('rpg-bag-ball-benefited');
 				if (insight) itemName.append(createElement('em', 'rpg-bag-ball-insight',
 					' · ' + ballInsightText(item, insight)));
 				use.append(bagItemIcon(item), itemName, createElement('b', '', '\u00d7' + entry.quantity));
@@ -1362,12 +1386,15 @@ async function rpgBattleRoom(session, character, characters = [], isMaster = fal
 	const room = createElement('section', 'rpg-battle-room panel');
 	let stopped = false;
 	let busy = false;
+	let actionSequence = 0;
 	let snapshot;
 	let visualSnapshot;
 	let battleUiPhase = 'loading';
 	let introStarted = false;
 	const panelSelection = { A: { trainer: 0, active: 0 }, B: { trainer: 0, active: 0 } };
 	let renderedSnapshotSignature = '';
+	let deferredRender = false;
+	let animationPlaying = false;
 	let activeRosterSignature = '';
 	let activeRosterKeys = new Set();
 	const pendingSwitchInKeys = new Set();
@@ -1436,6 +1463,7 @@ async function rpgBattleRoom(session, character, characters = [], isMaster = fal
 		}
 		if (busy) return;
 		busy = true;
+		actionSequence++;
 		battleUiPhase = 'resolving_turn';
 		room.classList.add('rpg-resolving-turn');
 		engine.textContent = 'Resolvendo turno...';
@@ -1877,6 +1905,10 @@ async function rpgBattleRoom(session, character, characters = [], isMaster = fal
 			if (!throwRoll) engine.textContent = event.actor.name + ' lançou ' + event.ball.name;
 			await window.RPGShowdownAnimations?.capture?.(field, attacker, target, {
 				ball: event.ball.id, ballSprite: event.ball.sprite, success: event.success, shakes: event.shakes,
+				firstShakes: event.firstShakes, secondChanceUsed: event.secondChanceUsed,
+				onSecondChance: () => {
+					engine.textContent = 'Mestre da Captura: a mesma Poké Bola tenta capturar novamente!';
+				},
 				onThrow: () => window.RPGBattleAudio?.playEffect('captureThrow'),
 				onClose: () => window.RPGBattleAudio?.playEffect('captureClose'),
 				onShake: () => window.RPGBattleAudio?.playEffect('captureShake'),
@@ -1945,6 +1977,7 @@ async function rpgBattleRoom(session, character, characters = [], isMaster = fal
 		battleUiPhase = 'resolving_turn';
 		room.classList.add('rpg-resolving-turn');
 		// Uma animação com erro não pode bloquear permanentemente os turnos seguintes.
+		animationPlaying = true;
 		animationQueue = animationQueue.catch(() => undefined).then(async () => {
 			for (const event of validEvents) {
 				try {
@@ -1956,16 +1989,22 @@ async function rpgBattleRoom(session, character, characters = [], isMaster = fal
 			}
 			visualSnapshot = structuredClone(snapshot);
 			redrawVisualSidePanels();
+			animationPlaying = false;
 			room.classList.remove('rpg-resolving-turn');
+			battleUiPhase = snapshot?.status === 'ended' ? 'finished' : 'awaiting_action';
+			if (deferredRender) {
+				deferredRender = false;
+				render();
+			}
 			if (snapshot?.status === 'ended') {
 				showBattleResult();
 			} else {
-				battleUiPhase = 'awaiting_action';
 				const side = snapshot?.sides?.find(entry => entry.team === controlledTeam);
 				engine.textContent = side?.requestState ? 'Sua vez · turno ' + snapshot.turn : 'Turno ' + snapshot.turn;
 			}
 		}).catch(error => {
 			console.error('RPG battle animation queue failed', error);
+			animationPlaying = false;
 			room.classList.remove('rpg-resolving-turn');
 			if (!stopped) battleUiPhase = 'awaiting_action';
 		});
@@ -2404,6 +2443,10 @@ async function rpgBattleRoom(session, character, characters = [], isMaster = fal
 	}
 	function render() {
 		if (!snapshot) return;
+		if (animationPlaying) {
+			deferredRender = true;
+			return;
+		}
 		window.RPGTableCommunication?.setActivity?.('battle', session.id,
 			(Array.isArray(snapshot.log) ? snapshot.log : []).map((text, index) => ({
 				sequence: index + 1,
@@ -2664,14 +2707,23 @@ async function rpgBattleRoom(session, character, characters = [], isMaster = fal
 	}
 	async function refresh() {
 		if (stopped || !room.isConnected) return;
+		if (busy || animationPlaying) {
+			setTimeout(refresh, 1500);
+			return;
+		}
 		try {
+			const requestedAfterAction = actionSequence;
 			const data = await api('/battle-sessions/' + encodeURIComponent(session.id) + '/runtime');
-			snapshot = data.battle;
-			await ensureMoveDetails();
-			render();
+			if (!busy && !animationPlaying && requestedAfterAction === actionSequence) {
+				snapshot = data.battle;
+				await ensureMoveDetails();
+				if (!busy && !animationPlaying && requestedAfterAction === actionSequence) render();
+			}
 		} catch (error) {
-			engine.textContent = 'Falha na conex\u00e3o';
-			showToast(error.message, true);
+			if (!busy && !animationPlaying) {
+				engine.textContent = 'Falha na conex\u00e3o';
+				showToast(error.message, true);
+			}
 		}
 		if (!stopped && snapshot?.status !== 'ended') setTimeout(refresh, 1500);
 	}

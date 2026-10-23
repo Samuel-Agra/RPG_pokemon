@@ -200,6 +200,9 @@ button.trainer-sheet-attribute:hover, button.trainer-sheet-attribute[aria-expand
 .trainer-sheet-attribute-popover > strong { padding: 2px 4px 6px; color: #263e66; }
 .trainer-sheet-roll-content { display: flex; gap: 12px; align-items: start; max-width: min(560px, calc(100vw - 44px)); }
 .trainer-sheet-roll-modes { display: grid; gap: 5px; min-width: 150px; }
+.trainer-sheet-roll-balls { display: grid; gap: 5px; min-width: 175px; max-height: 260px;
+	overflow-y: auto; overscroll-behavior: contain; padding-right: 8px; border-right: 1px solid #d8e1ef; }
+.trainer-sheet-roll-balls > strong { font-size: 12px; color: #405b84; }
 .trainer-sheet-roll-talents { display: grid; gap: 6px; width: min(310px, 52vw); max-height: 260px;
 	overflow-y: auto; overscroll-behavior: contain; border-left: 1px solid #d8e1ef; padding-left: 10px; }
 .trainer-sheet-roll-talents > strong { font-size: 12px; color: #405b84; }

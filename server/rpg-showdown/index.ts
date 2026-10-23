@@ -9,6 +9,8 @@ import { dirname, resolve } from "node:path";
 import { isDeepStrictEqual } from 'node:util';
 
 import { Dex } from "../../sim/dex";
+import { CaptureSystem } from '../../sim/rpg-showdown/systems/battle/capture';
+import { RPGGen9PokeballCalculator } from '../../sim/rpg-showdown/systems/battle/pokeball';
 import { toID } from "../../sim/dex-data";
 import type { PokemonSet } from "../../sim/teams";
 import {
@@ -93,6 +95,7 @@ import { rpgArtisticInspirationOption, rpgCaptivatingDistractionOption, rpgEncou
 	rpgTechnicalOpinionOption, rpgPhotographicSequenceOption, rpgPhotographicPanoramaOption,
 	rpgGuardPerimeterOption,
 	rpgCommanderOperationOption,
+	rpgPokemonAssistantOption,
 	rpgResolveTrainerRollTalents, rpgSetSharedArchive, rpgUpdatePersistentHypothesis,
 	rpgSharedArchiveOptions, rpgTrainerRollTalents, rpgTrainerRollBonusTerms } from './trainer-roll-talents';
 import { rpgTrainerHeroicMessage, rpgTrainerRerollCandidate, rpgTrainerRerollMessage,
@@ -107,6 +110,8 @@ import {
 import { RPG_TRAINER_CLASS_FEATURES } from './trainer-class-features';
 import { rpgScientistRecordFormulas, rpgScientistRecordLimit, rpgScientistRecordProduction,
 	rpgSetScientistRecord, RPG_SCIENTIST_RECORDS } from './trainer-scientist-records';
+import { rpgCaptureThrowDifficulty } from './capture-throw-difficulty';
+import { getRPGBattlePokemonCatalog } from './pokemon-catalog';
 import { resolveRPGExposure, prepareRPGCamp, type RPGExposure } from './trainer-exploration';
 import { resolveRPGMasterExcavation } from './trainer-excavation';
 import { advanceRPGTravel, createRPGTravelState, resolveRPGForcedMarch,
@@ -188,6 +193,8 @@ import {
 	type RPGCommerceShopState,
 	type RPGCommerceTradeRequest,
 } from './shop-management';
+
+const RPG_MASTER_GIFT_SPECIES = new Set(getRPGBattlePokemonCatalog().map(entry => entry.id));
 
 export * from './battle-session';
 export * from './contest-session';
@@ -338,6 +345,12 @@ export interface RPGCharacterState extends RPGCharacterSelection {
 	bank?: RPGBankAccount;
 	profile?: RPGTrainerProfile;
 	trainerSheet?: RPGTrainerSheet;
+	/** Identificadores de encontros já surpreendidos antes de confronto. */
+	captureSurpriseUsed?: string[];
+	/** Encontro preparado pelo Mestre, aguardando a rolagem de Captura do treinador. */
+	pendingCapture?: { species: string, level: number, gender: RPGCharacterGender,
+		ability: string, nature: string, shiny: boolean, hpPercent: number, status: string,
+		encounterId: string, conditions: { isNight?: boolean, isCave?: boolean, isInWater?: boolean } };
 	trainerInventory?: RPGTrainerInventory;
 	team: PokemonSet[];
 	teamPresets?: RPGTeamPreset[];
@@ -1408,6 +1421,15 @@ export class RPGLoginService {
 				delete record.state.trainerSheet.stagedRecoveryPending;
 			}
 			if (kind === 'long') {
+				const friendshipBonus = sheet.classId === 'mestre-pokemon' ?
+					(sheet.talents.class.includes('mestre-pokemon:rotina-confortavel') ? 2 : 0) +
+					(sheet.talents.apex === 'mestre-pokemon:companheiros-de-jornada' ? 5 : 0) : 0;
+				if (friendshipBonus) {
+					for (const pokemon of record.state.box.party) {
+						pokemon.pokemon.rpg.friendship = Math.min(255,
+							Math.max(0, pokemon.pokemon.rpg.friendship ?? 50) + friendshipBonus);
+					}
+				}
 				delete record.state.trainerSheet.stagedRecoveryPending;
 				const pending = sheet.assistedRecoveryPending;
 				if (pending || extraordinary) {
@@ -3680,6 +3702,25 @@ export class RPGLoginService {
 			rerollAvailability: this.getTrainerRerollAvailability(token, state.id) };
 	}
 
+	setTrainerCaptureCombatAttribute(token: string, attribute: 'dexterity' | 'wisdom') {
+		const session = this.getSession(token);
+		if (session.mode !== 'player' || !session.platformTableId) throw new Error('Entre como jogador em uma mesa');
+		const characterId = session.role === 'master' ? session.viewAsCharacterId : session.characterId;
+		if (!characterId) throw new Error('Nenhum personagem selecionado');
+		if (attribute !== 'dexterity' && attribute !== 'wisdom') throw new Error('Atributo de captura inválido');
+		const previous = this.requireCharacter(toID(characterId));
+		if (previous.tableId !== session.platformTableId) throw new Error('Personagem fora da mesa atual');
+		const sheet = previous.state.trainerSheet;
+		if (sheet?.status !== 'complete' || sheet.classId !== 'mestre-pokemon') {
+			throw new Error('Este treinador não possui Captura Calculada');
+		}
+		const next = structuredClone(previous);
+		next.state.trainerSheet!.captureCombatAttribute = attribute;
+		next.state.updatedAt = this.now();
+		this.persistAtomically(() => this.repository.set(next));
+		return { attribute };
+	}
+
 	updateTrainerPersistentHypothesis(token: string,
 		input: { action: 'failure' | 'reset' }) {
 		const session = this.getSession(token);
@@ -3815,6 +3856,37 @@ export class RPGLoginService {
 		return { chargesRemaining: kit.charges, kitInstanceId: kit.id };
 	}
 
+	/** Isca Ecológica consome uma ração da Bag; o encontro permanece narrado pelo Mestre. */
+	useTrainerEcologicalBait(token: string) {
+		const session = this.getSession(token);
+		if (session.mode !== 'player' || !session.platformTableId) throw new Error('Entre como jogador em uma mesa');
+		const characterId = session.role === 'master' ? session.viewAsCharacterId : session.characterId;
+		if (!characterId) throw new Error('Nenhum personagem selecionado');
+		const previous = this.requireCharacter(toID(characterId));
+		if (previous.tableId !== session.platformTableId) throw new Error('Personagem fora da mesa atual');
+		this.requireWorldBagItemUse(token, previous.state.id);
+		const actor = structuredClone(previous);
+		const sheet = actor.state.trainerSheet;
+		if (sheet?.status !== 'complete' || sheet.classId !== 'mestre-pokemon' ||
+			!sheet.talents.class.includes('mestre-pokemon:isca-ecologica')) {
+			throw new Error('Este treinador não possui Isca Ecológica');
+		}
+		const inventory = this.ensureTrainerInventory(actor);
+		const ration = inventory.items.find(item =>
+			['racao-pokemon', 'racao-artesanal-pokemon'].includes(item.itemId) &&
+			item.location === 'bag' && !item.equipped && item.quantity > 0);
+		if (!ration) throw new Error('É necessária uma Ração Pokémon na Bag');
+		ration.quantity--;
+		if (!ration.quantity) inventory.items.splice(inventory.items.indexOf(ration), 1);
+		inventory.revision++;
+		actor.state.updatedAt = this.now();
+		this.validateTrainerInventory(actor);
+		try { this.persistAtomically(() => this.repository.set(actor)); } catch (error) {
+			this.repository.set(previous); throw error;
+		}
+		return { rationItemId: ration.itemId, remaining: ration.quantity };
+	}
+
 	setTrainerMemoryPalace(token: string, names: string[]) {
 		const session = this.getSession(token);
 		if (session.mode !== 'player' || !session.platformTableId) throw new Error('Entre como jogador em uma mesa');
@@ -3828,7 +3900,7 @@ export class RPGLoginService {
 			throw new Error('Este treinador não possui Palácio da Memória');
 		}
 		const limit = Math.max(1, rpgTrainerProficiency(sheet.level) +
-			Math.floor((sheet.attributes.intelligence - 10) / 2));
+			Math.floor((sheet.attributes!.intelligence - 10) / 2));
 		if (!Array.isArray(names) || names.length > limit || names.some(name =>
 			typeof name !== 'string' || !name.trim() || name.trim().length > 100)) {
 			throw new Error(`Informe até ${limit} nomes de memórias, com no máximo 100 caracteres cada`);
@@ -5123,7 +5195,13 @@ export class RPGLoginService {
 
 	/** Exibe apenas treinadores de contas ativas da mesa atual; a mesma busca valida a rolagem. */
 	getTrainerAllyRollTalents(token: string, characterId: string, attribute?: RPGTrainerAttribute) {
-		return [...this.enchanterAllyOptions(token, characterId), ...this.detectiveDuoOptions(token, characterId),
+		const session = this.getSession(token);
+		const own = this.repository.get(toID(characterId));
+		const assistant = own && own.tableId === session.platformTableId && own.state.trainerSheet ?
+			rpgPokemonAssistantOption(own.state.trainerSheet, own.state.box.party.some(pokemon =>
+				(pokemon.pokemon.rpg.friendship ?? 50) > 50)) : null;
+		return [...(assistant ? [assistant] : []),
+			...this.enchanterAllyOptions(token, characterId), ...this.detectiveDuoOptions(token, characterId),
 			...this.diplomatProxyOptions(token, characterId, attribute),
 			...this.cosmopolitanEtiquetteOptions(token, characterId),
 			...this.diplomatIntroductionOptions(token, characterId),
@@ -9093,16 +9171,47 @@ export class RPGLoginService {
 		return this.managedBoxView(record);
 	}
 
-	masterCreatePlayerPokemon(token: string, characterId: string, input: {
-		species: string, level: number, gender: RPGCharacterGender,
-		ability: string, nature: string, shiny?: boolean,
-	}): { box: RPGBoxManagementView, pokemon: RPGCharacterState['team'][number], destination: 'party' | 'box' } {
+	masterCaptureBalls(token: string, characterId: string): { id: string, name: string, quantity: number }[] {
 		this.requireMasterMode(token);
 		this.requirePlatformTablePermission(token, 'characters.manage');
 		const record = this.requireCharacter(characterId);
+		const tableId = this.getSession(token).platformTableId;
+		if (tableId && record.tableId !== tableId) throw new Error('Personagem fora da mesa atual');
+		return RPGItems.list('ball').filter(item =>
+			RPGGen9PokeballCalculator.calculate(item.id).usable &&
+			RPGBagSystem.getRegularQuantity(record.state.inventory.bag, item.id) > 0
+		).map(item => ({ id: item.id, name: item.name,
+			quantity: RPGBagSystem.getRegularQuantity(record.state.inventory.bag, item.id) }));
+	}
+
+	masterCreatePlayerPokemon(token: string, characterId: string, input: {
+		species: string, level: number, gender: RPGCharacterGender,
+		ability: string, nature: string, shiny?: boolean,
+		capture?: { hpPercent: number, status: string, encounterId: string,
+			conditions?: { isNight?: boolean, isCave?: boolean, isInWater?: boolean } },
+	}): { box?: RPGBoxManagementView, pokemon?: RPGCharacterState['team'][number],
+		destination?: 'party' | 'box', capture?: { success: boolean, throwHit: boolean,
+			throwRoll?: number, throwTotal?: number, throwDC?: number, probability: number, ball: string },
+		pending?: boolean } {
+		this.requireMasterMode(token);
+		this.requirePlatformTablePermission(token, 'characters.manage');
+		const record = this.requireCharacter(characterId);
+		const tableId = this.getSession(token).platformTableId;
+		if (tableId && record.tableId !== tableId) throw new Error('Personagem fora da mesa atual');
+		return this.createPlayerPokemonForRecord(record, input);
+	}
+
+	private createPlayerPokemonForRecord(record: RPGStoredCharacter, input: {
+		species: string, level: number, gender: RPGCharacterGender, ability: string, nature: string, shiny?: boolean,
+		capture?: { hpPercent: number, status: string, encounterId: string, ball?: string,
+			conditions?: { isNight?: boolean, isCave?: boolean, isInWater?: boolean } },
+	}, throwResult?: { natural: number, total: number }): { box?: RPGBoxManagementView,
+		pokemon?: RPGCharacterState['team'][number], destination?: 'party' | 'box',
+		capture?: { success: boolean, throwHit: boolean, throwRoll?: number, throwTotal?: number,
+			throwDC?: number, probability: number, ball: string }, pending?: boolean } {
 		const dex = Dex.mod('gen9');
 		const species = dex.species.get(input.species);
-		if (!species.exists || species.isNonstandard || species.id === 'egg') {
+		if (!species.exists || !RPG_MASTER_GIFT_SPECIES.has(species.id)) {
 			throw new Error('Escolha uma espécie de Pokémon válida');
 		}
 		const level = Number(input.level);
@@ -9112,22 +9221,90 @@ export class RPGLoginService {
 		if (!['M', 'F', 'N'].includes(input.gender) || !getRPGAllowedSexes(species.name).includes(input.gender)) {
 			throw new Error('O gênero selecionado não está disponível para essa espécie');
 		}
-		const abilities = Object.entries(species.abilities)
-			.filter(([slot]) => slot !== 'S').map(([, ability]) => ability);
+		const abilities = Object.values(species.abilities).filter(Boolean);
 		const ability = abilities.find(value => toID(value) === toID(input.ability));
 		if (!ability) throw new Error('A habilidade selecionada não está disponível para essa espécie');
 		const nature = dex.natures.get(input.nature);
 		if (!nature.exists) throw new Error('Escolha uma natureza válida');
+		let capture: { success: boolean, throwHit: boolean, throwRoll?: number,
+			throwTotal?: number, throwDC?: number, probability: number, ball: string } | undefined;
+		let captureBall = 'pokeball';
+		let captureFriendship = 50;
+		if (input.capture) {
+			const attempt = input.capture;
+			if (!/^[a-zA-Z0-9_-]{8,100}$/.test(attempt.encounterId || '')) {
+				throw new Error('Identificador da tentativa de captura inválido');
+			}
+			if (!Number.isInteger(attempt.hpPercent) || attempt.hpPercent < 1 || attempt.hpPercent > 100) {
+				throw new Error('A vida do Pokémon deve estar entre 1% e 100%');
+			}
+			if (!['', 'brn', 'psn', 'tox', 'par', 'slp', 'frz'].includes(attempt.status)) {
+				throw new Error('Escolha um status válido para a captura');
+			}
+			const context = attempt.conditions || {};
+			if (Object.keys(context).some(key => !['isNight', 'isCave', 'isInWater'].includes(key)) ||
+				Object.values(context).some(value => typeof value !== 'boolean')) {
+				throw new Error('Condições da captura inválidas');
+			}
+			if (!throwResult) {
+				// Uma nova apresentação pelo Mestre substitui o encontro anterior ainda pendente.
+				// Isso permite que ele mude o Pokémon em cena sem deixar a ficha bloqueada.
+				const original = structuredClone(record);
+				try {
+					this.persistAtomically(() => {
+						record.state.pendingCapture = { species: species.name, level, gender: input.gender,
+							ability, nature: nature.name, shiny: input.shiny === true,
+							hpPercent: attempt.hpPercent, status: attempt.status,
+							encounterId: attempt.encounterId, conditions: context };
+						this.persistBoxRecord(record);
+					});
+				} catch (error) { this.repository.set(original); throw error; }
+				return { pending: true };
+			}
+			const ball = RPGItems.list('ball').find(item => item.id === toID(attempt.ball));
+			if (!ball || !RPGGen9PokeballCalculator.calculate(ball.id).usable) throw new Error('Escolha uma Poké Bola válida');
+			if (RPGBagSystem.getRegularQuantity(record.state.inventory.bag, ball.id) < 1) {
+				throw new Error(`${record.state.characterName} não possui ${ball.name} na Bag`);
+			}
+			const difficulty = rpgCaptureThrowDifficulty(species.name);
+			const sheet = record.state.trainerSheet;
+			const throwRoll = throwResult.natural;
+			const throwTotal = throwResult.total;
+			const throwHit = difficulty.dc !== null && throwTotal! >= difficulty.dc;
+			const catchRate = 45; // Mesma taxa padrão usada pelo motor de batalhas quando não há taxa explícita.
+			const ballRule = RPGGen9PokeballCalculator.calculate(ball.id, {
+				catchRate, turnNumber: 1, targetLevel: level,
+				targetSpecies: species.name, targetGender: input.gender,
+				targetTypes: species.types, targetBaseSpeed: species.baseStats.spe,
+				targetWeightKg: species.weightkg, targetStatus: attempt.status,
+				targetAbility: ability, alreadyCaught: this.trainerProfile(record.state).pokedex.caught.some(
+					name => toID(name) === species.id), ...context,
+			});
+			const talents = sheet?.status === 'complete' ?
+				[...sheet.talents.class, ...sheet.talents.general, sheet.talents.apex] : [];
+			const effectiveHP = talents.includes('mestre-pokemon:captura-inesperada') ?
+				Math.min(attempt.hpPercent, 50) : attempt.hpPercent;
+			const statusModifier = ['slp', 'frz'].includes(attempt.status) ? 2.5 :
+				attempt.status ? 1.5 : 1;
+			const calculated = CaptureSystem.calculate(100, effectiveHP,
+				ballRule.adjustedCatchRate ?? catchRate, ballRule.ballModifier, statusModifier);
+			const probability = ballRule.guaranteed ? 1 : calculated.probability;
+			const success = throwHit ? this.random() < probability : false;
+			captureBall = ball.id;
+			if (ballRule.postCaptureEffects.includes('friendship-start')) captureFriendship = 150;
+			capture = { success, throwHit, throwRoll, throwTotal, throwDC: difficulty.dc ?? undefined,
+				probability, ball: ball.id };
+		}
 		const evs = this.randomEVs();
 		const ivs = { hp: 0, atk: 0, def: 0, spa: 0, spd: 0, spe: 0 };
 		const moves = this.randomLevelMoves(species.id, level);
-		const experienceData = getSpeciesExperience(species.id);
+		const experienceData = getSpeciesExperience(species.id) || getSpeciesExperience(toID(species.baseSpecies));
 		const set: PokemonSet = {
 			name: species.name, species: species.name, level, gender: input.gender,
 			ability, nature: nature.name, shiny: input.shiny === true, item: '', moves, evs, ivs,
-			happiness: 50,
+			happiness: captureFriendship,
 			rpg: {
-				version: RPG_STATE_VERSION, level, evs, friendship: 50, item: '', captureBall: 'pokeball',
+				version: RPG_STATE_VERSION, level, evs, friendship: captureFriendship, item: '', captureBall,
 				experience: experienceData ? getExperienceForLevel(experienceData.growthRate, level) : undefined,
 			},
 		};
@@ -9140,17 +9317,53 @@ export class RPGLoginService {
 		const original = structuredClone(record);
 		try {
 			this.persistAtomically(() => {
+				if (capture) {
+					record.state.pendingCapture = undefined;
+					record.state.inventory.bag = RPGBagSystem.remove(
+						record.state.inventory.bag, captureBall, 1, record.state.inventory.bag.revision).bag;
+				}
+				if (!capture || capture.success) {
 				if (destination === 'party') RPGBoxManagement.insertParty(record.state, entry);
 				else RPGBoxManagement.insert(record.state, entry);
 				this.addPokedexSpecies(this.trainerProfile(record.state), 'seen', species.name);
 				this.addPokedexSpecies(this.trainerProfile(record.state), 'caught', species.name);
+				} else this.addPokedexSpecies(this.trainerProfile(record.state), 'seen', species.name);
 				this.persistBoxRecord(record);
 			});
 		} catch (error) {
 			this.repository.set(original);
 			throw error;
 		}
-		return { box: this.managedBoxView(record), pokemon: structuredClone(set), destination };
+		return capture && !capture.success ? { capture } :
+			{ box: this.managedBoxView(record), pokemon: structuredClone(set), destination, capture };
+	}
+
+	trainerPendingCapture(token: string, characterId: string): { species: string, balls: { id: string,
+		name: string, quantity: number }[] } | null {
+		const session = this.getSession(token);
+		if (session.mode !== 'player' || toID(session.viewAsCharacterId || session.characterId || '') !== toID(characterId)) {
+			throw new Error('Esta tentativa de captura não pertence ao treinador');
+		}
+		const record = this.requireCharacter(characterId);
+		if (session.platformTableId && record.tableId !== session.platformTableId) throw new Error('Personagem fora da mesa atual');
+		if (!record.state.pendingCapture) return null;
+		return { species: record.state.pendingCapture.species, balls: RPGItems.list('ball').filter(item =>
+			RPGGen9PokeballCalculator.calculate(item.id).usable &&
+			RPGBagSystem.getRegularQuantity(record.state.inventory.bag, item.id) > 0
+		).map(item => ({ id: item.id, name: item.name,
+			quantity: RPGBagSystem.getRegularQuantity(record.state.inventory.bag, item.id) })) };
+	}
+
+	resolveTrainerPendingCapture(token: string, characterId: string, ball: string,
+		throwResult: { natural: number, total: number }) {
+		this.trainerPendingCapture(token, characterId);
+		const record = this.requireCharacter(characterId);
+		const pending = record.state.pendingCapture;
+		if (!pending) throw new Error('Não há uma captura aguardando esta rolagem');
+		return this.createPlayerPokemonForRecord(record, { ...pending, capture: {
+			hpPercent: pending.hpPercent, status: pending.status,
+			encounterId: pending.encounterId, conditions: pending.conditions, ball,
+		} }, throwResult);
 	}
 
 	transferBoxPokemon(
@@ -10966,16 +11179,20 @@ export class RPGLoginService {
 	}
 
 	private randomLevelMoves(speciesId: ID, level: number): string[] {
-		const learned = new Set<string>();
+		const learnedByGeneration = new Map<number, Set<string>>();
 		for (const data of Dex.mod('gen9').species.getFullLearnset(speciesId)) {
 			for (const [move, sources] of Object.entries(data.learnset)) {
-				if (sources.some(source => {
-					const match = /^9L(\d+)$/.exec(source);
-					return !!match && Number(match[1]) <= level;
-				})) learned.add(move);
+				for (const source of sources) {
+					const match = /^([1-9])L(\d+)$/.exec(source);
+					if (!match || Number(match[2]) > level) continue;
+					const generation = Number(match[1]);
+					if (!learnedByGeneration.has(generation)) learnedByGeneration.set(generation, new Set());
+					learnedByGeneration.get(generation)!.add(move);
+				}
 			}
 		}
-		const pool = [...learned];
+		const latestGeneration = Math.max(0, ...learnedByGeneration.keys());
+		const pool = [...(learnedByGeneration.get(latestGeneration) || [])];
 		if (!pool.length) throw new Error('Esse Pokémon não possui golpes por nível disponíveis nesse nível');
 		for (let index = pool.length - 1; index > 0; index--) {
 			const other = this.int(index + 1);

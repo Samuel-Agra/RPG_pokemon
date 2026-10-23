@@ -569,7 +569,7 @@ if (!window.$) {
 			{ left: ballLeft(actor.x), top: ballTop(actor.y - 10), opacity: 0, transform: 'rotate(-20deg) scale(.8)' },
 			{ left: ballLeft((actor.x + target.x) / 2), top: ballTop(Math.min(actor.y, target.y) - 105), opacity: 1,
 				transform: 'rotate(420deg) scale(1.15)', offset: 0.55 },
-			{ left: ballLeft(target.x), top: ballTop(target.y - 12), opacity: 1, transform: 'rotate(760deg) scale(1)' },
+			{ left: ballLeft(target.x), top: ballTop(target.y - 12), opacity: 1, transform: 'rotate(720deg) scale(1)' },
 		], { duration: duration(760), easing: easing('ballistic2'), fill: 'both' });
 		await new Promise(resolve => setTimeout(resolve, duration(790)));
 		options.onClose?.();
@@ -580,21 +580,39 @@ if (!window.$) {
 		], { duration: duration(520), easing: 'ease-in', fill: 'both' });
 		const dropAnimation = ball.animate([
 			{ left: ballLeft(target.x), top: ballTop(target.y - 12), opacity: 1, transform: 'rotate(0deg)' },
-			{ left: ballLeft(target.x), top: ballTop(target.y + 28), opacity: 1, transform: 'rotate(95deg)' },
+			{ left: ballLeft(target.x), top: ballTop(target.y + 28), opacity: 1, transform: 'rotate(0deg)' },
 		], { duration: duration(520), easing: 'ease-in', fill: 'both' });
 		await new Promise(resolve => setTimeout(resolve, duration(550)));
-		const shakes = Math.max(0, Math.min(4, Number(options.shakes) || 0));
-		for (let shake = 0; shake < shakes; shake++) {
-			options.onShake?.(shake);
-			const shakeAnimation = ball.animate([
-				{ left: ballLeft(target.x), top: ballTop(target.y + 28), transform: 'rotate(0deg)' },
-				{ left: ballLeft(target.x - 9), top: ballTop(target.y + 27), transform: 'rotate(-24deg)', offset: 0.25 },
-				{ left: ballLeft(target.x + 9), top: ballTop(target.y + 27), transform: 'rotate(24deg)', offset: 0.72 },
-				{ left: ballLeft(target.x), top: ballTop(target.y + 28), transform: 'rotate(0deg)' },
-			], { duration: duration(360), easing: 'ease-in-out', fill: 'both' });
-			await new Promise(resolve => setTimeout(resolve, duration(410)));
-			try { shakeAnimation.cancel(); } catch {}
+		// A bola que acertou permanece fechada antes do resultado, mesmo com zero balanços.
+		await new Promise(resolve => setTimeout(resolve, duration(560)));
+		const shakeBall = async count => {
+			// Mesmo sem balanços do cálculo, a bola oscila levemente antes de abrir.
+			for (let shake = 0; shake < Math.max(1, count); shake++) {
+				if (shake < count) options.onShake?.(shake);
+				const distance = count ? 9 : 5;
+				const angle = count ? 24 : 12;
+				const shakeAnimation = ball.animate([
+					{ left: ballLeft(target.x), top: ballTop(target.y + 28), transform: 'rotate(0deg)' },
+					{ left: ballLeft(target.x - distance), top: ballTop(target.y + 27), transform: `rotate(-${angle}deg)`, offset: 0.25 },
+					{ left: ballLeft(target.x + distance), top: ballTop(target.y + 27), transform: `rotate(${angle}deg)`, offset: 0.72 },
+					{ left: ballLeft(target.x), top: ballTop(target.y + 28), transform: 'rotate(0deg)' },
+				], { duration: duration(count ? 360 : 520), easing: 'ease-in-out', fill: 'both' });
+				await new Promise(resolve => setTimeout(resolve, duration(count ? 410 : 570)));
+				try { shakeAnimation.cancel(); } catch {}
+			}
+		};
+		if (options.secondChanceUsed) {
+			await shakeBall(Math.max(0, Math.min(3, Number(options.firstShakes) || 0)));
+			options.onSecondChance?.();
+			const retryPulse = ball.animate([
+				{ transform: 'scale(1)', filter: 'brightness(1)' },
+				{ transform: 'scale(1.16)', filter: 'brightness(1.8)', offset: 0.5 },
+				{ transform: 'scale(1)', filter: 'brightness(1)' },
+			], { duration: duration(700), easing: 'ease-in-out' });
+			await retryPulse.finished.catch(() => undefined);
 		}
+		await shakeBall(Math.max(0, Math.min(4, Number(options.shakes) || 0)));
+		await new Promise(resolve => setTimeout(resolve, duration(380)));
 		if (options.success) {
 			try {
 				options.onSuccess?.();
