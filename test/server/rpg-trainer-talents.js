@@ -11,6 +11,7 @@ const {
 } = require('../../dist/server/rpg-showdown');
 const { rpgTrainerRollTalents, rpgResolveTrainerRollTalents } =
 	require('../../dist/server/rpg-showdown/trainer-roll-talents');
+const { rpgUseTrainerSheetTalent } = require('../../dist/server/rpg-showdown/trainer-active-talents');
 const { rpgTrainerAddExhaustion, rpgTrainerApplyCondition, rpgTrainerSurvival } =
 	require('../../dist/server/rpg-showdown/trainer-survival');
 const { RPGBagSystem } = require('../../dist/sim/rpg-showdown');
@@ -31,6 +32,31 @@ function ready(classId, level = 1, overrides = {}) {
 }
 
 describe('RPG trainer classes and talents', () => {
+	it('Escudo Mental aparece apenas como bônus situacional de Vontade', () => {
+		const psychic = ready('psiquico', 5);
+		psychic.talents.class.push('psiquico:escudo-mental');
+		const option = rpgTrainerRollTalents(psychic).find(entry => entry.id === 'psiquico:escudo-mental');
+		assert.equal(option.bonus, 2);
+		assert.deepEqual(option.targets, ['resistance:will']);
+		assert.equal(rpgResolveTrainerRollTalents(psychic, 'resistance', 'will', [option.key]).bonus, 2);
+		assert.equal(rpgResolveTrainerRollTalents(psychic, 'resistance', 'will', []).bonus, 0);
+		assert.throws(() => rpgResolveTrainerRollTalents(psychic, 'resistance', 'fortitude',
+			[option.key]), /Talento indisponível/);
+	});
+	it('Terceiro Olho aplica Exaustão e só volta após sua remoção', () => {
+		const psychic = ready('psiquico', 10);
+		psychic.talents.apex = 'psiquico:terceiro-olho';
+		const used = rpgUseTrainerSheetTalent(psychic, 'psiquico:terceiro-olho');
+		assert.equal(used.exhaustion, 1);
+		assert.equal(used.sheet.survival.exhaustion, 1);
+		assert.throws(() => rpgUseTrainerSheetTalent(used.sheet, 'psiquico:terceiro-olho'),
+			/indisponível enquanto houver Exaustão/);
+		const rested = structuredClone(used.sheet);
+		rested.survival.exhaustion = 0;
+		assert.equal(rpgUseTrainerSheetTalent(rested, 'psiquico:terceiro-olho').exhaustion, 1);
+		assert.throws(() => rpgUseTrainerSheetTalent(ready('psiquico', 10),
+			'psiquico:terceiro-olho'), /não possui/);
+	});
 	it('Obra-Prima Modular combina duas funções, soma carga e volume e substitui a anterior', () => {
 		const repository = new RPGMemoryCharacterRepository();
 		const service = new RPGLoginService({ masterCode: 'teste', repository });

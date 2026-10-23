@@ -222,6 +222,8 @@ const RULES: Readonly<Record<string, Rule>> = {
 		condition: 'Primeiro teste da jornada contra exaustão por marcha ou esforço.' },
 	'psiquico:concentracao-inabalavel': { targets: ['resistance:will', 'attribute:constitution'], advantage: true,
 		condition: 'Manter concentração psíquica após interrupção.' },
+	'psiquico:escudo-mental': { targets: ['resistance:will'], bonus: 2,
+		condition: 'Resistir a leitura mental, controle, sugestão, alteração de memória ou detecção psíquica.' },
 };
 
 function matches(targets: readonly string[], kind: RPGTrainerRollKind, id: string): boolean {

@@ -1,10 +1,19 @@
 import { rpgTrainerModifier } from './trainer-creation';
-import { rpgTrainerHeal, rpgTrainerSurvival } from './trainer-survival';
+import { rpgTrainerAddExhaustion, rpgTrainerHeal, rpgTrainerSurvival } from './trainer-survival';
 import type { RPGTrainerChatRoll, RPGTrainerSheet } from './trainer-sheet';
 
 /** Ativa efeitos voluntários que mudam a ficha humana, sem afetar Pokémon. */
 export function rpgUseTrainerSheetTalent(sheet: RPGTrainerSheet, talentId: string,
 	random: () => number = Math.random) {
+	if (talentId === 'psiquico:terceiro-olho') {
+		if (sheet.status !== 'complete' || sheet.classId !== 'psiquico' ||
+			sheet.talents.apex !== talentId) throw new Error('Este treinador não possui Terceiro Olho');
+		const state = rpgTrainerSurvival(sheet);
+		if (state.lifeState !== 'conscious') throw new Error('Terceiro Olho exige que o Psíquico esteja consciente');
+		if (state.exhaustion > 0) throw new Error('Terceiro Olho indisponível enquanto houver Exaustão');
+		const exhausted = rpgTrainerAddExhaustion(sheet, 1);
+		return { sheet: exhausted, exhaustion: rpgTrainerSurvival(exhausted).exhaustion };
+	}
 	if (talentId !== 'segundo-folego') throw new Error('Talento sem ativação direta na ficha');
 	if (sheet.status !== 'complete' || !sheet.attributes || !sheet.talents.general.includes(talentId)) {
 		throw new Error('Este treinador não possui o talento');

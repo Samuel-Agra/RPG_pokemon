@@ -3794,7 +3794,7 @@ export class RPGLoginService {
 		try { this.persistAtomically(() => this.repository.set(record)); } catch (error) {
 			this.repository.set(original); throw error;
 		}
-		return { sheet: structuredClone(outcome.sheet), die: outcome.die, recovered: outcome.recovered };
+		return { ...outcome, sheet: structuredClone(outcome.sheet) };
 	}
 
 	markTrainerManualTalentUsed(token: string, talentId: string) {

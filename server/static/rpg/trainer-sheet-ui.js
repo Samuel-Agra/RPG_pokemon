@@ -2784,6 +2784,29 @@
 				} finally { use.disabled = false; }
 			});
 			panel.append(use, feedback);
+		} else if (action?.thirdEye) {
+			const use = el('button', 'trainer-sheet-talent-use', 'Usar Terceiro Olho');
+			use.type = 'button';
+			use.disabled = action.thirdEye.exhaustion > 0 || !action.thirdEye.conscious;
+			const feedback = el('p', 'trainer-sheet-roll-error hidden');
+			if (action.thirdEye.exhaustion > 0) panel.append(el('p', 'trainer-sheet-talent-unavailable',
+				'Terceiro Olho fica indisponível enquanto houver Exaustão.'));
+			use.addEventListener('click', async () => {
+				use.disabled = true;
+				try {
+					const outcome = await action.api('/trainer/talents/use', { method: 'POST',
+						body: { talentId: action.id } });
+					feedback.textContent = `Transe iniciado. Exaustão: ${outcome.exhaustion}.`;
+					feedback.classList.remove('hidden');
+					window.dispatchEvent(new CustomEvent('rpg:realtime-sync',
+						{ detail: { tableId: selectedTable } }));
+					await action.refresh();
+				} catch (error) {
+					feedback.textContent = error.message || 'Não foi possível usar Terceiro Olho.';
+					feedback.classList.remove('hidden'); use.disabled = false;
+				}
+			});
+			panel.append(use, feedback);
 		} else if (action && !action.supportCacheCreate) {
 			const unavailable = action.reroll && !action.available;
 			const use = el('button', 'trainer-sheet-talent-use', action.used ? 'Usado neste descanso' : 'Usar');
@@ -4182,7 +4205,10 @@
 																																					limit: Math.max(1, progression.proficiency + Math.floor((sheet.attributes.intelligence - 10) / 2)) } } :
 																																				!readOnly && id === 'mentalista:persona-preparada' ?
 																																					{ id, api, preparedPersona: true } :
-																																					!readOnly && ['segundo-folego', 'sortudo', 'determinado', 'esforco-heroico'].includes(id) ?
+																					!readOnly && id === 'psiquico:terceiro-olho' ?
+																						{ id, api, refresh, thirdEye: { exhaustion: sheet.survival?.exhaustion || 0,
+																							conscious: (sheet.survival?.lifeState || 'conscious') === 'conscious' } } :
+																					!readOnly && ['segundo-folego', 'sortudo', 'determinado', 'esforco-heroico'].includes(id) ?
 																																						{ id, api, refresh, reroll: id !== 'segundo-folego',
 																																							available: progression.rerollAvailability?.[id],
 																																							used: progression.activeTalentUses?.used?.[id] === progression.activeTalentUses?.restCycle } :
