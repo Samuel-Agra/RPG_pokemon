@@ -705,7 +705,7 @@
 			summary.append(identity, el('b', '', '×' + item.quantity));
 			dialog.card.append(summary, el('p', 'bag-ui-description', item.description));
 			if (item.category === 'talent-items') dialog.card.append(el('p', 'bag-ui-description',
-				'Peso: 0 kg · Espaços na Bag: 0'));
+				`Peso: ${item.weightKg || 0} kg · Espaços na Bag: ${item.slots || 0}`));
 			if (item.fossilDisplayOnly) dialog.card.append(el('p', 'bag-ui-description',
 				'Grau identificado. A Bag continua armazenando as amostras deste fóssil em conjunto.'));
 			if (item.mission && item.missionNote) {

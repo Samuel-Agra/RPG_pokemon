@@ -14,6 +14,9 @@ const { rpgTrainerRollTalents, rpgResolveTrainerRollTalents } =
 const { rpgTrainerAddExhaustion, rpgTrainerApplyCondition, rpgTrainerSurvival } =
 	require('../../dist/server/rpg-showdown/trainer-survival');
 const { RPGBagSystem } = require('../../dist/sim/rpg-showdown');
+const { RPG_ADVANCED_PROTOTYPES, rpgTechnologicalPrototypeChargeCost, rpgTechnologicalPrototypeLimit } =
+	require('../../dist/server/rpg-showdown/trainer-technological-prototypes');
+const { rpgEquipmentSlots, rpgEquipmentWeight } = require('../../dist/server/rpg-showdown/trainer-equipment');
 
 function ready(classId, level = 1, overrides = {}) {
 	return {
@@ -28,6 +31,268 @@ function ready(classId, level = 1, overrides = {}) {
 }
 
 describe('RPG trainer classes and talents', () => {
+	it('Obra-Prima Modular combina duas funções, soma carga e volume e substitui a anterior', () => {
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({ masterCode: 'teste', repository });
+		for (const [id, accountId] of [['Tecnologo', 'ana'], ['Aliado', 'bia']]) {
+			service.createCharacter({ characterName: id, playerName: accountId, avatar: 'lucas',
+				password: 'senha-rpg', initialMoney: 100,
+				starter: { species: 'Squirtle', gender: 'M' } });
+			const record = repository.get(id.toLowerCase());
+			record.tableId = 'mesa-teste'; record.accountId = accountId;
+			record.state.trainerSheet = ready(id === 'Tecnologo' ? 'tecnologo' : 'atleta', 10);
+			if (id === 'Tecnologo') record.state.trainerInventory = { version: 1, revision: 0,
+				licenses: [], pokemonStorage: [], items: [{ id: 'kit-3', itemId: 'kit-tecnologico-3',
+					quantity: 1, equipped: false, charges: 20, location: 'bag' }] };
+			repository.set(record);
+		}
+		service.getSession = () => ({ role: 'player', mode: 'player',
+			platformTableId: 'mesa-teste', characterId: 'tecnologo' });
+		service.accounts.repository.getMembership = () => ({ status: 'active' });
+		const creator = repository.get('tecnologo');
+		creator.state.trainerSheet.talents.class.push('tecnologo:projeto-avancado');
+		creator.state.trainerSheet.talents.apex = 'tecnologo:obra-prima-modular';
+		repository.set(creator);
+		assert.equal(service.getTrainerProgression('jogador').technologicalPrototype.canBuildMasterpiece, true);
+		assert.throws(() => service.buildTrainerTechnologicalPrototype('jogador', 0,
+			'holofote-acompanhante', 'aliado', 'holofote-acompanhante'), /duas funções diferentes/);
+		const wrongKit = repository.get('tecnologo');
+		wrongKit.state.trainerInventory.items[0].itemId = 'kit-tecnologico-2';
+		repository.set(wrongKit);
+		assert.throws(() => service.buildTrainerTechnologicalPrototype('jogador', 0,
+			'holofote-acompanhante', 'aliado', 'microdrone-manipulador'), /nível 3/);
+		wrongKit.state.trainerInventory.items[0].itemId = 'kit-tecnologico-3';
+		repository.set(wrongKit);
+		service.buildTrainerTechnologicalPrototype('jogador', 0,
+			'holofote-acompanhante', 'aliado', 'microdrone-manipulador');
+		const first = repository.get('aliado').state.trainerInventory.items.find(item =>
+			item.itemId === 'obra-prima-modular');
+		assert.deepEqual(first.prototypeComponents, ['holofote-acompanhante', 'microdrone-manipulador']);
+		assert.equal(rpgEquipmentSlots([first]), 2);
+		assert.equal(rpgEquipmentWeight([first]), 1.2);
+		assert.equal(repository.get('tecnologo').state.trainerInventory.items[0].charges, 16);
+		service.getSession = () => ({ role: 'player', mode: 'player',
+			platformTableId: 'mesa-teste', characterId: 'aliado' });
+		const bag = service.getBag('jogador');
+		const modularItem = bag.items.find(item =>
+			item.id === `tecnologo:prototipo@${first.id}`);
+		assert(modularItem?.description.includes('Holofote Acompanhante'));
+		assert(modularItem?.description.includes('Microdrone Manipulador'));
+		service.getSession = () => ({ role: 'player', mode: 'player',
+			platformTableId: 'mesa-teste', characterId: 'tecnologo' });
+		service.buildTrainerTechnologicalPrototype('jogador', 0,
+			'projetor-holografico', 'aliado', 'purificador-portatil');
+		const after = repository.get('aliado').state.trainerInventory.items;
+		assert.equal(after.find(item => item.id === first.id).prototypeActive, false);
+		assert.equal(after.filter(item => item.itemId === 'obra-prima-modular' && item.prototypeActive).length, 1);
+		assert.equal(repository.get('tecnologo').state.trainerSheet.technologicalPrototypes.length, 1);
+	});
+	it('Gênio Tecnológico oferece mínimo natural de 10 apenas em Tecnologia', () => {
+		const technologist = ready('tecnologo', 10);
+		technologist.talents.apex = 'tecnologo:genio-tecnologico';
+		const option = rpgTrainerRollTalents(technologist).find(entry =>
+			entry.id === 'tecnologo:genio-tecnologico');
+		assert.equal(option.naturalFloor, 10);
+		assert.deepEqual(option.targets, ['skill:tecnologia']);
+		assert.equal(rpgResolveTrainerRollTalents(technologist, 'skill', 'tecnologia', [option.key]).naturalFloor, 10);
+		assert.throws(() => rpgResolveTrainerRollTalents(technologist, 'skill', 'investigacao',
+			[option.key]), /Talento indisponível/);
+		assert.equal(rpgResolveTrainerRollTalents(technologist, 'skill', 'tecnologia', []).naturalFloor,
+			undefined);
+	});
+	it('Firewall Pessoal exige Bloqueio Remoto', () => {
+		const technologist = ready('tecnologo', 5);
+		const option = () => rpgTrainerTalentCatalog(technologist)
+			.find(entry => entry.id === 'tecnologo:firewall-pessoal');
+		assert.equal(option().available, false);
+		assert.throws(() => chooseRPGTrainerTalent(technologist,
+			{ id: option().id }), /Falta um talento exigido/);
+		technologist.talents.class.push('tecnologo:bloqueio-remoto');
+		assert.equal(option().available, true);
+	});
+	it('Projeto Avançado libera nove dispositivos com kit II/III e custo reduzido', () => {
+		assert.equal(RPG_ADVANCED_PROTOTYPES.length, 9);
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({ masterCode: 'teste', repository });
+		for (const [id, accountId] of [['Tecnologo', 'ana'], ['Aliado', 'bia']]) {
+			service.createCharacter({ characterName: id, playerName: accountId, avatar: 'lucas',
+				password: 'senha-rpg', initialMoney: 100,
+				starter: { species: 'Squirtle', gender: 'M' } });
+			const record = repository.get(id.toLowerCase());
+			record.tableId = 'mesa-teste'; record.accountId = accountId;
+			record.state.trainerSheet = ready(id === 'Tecnologo' ? 'tecnologo' : 'atleta', 5);
+			if (id === 'Tecnologo') record.state.trainerInventory = { version: 1, revision: 0,
+				licenses: [], pokemonStorage: [], items: [
+					{ id: 'kit-1', itemId: 'kit-tecnologico-1', quantity: 1, equipped: false,
+						charges: 5, location: 'bag' },
+					{ id: 'kit-2', itemId: 'kit-tecnologico-2', quantity: 1, equipped: false,
+						charges: 5, location: 'bag' },
+				] };
+			repository.set(record);
+		}
+		service.getSession = () => ({ role: 'player', mode: 'player',
+			platformTableId: 'mesa-teste', characterId: 'tecnologo' });
+		service.accounts.repository.getMembership = () => ({ status: 'active' });
+		assert.throws(() => service.buildTrainerTechnologicalPrototype('jogador', 0,
+			'drone-reconhecimento', 'aliado'), /ainda não aprendido/);
+		const creator = repository.get('tecnologo');
+		creator.state.trainerSheet.talents.class.push('tecnologo:projeto-avancado',
+			'tecnologo:economia-de-componentes');
+		repository.set(creator);
+		const choices = service.getTrainerProgression('jogador').technologicalPrototype.options;
+		assert.equal(choices.filter(entry => entry.advanced).length, 9);
+		creator.state.trainerInventory.items.pop(); repository.set(creator);
+		assert.throws(() => service.buildTrainerTechnologicalPrototype('jogador', 0,
+			'drone-reconhecimento', 'aliado'), /nível 2 ou 3/);
+		creator.state.trainerInventory.items.push({ id: 'kit-2', itemId: 'kit-tecnologico-2',
+			quantity: 1, equipped: false, charges: 2, location: 'bag' }); repository.set(creator);
+		assert.throws(() => service.buildTrainerTechnologicalPrototype('jogador', 0,
+			'drone-reconhecimento', 'aliado'), /3 cargas disponíveis/);
+		creator.state.trainerInventory.items[1].charges = 5; repository.set(creator);
+		service.buildTrainerTechnologicalPrototype('jogador', 0, 'drone-reconhecimento', 'aliado');
+		const stored = repository.get('tecnologo').state.trainerInventory.items;
+		assert.equal(stored.find(item => item.id === 'kit-1').charges, 5);
+		assert.equal(stored.find(item => item.id === 'kit-2').charges, 2);
+		assert.equal(repository.get('aliado').state.trainerInventory.items.find(item =>
+			item.itemId === 'drone-reconhecimento').prototypeActive, true);
+		const apex = repository.get('tecnologo');
+		apex.state.trainerSheet.talents.class.push('tecnologo:prototipos-paralelos',
+			'tecnologo:prototipos-paralelos');
+		apex.state.trainerSheet.talents.apex = 'tecnologo:central-de-prototipos';
+		apex.state.trainerInventory.items.find(item => item.id === 'kit-2').charges = 10;
+		repository.set(apex);
+		assert.equal(rpgTechnologicalPrototypeLimit(apex.state.trainerSheet), 5);
+		service.buildTrainerTechnologicalPrototype('jogador', 1, 'mapeador-tridimensional', 'aliado');
+		assert.throws(() => service.buildTrainerTechnologicalPrototype('jogador', 2,
+			'sonda-resgate', 'aliado'), /até dois Projetos Avançados/);
+		service.buildTrainerTechnologicalPrototype('jogador', 2, 'holofote-acompanhante', 'aliado');
+		service.buildTrainerTechnologicalPrototype('jogador', 0, 'sonda-resgate', 'aliado');
+		const after = repository.get('tecnologo');
+		assert.equal(after.state.trainerSheet.technologicalPrototypes.length, 3);
+		assert.equal(after.state.trainerSheet.technologicalPrototypes.filter(entry =>
+			RPG_ADVANCED_PROTOTYPES.some(project => project.id === entry.itemId)).length, 2);
+	});
+	it('Protótipos Paralelos amplia até três vagas e substitui só a vaga escolhida', () => {
+		const sheet = ready('tecnologo', 5);
+		assert.equal(rpgTechnologicalPrototypeLimit(sheet), 1);
+		sheet.talents.class.push('tecnologo:prototipos-paralelos');
+		assert.equal(rpgTechnologicalPrototypeLimit(sheet), 2);
+		sheet.talents.class.push('tecnologo:prototipos-paralelos');
+		assert.equal(rpgTechnologicalPrototypeLimit(sheet), 3);
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({ masterCode: 'teste', repository });
+		for (const [id, accountId] of [['Tecnologo', 'ana'], ['Aliado', 'bia']]) {
+			service.createCharacter({ characterName: id, playerName: accountId, avatar: 'lucas',
+				password: 'senha-rpg', initialMoney: 100,
+				starter: { species: 'Squirtle', gender: 'M' } });
+			const record = repository.get(id.toLowerCase());
+			record.tableId = 'mesa-teste'; record.accountId = accountId;
+			record.state.trainerSheet = id === 'Tecnologo' ? sheet : ready('atleta');
+			if (id === 'Tecnologo') record.state.trainerInventory = { version: 1, revision: 0,
+				licenses: [], pokemonStorage: [], items: [{ id: 'kit-1', itemId: 'kit-tecnologico-1',
+					quantity: 1, equipped: false, charges: 4, location: 'bag' }] };
+			repository.set(record);
+		}
+		service.getSession = () => ({ role: 'player', mode: 'player',
+			platformTableId: 'mesa-teste', characterId: 'tecnologo' });
+		service.accounts.repository.getMembership = () => ({ status: 'active' });
+		for (const [slot, id] of ['holofote-acompanhante', 'navegador-retorno',
+			'purificador-portatil'].entries()) {
+			service.buildTrainerTechnologicalPrototype('jogador', slot, id, 'aliado');
+		}
+		const before = repository.get('aliado').state.trainerInventory.items.filter(item => item.prototypeCreatorId);
+		assert.equal(before.length, 3);
+		assert(before.every(item => item.prototypeActive));
+		assert.throws(() => service.buildTrainerTechnologicalPrototype('jogador', 3,
+			'projetor-holografico', 'aliado'), /Espaço de protótipo inválido/);
+		service.buildTrainerTechnologicalPrototype('jogador', 1, 'projetor-holografico', 'aliado');
+		const after = repository.get('aliado').state.trainerInventory.items;
+		assert.equal(after.find(item => item.id === before[0].id).prototypeActive, true);
+		assert.equal(after.find(item => item.id === before[1].id).prototypeActive, false);
+		assert.equal(after.find(item => item.id === before[2].id).prototypeActive, true);
+		assert.equal(after.find(item => item.itemId === 'projetor-holografico').prototypeActive, true);
+		assert.equal(repository.get('tecnologo').state.trainerSheet.technologicalPrototypes.length, 3);
+	});
+	it('Economia de Componentes reduz somente protótipos de duas ou mais cargas', () => {
+		const technologist = ready('tecnologo', 5);
+		assert.equal(rpgTechnologicalPrototypeChargeCost(technologist, 1), 1);
+		assert.equal(rpgTechnologicalPrototypeChargeCost(technologist, 3), 3);
+		technologist.talents.class.push('tecnologo:economia-de-componentes');
+		assert.equal(rpgTechnologicalPrototypeChargeCost(technologist, 1), 1);
+		assert.equal(rpgTechnologicalPrototypeChargeCost(technologist, 2), 1);
+		assert.equal(rpgTechnologicalPrototypeChargeCost(technologist, 4), 3);
+		assert.throws(() => rpgTechnologicalPrototypeChargeCost(technologist, 0), /Custo de protótipo inválido/);
+		assert(!rpgTrainerTalentCatalog(technologist)
+			.some(entry => entry.id === 'tecnologo:compatibilidade-universal'));
+	});
+	it('Tecnólogo escolhe área técnica, ativa seu bônus e recebe Inteligência de Engenharia Reversa', () => {
+		const technologist = ready('tecnologo', 5);
+		const option = rpgTrainerTalentCatalog(technologist)
+			.find(entry => entry.id === 'tecnologo:especializacao-tecnica');
+		assert.equal(option.choiceFields.variant, true);
+		assert.deepEqual(option.variantChoices, ['hardware', 'programacao', 'redes', 'robotica',
+			'seguranca-digital', 'telecomunicacoes', 'eletronica']);
+		const specialized = chooseRPGTrainerTalent(technologist,
+			{ id: option.id, variant: 'hardware' });
+		const bonus = rpgTrainerRollTalents(specialized)
+			.find(entry => entry.key === 'tecnologo:especializacao-tecnica@hardware');
+		assert.equal(bonus.bonus, 2);
+		assert.deepEqual(bonus.targets, ['skill:tecnologia']);
+		assert.deepEqual(rpgTrainerTalentCatalog(specialized)
+			.find(entry => entry.id === option.id).variantChoices,
+			option.variantChoices.filter(area => area !== 'hardware'));
+		const reverseEngineering = rpgTrainerTalentCatalog(specialized)
+			.find(entry => entry.id === 'tecnologo:engenharia-reversa');
+		assert.deepEqual(reverseEngineering.attributeChoices, []);
+		const improved = chooseRPGTrainerTalent(specialized, { id: reverseEngineering.id });
+		assert.equal(improved.attributes.intelligence, technologist.attributes.intelligence + 1);
+	});
+	it('constrói Protótipo Tecnológico como item pronto, entrega ao aliado e desativa o anterior', () => {
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({ masterCode: 'teste', repository });
+		for (const [id, accountId] of [['Tecnologo', 'ana'], ['Aliado', 'bia']]) {
+			service.createCharacter({ characterName: id, playerName: accountId, avatar: 'lucas',
+				password: 'senha-rpg', initialMoney: 100,
+				starter: { species: 'Squirtle', gender: 'M' } });
+			const record = repository.get(id.toLowerCase());
+			record.tableId = 'mesa-teste'; record.accountId = accountId;
+			record.state.trainerSheet = ready(id === 'Tecnologo' ? 'tecnologo' : 'atleta', 1);
+			if (id === 'Tecnologo') record.state.trainerInventory = { version: 1, revision: 0,
+				licenses: [], pokemonStorage: [], items: [{ id: 'kit-1', itemId: 'kit-tecnologico-1',
+					quantity: 1, equipped: false, charges: 2, location: 'bag' }] };
+			repository.set(record);
+		}
+		service.getSession = () => ({ role: 'player', mode: 'player',
+			platformTableId: 'mesa-teste', characterId: 'tecnologo' });
+		service.accounts.repository.getMembership = () => ({ status: 'active' });
+		service.buildTrainerTechnologicalPrototype('jogador', 0, 'holofote-acompanhante', 'aliado');
+		assert.equal(repository.get('tecnologo').state.trainerInventory.items[0].charges, 1);
+		const first = repository.get('aliado').state.trainerInventory.items.find(item =>
+			item.itemId === 'holofote-acompanhante');
+		assert.equal(first.prototypeActive, true);
+		assert.equal(first.prototypeCreatorId, 'tecnologo');
+		service.getSession = () => ({ role: 'player', mode: 'player',
+			platformTableId: 'mesa-teste', characterId: 'aliado' });
+		const bagItem = service.getBag('aliado', undefined, { category: 'talent-items' }).items.find(item =>
+			item.id === `tecnologo:prototipo@${first.id}`);
+		assert.equal(bagItem.icon, './assets/item-icons/prototipo-tecnologico.png');
+		assert.equal(bagItem.weightKg, 0.5);
+		assert.equal(bagItem.slots, 1);
+		service.getSession = () => ({ role: 'player', mode: 'player',
+			platformTableId: 'mesa-teste', characterId: 'tecnologo' });
+		assert.throws(() => service.buildTrainerTechnologicalPrototype('jogador', 1,
+			'navegador-retorno', 'aliado'), /Espaço de protótipo inválido/);
+		assert.throws(() => service.buildTrainerTechnologicalPrototype('jogador', 0,
+			'navegador-retorno', 'fora-da-mesa'), /Destinatário indisponível/);
+		service.buildTrainerTechnologicalPrototype('jogador', 0, 'navegador-retorno', 'aliado');
+		const ally = repository.get('aliado');
+		assert.equal(ally.state.trainerInventory.items.find(item => item.id === first.id).prototypeActive, false);
+		assert.equal(ally.state.trainerInventory.items.find(item =>
+			item.itemId === 'navegador-retorno').prototypeActive, true);
+		assert.equal(repository.get('tecnologo').state.trainerInventory.items[0].charges, 0);
+		assert.throws(() => service.buildTrainerTechnologicalPrototype('jogador', 0,
+			'projetor-holografico', 'aliado'), /carga disponível/);
+	});
 	it('oferece Registro de Campo e Rastreador de Espécies nas perícias adequadas', () => {
 		const master = ready('mestre-pokemon', 5);
 		master.talents.class.push('mestre-pokemon:registro-de-campo',

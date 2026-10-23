@@ -127,14 +127,24 @@ const rows: Row[] = [
 	['jipe', 'Jipe', 'vehicle', 1600, 0, 1, 110000, 'controlled', { maxCharges: 10, vehicle: { passengers: 5, cargoSpaces: 100, cargoKg: 600, energy: 10, registration: true } }],
 	['reserva-energia-veiculo', 'Reserva de Energia', 'vehicle-supply', 10, 4, 1, 1000, 'controlled', { maxCharges: 2, refillFor: 'vehicle' }],
 	['holofote-acompanhante', 'Holofote Acompanhante', 'prototype', 0.5, 1, 1, 0],
-	['microdrone-manipulador', 'Microdrone Manipulador', 'prototype', 0.5, 1, 1, 0],
+	['microdrone-manipulador', 'Microdrone Manipulador', 'prototype', 0.7, 1, 1, 0],
 	['projetor-holografico', 'Projetor Holográfico', 'prototype', 0.5, 1, 1, 0],
-	['scanner-multiespectral', 'Scanner Multiespectral', 'prototype', 0.5, 1, 1, 0],
-	['baliza-sentinela', 'Baliza Sentinela', 'prototype', 0.5, 1, 1, 0],
-	['purificador-portatil', 'Purificador Portátil', 'prototype', 0.5, 1, 1, 0],
-	['reparador-precisao', 'Reparador de Precisão', 'prototype', 0.5, 1, 1, 0],
-	['amortecedor-cinetico', 'Amortecedor Cinético', 'prototype', 0.5, 1, 1, 0],
-	['navegador-retorno', 'Navegador de Retorno', 'prototype', 0.5, 1, 1, 0],
+	['scanner-multiespectral', 'Scanner Multiespectral', 'prototype', 1, 1, 1, 0],
+	['baliza-sentinela', 'Baliza Sentinela', 'prototype', 0.8, 1, 1, 0, 'controlled'],
+	['purificador-portatil', 'Purificador Portátil', 'prototype', 1, 1, 1, 0],
+	['reparador-precisao', 'Reparador de Precisão', 'prototype', 1, 1, 1, 0],
+	['amortecedor-cinetico', 'Amortecedor Cinético', 'prototype', 1.5, 2, 1, 0],
+	['navegador-retorno', 'Navegador de Retorno', 'prototype', 0.4, 1, 1, 0],
+	['drone-reconhecimento', 'Drone de Reconhecimento', 'prototype', 1.2, 2, 1, 0],
+	['mapeador-tridimensional', 'Mapeador Tridimensional', 'prototype', 1, 1, 1, 0],
+	['sonda-resgate', 'Sonda de Resgate', 'prototype', 1, 1, 1, 0],
+	['repetidor-longo-alcance', 'Repetidor de Longo Alcance', 'prototype', 0.8, 1, 1, 0],
+	['camuflagem-optica-estatica', 'Camuflagem Óptica Estática', 'prototype', 2, 2, 1, 0],
+	['exoesqueleto-carga', 'Exoesqueleto de Carga', 'prototype', 4, 3, 1, 0],
+	['decodificador-protocolos', 'Decodificador de Protocolos', 'prototype', 0.5, 1, 1, 0],
+	['respirador-ambiental', 'Respirador Ambiental', 'prototype', 2, 2, 1, 0],
+	['plataforma-extracao', 'Plataforma de Extração', 'prototype', 3, 3, 1, 0],
+	['obra-prima-modular', 'Obra-Prima Modular', 'prototype', 0, 0, 1, 0],
 ];
 export const RPG_EQUIPMENT_CATALOG: Readonly<Record<string, RPGEquipmentDefinition>> = Object.freeze(Object.fromEntries(
 	rows.map(([id, name, category, weight, spaces, stackLimit, price, legality = 'free', extra]) =>
@@ -150,6 +160,8 @@ export function rpgEquipment(id: string): RPGEquipmentDefinition {
 export interface RPGEquipmentInstance {
 	id: string; itemId: string; quantity: number; equipped: boolean; charges?: number;
 	location: 'bag' | 'bank' | 'vehicle'; vehicleId?: string;
+	prototypeCreatorId?: string; prototypeActive?: boolean;
+	prototypeComponents?: [string, string];
 }
 export interface RPGLicense { id: string; status: 'active' | 'temporary' | 'suspended' | 'revoked'; expiresAt?: number; issuedBy: string }
 export interface RPGTrainerInventory {
@@ -179,11 +191,14 @@ export function rpgInitialTrainerInventory(sheet: RPGTrainerSheet): RPGTrainerIn
 }
 
 export function rpgEquipmentSlots(items: readonly RPGEquipmentInstance[], location: RPGEquipmentInstance['location'] = 'bag'): number {
-	return items.reduce((total, entry) => total + (entry.location === location && !entry.equipped ? rpgEquipment(entry.itemId).spaces : 0), 0);
+	return items.reduce((total, entry) => total + (entry.location === location && !entry.equipped ?
+		(entry.prototypeComponents ? entry.prototypeComponents.reduce((sum, id) => sum + rpgEquipment(id).spaces, 0) :
+			rpgEquipment(entry.itemId).spaces) : 0), 0);
 }
 export function rpgEquipmentWeight(items: readonly RPGEquipmentInstance[], location?: RPGEquipmentInstance['location']): number {
 	return items.reduce((total, entry) => total + (!location || entry.location === location ?
-		rpgEquipment(entry.itemId).weight * entry.quantity + (entry.itemId === 'cantil' ? (entry.charges || 0) * 0.5 : 0) : 0), 0);
+		(entry.prototypeComponents ? entry.prototypeComponents.reduce((sum, id) => sum + rpgEquipment(id).weight, 0) :
+			rpgEquipment(entry.itemId).weight * entry.quantity) + (entry.itemId === 'cantil' ? (entry.charges || 0) * 0.5 : 0) : 0), 0);
 }
 export function rpgHasLicense(inventory: RPGTrainerInventory, id: string, now: number): boolean {
 	return inventory.licenses.some(license => license.id === id &&

@@ -1602,6 +1602,122 @@
 				editor.append(title, summary, create, feedback);
 			}
 			panel.append(editor);
+		} else if (action?.technologicalPrototype) {
+			panel.classList.add('trainer-sheet-talent-popover--archive');
+			const data = action.technologicalPrototype;
+			const editor = el('div', 'trainer-sheet-archive-editor');
+			editor.append(el('strong', '', `Protótipos ativos (${data.slots.length}/${data.limit})`));
+			for (let slot = 0; slot < data.limit; slot++) {
+				const current = data.slots.find(entry => entry.slot === slot);
+				let selectedId = current?.prototypeComponents?.[0] || current?.itemId || '';
+				let secondSelectedId = current?.prototypeComponents?.[1] || '';
+				const row = el('div', 'trainer-sheet-scientist-row');
+				const choose = el('button', 'trainer-sheet-scientist-choose', 'Escolher protótipo');
+				choose.type = 'button'; choose.setAttribute('aria-haspopup', 'dialog');
+				const modular = data.canBuildMasterpiece ? el('button', 'trainer-sheet-scientist-choose',
+					'Adicionar segunda função') : null;
+				if (modular) { modular.type = 'button'; modular.setAttribute('aria-haspopup', 'dialog'); }
+				const recipient = select([['', 'Destinatário'], ...data.recipients.map(person => [person.id, person.name])]);
+				recipient.value = current?.recipientCharacterId || '';
+				const selected = el('p', 'trainer-sheet-scientist-effect');
+				const showSelection = () => {
+					const option = data.options.find(entry => entry.id === selectedId);
+					choose.textContent = option?.name || 'Escolher protótipo';
+					const second = data.options.find(entry => entry.id === secondSelectedId);
+					if (modular) modular.textContent = second?.name || 'Adicionar segunda função';
+					selected.textContent = option ? `${option.effect} · ${option.charges} carga(s)${second ?
+						`\n${second.effect} · ${second.charges} carga(s) · Obra-Prima Modular: +2 cargas` : ''}` :
+						'Escolha um dispositivo para construir.';
+				};
+				showSelection();
+				const openPrototypePicker = secondFunction => {
+					const overlay = el('div', 'trainer-sheet-record-overlay');
+					const dialog = el('div', 'trainer-sheet-record-dialog');
+					dialog.setAttribute('role', 'dialog');
+					dialog.setAttribute('aria-label', 'Escolher Protótipo Tecnológico');
+					dialog.append(el('h2', '', 'Escolher protótipo'));
+					const list = el('div', 'trainer-sheet-record-list');
+					const closePicker = () => { overlay.remove(); recordPicker = null; choose.focus(); };
+				if (secondFunction) {
+					const clear = el('button', 'trainer-sheet-record-choice', 'Criar protótipo simples');
+					clear.type = 'button'; clear.addEventListener('click', () => {
+						secondSelectedId = ''; showSelection(); closePicker();
+					}); list.append(clear);
+				}
+				for (const option of data.options.filter(entry => !secondFunction || entry.id !== selectedId)) {
+						const choice = el('button', 'trainer-sheet-record-choice'); choice.type = 'button';
+						choice.append(el('strong', '', option.name),
+							el('span', '', `${option.effect} · ${option.charges} carga(s)${option.advanced ?
+								' · Kit Tecnológico II ou III' : ''}`));
+					choice.addEventListener('click', () => {
+						if (secondFunction) secondSelectedId = option.id;
+						else { selectedId = option.id; if (secondSelectedId === selectedId) secondSelectedId = ''; }
+						showSelection(); closePicker();
+					});
+						list.append(choice);
+					}
+					dialog.append(list); overlay.append(dialog);
+					overlay.addEventListener('pointerdown', event => { if (event.target === overlay) closePicker(); });
+					document.body.append(overlay); recordPicker = { overlay, close: closePicker };
+				};
+				choose.addEventListener('click', () => openPrototypePicker(false));
+				modular?.addEventListener('click', () => openPrototypePicker(true));
+				const build = el('button', 'trainer-sheet-talent-use', current ? 'Substituir' : 'Construir');
+				build.type = 'button';
+				const feedback = el('p', 'trainer-sheet-roll-error hidden');
+				const construct = async replacementSlot => {
+					if (!selectedId || !recipient.value) {
+						feedback.textContent = 'Escolha um protótipo e um destinatário.';
+						feedback.classList.remove('hidden'); return;
+					}
+					build.disabled = true;
+					try {
+						await action.api('/trainer/talents/technological-prototype', { method: 'POST', body: {
+							slot: replacementSlot, itemId: selectedId, secondItemId: secondSelectedId || undefined,
+							recipientCharacterId: recipient.value,
+						} });
+						close();
+						window.dispatchEvent(new CustomEvent('rpg:realtime-sync',
+							{ detail: { tableId: selectedTable } }));
+						await action.refresh();
+					} catch (error) {
+						feedback.textContent = error.message || 'Não foi possível construir o protótipo.';
+						feedback.classList.remove('hidden'); build.disabled = false;
+					}
+				};
+				build.addEventListener('click', () => {
+					if (!selectedId || !recipient.value || data.slots.length < data.limit) {
+						void construct(slot); return;
+					}
+					const overlay = el('div', 'trainer-sheet-record-overlay');
+					const dialog = el('div', 'trainer-sheet-record-dialog');
+					dialog.setAttribute('role', 'dialog');
+					dialog.setAttribute('aria-label', 'Escolher protótipo a substituir');
+					dialog.append(el('h2', '', 'Qual protótipo será desativado?'),
+						el('p', '', 'A programação do escolhido falhará e ele se tornará um item comum.'));
+					const list = el('div', 'trainer-sheet-record-list');
+					const closePicker = () => { overlay.remove(); recordPicker = null; build.focus(); };
+					for (const active of data.slots) {
+						const option = data.options.find(entry => entry.id === (active.prototypeComponents?.[0] || active.itemId));
+						const owner = data.recipients.find(person => person.id === active.recipientCharacterId);
+						const choice = el('button', 'trainer-sheet-record-choice'); choice.type = 'button';
+						choice.append(el('strong', '', active.prototypeComponents ?
+							`Obra-Prima Modular: ${active.prototypeComponents.map(id => data.options.find(entry => entry.id === id)?.name || id).join(' + ')}` :
+							(option?.name || active.itemId)),
+							el('span', '', `Com ${owner?.name || 'destinatário desconhecido'}`));
+						choice.addEventListener('click', () => { closePicker(); void construct(active.slot); });
+						list.append(choice);
+					}
+					dialog.append(list); overlay.append(dialog);
+					overlay.addEventListener('pointerdown', event => { if (event.target === overlay) closePicker(); });
+					document.body.append(overlay); recordPicker = { overlay, close: closePicker };
+				});
+				row.append(choose);
+				if (modular) row.append(modular);
+				row.append(recipient, selected, build, feedback);
+				editor.append(row);
+			}
+			panel.append(editor);
 		} else if (action?.scientistRecord) {
 			panel.classList.add('trainer-sheet-talent-popover--archive');
 			const editor = el('div', 'trainer-sheet-archive-editor');
@@ -3922,7 +4038,8 @@
 			...(rules?.classFeatures?.[sheet.classId] || []).map(feature =>
 				({ id: sheet.classId === 'mestre-pokemon' && feature.name === 'Captura Calculada' ?
 					'mestre-pokemon:captura-calculada' : sheet.classId === 'cientista' && feature.name === 'Registro Reprodutível' ?
-					'cientista:registro-reprodutivel' : sheet.classId === 'coreografo' &&
+					'cientista:registro-reprodutivel' : sheet.classId === 'tecnologo' &&
+						feature.name === 'Protótipo Tecnológico' ? 'tecnologo:prototipo-tecnologico' : sheet.classId === 'coreografo' &&
 							feature.name === 'Ensaio Conjunto' ? 'coreografo:ensaio-conjunto' :
 						feature.name === 'Refeição Revigorante' ? 'cozinheiro:refeicao-revigorante' :
 						feature.name === 'Primeiros Cuidados' ? 'criador-pokemon:primeiros-cuidados' :
@@ -4004,6 +4121,9 @@
 														{ id, api, choreography: progression.choreography } :
 														!readOnly && id === 'cientista:registro-reprodutivel' ? { id, api, refresh,
 															scientistRecord: progression.scientistRecord } :
+														!readOnly && ['tecnologo:prototipo-tecnologico',
+													'tecnologo:central-de-prototipos', 'tecnologo:obra-prima-modular'].includes(id) ? { id, api, refresh,
+																	technologicalPrototype: progression.technologicalPrototype } :
 														!readOnly && id === 'cientista:hipotese-persistente' ?
 															{ id, api, refresh, persistentHypothesis: progression.persistentHypothesis,
 																persistentHypothesisCharacterId: character.id } :

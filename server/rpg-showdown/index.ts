@@ -110,6 +110,8 @@ import {
 import { RPG_TRAINER_CLASS_FEATURES } from './trainer-class-features';
 import { rpgScientistRecordFormulas, rpgScientistRecordLimit, rpgScientistRecordProduction,
 	rpgSetScientistRecord, RPG_SCIENTIST_RECORDS } from './trainer-scientist-records';
+import { RPG_ADVANCED_PROTOTYPES, RPG_INITIAL_PROTOTYPES, rpgTechnologicalPrototypeChargeCost,
+	rpgTechnologicalPrototypeLimit } from './trainer-technological-prototypes';
 import { rpgCaptureThrowDifficulty } from './capture-throw-difficulty';
 import { getRPGBattlePokemonCatalog } from './pokemon-catalog';
 import { resolveRPGExposure, prepareRPGCamp, type RPGExposure } from './trainer-exploration';
@@ -2814,6 +2816,14 @@ export class RPGLoginService {
 		const instanceIds = new Set<string>();
 		for (const entry of equipment.items) {
 			const item = rpgEquipment(entry.itemId);
+			if (entry.prototypeComponents) {
+				if (entry.itemId !== 'obra-prima-modular' || !entry.prototypeCreatorId || entry.quantity !== 1 ||
+					entry.prototypeComponents.length !== 2 || entry.prototypeComponents[0] === entry.prototypeComponents[1] ||
+					!entry.prototypeComponents.every(id => RPG_INITIAL_PROTOTYPES.some(option => option.id === id) ||
+						RPG_ADVANCED_PROTOTYPES.some(option => option.id === id))) {
+					throw new Error('Obra-Prima Modular inválida');
+				}
+			} else if (entry.itemId === 'obra-prima-modular') throw new Error('Obra-Prima Modular sem funções');
 			if (!entry.id || instanceIds.has(entry.id) ||
 				!['bag', 'bank', 'vehicle'].includes(entry.location)) throw new Error('Instância de equipamento inválida');
 			instanceIds.add(entry.id);
@@ -3292,6 +3302,7 @@ export class RPGLoginService {
 			take(entry, quantity); actor.state.money += payment; offer.stock += quantity;
 		} else if (input.action === 'transfer') {
 			const entry = find(input.instanceId);
+			if (entry.prototypeCreatorId) throw new Error('Protótipos vinculados devem permanecer com o destinatário original');
 			if (entry.location !== 'bag') throw new Error('Somente itens da Bag podem ser entregues');
 			const item = rpgEquipment(entry.itemId);
 			if (item.vehicle || item.stackLimit === 1 && quantity !== 1) throw new Error('Transferência inválida');
@@ -3378,6 +3389,7 @@ export class RPGLoginService {
 			entry.equipped = !!input.equipped;
 		} else if (input.action === 'consume') {
 			const entry = find(input.instanceId);
+			if (entry.prototypeCreatorId) throw new Error('Protótipos não são consumíveis');
 			if (entry.location !== 'bag' && !(entry.location === 'vehicle' && rpgEquipment(entry.itemId).vehicle)) {
 				throw new Error('O item não está disponível para uso');
 			}
@@ -3516,6 +3528,20 @@ export class RPGLoginService {
 				allowCustom: sheet.talents.class.includes('cientista:registro-avancado'),
 				pending: this.campaignSettings.customRecordRequests.filter(entry =>
 					entry.characterId === state.id && entry.status === 'pending'),
+			} : null,
+			technologicalPrototype: sheet.classId === 'tecnologo' ? {
+				slots: sheet.technologicalPrototypes || [], limit: rpgTechnologicalPrototypeLimit(sheet),
+				canBuildMasterpiece: sheet.talents.apex === 'tecnologo:obra-prima-modular' &&
+					(state.trainerInventory?.items || []).some(item => item.location === 'bag' &&
+						item.itemId === 'kit-tecnologico-3'),
+				options: [
+					...RPG_INITIAL_PROTOTYPES.map(entry => ({ ...entry, name: rpgEquipment(entry.id).name,
+						charges: 1, advanced: false })),
+					...(sheet.talents.class.includes('tecnologo:projeto-avancado') ?
+						RPG_ADVANCED_PROTOTYPES.map(entry => ({ ...entry, name: rpgEquipment(entry.id).name,
+							advanced: true })) : []),
+				],
+				recipients: this.trainerRecordRecipients(token),
 			} : null,
 			activeTalentUses: { restCycle: sheet.talentRestCycle || 0, used: sheet.talentUses || {} },
 			assistedRecovery: sheet.classId === 'medico' ? {
@@ -5478,6 +5504,106 @@ export class RPGLoginService {
 			this.repository.set(previous); throw error;
 		}
 		return { records: structuredClone(record.state.trainerSheet.scientistRecords) };
+	}
+
+	/** O protótipo é um objeto pronto: construir gasta a carga, operar não. */
+	buildTrainerTechnologicalPrototype(token: string, slot: number, itemId: string,
+		recipientCharacterId: string, secondItemId?: string) {
+		const session = this.getSession(token);
+		if (session.mode !== 'player' || !session.platformTableId) throw new Error('Entre como jogador em uma mesa');
+		const characterId = session.role === 'master' ? session.viewAsCharacterId : session.characterId;
+		if (!characterId) throw new Error('Nenhum personagem selecionado');
+		const sourceBefore = this.requireCharacter(toID(characterId));
+		const sheet = sourceBefore.state.trainerSheet;
+		if (sourceBefore.tableId !== session.platformTableId || !sheet || sheet.status !== 'complete' ||
+			sheet.classId !== 'tecnologo') throw new Error('Somente um Tecnólogo pode construir protótipos');
+		if (!Number.isSafeInteger(slot) || slot < 0 || slot >= rpgTechnologicalPrototypeLimit(sheet)) {
+			throw new Error('Espaço de protótipo inválido');
+		}
+		const modular = !!secondItemId;
+		if (modular && (sheet.talents.apex !== 'tecnologo:obra-prima-modular' ||
+			!sheet.talents.class.includes('tecnologo:projeto-avancado'))) {
+			throw new Error('Obra-Prima Modular exige o ápice e Projeto Avançado');
+		}
+		if (modular && secondItemId === itemId) throw new Error('Escolha duas funções diferentes');
+		const initial = RPG_INITIAL_PROTOTYPES.find(prototype => prototype.id === itemId);
+		const advanced = RPG_ADVANCED_PROTOTYPES.find(prototype => prototype.id === itemId);
+		const secondInitial = secondItemId ? RPG_INITIAL_PROTOTYPES.find(prototype => prototype.id === secondItemId) : undefined;
+		const secondAdvanced = secondItemId ? RPG_ADVANCED_PROTOTYPES.find(prototype => prototype.id === secondItemId) : undefined;
+		if (!initial && !advanced) throw new Error('Protótipo desconhecido');
+		if (modular && !secondInitial && !secondAdvanced) throw new Error('Segunda função desconhecida');
+		if (advanced && !sheet.talents.class.includes('tecnologo:projeto-avancado')) {
+			throw new Error('Projeto Avançado ainda não aprendido');
+		}
+		const recipientId = toID(recipientCharacterId);
+		if (!this.trainerRecordRecipients(token).some(person => person.id === recipientId)) {
+			throw new Error('Destinatário indisponível nesta mesa');
+		}
+		const previousSlot = sheet.technologicalPrototypes?.find(entry => entry.slot === slot);
+		const previousMasterpiece = modular ? sheet.technologicalPrototypes?.find(entry =>
+			entry.itemId === 'obra-prima-modular' && entry.slot !== slot) : undefined;
+		if ((advanced || secondAdvanced) && sheet.talents.apex === 'tecnologo:central-de-prototipos' &&
+			(sheet.technologicalPrototypes || []).filter(entry => entry.slot !== slot &&
+				(RPG_ADVANCED_PROTOTYPES.some(project => project.id === entry.itemId) ||
+					entry.prototypeComponents?.some(id => RPG_ADVANCED_PROTOTYPES.some(project => project.id === id)))).length >= 2) {
+			throw new Error('A Central de Protótipos permite até dois Projetos Avançados ativos');
+		}
+		const originals = new Map<string, RPGStoredCharacter>();
+		for (const id of [sourceBefore.state.id, recipientId, previousSlot?.recipientCharacterId,
+			previousMasterpiece?.recipientCharacterId].filter(
+			(value): value is string => !!value)) originals.set(id, structuredClone(this.requireCharacter(id)));
+		const working = new Map([...originals].map(([id, record]) => [id, structuredClone(record)]));
+		const source = working.get(sourceBefore.state.id)!;
+		const recipient = working.get(recipientId)!;
+		const sourceInventory = this.ensureTrainerInventory(source);
+		const kits = sourceInventory.items.filter(item => item.location === 'bag' &&
+			item.itemId.startsWith('kit-tecnologico-'));
+		if (!kits.length) throw new Error('Você precisa de um Kit Tecnológico na Bag');
+		const chargeCost = rpgTechnologicalPrototypeChargeCost(sheet,
+			(advanced?.charges || 1) + (modular ? (secondAdvanced?.charges || 1) + 2 : 0));
+		const eligibleKits = modular ? kits.filter(item => item.itemId === 'kit-tecnologico-3') : advanced ? kits.filter(item =>
+			/kit-tecnologico-[23]$/.test(item.itemId)) : kits;
+		if (modular && !eligibleKits.length) throw new Error('Obra-Prima Modular exige Kit Tecnológico de nível 3');
+		if (advanced && !eligibleKits.length) throw new Error('Projeto Avançado exige Kit Tecnológico de nível 2 ou 3');
+		const kit = eligibleKits.find(item => (item.charges || 0) >= chargeCost);
+		if (!kit) throw new Error(chargeCost === 1 ? 'O Kit Tecnológico precisa de uma carga disponível' :
+			`O Kit Tecnológico precisa de ${chargeCost} cargas disponíveis`);
+		for (const oldSlot of [previousSlot, previousMasterpiece].filter((entry): entry is NonNullable<typeof entry> => !!entry)) {
+			const oldRecipient = working.get(oldSlot.recipientCharacterId);
+			const oldItem = oldRecipient && this.ensureTrainerInventory(oldRecipient).items.find(item =>
+				item.id === oldSlot.instanceId && item.prototypeCreatorId === source.state.id);
+			if (oldItem) { oldItem.prototypeActive = false; oldRecipient!.state.trainerInventory!.revision++; }
+		}
+		const instanceId = secureRandomBytes(12).toString('hex');
+		const recipientInventory = this.ensureTrainerInventory(recipient);
+		for (const id of [itemId, ...(secondItemId ? [secondItemId] : [])]) {
+			rpgAssertEquipmentLicense(recipientInventory, rpgEquipment(id), this.now());
+		}
+		const builtItemId = modular ? 'obra-prima-modular' : itemId;
+		const prototypeComponents: [string, string] | undefined = secondItemId ? [itemId, secondItemId] : undefined;
+		recipientInventory.items.push({ id: instanceId, itemId: builtItemId, quantity: 1,
+			equipped: false, location: 'bag', prototypeCreatorId: source.state.id, prototypeActive: true,
+			...(prototypeComponents ? { prototypeComponents } : {}) });
+		source.state.trainerSheet!.technologicalPrototypes = [
+			...(source.state.trainerSheet!.technologicalPrototypes || []).filter(entry => entry.slot !== slot &&
+				entry.slot !== previousMasterpiece?.slot),
+			{ slot, itemId: builtItemId, recipientCharacterId: recipientId, instanceId,
+				...(prototypeComponents ? { prototypeComponents } : {}) },
+		].sort((a, b) => a.slot - b.slot);
+		kit.charges! -= chargeCost;
+		sourceInventory.revision++;
+		recipient.state.trainerInventory!.revision++;
+		for (const record of working.values()) {
+			this.validateTrainerInventory(record);
+			record.state.updatedAt = this.now();
+		}
+		try { this.persistAtomically(() => {
+			for (const record of working.values()) this.repository.set(record);
+		}); } catch (error) {
+			for (const record of originals.values()) this.repository.set(record);
+			throw error;
+		}
+		return { prototypes: structuredClone(source.state.trainerSheet!.technologicalPrototypes) };
 	}
 
 	/** O servidor valida autoria, treinamento, vagas e vínculo do destinatário à mesma mesa. */
@@ -8069,6 +8195,30 @@ export class RPGLoginService {
 				actions: [], equippedIn: [], icon: './assets/item-icons/acervo-compartilhado.png',
 				sprite: null, tags: ['trainer-talent'], weightKg: 0, slots: 0,
 			}));
+			for (const instance of record.state.trainerInventory?.items || []) {
+				if (!instance.prototypeCreatorId || instance.location !== 'bag') continue;
+				const definition = rpgEquipment(instance.itemId);
+				const functions = instance.prototypeComponents || [instance.itemId];
+				const descriptions = functions.map(id => {
+					const prototype = [...RPG_INITIAL_PROTOTYPES, ...RPG_ADVANCED_PROTOTYPES]
+						.find(entry => entry.id === id);
+					return `${rpgEquipment(id).name}: ${prototype?.effect || 'Dispositivo tecnológico.'}`;
+				});
+				talentItems.push({ id: `tecnologo:prototipo@${instance.id}`,
+					name: instance.prototypeComponents ? `Obra-Prima Modular (${functions.map(id => rpgEquipment(id).name).join(' + ')})` :
+						definition.name, quantity: 1, category: 'talent-items', registryCategory: 'key',
+					description: `${descriptions.join(' · ')}${instance.prototypeComponents ?
+						' · Uma função por ação, salvo se ambas forem passivas.' : ''} ` +
+						(instance.prototypeActive ? 'Protótipo ativo; operar não consome cargas do kit.' :
+							'Programação especial inativa; o objeto permanece mundano.'),
+					favorite: false, mission: false, actions: [], equippedIn: [],
+					icon: './assets/item-icons/prototipo-tecnologico.png', sprite: null,
+					tags: ['trainer-talent', 'prototype'], weightKg: instance.prototypeComponents ?
+						functions.reduce((sum, id) => sum + rpgEquipment(id).weight, 0) : definition.weight,
+					slots: instance.prototypeComponents ? functions.reduce((sum, id) => sum + rpgEquipment(id).spaces, 0) :
+						definition.spaces,
+				});
+			}
 			if (session.platformTableId) {
 				for (const source of this.repository.list()) {
 					const sheet = source.state.trainerSheet;
@@ -8133,7 +8283,7 @@ export class RPGLoginService {
 					toID(item.name + ' ' + item.description).includes(search)));
 			}
 			const food = (record.state.trainerInventory?.items || [])
-				.filter(item => item.location === 'bag')
+				.filter(item => item.location === 'bag' && !item.prototypeCreatorId)
 				.map(item => ({ item, definition: rpgEquipment(item.itemId) }));
 			const foodCategory = view.categories.find(entry => entry.id === 'food-items');
 			if (foodCategory) {

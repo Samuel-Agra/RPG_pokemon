@@ -166,6 +166,9 @@ export interface RPGTrainerSheet {
 	/** Cada fórmula escrita ocupa um espaço ativo e acompanha somente seu destinatário. */
 	scientistRecords?: { slot: number, formulaId: string, recipientCharacterId: string,
 		custom?: { name: string, description: string, kitTier: number, charges: number }, }[];
+	/** Protótipos físicos ativos, vinculados à programação do criador. */
+	technologicalPrototypes?: { slot: number, itemId: string, recipientCharacterId: string, instanceId: string,
+		prototypeComponents?: [string, string] }[];
 	/** Uma falha prepara o bônus; a rolagem aguarda seu resultado antes de outra falha. Campos antigos são opcionais para compatibilidade. */
 	persistentHypothesis?: { failures: number, awaitingOutcome?: boolean, topic?: string,
 		lastEvidence?: string, preparedEvidence?: string, };

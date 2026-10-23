@@ -141,7 +141,8 @@ function validSkill(skill: string): boolean {
 
 function allowedAttributeChoices(talent: RPGTrainerTalentDefinition): (keyof RPGTrainerAttributes)[] {
 	// Aumentos fixos pertencem à própria regra e não exigem escolha de atributo.
-	if (['arqueologo:memoria-academica', 'cientista:hipotese-persistente', 'artista:presenca-magnetica',
+	if (['arqueologo:memoria-academica', 'cientista:hipotese-persistente', 'tecnologo:engenharia-reversa',
+		'artista:presenca-magnetica',
 		'diplomata:porta-voz-reconhecido',
 		'encantador:presenca-desarmante',
 		'artista:corpo-de-cena', 'coreografo:leitura-cinetica',
@@ -294,6 +295,9 @@ function applyTalentEffect(sheet: RPGTrainerSheet, talent: RPGTrainerTalentDefin
 		next.academicMemoryApplied = true;
 	}
 	if (talent.id === 'cientista:hipotese-persistente') {
+		attributes.intelligence = Math.min(20, attributes.intelligence + 1);
+	}
+	if (talent.id === 'tecnologo:engenharia-reversa') {
 		attributes.intelligence = Math.min(20, attributes.intelligence + 1);
 	}
 	if (talent.id === 'arqueologo:resgate-de-reliquia') {

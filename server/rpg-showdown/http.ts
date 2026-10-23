@@ -494,6 +494,13 @@ export class RPGHttpServer {
 			this.json(res, 200, this.login.setTrainerScientistRecord(this.token(req), Number(body.slot), entry));
 			return;
 		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/technological-prototype') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.buildTrainerTechnologicalPrototype(this.token(req),
+				body.slot as number, this.string(body.itemId), this.string(body.recipientCharacterId),
+				body.secondItemId ? this.string(body.secondItemId) : undefined));
+			return;
+		}
 		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/scientist-record/custom') {
 			const body = await this.body(req);
 			this.json(res, 200, this.login.requestCustomScientistRecord(this.token(req), {
@@ -3297,6 +3304,7 @@ export class RPGHttpServer {
 		if (/^(?:Escolha uma quantidade de Alimentos|Este treinador não possui Ração Artesanal Pokémon|Identificador de preparo já utilizado|Alimentos insuficientes na Bag|Kit de Culinária necessário|Domínio do Kit de Culinária necessário|Escolha uma Ração Pokémon válida)/.test(message)) return true;
 		if (/^(?:Você precisa de um Kit Científico na Bag|Este registro exige (?:um Kit Científico de nível|\d+ carga\(s\))|Registro (?:inválido|não pertence a este treinador|científico indisponível)|Cientista indisponível nesta mesa|Esta fórmula já está em preparação|Há preparações demais em andamento|Preparação indisponível|O Registro Reprodutível foi alterado ou retirado|A preparação ainda não atingiu o tempo necessário)/.test(message)) return true;
 		if (/^(?:Registro Avançado indisponível|Espaço de registro inválido|Destinatário indisponível|Informe nome \(3–100\)|Identificador inválido|Identificador já utilizado|Já existe um registro aguardando aprovação|Registro não está pendente|Nível do kit ou cargas inválidos|Cientista ou destinatário indisponível|A biblioteca permite até dois Registros Avançados ativos)/.test(message)) return true;
+		if (/^(?:Somente um Tecnólogo pode construir protótipos|Espaço de protótipo inválido|Protótipo inicial desconhecido|Você precisa de um Kit Tecnológico na Bag|O Kit Tecnológico precisa de uma carga disponível|Protótipos vinculados devem permanecer com o destinatário original|Protótipos não são consumíveis)/.test(message)) return true;
 		if (/^(?:Publicação de Referência não está disponível|Identificador do artigo inválido|Informe título e resumo do artigo|Já existe um artigo aguardando avaliação|Artigo não está pendente|Decisão ou pagamento inválido|Pagamento ultrapassa o limite de Pokécoins|Entre como jogador em uma mesa para criar o artigo|Nenhum personagem selecionado|Personagem fora da mesa atual)/.test(message)) return true;
 		if (/^(?:Confidente indisponível|Identificador de confidente (?:inválido|já utilizado)|Informe o nome do confidente|Este treinador já possui um confidente confirmado|Já existe um confidente aguardando avaliação|Pedido de confidente ou decisão inválidos)/.test(message)) return true;
 		if (/^(?:Forrageador Eficiente indisponível|Identificador de forrageio (?:inválido|já utilizado)|Já existe um forrageio aguardando avaliação|Pedido de forrageio ou decisão inválidos|Explorador indisponível para receber os alimentos)/.test(message)) return true;

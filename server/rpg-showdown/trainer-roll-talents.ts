@@ -43,6 +43,8 @@ const RULES: Readonly<Record<string, Rule>> = {
 		condition: 'Interpretar detalhes de uma inscrição histórica estudada por dez minutos.' },
 	'cientista:autoridade-cientifica': { targets: ['skill:conhecimento:*'], naturalFloor: 10,
 		condition: 'Ter tempo e meios adequados para examinar o problema em uma das três áreas escolhidas.' },
+	'tecnologo:genio-tecnologico': { targets: ['skill:tecnologia'], naturalFloor: 10,
+		condition: 'Tratar como 10 um resultado natural inferior a 10 em Tecnologia.' },
 	'cozinheiro:mestre-da-cozinha': { targets: ['skill:oficio:culinaria'], naturalFloor: 10,
 		condition: 'Possuir ingredientes e tempo minimamente adequados para o preparo.' },
 	'arqueologo:olho-para-falsificacoes': { targets: ['skill:conhecimento:*', 'skill:investigacao', 'skill:percepcao'], bonus: 2,
