@@ -11,6 +11,15 @@ describe('RPG trainer sheet read-only frontend', () => {
 	const page = fs.readFileSync(path.join(root, 'trainer-sheet-ui.js'), 'utf8');
 	const style = fs.readFileSync(path.join(root, 'trainer-sheet.css'), 'utf8');
 	const http = fs.readFileSync(path.resolve(root, '../../rpg-showdown/http.ts'), 'utf8');
+	it('bloqueia a mesa inteira com uma camada vermelha enquanto o treinador está morto', () => {
+		assert(app.includes("overlay.id = 'trainer-death-overlay'"));
+		assert(app.includes("character?.trainerSheet?.survival?.lifeState === 'dead'"));
+		assert(app.includes("$('#dashboard-screen').inert = !!dead"));
+		assert(app.includes('updateTrainerDeathOverlay(current.character)'));
+		assert(app.includes("action: { type: 'restore-life' }"));
+		assert(style.includes('.trainer-death-overlay { position: fixed; inset: 0;'));
+		assert(!style.includes('.trainer-sheet-dead .trainer-sheet-panel'));
+	});
 	it('oferece reanimação com paciente, bônus de Medicina e retorno visível', () => {
 		assert(page.includes("id === 'medico:entre-a-vida-e-a-morte'"));
 		assert(page.includes("action.api('/trainer/reanimation')"));

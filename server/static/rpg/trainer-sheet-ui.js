@@ -3007,6 +3007,20 @@
 				busy = false;
 			}
 		};
+		if (sheet.survival?.lifeState === 'dead') {
+			const restore = el('button', 'button trainer-sheet-danger', 'Retirar estado Morto');
+			restore.type = 'button';
+			let confirmed = false;
+			restore.addEventListener('click', () => {
+				if (!confirmed) {
+					confirmed = true;
+					restore.textContent = 'Confirmar: restaurar com 1 PV';
+					return;
+				}
+				void apply({ type: 'restore-life' });
+			});
+			dialog.append(el('p', '', 'O Mestre pode restaurar este treinador com 1 PV.'), restore);
+		}
 		{
 			const state = sheet.survival || {};
 			dialog.append(el('p', '', `Exaustão atual: ${state.exhaustion || 0} / 6`));
@@ -4446,6 +4460,7 @@
 			const host = master ? masterSummary : document.getElementById('dashboard-title')?.closest('.dashboard-heading');
 			host?.querySelector('.trainer-sheet-level-button')?.remove();
 			if (master || state.session?.role === 'master' || state.tableReadOnly ||
+				progression?.sheet?.survival?.lifeState === 'dead' ||
 				!progression?.canLevelUp || !host) return;
 			const button = el('button', 'trainer-sheet-level-button', 'Atualizar');
 			button.type = 'button';

@@ -187,6 +187,18 @@ export function rpgTrainerStabilize(sheet: RPGTrainerSheet): RPGTrainerSheet {
 	return next;
 }
 
+/** Correção excepcional do Mestre para devolver o controle de uma ficha morta. */
+export function rpgTrainerRestoreLife(sheet: RPGTrainerSheet): RPGTrainerSheet {
+	const { sheet: next, state } = complete(sheet);
+	if (state.lifeState !== 'dead') throw new Error('O treinador não está morto');
+	state.lifeState = 'conscious';
+	state.negativeHP = 0;
+	state.deathSaves = { successes: 0, failures: 0 };
+	state.exhaustion = Math.min(state.exhaustion, 5);
+	next.hitPoints.current = 1;
+	return next;
+}
+
 export function rpgTrainerAddExhaustion(sheet: RPGTrainerSheet, levels: number): RPGTrainerSheet {
 	const { sheet: next, state } = complete(sheet);
 	amount(levels, 'Níveis de exaustão', 6);
@@ -299,6 +311,7 @@ export type RPGTrainerSurvivalAction =
 	{ type: 'heal', amount: number } |
 	{ type: 'death-save' } |
 	{ type: 'stabilize' } |
+	{ type: 'restore-life' } |
 	{ type: 'exhaustion', levels: number } |
 	{ type: 'exhaustion-reduce', levels: number } |
 	{ type: 'condition-add', condition: RPGTrainerCondition } |

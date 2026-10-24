@@ -104,6 +104,7 @@ import {
 	rpgTrainerAddExhaustion, rpgTrainerAddWound, rpgTrainerApplyCondition, rpgTrainerConditionTick,
 	rpgTrainerDeathSave, rpgTrainerHeal, rpgTrainerReduceExhaustion, rpgTrainerRemoveCondition, rpgTrainerRest,
 	rpgTrainerStabilize, rpgTrainerStartRest, rpgTrainerTakeDamage, rpgTrainerTreatWound, rpgTrainerReanimate,
+	rpgTrainerRestoreLife,
 	rpgTrainerSurvival, RPG_TRAINER_CONDITIONS,
 	type RPGTrainerSurvivalAction,
 } from './trainer-survival';
@@ -6461,6 +6462,9 @@ export class RPGLoginService {
 			if (previous.fingerprint !== fingerprint) throw new Error('Identificador de teste já utilizado');
 			return { result: structuredClone(previous.result), repeated: true };
 		}
+		if (rpgTrainerSurvival(sheet).lifeState === 'dead') {
+			throw new Error('Um treinador morto não pode realizar testes');
+		}
 		let result;
 		switch (input.kind) {
 			case 'attribute':
@@ -6485,7 +6489,7 @@ export class RPGLoginService {
 		if (session.mode === 'player') {
 			this.requireViewedMasterCharacter(token, characterId);
 			if (!action || !['damage', 'heal', 'exhaustion', 'exhaustion-reduce',
-				'condition-add', 'condition-remove'].includes(action.type)) {
+				'condition-add', 'condition-remove', 'restore-life'].includes(action.type)) {
 				throw new Error('Esta ação de sobrevivência exige o modo Mestre');
 			}
 		} else {
@@ -6511,6 +6515,8 @@ export class RPGLoginService {
 			}
 			case 'stabilize':
 				next = rpgTrainerStabilize(sheet); break;
+			case 'restore-life':
+				next = rpgTrainerRestoreLife(sheet); break;
 			case 'exhaustion':
 				next = rpgTrainerAddExhaustion(sheet, action.levels); break;
 			case 'exhaustion-reduce': {

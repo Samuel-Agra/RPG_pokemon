@@ -81,8 +81,52 @@ const $ = selector => document.querySelector(selector);
 
 function show(screen) {
 	for (const element of screens) element.classList.toggle('hidden', element.id !== screen + '-screen');
+	if (screen !== 'dashboard') {
+		document.getElementById('trainer-death-overlay')?.remove();
+		$('#dashboard-screen').inert = false;
+	}
 	if (screen !== 'dashboard') $('#master-invitations-button').classList.add('hidden');
 	window.scrollTo({ top: 0, behavior: 'instant' });
+}
+
+function updateTrainerDeathOverlay(character = state.currentCharacter) {
+	const existing = document.getElementById('trainer-death-overlay');
+	const dead = state.session?.mode === 'player' &&
+		character?.trainerSheet?.survival?.lifeState === 'dead' &&
+		!$('#dashboard-screen')?.classList.contains('hidden');
+	$('#dashboard-screen').inert = !!dead;
+	if (!dead) { existing?.remove(); return; }
+	if (existing?.dataset.characterId === character.id) return;
+	existing?.remove();
+	const overlay = createElement('div', 'trainer-death-overlay');
+	overlay.id = 'trainer-death-overlay';
+	overlay.dataset.characterId = character.id;
+	overlay.setAttribute('role', 'alertdialog');
+	overlay.setAttribute('aria-modal', 'true');
+	overlay.setAttribute('aria-label', 'Treinador morto');
+	const notice = createElement('div', 'trainer-death-notice');
+	notice.append(createElement('strong', '', `${character.characterName} morreu.`),
+		createElement('span', '', 'Aguarde a reanimação ou a intervenção do Mestre.'));
+	if (state.session.role === 'master') {
+		const restore = createElement('button', 'button trainer-death-restore', 'Retirar estado Morto');
+		restore.type = 'button';
+		let confirmed = false;
+		restore.addEventListener('click', async () => {
+			if (!confirmed) { confirmed = true; restore.textContent = 'Confirmar: restaurar com 1 PV'; return; }
+			restore.disabled = true;
+			try {
+				const result = await api('/trainer/survival', { method: 'POST', body: {
+					characterId: character.id, action: { type: 'restore-life' },
+				} });
+				state.currentCharacter.trainerSheet = result.sheet;
+				updateTrainerDeathOverlay(state.currentCharacter);
+				await renderDashboard();
+			} catch (error) { showToast(error.message, true); restore.disabled = false; }
+		});
+		notice.append(restore);
+	}
+	overlay.append(notice);
+	document.body.append(overlay);
 }
 
 function platformPlayerNeedsCharacter(session = state.session) {
@@ -1956,6 +2000,12 @@ async function synchronizeApplicationRealtime() {
 			await Promise.all([refreshAccountTables(), loadAccountNotifications(true)]);
 			if (accountTablesView === 'invites') await loadDirectedInvites(true);
 		} else if (visibleScreen === 'dashboard-screen' && state.session) {
+			if (state.session.mode === 'player' &&
+				(state.session.characterId || state.session.viewAsCharacterId)) {
+				const current = await api('/character');
+				state.currentCharacter = current.character;
+				updateTrainerDeathOverlay(current.character);
+			}
 			window.dispatchEvent(new CustomEvent('rpg:realtime-sync', {
 				detail: { tableId: state.accountSession.activeTableId, view: state.dashboardView },
 			}));
@@ -8385,6 +8435,7 @@ async function renderDashboard() {
 	const body = $('#dashboard-body');
 	body.replaceChildren(createElement('div', 'panel loading-block', 'Carregando painel...'));
 	const isMasterMode = state.session.role === 'master' && state.session.mode === 'master';
+	if (isMasterMode) updateTrainerDeathOverlay(null);
 	const showPlayerDrawer = !!state.accountSession?.activeTableId &&
 		!['battles', 'contests'].includes(state.dashboardView);
 	const showPlayerRoster = state.session.role === 'master' ||
@@ -8460,6 +8511,7 @@ async function renderDashboard() {
 			const data = await api('/character');
 			const character = data.character;
 			state.currentCharacter = character;
+			updateTrainerDeathOverlay(character);
 			dashboardNav(false);
 			if (showPlayerRoster) await renderPlayerRosterDrawer();
 			setProfileAvatar(character);

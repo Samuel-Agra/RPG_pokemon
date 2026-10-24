@@ -885,6 +885,9 @@ export class RPGHttpServer {
 			const characterId = session.viewAsCharacterId || session.characterId;
 			if (!characterId) throw new Error('Selecione um personagem');
 			const character = this.login.getCharacter(token, characterId);
+			if (character.trainerSheet?.survival?.lifeState === 'dead') {
+				throw new Error('Um treinador morto não pode realizar testes');
+			}
 			const offered = this.login.offerTrainerHelp(token, skill, attribute, mode,
 				body.talents === undefined ? [] : body.talents as string[]);
 			const label = trainerSkillLabel(skill);
@@ -957,6 +960,9 @@ export class RPGHttpServer {
 				throw new Error('Entre como esse jogador para rolar seus atributos');
 			}
 			const character = this.login.getCharacter(token, characterId);
+			if (character.trainerSheet?.survival?.lifeState === 'dead') {
+				throw new Error('Um treinador morto não pode realizar rolagens');
+			}
 			const pendingCapture = skillRoll && skill === 'captura' ?
 				this.login.trainerPendingCapture(token, characterId!) : null;
 			const captureBall = pendingCapture ? this.string(body.captureBall) : '';

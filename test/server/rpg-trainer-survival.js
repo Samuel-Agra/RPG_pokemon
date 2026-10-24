@@ -4,6 +4,7 @@ const assert = require('assert').strict;
 const {
 	createRPGPendingTrainerSheet, rpgTrainerTakeDamage, rpgTrainerHeal,
 	rpgTrainerReanimate,
+	rpgTrainerRestoreLife,
 	rpgTrainerDeathSave, rpgTrainerStabilize, rpgTrainerAddExhaustion,
 	rpgTrainerReduceExhaustion,
 	rpgTrainerApplyCondition, rpgTrainerConditionTick, rpgTrainerRemoveCondition,
@@ -23,6 +24,17 @@ function ready() {
 }
 
 describe('RPG trainer survival', () => {
+	it('restores a dead trainer for Master arbitration without weakening medical reanimation', () => {
+		const dead = rpgTrainerTakeDamage(ready(), 40);
+		assert.equal(dead.survival.lifeState, 'dead');
+		assert.throws(() => rpgTrainerHeal(dead, 1), /morto/);
+		const restored = rpgTrainerRestoreLife(dead);
+		assert.equal(restored.survival.lifeState, 'conscious');
+		assert.equal(restored.hitPoints.current, 1);
+		assert.equal(restored.survival.negativeHP, 0);
+		assert.equal(dead.survival.lifeState, 'dead');
+		assert.throws(() => rpgTrainerRestoreLife(restored), /não está morto/);
+	});
 	it('rolls Athletic Recovery twice on a long rest and adds medical care separately', () => {
 		const athlete = { ...ready(), classId: 'atleta', talents: {
 			general: [], class: ['atleta:recuperacao-atletica'], apex: null },
@@ -167,7 +179,7 @@ describe('RPG trainer survival', () => {
 			{ type: 'condition-add', condition: { id: 'inválida', source: 'teste' } }), /Condição inválida/);
 	});
 
-	it('permits only the viewed Player’s PV, Exaustão and conditions in Master-as-Player mode', () => {
+	it('permits only the viewed Player’s survival controls and restoration in Master-as-Player mode', () => {
 		const repository = new RPGMemoryCharacterRepository();
 		const service = new RPGLoginService({ masterCode: 'secret', repository });
 		for (const name of ['Ana', 'Bia']) {
@@ -192,6 +204,12 @@ describe('RPG trainer survival', () => {
 			condition: { id: 'paralisado', source: 'Mestre' } }).sheet.survival.conditions[0].id, 'paralisado');
 		assert.equal(service.applyTrainerSurvival('teste', 'ana', { type: 'condition-remove',
 			conditionId: 'paralisado' }).sheet.survival.conditions.length, 0);
+		const ana = repository.get('ana');
+		ana.state.trainerSheet = rpgTrainerTakeDamage(ana.state.trainerSheet, 40);
+		repository.set(ana);
+		assert.equal(service.applyTrainerSurvival('teste', 'ana', { type: 'restore-life' })
+			.sheet.survival.lifeState, 'conscious');
+		assert.equal(repository.get('ana').state.trainerSheet.hitPoints.current, 1);
 		assert.throws(() => service.applyTrainerSurvival('teste', 'bia', { type: 'heal', amount: 1 }),
 			/currently being viewed/);
 		assert.throws(() => service.applyTrainerSurvival('teste', 'ana', { type: 'death-save' }),
