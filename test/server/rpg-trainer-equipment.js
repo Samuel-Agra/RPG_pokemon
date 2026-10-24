@@ -1,9 +1,13 @@
 'use strict';
 
 const assert = require('assert').strict;
+const crypto = require('crypto');
+const fs = require('fs');
+const path = require('path');
 const { RPGLoginService, RPGMemoryCharacterRepository, RPG_TRAINER_CLASSES,
 	RPG_EQUIPMENT_CATALOG, rpgInitialTrainerInventory, rpgEquipmentSlots,
 	rpgCanAcquireKitDomain, rpgKitBonus,
+	rpgHasLicense, RPG_TRAINER_LICENSE_FEES,
 	rpgTractionCapacity, rpgTractionLoad,
 	completeRPGTrainerSheet, createRPGPendingTrainerSheet } = require('../../dist/server/rpg-showdown');
 const { RPGItems, RPGBagSystem } = require('../../dist/sim/rpg-showdown');
@@ -17,6 +21,20 @@ function character(service, name) {
 }
 
 describe('RPG trainer equipment and item bank', () => {
+	it('provides a local sprite for every trainer equipment entry', () => {
+		const icons = new Set();
+		const images = new Set();
+		for (const item of Object.values(RPG_EQUIPMENT_CATALOG)) {
+			assert.match(item.icon, /^\.\/assets\/item-icons\/equipment-[a-z0-9-]+\.png\?v=/);
+			assert(!icons.has(item.icon), `Sprite repetido: ${item.name}`);
+			icons.add(item.icon);
+			const file = path.join(__dirname, '../../server/static/rpg', item.icon.slice(2).split('?')[0]);
+			assert(fs.existsSync(file), `${item.name}: ${file}`);
+			const hash = crypto.createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+			assert(!images.has(hash), `Arte repetida: ${item.name}`);
+			images.add(hash);
+		}
+	});
 	it('catalogs profession kits without a journalism kit and requires the matching trade for mastery', () => {
 		const trades = ['mecanica', 'costura', 'carpintaria', 'ferraria', 'artesanato'];
 		for (const trade of trades) {
@@ -29,6 +47,43 @@ describe('RPG trainer equipment and item bank', () => {
 			assert.deepEqual(rpgKitBonus({ proficiencies: [kit.domain] }, kit.id), { bonus: 0, disadvantage: false });
 		}
 		assert.equal(RPG_EQUIPMENT_CATALOG['kit-jornalismo'], undefined);
+	});
+	it('grants the controlled-equipment license with a completed sheet and restores it on older sheets', () => {
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({ masterCode: 'teste', repository });
+		const master = service.loginMaster('teste');
+		const player = character(service, 'Licenciada');
+		service.chooseTrainerAttributeMethod(player.token, 'standard');
+		service.completeTrainerCreation(player.token, { classId: 'arqueologo', attributes,
+			optionalSkills: ['percepcao', 'sobrevivencia', 'pilotagem:automoveis'], gearChoices: { arma: 'faca' } });
+		assert(rpgHasLicense(service.getTrainerEquipment(player.token).inventory, 'contencao', Date.now()));
+		const oldRecord = repository.get('licenciada');
+		oldRecord.state.trainerInventory.licenses = [];
+		repository.set(oldRecord);
+		assert(service.getBag(master.token, 'licenciada').licenses.some(license =>
+			license.id === 'contencao' && license.valid));
+		assert(rpgHasLicense(repository.get('licenciada').state.trainerInventory, 'contencao', Date.now()));
+		service.setTrainerLicense(master.token, 'licenciada',
+			{ id: 'contencao', status: 'revoked', issuedBy: '' });
+		assert.equal(rpgHasLicense(service.getTrainerEquipment(player.token).inventory, 'contencao', Date.now()), false);
+		assert.equal(service.getBag(master.token, 'licenciada').licenses.find(license =>
+			license.id === 'contencao').valid, false);
+		service.setTrainerLicense(master.token, 'licenciada',
+			{ id: 'contencao', status: 'active', issuedBy: '' }, true);
+		assert(rpgHasLicense(service.getTrainerEquipment(player.token).inventory, 'contencao', Date.now()));
+		assert.throws(() => service.setTrainerLicense(master.token, 'licenciada',
+			{ id: 'institucional', status: 'active', issuedBy: '' }), /Licença inválida/);
+	});
+	it('exposes the same license fees that the Master charges', () => {
+		const service = new RPGLoginService({ masterCode: 'teste', repository: new RPGMemoryCharacterRepository() });
+		const master = service.loginMaster('teste');
+		character(service, 'Taxada');
+		const view = service.getBag(master.token, 'taxada');
+		assert.equal(view.licenseFees.veiculo, 2500);
+		assert.equal(view.licenseFees.veiculo, RPG_TRAINER_LICENSE_FEES.veiculo);
+		assert.equal(view.licenseFees['arma-fogo'], 5000);
+		assert.equal(view.licenseFees.restrito, 5000);
+		assert.equal(view.licenseFees.institucional, undefined);
 	});
 	it('catalogs every class starting item and puts its equipment into real Bag slots', () => {
 		const candidates = ['acrobacia', 'atletismo', 'atuacao', 'captura', 'conhecimento:regioes',
@@ -66,13 +121,13 @@ describe('RPG trainer equipment and item bank', () => {
 		character(service, 'Cozinheira');
 		service.changeTrainerEquipment(master.token, { action: 'grant', characterId: 'cozinheira',
 			expectedRevision: 0, itemId: 'alimento', quantity: 2 });
-		const bag = service.getBag(master.token, 'cozinheira', { category: 'food-items' });
+		const bag = service.getBag(master.token, 'cozinheira', { category: 'trainer-exploration' });
 		assert.equal(bag.items.find(item => item.name === 'Alimento').quantity, 2);
 		assert.match(bag.items.find(item => item.name === 'Alimento').description,
 			/4 porções de refeição.*roleplay/);
 		assert.equal(bag.items.some(item => /Refeição Preparada/.test(item.name)), false);
 	});
-	it('groups all new equipment in Itens novos, including kits and exploration gear', () => {
+	it('separates trainer equipment and reports carried weight in the Bag', () => {
 		const service = new RPGLoginService({ masterCode: 'teste', repository: new RPGMemoryCharacterRepository() });
 		const master = service.loginMaster('teste');
 		character(service, 'Exploradora');
@@ -82,12 +137,79 @@ describe('RPG trainer equipment and item bank', () => {
 			expectedRevision: 1, itemId: 'faca', quantity: 1 });
 		service.changeTrainerEquipment(master.token, { action: 'grant', characterId: 'exploradora',
 			expectedRevision: 2, itemId: 'alimento', quantity: 2 });
-		const bag = service.getBag(master.token, 'exploradora', { category: 'food-items' });
-		assert.equal(bag.categories.find(category => category.id === 'food-items').name, 'Itens novos');
-		assert(bag.items.some(item => item.id === 'equipment:kit-explorador'));
-		assert(bag.items.some(item => item.id === 'equipment:faca'));
-		assert(bag.items.some(item => item.id === 'equipment:alimento' && item.quantity === 2));
-		assert(bag.items.every(item => item.icon === null && item.sprite === null));
+		const bag = service.getBag(master.token, 'exploradora');
+		assert.equal(bag.categories.find(category => category.id === 'trainer-exploration').name, 'Exploração e acampamento');
+		assert(bag.items.some(item => item.equipmentItemId === 'kit-explorador' && item.category === 'trainer-kits'));
+		assert(bag.items.some(item => item.equipmentItemId === 'faca' && item.category === 'trainer-weapons'));
+		assert(bag.items.some(item => item.equipmentItemId === 'alimento' && item.category === 'trainer-exploration' && item.quantity === 2));
+		assert(bag.weight.currentKg > 0);
+		assert(bag.weight.comfortableKg < bag.weight.heavyKg);
+		assert(bag.items.every(item => item.icon === RPG_EQUIPMENT_CATALOG[item.equipmentItemId].icon && item.sprite === null));
+		const knife = bag.items.find(item => item.equipmentItemId === 'faca');
+		const moved = service.changeTrainerEquipment(master.token, { action: 'move', characterId: 'exploradora',
+			expectedRevision: 3, instanceId: knife.equipmentInstanceId, location: 'bank' });
+		assert.equal(moved.inventory.items.find(item => item.id === knife.equipmentInstanceId).location, 'bank');
+		const bank = service.getTrainerItemBank(master.token, 'exploradora');
+		assert(bank.items.some(item => item.id === knife.equipmentInstanceId && item.category === 'trainer-weapons'));
+		assert.equal(bank.itemTypes, 1);
+		assert.equal(bank.balance, 0);
+		assert.equal(service.getBag(master.token, 'exploradora').categories.some(category =>
+			category.id === 'stored-items'), false);
+		assert(service.getBag(master.token, 'exploradora').weight.currentKg < bag.weight.currentKg);
+		const food = bag.items.find(item => item.equipmentItemId === 'alimento');
+		const discarded = service.changeTrainerEquipment(master.token, { action: 'discard', characterId: 'exploradora',
+			expectedRevision: moved.inventory.revision, instanceId: food.equipmentInstanceId, quantity: 1 });
+		assert.equal(discarded.inventory.items.find(item => item.id === food.equipmentInstanceId).quantity, 1);
+	});
+	it('places ammunition with weapons and kit refills with kits', () => {
+		const service = new RPGLoginService({ masterCode: 'teste', repository: new RPGMemoryCharacterRepository() });
+		const master = service.loginMaster('teste');
+		character(service, 'Organizador');
+		let revision = 0;
+		for (const itemId of ['municao-revolver', 'refil-medico', 'refil-spray-pimenta',
+			'refil-filtro', 'refil-energia', 'reserva-energia-veiculo']) {
+			revision = service.changeTrainerEquipment(master.token, { action: 'grant', characterId: 'organizador',
+				expectedRevision: revision, itemId }).inventory.revision;
+		}
+		const bag = service.getBag(master.token, 'organizador');
+		assert.equal(bag.items.find(item => item.equipmentItemId === 'municao-revolver').category, 'trainer-weapons');
+		assert.equal(bag.items.find(item => item.equipmentItemId === 'refil-medico').category, 'trainer-kits');
+		assert.equal(bag.items.find(item => item.equipmentItemId === 'refil-spray-pimenta').category, 'trainer-weapons');
+		assert.equal(bag.items.find(item => item.equipmentItemId === 'refil-filtro').category, 'trainer-kits');
+		assert.equal(bag.items.find(item => item.equipmentItemId === 'refil-energia').category, 'trainer-kits');
+		assert.equal(bag.items.find(item => item.equipmentItemId === 'reserva-energia-veiculo').category, 'trainer-vehicles');
+	});
+	it('groups all food and parked vehicles in their requested sections without carrying vehicle weight', () => {
+		const service = new RPGLoginService({ masterCode: 'teste', repository: new RPGMemoryCharacterRepository() });
+		const master = service.loginMaster('teste');
+		character(service, 'Viajante');
+		let revision = 0;
+		for (const itemId of ['racao', 'alimento', 'racao-pokemon', 'racao-artesanal-pokemon', 'carroca-leve']) {
+			revision = service.changeTrainerEquipment(master.token, { action: 'grant', characterId: 'viajante',
+				expectedRevision: revision, itemId }).inventory.revision;
+		}
+		const bag = service.getBag(master.token, 'viajante');
+		for (const itemId of ['racao', 'alimento', 'racao-pokemon', 'racao-artesanal-pokemon']) {
+			assert.equal(bag.items.find(item => item.equipmentItemId === itemId).category, 'trainer-exploration');
+		}
+		const vehicle = bag.items.find(item => item.equipmentItemId === 'carroca-leve');
+		assert.equal(vehicle.category, 'trainer-vehicles');
+		assert.equal(vehicle.equipmentLocation, 'vehicle');
+		assert.equal(bag.categories.some(category => category.id === 'food-items' || category.id === 'trainer-supplies'), false);
+		assert(bag.weight.currentKg < 60);
+	});
+	it('places outfits and outfit improvements with weapons and protection', () => {
+		const service = new RPGLoginService({ masterCode: 'teste', repository: new RPGMemoryCharacterRepository() });
+		const master = service.loginMaster('teste');
+		character(service, 'Protegida');
+		service.changeTrainerEquipment(master.token, { action: 'grant', characterId: 'protegida',
+			expectedRevision: 0, itemId: 'roupa-exploracao-leve' });
+		service.changeTrainerEquipment(master.token, { action: 'grant', characterId: 'protegida',
+			expectedRevision: 1, itemId: 'colete-flutuacao' });
+		const bag = service.getBag(master.token, 'protegida');
+		assert.equal(bag.items.find(item => item.equipmentItemId === 'roupa-exploracao-leve').category, 'trainer-weapons');
+		assert.equal(bag.items.find(item => item.equipmentItemId === 'colete-flutuacao').category, 'trainer-weapons');
+		assert.equal(bag.categories.some(category => category.id === 'trainer-outfits'), false);
 	});
 	it('allocates class gear in the shared Bag and keeps purchases, transfers and consumption consistent', () => {
 		const repository = new RPGMemoryCharacterRepository();
@@ -161,6 +283,165 @@ describe('RPG trainer equipment and item bank', () => {
 			expectedRevision: revision, instanceId: food.id, location: 'vehicle', vehicleId: vehicle.id });
 		assert.equal(result.inventory.items.find(item => item.id === food.id).vehicleId, vehicle.id);
 	});
+	it('shares vehicle cargo between active players with atomic Bag and owner revisions', () => {
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({ masterCode: 'teste', repository });
+		const master = service.loginMaster('teste');
+		character(service, 'Alice');
+		character(service, 'Bob');
+		character(service, 'Caio');
+		const vehicleGrant = service.changeTrainerEquipment(master.token, { action: 'grant',
+			characterId: 'alice', expectedRevision: 0, itemId: 'carro' });
+		const vehicle = vehicleGrant.inventory.items.find(item => item.itemId === 'carro');
+		const food = service.changeTrainerEquipment(master.token, { action: 'grant', characterId: 'bob',
+			expectedRevision: 0, itemId: 'alimento' }).inventory.items.find(item => item.itemId === 'alimento');
+		for (const id of ['alice', 'bob', 'caio']) {
+			const record = repository.get(id);
+			record.tableId = id === 'caio' ? 'outra-mesa' : 'mesa-teste'; record.accountId = id;
+			repository.set(record);
+		}
+		let activeId = 'bob';
+		service.getSession = () => ({ mode: 'player', role: 'player',
+			platformTableId: 'mesa-teste', characterId: activeId });
+		service.accounts.repository.getMembership = () => ({ status: 'active' });
+		const bobRecord = repository.get('bob');
+		bobRecord.state.inventory.bag = RPGBagSystem.add(bobRecord.state.inventory.bag, 'potion', 2).bag;
+		repository.set(bobRecord);
+		const listed = service.getSharedVehicles('player');
+		assert(listed.some(entry => entry.vehicleId === vehicle.id && entry.ownerName === 'Alice'));
+		assert(listed.every(entry => entry.ownerName !== 'Caio'));
+		let view = service.getSharedVehicle('player', vehicle.id);
+		assert.equal(view.maxSlots > 0, true);
+		view = service.changeSharedVehicle('player', { vehicleId: vehicle.id, action: 'deposit',
+			kind: 'pokemon', itemId: 'potion', quantity: 2, expectedOwnerRevision: view.ownerRevision,
+			expectedActorRevision: view.actorRevision, expectedBagRevision: view.bagRevision });
+		assert.equal(view.items.find(item => item.itemId === 'potion').quantity, 2);
+		assert.equal(repository.get('bob').state.inventory.bag.items.length, 0);
+		assert.throws(() => service.changeSharedVehicle('player', { vehicleId: vehicle.id, action: 'deposit',
+			kind: 'pokemon', itemId: 'potion', quantity: 1, expectedOwnerRevision: 0,
+			expectedActorRevision: 0, expectedBagRevision: 1 }), /mudou/);
+		activeId = 'alice';
+		assert.equal(service.getSharedVehicle('player', vehicle.id).items.find(item => item.itemId === 'potion').quantity, 2);
+		view = service.getSharedVehicle('player', vehicle.id);
+		service.changeSharedVehicle('player', { vehicleId: vehicle.id, action: 'withdraw',
+			kind: 'pokemon', itemId: 'potion', quantity: 1, expectedOwnerRevision: view.ownerRevision,
+			expectedActorRevision: view.actorRevision, expectedBagRevision: view.bagRevision });
+		assert.equal(RPGBagSystem.getQuantity(repository.get('alice').state.inventory.bag, 'potion'), 1);
+		activeId = 'bob';
+		view = service.getSharedVehicle('player', vehicle.id);
+		view = service.changeSharedVehicle('player', { vehicleId: vehicle.id, action: 'deposit',
+			kind: 'equipment', instanceId: food.id, quantity: 1, expectedOwnerRevision: view.ownerRevision,
+			expectedActorRevision: view.actorRevision, expectedBagRevision: view.bagRevision });
+		const cargo = view.items.find(item => item.itemId === 'alimento');
+		assert.equal(cargo.kind, 'equipment');
+		activeId = 'alice';
+		view = service.getSharedVehicle('player', vehicle.id);
+		service.changeSharedVehicle('player', { vehicleId: vehicle.id, action: 'withdraw',
+			kind: 'equipment', instanceId: cargo.id, quantity: 1, expectedOwnerRevision: view.ownerRevision,
+			expectedActorRevision: view.actorRevision, expectedBagRevision: view.bagRevision });
+		assert(service.getTrainerEquipment('player').inventory.items.some(item =>
+			item.itemId === 'alimento' && item.location === 'bag'));
+		activeId = 'bob';
+		view = service.getSharedVehicle('player', vehicle.id);
+		const beforeBob = structuredClone(repository.get('bob').state.inventory.bag);
+		const beforeAlice = structuredClone(repository.get('alice').state.trainerInventory);
+		service.mysqlPersistence = { transaction: action => { action(); throw new Error('db failed'); } };
+		assert.throws(() => service.changeSharedVehicle('player', { vehicleId: vehicle.id, action: 'withdraw',
+			kind: 'pokemon', itemId: 'potion', quantity: 1, expectedOwnerRevision: view.ownerRevision,
+			expectedActorRevision: view.actorRevision, expectedBagRevision: view.bagRevision }), /db failed/);
+		assert.deepEqual(repository.get('bob').state.inventory.bag, beforeBob);
+		assert.deepEqual(repository.get('alice').state.trainerInventory, beforeAlice);
+	});
+	it('retira a própria munição restrita da carga sem exigir uma nova licença', () => {
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({ masterCode: 'teste', repository });
+		const master = service.loginMaster('teste');
+		character(service, 'Alice');
+		let inventory = service.changeTrainerEquipment(master.token, { action: 'grant',
+			characterId: 'alice', expectedRevision: 0, itemId: 'carro' }).inventory;
+		inventory = service.changeTrainerEquipment(master.token, { action: 'grant', characterId: 'alice',
+			expectedRevision: inventory.revision, itemId: 'municao-espingarda', quantity: 2 }).inventory;
+		const vehicle = inventory.items.find(item => item.itemId === 'carro');
+		const ammo = inventory.items.find(item => item.itemId === 'municao-espingarda');
+		const record = repository.get('alice');
+		record.tableId = 'mesa-teste'; record.accountId = 'alice'; repository.set(record);
+		service.getSession = () => ({ mode: 'player', role: 'player',
+			platformTableId: 'mesa-teste', characterId: 'alice' });
+		service.accounts.repository.getMembership = () => ({ status: 'active' });
+		let view = service.getSharedVehicle('player', vehicle.id);
+		view = service.changeSharedVehicle('player', { vehicleId: vehicle.id, action: 'deposit',
+			kind: 'equipment', instanceId: ammo.id, quantity: 2,
+			expectedOwnerRevision: view.ownerRevision, expectedActorRevision: view.actorRevision,
+			expectedBagRevision: view.bagRevision });
+		const cargo = view.items.find(item => item.itemId === 'municao-espingarda');
+		service.changeSharedVehicle('player', { vehicleId: vehicle.id, action: 'withdraw',
+			kind: 'equipment', instanceId: cargo.id, quantity: 2,
+			expectedOwnerRevision: view.ownerRevision, expectedActorRevision: view.actorRevision,
+			expectedBagRevision: view.bagRevision });
+		assert.equal(service.getTrainerEquipment('player').inventory.items.find(item =>
+			item.itemId === 'municao-espingarda').quantity, 2);
+		assert.throws(() => service.changeTrainerEquipment('player', { action: 'move',
+			expectedRevision: service.getTrainerEquipment('player').inventory.revision,
+			instanceId: vehicle.id, location: 'bank' }), /não podem ser guardados no banco/);
+	});
+	it('lets the Master block one vehicle cargo without hiding other shared vehicles', () => {
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({ masterCode: 'teste', repository });
+		const master = service.loginMaster('teste');
+		character(service, 'Alice'); character(service, 'Bob');
+		const first = service.changeTrainerEquipment(master.token, { action: 'grant', characterId: 'alice',
+			expectedRevision: 0, itemId: 'carro' });
+		const second = service.changeTrainerEquipment(master.token, { action: 'grant', characterId: 'alice',
+			expectedRevision: first.inventory.revision, itemId: 'carro' });
+		const [blockedVehicle, openVehicle] = second.inventory.items.filter(item => item.itemId === 'carro');
+		for (const id of ['alice', 'bob']) {
+			const record = repository.get(id);
+			record.tableId = 'mesa-teste'; record.accountId = id; repository.set(record);
+		}
+		const originalGetSession = service.getSession.bind(service);
+		let activeId = 'bob';
+		service.getSession = token => token === 'master-token' ?
+			{ mode: 'master', role: 'master', platformTableId: 'mesa-teste' } :
+			{ mode: 'player', role: 'player', platformTableId: 'mesa-teste', characterId: activeId };
+		service.accounts.repository.getMembership = () => ({ status: 'active' });
+		const bob = repository.get('bob');
+		bob.state.inventory.bag = RPGBagSystem.add(bob.state.inventory.bag, 'potion', 1).bag;
+		repository.set(bob);
+		const view = service.getSharedVehicle('player', blockedVehicle.id);
+		service.changeSharedVehicle('player', { vehicleId: blockedVehicle.id, action: 'deposit',
+			kind: 'pokemon', itemId: 'potion', quantity: 1, expectedOwnerRevision: view.ownerRevision,
+			expectedActorRevision: view.actorRevision, expectedBagRevision: view.bagRevision });
+		const inventories = service.getCharacterSharedInventories('master-token', 'alice');
+		assert.equal(inventories.vehicles.length, 2);
+		assert.throws(() => service.setCharacterSharedInventoryAccess('master-token', 'bob',
+			`vehicle:${blockedVehicle.id}`, false), /não pertence/);
+		assert.throws(() => service.setCharacterSharedInventoryAccess('player', 'alice',
+			`vehicle:${blockedVehicle.id}`, false), /master/);
+		service.setCharacterSharedInventoryAccess('master-token', 'alice', `vehicle:${blockedVehicle.id}`, false);
+		assert.equal(service.getSharedVehicles('player').length, 1);
+		assert.equal(service.getSharedVehicles('player')[0].vehicleId, openVehicle.id);
+		assert.throws(() => service.getSharedVehicle('player', blockedVehicle.id), /indisponível/);
+		assert.throws(() => service.changeSharedVehicle('player', { vehicleId: blockedVehicle.id,
+			action: 'withdraw', kind: 'pokemon', itemId: 'potion', quantity: 1 }), /indisponível/);
+		activeId = 'alice';
+		assert.equal(service.getSharedVehicles('player').length, 1);
+		assert.throws(() => service.getSharedVehicle('player', blockedVehicle.id), /indisponível/);
+		service.getSession = token => token === 'master-token' ?
+			{ mode: 'player', role: 'master', platformTableId: 'mesa-teste', viewAsCharacterId: 'bob' } :
+			{ mode: 'player', role: 'player', platformTableId: 'mesa-teste', characterId: activeId };
+		assert.equal(service.getSharedVehicles('master-token').length, 1);
+		service.getSession = token => token === 'master-token' ?
+			{ mode: 'master', role: 'master', platformTableId: 'mesa-teste' } :
+			{ mode: 'player', role: 'player', platformTableId: 'mesa-teste', characterId: activeId };
+		assert.equal(service.getTrainerEquipment('player').inventory.pokemonStorage.length, 0);
+		assert.throws(() => service.changeTrainerEquipment('player', { action: 'movePokemon',
+			expectedRevision: service.getTrainerEquipment('player').inventory.revision,
+			expectedBagRevision: service.getBag('player').revision, itemId: 'potion', quantity: 1,
+			sourceLocation: 'vehicle', location: 'bag', vehicleId: blockedVehicle.id }), /bloqueou/);
+		service.setCharacterSharedInventoryAccess('master-token', 'alice', `vehicle:${blockedVehicle.id}`, true);
+		assert.equal(service.getSharedVehicles('player').length, 2);
+		service.getSession = originalGetSession;
+	});
 
 	it('restores both characters if a two-owner transfer cannot commit', () => {
 		const repository = new RPGMemoryCharacterRepository();
@@ -194,6 +475,13 @@ describe('RPG trainer equipment and item bank', () => {
 			sourceLocation: 'bag', location: 'bank' });
 		assert.equal(result.inventory.pokemonStorage[0].quantity, 3);
 		assert.equal(repository.get('viajante').state.inventory.bag.items[0].quantity, 3);
+		const bank = service.getTrainerItemBank(player.token);
+		assert.equal(bank.itemTypes, 1);
+		assert.equal(bank.items.find(item => item.itemId === 'potion').category, 'medicines');
+		assert.equal(bank.items.find(item => item.itemId === 'potion').quantity, 3);
+		assert.match(bank.items.find(item => item.itemId === 'potion').icon, /item-icons\/potion\.png/);
+		assert.equal(bank.categories.find(category => category.id === 'medicines').quantity, 3);
+		assert.equal(bank.balance, service.getBank(player.token).balance);
 		result = service.changeTrainerEquipment(player.token, { action: 'movePokemon',
 			expectedRevision: result.inventory.revision, expectedBagRevision: 2, itemId: 'potion', quantity: 2,
 			sourceLocation: 'bank', location: 'bag' });
@@ -207,5 +495,43 @@ describe('RPG trainer equipment and item bank', () => {
 			sourceLocation: 'bag', location: 'vehicle', vehicleId: cart.id });
 		assert.equal(result.inventory.pokemonStorage.find(item => item.vehicleId === cart.id).quantity, 5);
 		assert.equal(repository.get('viajante').state.inventory.bag.items.length, 0);
+	});
+	it('reuses the existing item-sheet sprite for bank items without a local icon', () => {
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({ masterCode: 'teste', repository });
+		const player = character(service, 'Viajante');
+		const record = repository.get('viajante');
+		record.state.inventory.bag = RPGBagSystem.add(record.state.inventory.bag, 'pokeball', 1).bag;
+		repository.set(record);
+		service.changeTrainerEquipment(player.token, { action: 'movePokemon',
+			expectedRevision: 0, expectedBagRevision: 1, itemId: 'pokeball', quantity: 1,
+			sourceLocation: 'bag', location: 'bank' });
+		const item = service.getTrainerItemBank(player.token).items.find(entry => entry.itemId === 'pokeball');
+		assert.equal(item.icon, null);
+		assert.equal(Number.isInteger(item.sprite), true);
+	});
+	it('collapses the bank for blocked players and rejects both item-transfer types', () => {
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({ masterCode: 'teste', repository });
+		const master = service.loginMaster('teste');
+		const player = character(service, 'Viajante');
+		const record = repository.get('viajante');
+		record.state.inventory.bag = RPGBagSystem.add(record.state.inventory.bag, 'potion', 1).bag;
+		repository.set(record);
+		const granted = service.changeTrainerEquipment(master.token, { action: 'grant', characterId: 'viajante',
+			expectedRevision: 0, itemId: 'faca' });
+		const knife = granted.inventory.items.find(item => item.itemId === 'faca');
+		service.setCharacterPageAccess(master.token, 'viajante', 'bank', false);
+		assert.equal(service.getBag(player.token).bankAvailable, false);
+		assert.equal(service.getBag(master.token, 'viajante').bankAvailable, true);
+		assert.throws(() => service.getTrainerItemBank(player.token), /bloqueou o acesso ao banco/);
+		assert.throws(() => service.changeTrainerEquipment(player.token, { action: 'movePokemon',
+			expectedRevision: granted.inventory.revision, expectedBagRevision: 1,
+			itemId: 'potion', quantity: 1, sourceLocation: 'bag', location: 'bank' }),
+		/bloqueou o acesso ao banco/);
+		assert.throws(() => service.changeTrainerEquipment(player.token, { action: 'move',
+			expectedRevision: granted.inventory.revision, instanceId: knife.id, location: 'bank' }),
+		/bloqueou o acesso ao banco/);
+		assert.equal(service.getTrainerEquipment(master.token, 'viajante').inventory.items.find(item => item.id === knife.id).location, 'bag');
 	});
 });

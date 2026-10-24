@@ -71,7 +71,7 @@ import { rpgAutomaticGeneralTalentNames, rpgUsedAutomaticGeneralTalents,
 	rpgManualRestTalentOptions, rpgManualTalentUsed, rpgMarkManualTalentUsed,
 	rpgRenewManualRestTalents } from './trainer-manual-rest';
 import {
-	RPG_EQUIPMENT_CATALOG, rpgAssertEquipmentLicense, rpgEquipment, rpgEquipmentSlots,
+	RPG_EQUIPMENT_CATALOG, RPG_TRAINER_LICENSE_FEES, rpgAssertEquipmentLicense, rpgEquipment, rpgEquipmentIconPath, rpgEquipmentLicenseId, rpgHasLicense, rpgEquipmentSlots,
 	rpgEquipmentWeight, rpgInitialTrainerInventory, rpgCanAcquireKitDomain, rpgEquipmentDerivedOptions, rpgKitBonus,
 	type RPGEquipmentInstance, type RPGTrainerInventory, type RPGLicense,
 } from './trainer-equipment';
@@ -343,6 +343,7 @@ export interface RPGCharacterState extends RPGCharacterSelection {
 	characterGender?: 'M' | 'F';
 	pageAccess: RPGCharacterPageAccess;
 	shopAccess?: Record<string, boolean>;
+	sharedInventoryAccess?: Record<string, boolean>;
 	money: number;
 	bank?: RPGBankAccount;
 	profile?: RPGTrainerProfile;
@@ -352,7 +353,7 @@ export interface RPGCharacterState extends RPGCharacterSelection {
 	/** Encontro preparado pelo Mestre, aguardando a rolagem de Captura do treinador. */
 	pendingCapture?: { species: string, level: number, gender: RPGCharacterGender,
 		ability: string, nature: string, shiny: boolean, hpPercent: number, status: string,
-		encounterId: string, conditions: { isNight?: boolean, isCave?: boolean, isInWater?: boolean } };
+		encounterId: string, conditions: { isNight?: boolean, isCave?: boolean, isInWater?: boolean }, };
 	trainerInventory?: RPGTrainerInventory;
 	team: PokemonSet[];
 	teamPresets?: RPGTeamPreset[];
@@ -2056,7 +2057,7 @@ export class RPGLoginService {
 		const equipment = Object.values(RPG_EQUIPMENT_CATALOG).filter(item => item.rarity === 'common' &&
 			item.legality === 'free' && !item.vehicle && item.price > 0)
 			.map(item => ({ id: item.id, name: item.name, category: 'trainer-equipment',
-				kind: 'equipment' as const, price: item.price, icon: null, sprite: null, tags: ['trainer-equipment'] }));
+				kind: 'equipment' as const, price: item.price, icon: rpgEquipmentIconPath(item.id), sprite: null, tags: ['trainer-equipment'] }));
 		return [...pokemonItems, ...equipment].map(item => ({ ...item,
 			orderPrice: Math.ceil(item.price * 1.2) }));
 	}
@@ -2072,7 +2073,7 @@ export class RPGLoginService {
 				tags: item.tags || [] }));
 		const equipment = Object.values(RPG_EQUIPMENT_CATALOG).filter(item => item.price > 0 && !item.vehicle)
 			.map(item => ({ id: item.id, name: item.name, category: 'trainer-equipment',
-				kind: 'equipment' as const, price: item.price, icon: null, sprite: null,
+				kind: 'equipment' as const, price: item.price, icon: rpgEquipmentIconPath(item.id), sprite: null,
 				tags: ['trainer-equipment'] }));
 		return [...pokemonItems, ...equipment];
 	}
@@ -2667,6 +2668,43 @@ export class RPGLoginService {
 		return this.characterView(record);
 	}
 
+	getCharacterSharedInventories(token: string, characterId: string) {
+		this.requireMasterRole(token);
+		const owner = this.requireCharacter(characterId);
+		const vehicles = this.ensureTrainerInventory(owner).items.flatMap(entry => {
+			const definition = rpgEquipment(entry.itemId);
+			if (entry.location !== 'vehicle' || !definition.vehicle?.cargoSpaces) return [];
+			const id = `vehicle:${entry.id}`;
+			return [{ id, name: definition.name, allowed: owner.state.sharedInventoryAccess?.[id] !== false }];
+		});
+		const caches = Object.entries(this.campaignSettings.supportCaches).flatMap(([cacheId, cache]) => {
+			if ((cache.ownerCharacterId || cacheId) !== owner.state.id) return [];
+			const id = `cache:${cacheId}`;
+			return [{ id, name: cache.location || 'Local não informado',
+				allowed: owner.state.sharedInventoryAccess?.[id] !== false }];
+		});
+		return { vehicles, caches };
+	}
+
+	setCharacterSharedInventoryAccess(token: string, characterId: string, inventoryId: string, allowed: boolean) {
+		this.requireMasterRole(token);
+		const owner = this.requireCharacter(characterId);
+		const { vehicles, caches } = this.getCharacterSharedInventories(token, characterId);
+		if (![...vehicles, ...caches].some(entry => entry.id === inventoryId)) {
+			throw new Error('Inventário compartilhado não pertence a este jogador');
+		}
+		const previous = structuredClone(owner);
+		owner.state.sharedInventoryAccess = { ...owner.state.sharedInventoryAccess, [inventoryId]: allowed };
+		owner.state.updatedAt = this.now();
+		try {
+			this.persistAtomically(() => this.repository.set(owner));
+		} catch (error) {
+			this.repository.set(previous);
+			throw error;
+		}
+		return this.getCharacterSharedInventories(token, characterId);
+	}
+
 	getCharacter(token: string, characterId?: string): RPGCharacterState {
 		const session = this.getSession(token);
 		const target = toID(characterId || session.characterId || session.viewAsCharacterId || '');
@@ -2811,7 +2849,12 @@ export class RPGLoginService {
 		const bagWeight = ({ starter: 1, trainer: 1.5, adventurer: 2.5, expert: 3.5, master: 5, legendary: 6.5 })[
 			RPGBagSystem.getTier(bag) || 'starter'];
 		const carried = rpgEquipmentWeight(equipment.items, 'bag') + bag.items.reduce((sum, item) => sum + item.quantity * 0.1, 0) + bagWeight;
-		if (carried > strength * 7.5 + 1e-9) throw new Error('O peso excede a capacidade máxima do treinador');
+		const maximumKg = record.state.trainerSheet?.status === 'complete' ?
+			rpgTrainerDerivedStatistics(record.state.trainerSheet,
+				rpgEquipmentDerivedOptions(record.state.trainerSheet, equipment,
+					bag.items.reduce((sum, item) => sum + item.quantity, 0), bagWeight)).carrying.maximumKg :
+			strength * 7.5;
+		if (carried > maximumKg + 1e-9) throw new Error('O peso excede a capacidade máxima do treinador');
 		const slots = new Set<string>();
 		const instanceIds = new Set<string>();
 		for (const entry of equipment.items) {
@@ -2870,15 +2913,238 @@ export class RPGLoginService {
 	getTrainerEquipment(token: string, characterId?: string) {
 		const record = this.requireBagRecord(token, characterId, 'bag:read');
 		const equipment = this.ensureTrainerInventory(record);
+		const visibleInventory = structuredClone(equipment);
+		if (this.getSession(token).role === 'player') {
+			const blocked = (vehicleId?: string) => !!vehicleId &&
+				record.state.sharedInventoryAccess?.[`vehicle:${vehicleId}`] === false;
+			visibleInventory.items = visibleInventory.items.filter(item => !blocked(item.vehicleId));
+			visibleInventory.pokemonStorage = (visibleInventory.pokemonStorage || [])
+				.filter(item => !blocked(item.vehicleId));
+		}
 		const bag = record.state.inventory.bag;
 		const bagWeight = ({ starter: 1, trainer: 1.5, adventurer: 2.5, expert: 3.5, master: 5, legendary: 6.5 })[
 			RPGBagSystem.getTier(bag) || 'starter'];
 		const derived = record.state.trainerSheet?.status === 'complete' ?
 			rpgTrainerDerivedStatistics(record.state.trainerSheet, rpgEquipmentDerivedOptions(record.state.trainerSheet,
 				equipment, bag.items.reduce((total, entry) => total + entry.quantity, 0), bagWeight)) : null;
-		return { inventory: structuredClone(equipment), catalog: RPG_EQUIPMENT_CATALOG,
+		return { inventory: visibleInventory, catalog: RPG_EQUIPMENT_CATALOG,
+			recipients: this.trainerRecordRecipients(token).filter(person => person.id !== record.state.id)
+				.map(person => ({ ...person, revision: this.ensureTrainerInventory(this.requireCharacter(person.id)).revision })),
 			capacity: RPGBagSystem.getCapacity({ ...bag, generalReservedSlots: rpgEquipmentSlots(equipment.items) }),
 			derived };
+	}
+
+	getTrainerItemBank(token: string, characterId?: string) {
+		const record = this.requireBankRecord(token, characterId, 'money:read');
+		const equipment = this.ensureTrainerInventory(record);
+		const pokemonItems = new Map<string, number>();
+		for (const stored of equipment.pokemonStorage || []) {
+			if (stored.location !== 'bank') continue;
+			pokemonItems.set(stored.itemId, (pokemonItems.get(stored.itemId) || 0) + stored.quantity);
+		}
+		const pokemonViews = [...pokemonItems].map(([itemId, quantity]) => {
+			const definition = RPGItems.require(itemId);
+			return { id: itemId, itemId, kind: 'pokemon' as const, name: definition.name, quantity,
+				category: RPGBagManagement.category(definition, 'world') || 'treasures',
+				description: RPGBagManagement.description(definition), icon: getRPGItemIconPath(itemId),
+				sprite: definition.source === 'custom' ? null :
+				(Number.isInteger(Dex.items.get(itemId).spritenum) ? Dex.items.get(itemId).spritenum! : null) };
+		});
+		const equipmentCategory = (itemId: string): RPGManagedBagCategory => {
+			const definition = rpgEquipment(itemId);
+			if (definition.category === 'vehicle' || definition.category === 'vehicle-supply') return 'trainer-vehicles';
+			if (definition.category === 'refill' &&
+				['spray-pimenta', 'dispositivo-choque', 'taser'].includes(definition.refillFor || '')) return 'trainer-weapons';
+			if (definition.category === 'kit' || definition.category === 'refill') return 'trainer-kits';
+			if (['melee', 'ranged', 'nonlethal', 'shield', 'ammunition', 'outfit', 'improvement']
+				.includes(definition.category)) return 'trainer-weapons';
+			if (definition.category === 'device' || definition.category === 'prototype') return 'trainer-devices';
+			return 'trainer-exploration';
+		};
+		const equipmentViews = equipment.items.filter(item => item.location === 'bank').map(item => ({
+			id: item.id, itemId: item.itemId, kind: 'equipment' as const, name: rpgEquipment(item.itemId).name,
+			quantity: item.quantity, category: equipmentCategory(item.itemId),
+			description: 'Equipamento guardado no banco.', icon: rpgEquipmentIconPath(item.itemId), sprite: null,
+			charges: item.charges, maxCharges: rpgEquipment(item.itemId).maxCharges,
+			vehicle: !!rpgEquipment(item.itemId).vehicle,
+		}));
+		const items = [...pokemonViews, ...equipmentViews];
+		items.sort((left, right) => left.name.localeCompare(right.name, 'pt-BR'));
+		const categories = this.managedBagView(record).categories.filter(category =>
+			!['favorites', 'mission-items', 'talent-items'].includes(category.id)).map(category => {
+			const matching = items.filter(item => item.category === category.id);
+			return { id: category.id, name: category.name,
+				itemTypes: new Set(matching.map(item => item.itemId)).size,
+				quantity: matching.reduce((sum, item) => sum + item.quantity, 0) };
+		});
+		return { balance: this.bankAccount(record.state).balance, equipmentRevision: equipment.revision,
+			bagRevision: record.state.inventory.bag.revision,
+			itemTypes: new Set(items.map(item => `${item.kind}:${item.itemId}`)).size,
+			categories, items };
+	}
+
+	/** Cargas dos veículos de membros ativos da mesa, antes dos Pontos de Apoio. */
+	getSharedVehicles(token: string) {
+		const session = this.getSession(token);
+		if (session.mode !== 'player' || !session.platformTableId) return [];
+		return this.trainerRecordRecipients(token).flatMap(person => {
+			const owner = this.requireCharacter(person.id);
+			return this.ensureTrainerInventory(owner).items.flatMap(vehicle => {
+				const definition = rpgEquipment(vehicle.itemId);
+				if (vehicle.location !== 'vehicle' || !definition.vehicle?.cargoSpaces ||
+					owner.state.sharedInventoryAccess?.[`vehicle:${vehicle.id}`] === false) return [];
+				return [{ vehicleId: vehicle.id, ownerCharacterId: person.id,
+					ownerName: person.name, name: definition.name }];
+			});
+		}).sort((left, right) => left.ownerName.localeCompare(right.ownerName, 'pt-BR') ||
+			left.name.localeCompare(right.name, 'pt-BR'));
+	}
+
+	getSharedVehicle(token: string, vehicleId: string) {
+		const session = this.getSession(token);
+		const actorId = session.viewAsCharacterId || session.characterId;
+		if (session.mode !== 'player' || !actorId) throw new Error('Entre como jogador para acessar a carga do veículo');
+		const actor = this.requireBagRecord(token, actorId, 'bag:read');
+		const listing = this.getSharedVehicles(token).find(entry => entry.vehicleId === vehicleId);
+		if (!listing) throw new Error('Veículo indisponível nesta mesa');
+		const owner = this.requireCharacter(listing.ownerCharacterId);
+		const inventory = this.ensureTrainerInventory(owner);
+		const vehicle = inventory.items.find(entry => entry.id === vehicleId && entry.location === 'vehicle');
+		if (!vehicle) throw new Error('Veículo indisponível nesta mesa');
+		const capacity = rpgEquipment(vehicle.itemId).vehicle!;
+		const equipment = inventory.items.filter(entry => entry.vehicleId === vehicleId);
+		const pokemon = (inventory.pokemonStorage || []).filter(entry => entry.vehicleId === vehicleId);
+		const pokemonItems = new Map<string, number>();
+		for (const entry of pokemon) pokemonItems.set(entry.itemId, (pokemonItems.get(entry.itemId) || 0) + entry.quantity);
+		const items = [
+			...[...pokemonItems].map(([itemId, quantity]) => {
+				const item = RPGItems.require(itemId);
+				const sprite = Dex.items.get(itemId).spritenum;
+				return { id: itemId, itemId, kind: 'pokemon' as const, name: item.name, quantity,
+					icon: getRPGItemIconPath(itemId), sprite: Number.isInteger(sprite) ? sprite! : null };
+			}),
+			...equipment.map(entry => ({ id: entry.id, itemId: entry.itemId, kind: 'equipment' as const,
+				name: rpgEquipment(entry.itemId).name, quantity: entry.quantity,
+				icon: rpgEquipmentIconPath(entry.itemId), sprite: null })),
+		].sort((left, right) => left.name.localeCompare(right.name, 'pt-BR'));
+		return { kind: 'vehicle' as const, vehicleId, location: listing.name, ownerName: listing.ownerName,
+			ownerCharacterId: listing.ownerCharacterId, usedSlots: rpgEquipmentSlots(equipment, 'vehicle') + pokemon.length,
+			maxSlots: capacity.cargoSpaces, usedKg: rpgEquipmentWeight(equipment, 'vehicle') +
+				pokemon.reduce((sum, entry) => sum + entry.quantity * 0.1, 0), maxKg: capacity.cargoKg,
+			items, ownerRevision: inventory.revision,
+			actorRevision: this.ensureTrainerInventory(actor).revision,
+			bagRevision: actor.state.inventory.bag.revision };
+	}
+
+	changeSharedVehicle(token: string, input: { vehicleId: string, action: 'deposit' | 'withdraw',
+		kind: 'pokemon' | 'equipment', itemId?: string, instanceId?: string, quantity: number,
+		expectedOwnerRevision: number, expectedActorRevision: number, expectedBagRevision: number, }) {
+		if (!input || !['deposit', 'withdraw'].includes(input.action) ||
+			!['pokemon', 'equipment'].includes(input.kind) ||
+			!Number.isSafeInteger(input.quantity) || input.quantity < 1 || input.quantity > 99) {
+			throw new Error('Movimentação inválida para a carga do veículo');
+		}
+		const view = this.getSharedVehicle(token, input.vehicleId);
+		const session = this.getSession(token);
+		const actor = structuredClone(this.requireBagRecord(token,
+			session.viewAsCharacterId || session.characterId, 'bag:edit'));
+		this.requireWorldBagItemUse(token, actor.state.id);
+		const owner = actor.state.id === view.ownerCharacterId ? actor :
+			structuredClone(this.requireCharacter(view.ownerCharacterId));
+		const actorInventory = this.ensureTrainerInventory(actor);
+		const ownerInventory = this.ensureTrainerInventory(owner);
+		if (actorInventory.revision !== input.expectedActorRevision ||
+			ownerInventory.revision !== input.expectedOwnerRevision ||
+			actor.state.inventory.bag.revision !== input.expectedBagRevision) {
+			throw new Error('A carga ou a Bag mudou; atualize e tente novamente');
+		}
+		const previousActor = structuredClone(actor);
+		const previousOwner = owner === actor ? null : structuredClone(owner);
+		if (input.kind === 'pokemon') {
+			const item = RPGItems.require(input.itemId || '');
+			if (item.tags?.includes('mission')) throw new Error('Itens de missão não podem ser guardados no veículo');
+			if (input.action === 'deposit' && item.id === 'portableincubator' &&
+				this.portableEggProjects(actor).length) throw new Error('Incubadoras com Egg não podem ser guardadas no veículo');
+			if (input.action === 'deposit') {
+				if (RPGBagSystem.getRegularQuantity(actor.state.inventory.bag, item.id) < input.quantity) {
+					throw new Error('Quantidade insuficiente na Bag');
+				}
+				actor.state.inventory.bag = RPGBagSystem.remove(actor.state.inventory.bag, item.id, input.quantity).bag;
+				const storage = ownerInventory.pokemonStorage ||= [];
+				let left = input.quantity;
+				for (const entry of storage.filter(entry => entry.location === 'vehicle' &&
+					entry.vehicleId === input.vehicleId && entry.itemId === item.id)) {
+					const moved = Math.min(left, item.stackLimit - entry.quantity);
+					entry.quantity += moved; left -= moved;
+					if (!left) break;
+				}
+				while (left) {
+					const moved = Math.min(left, item.stackLimit);
+					storage.push({ itemId: item.id, quantity: moved, location: 'vehicle', vehicleId: input.vehicleId });
+					left -= moved;
+				}
+			} else {
+				const storage = ownerInventory.pokemonStorage ||= [];
+				const available = storage.filter(entry => entry.location === 'vehicle' &&
+					entry.vehicleId === input.vehicleId && entry.itemId === item.id);
+				if (available.reduce((sum, entry) => sum + entry.quantity, 0) < input.quantity) {
+					throw new Error('Quantidade armazenada insuficiente');
+				}
+				actor.state.inventory.bag = RPGBagSystem.add(actor.state.inventory.bag, item.id, input.quantity).bag;
+				let left = input.quantity;
+				for (const entry of available) {
+					const moved = Math.min(left, entry.quantity);
+					entry.quantity -= moved; left -= moved;
+					if (!entry.quantity) storage.splice(storage.indexOf(entry), 1);
+					if (!left) break;
+				}
+			}
+		} else {
+			const source = input.action === 'deposit' ? actorInventory.items : ownerInventory.items;
+			const destination = input.action === 'deposit' ? ownerInventory.items : actorInventory.items;
+			const entry = source.find(candidate => candidate.id === input.instanceId);
+			if (!entry || input.quantity > entry.quantity ||
+				(input.action === 'deposit' && (entry.location !== 'bag' || entry.equipped)) ||
+				(input.action === 'withdraw' && entry.vehicleId !== input.vehicleId) ||
+				(entry.charges !== undefined && input.quantity !== entry.quantity)) {
+				throw new Error('Equipamento indisponível para transferência');
+			}
+			const item = rpgEquipment(entry.itemId);
+			if (item.vehicle || entry.prototypeCreatorId && actor.state.id !== owner.state.id) {
+				throw new Error('Este equipamento deve permanecer com o destinatário original');
+			}
+			if (input.action === 'withdraw' && actor.state.id !== owner.state.id) {
+				rpgAssertEquipmentLicense(actorInventory, item, this.now());
+			}
+			const moved: RPGEquipmentInstance = { ...entry, id: secureRandomBytes(12).toString('hex'),
+				quantity: input.quantity, location: input.action === 'deposit' ? 'vehicle' : 'bag',
+				vehicleId: input.action === 'deposit' ? input.vehicleId : undefined, equipped: false };
+			entry.quantity -= input.quantity;
+			if (!entry.quantity) source.splice(source.indexOf(entry), 1);
+			const stack = moved.charges === undefined && destination.find(candidate =>
+				candidate.itemId === moved.itemId && candidate.location === moved.location &&
+				candidate.vehicleId === moved.vehicleId && !candidate.equipped && candidate.charges === undefined &&
+				candidate.quantity + moved.quantity <= item.stackLimit);
+			if (stack) stack.quantity += moved.quantity;
+			else destination.push(moved);
+		}
+		actorInventory.revision++;
+		if (owner !== actor) ownerInventory.revision++;
+		this.validateTrainerInventory(actor);
+		if (owner !== actor) this.validateTrainerInventory(owner);
+		actor.state.updatedAt = this.now();
+		if (owner !== actor) owner.state.updatedAt = this.now();
+		try {
+			this.persistAtomically(() => {
+				this.repository.set(actor);
+				if (owner !== actor) this.repository.set(owner);
+			});
+		} catch (error) {
+			this.repository.set(previousActor);
+			if (previousOwner) this.repository.set(previousOwner);
+			throw error;
+		}
+		return this.getSharedVehicle(token, input.vehicleId);
 	}
 
 	/** Cada esconderijo pertence à mesa e a um Explorador; os membros ativos compartilham o acesso. */
@@ -2889,7 +3155,8 @@ export class RPGLoginService {
 			const ownerCharacterId = cache.ownerCharacterId || cacheId;
 			const owner = this.repository.get(ownerCharacterId);
 			if (!owner || owner.tableId !== session.platformTableId || !owner.accountId ||
-				this.accounts.repository.getMembership(session.platformTableId!, owner.accountId)?.status !== 'active') return [];
+				this.accounts.repository.getMembership(session.platformTableId!, owner.accountId)?.status !== 'active' ||
+				owner.state.sharedInventoryAccess?.[`cache:${cacheId}`] === false) return [];
 			return [{ cacheId, ownerCharacterId, ownerName: owner.state.characterName,
 				location: cache.location || 'Local não informado' }];
 		});
@@ -2909,9 +3176,12 @@ export class RPGLoginService {
 		const place = typeof location === 'string' ? location.trim() : '';
 		if (!place || place.length > 160) throw new Error('Informe o local do Ponto de Apoio (até 160 caracteres)');
 		const limit = Math.max(1, rpgTrainerModifier(sheet.attributes!.wisdom));
-		const owned = this.getSupportCaches(token).filter(cache => cache.ownerCharacterId === owner.state.id);
+		const owned = Object.entries(this.campaignSettings.supportCaches)
+			.filter(([cacheId, cache]) => (cache.ownerCharacterId || cacheId) === owner.state.id)
+			.map(([, cache]) => cache);
 		if (owned.length >= limit) throw new Error(`Limite de ${limit} Ponto(s) de Apoio atingido`);
-		if (owned.some(cache => cache.location.toLocaleLowerCase('pt-BR') === place.toLocaleLowerCase('pt-BR'))) {
+		if (owned.some(cache => (cache.location || 'Local não informado').toLocaleLowerCase('pt-BR') ===
+			place.toLocaleLowerCase('pt-BR'))) {
 			throw new Error('Já existe um Ponto de Apoio com esse local');
 		}
 		const cacheId = `${owner.state.id}-${secureRandomBytes(12).toString('hex')}`;
@@ -2935,13 +3205,13 @@ export class RPGLoginService {
 			throw new Error('Ponto de Apoio inválido');
 		}
 		const session = this.getSession(token);
-		if (session.mode !== 'player' || !session.characterId) {
+		if (session.mode !== 'player' || !(session.viewAsCharacterId || session.characterId)) {
 			throw new Error('Entre como jogador para excluir um Ponto de Apoio');
 		}
 		const actor = this.requireBagRecord(token, session.viewAsCharacterId || session.characterId, 'bag:edit');
 		this.requireWorldBagItemUse(token, actor.state.id);
 		const view = this.getSupportCache(token, input.cacheId);
-		if (view.ownerCharacterId !== actor.state.id) {
+		if (session.role !== 'master' && view.ownerCharacterId !== actor.state.id) {
 			throw new Error('Somente o Explorador proprietário pode excluir este Ponto de Apoio');
 		}
 		const cache = this.campaignSettings.supportCaches[input.cacheId];
@@ -2981,8 +3251,10 @@ export class RPGLoginService {
 		const equipment = this.ensureTrainerInventory(actor);
 		const mapEquipment = (entries: RPGEquipmentInstance[]) => entries.map(entry => ({
 			id: entry.id, itemId: entry.itemId, name: rpgEquipment(entry.itemId).name,
-			quantity: entry.quantity, category: 'food-items', kind: 'equipment',
+			quantity: entry.quantity, category: ['vehicle', 'vehicle-supply'].includes(rpgEquipment(entry.itemId).category) ?
+				'trainer-vehicles' : 'trainer-exploration', kind: 'equipment',
 			spaces: rpgEquipment(entry.itemId).spaces, charges: entry.charges,
+			icon: rpgEquipmentIconPath(entry.itemId), sprite: null,
 			...(concealment?.kind === 'equipment' && concealment.instanceId === entry.id ? { concealedStatus } : {}),
 		}));
 		return { ...owner, revision: cache.revision, usedSlots: RPGBagSystem.getUsedSlots(cache.bag), maxSlots: 20,
@@ -3184,7 +3456,7 @@ export class RPGLoginService {
 	setTrainerLicense(token: string, characterId: string, license: RPGLicense, waiveFee = false) {
 		this.requireMasterRole(token);
 		const record = this.requireCharacter(toID(characterId));
-		if (!['contencao', 'defensiva', 'medica', 'cientifica', 'tecnologica', 'veiculo', 'arma-fogo', 'restrito', 'institucional'].includes(license?.id) ||
+		if (!Object.prototype.hasOwnProperty.call(RPG_TRAINER_LICENSE_FEES, license?.id) ||
 			!['active', 'temporary', 'suspended', 'revoked'].includes(license?.status) ||
 			(license.expiresAt !== undefined && (!Number.isSafeInteger(license.expiresAt) || license.expiresAt <= 0))) {
 			throw new Error('Licença inválida');
@@ -3194,8 +3466,7 @@ export class RPGLoginService {
 		const current = inventory.licenses.find(entry => entry.id === license.id &&
 			['active', 'temporary'].includes(entry.status) && (entry.expiresAt === undefined || entry.expiresAt > this.now()));
 		const activating = license.status === 'active' || license.status === 'temporary';
-		const fee = activating && !current && !waiveFee ?
-			(['arma-fogo', 'restrito'].includes(license.id) ? 5000 : license.id === 'institucional' ? 0 : 1000) : 0;
+		const fee = activating && !current && !waiveFee ? RPG_TRAINER_LICENSE_FEES[license.id] : 0;
 		if (record.state.money < fee) throw new Error('Pokécoin insuficiente para a licença');
 		record.state.money -= fee;
 		inventory.licenses = [...inventory.licenses.filter(entry => entry.id !== license.id),
@@ -3219,18 +3490,24 @@ export class RPGLoginService {
 
 	/** Compra, consumo, banco e transferência compartilham a mesma validação e o mesmo COMMIT. */
 	changeTrainerEquipment(token: string, input: {
-		action: 'buy' | 'sell' | 'grant' | 'transfer' | 'move' | 'movePokemon' | 'equip' | 'consume' | 'refill',
+		action: 'buy' | 'sell' | 'grant' | 'transfer' | 'move' | 'movePokemon' | 'equip' | 'consume' | 'refill' | 'discard',
 		characterId?: string, expectedRevision: number, itemId?: string, instanceId?: string,
 		quantity?: number, shopId?: string, targetCharacterId?: string, expectedTargetRevision?: number,
 		expectedBagRevision?: number, sourceLocation?: 'bag' | 'bank' | 'vehicle',
 		location?: RPGEquipmentInstance['location'], vehicleId?: string, equipped?: boolean,
 		refillInstanceId?: string,
 	}) {
-		if (!input || !['buy', 'sell', 'grant', 'transfer', 'move', 'movePokemon', 'equip', 'consume', 'refill'].includes(input.action)) {
+		if (!input || !['buy', 'sell', 'grant', 'transfer', 'move', 'movePokemon', 'equip', 'consume', 'refill', 'discard'].includes(input.action)) {
 			throw new Error('Ação de equipamento inválida');
 		}
 		const actor = structuredClone(this.requireBagRecord(token, input.characterId, 'bag:edit'));
 		const actorInventory = this.ensureTrainerInventory(actor);
+		const requireVehicleStorageAccess = (vehicleId?: string) => {
+			if (this.getSession(token).role === 'player' && vehicleId &&
+				actor.state.sharedInventoryAccess?.[`vehicle:${vehicleId}`] === false) {
+				throw new Error('O Mestre bloqueou o acesso à carga deste veículo');
+			}
+		};
 		if (actorInventory.revision !== input.expectedRevision) throw new Error('Inventário alterado; atualize antes de tentar novamente');
 		const previousActor = structuredClone(actor);
 		const previousOffers = structuredClone(this.campaignSettings.equipmentOffers);
@@ -3241,7 +3518,11 @@ export class RPGLoginService {
 		let previousTarget: RPGStoredCharacter | undefined;
 		if (input.action === 'transfer') {
 			target = structuredClone(this.requireCharacter(toID(input.targetCharacterId || '')));
-			if (target.state.id === actor.state.id || target.state.pageAccess?.bag === false) throw new Error('Destinatário indisponível');
+			if (target.state.id === actor.state.id || target.state.pageAccess?.bag === false ||
+				target.tableId !== actor.tableId || (actor.tableId &&
+					!this.trainerRecordRecipients(token).some(person => person.id === target!.state.id))) {
+				throw new Error('Destinatário indisponível');
+			}
 			previousTarget = structuredClone(target);
 			if (this.ensureTrainerInventory(target).revision !== input.expectedTargetRevision) throw new Error('Inventário do destinatário alterado');
 		}
@@ -3314,19 +3595,23 @@ export class RPGLoginService {
 				destination.items.push({ ...structuredClone(entry), id: secureRandomBytes(12).toString('hex'), quantity, equipped: false });
 			} else { take(entry, quantity); add(destination, item.id, quantity, 'bag'); }
 			destination.revision++;
+		} else if (input.action === 'discard') {
+			const entry = find(input.instanceId);
+			if (entry.location !== 'bag' || entry.prototypeCreatorId) throw new Error('Este item não pode ser descartado');
+			take(entry, quantity);
 		} else if (input.action === 'move') {
 			const entry = find(input.instanceId);
 			const location = input.location;
 			if (!location || location === entry.location || entry.equipped || quantity !== entry.quantity) throw new Error('Movimentação inválida');
+			if (entry.vehicleId || location === 'vehicle' && !rpgEquipment(entry.itemId).vehicle) {
+				requireVehicleStorageAccess(entry.vehicleId || input.vehicleId);
+			}
 			if (location === 'bank' || entry.location === 'bank') this.requireBankRecord(token, actor.state.id, 'money:edit');
 			const item = rpgEquipment(entry.itemId);
 			if (location !== 'bank') rpgAssertEquipmentLicense(actorInventory, item, this.now());
 			if (item.vehicle && location === 'bag') throw new Error('Veículo exige garagem');
 			if (location === 'vehicle' && !item.vehicle && !input.vehicleId) throw new Error('Escolha o veículo');
-			if (item.vehicle && location === 'bank' && (actorInventory.items.some(cargo => cargo.vehicleId === entry.id) ||
-				(actorInventory.pokemonStorage || []).some(cargo => cargo.vehicleId === entry.id))) {
-				throw new Error('Retire a carga antes de guardar o veículo');
-			}
+			if (item.vehicle && location === 'bank') throw new Error('Veículos não podem ser guardados no banco');
 			entry.location = location;
 			entry.vehicleId = location === 'vehicle' && !item.vehicle ? input.vehicleId : undefined;
 		} else if (input.action === 'movePokemon') {
@@ -3335,6 +3620,7 @@ export class RPGLoginService {
 			if (!source || !destination || source === destination ||
 				!['bag', 'bank', 'vehicle'].includes(source) || !['bag', 'bank', 'vehicle'].includes(destination) ||
 				(source === 'vehicle' && destination === 'vehicle')) throw new Error('Movimentação inválida');
+			if (source === 'vehicle' || destination === 'vehicle') requireVehicleStorageAccess(input.vehicleId);
 			if (source === 'bank' || destination === 'bank') this.requireBankRecord(token, actor.state.id, 'money:edit');
 			const item = RPGItems.require(input.itemId || '');
 			if (item.tags?.includes('mission')) throw new Error('Item de Missão não pode ser armazenado');
@@ -5597,9 +5883,11 @@ export class RPGLoginService {
 			this.validateTrainerInventory(record);
 			record.state.updatedAt = this.now();
 		}
-		try { this.persistAtomically(() => {
-			for (const record of working.values()) this.repository.set(record);
-		}); } catch (error) {
+		try {
+			this.persistAtomically(() => {
+				for (const record of working.values()) this.repository.set(record);
+			});
+		} catch (error) {
 			for (const record of originals.values()) this.repository.set(record);
 			throw error;
 		}
@@ -8188,6 +8476,28 @@ export class RPGLoginService {
 		});
 		const session = this.getSession(token);
 		if (view.context === 'world') {
+			view.bankAvailable = session.role !== 'player' || record.state.pageAccess?.bank !== false;
+			if (session.role === 'master') view.licenseFees = RPG_TRAINER_LICENSE_FEES;
+			const inventory = this.ensureTrainerInventory(record);
+			view.licenses = inventory.licenses.map(license => ({
+				id: license.id, status: license.status,
+				...(license.expiresAt !== undefined ? { expiresAt: license.expiresAt } : {}),
+				valid: rpgHasLicense(inventory, license.id, this.now()),
+			}));
+			const bag = record.state.inventory.bag;
+			const bagWeight = ({ starter: 1, trainer: 1.5, adventurer: 2.5, expert: 3.5, master: 5, legendary: 6.5 })[
+				RPGBagSystem.getTier(bag) || 'starter'];
+			const currentKg = rpgEquipmentWeight(inventory.items, 'bag') +
+				bag.items.reduce((sum, item) => sum + item.quantity * 0.1, 0) + bagWeight;
+			const strength = record.state.trainerSheet?.attributes?.strength || 10;
+			const carrying = record.state.trainerSheet?.status === 'complete' ?
+				rpgTrainerDerivedStatistics(record.state.trainerSheet,
+					rpgEquipmentDerivedOptions(record.state.trainerSheet, inventory,
+						bag.items.reduce((sum, item) => sum + item.quantity, 0), bagWeight)).carrying :
+				{ normalKg: strength * 2.5, encumberedKg: strength * 5, maximumKg: strength * 7.5 };
+			view.weight = { currentKg: Math.round(currentKg * 10) / 10,
+				comfortableKg: carrying.normalKg, heavyKg: carrying.encumberedKg,
+				maximumKg: carrying.maximumKg };
 			const talentItems: RPGManagedBagItemView[] = this.sharedArchiveOptions(token, record.state.id).map(option => ({
 				id: option.key, name: 'Acervo Compartilhado', quantity: 1,
 				category: 'talent-items' as const, registryCategory: 'key' as const,
@@ -8206,17 +8516,17 @@ export class RPGLoginService {
 				});
 				talentItems.push({ id: `tecnologo:prototipo@${instance.id}`,
 					name: instance.prototypeComponents ? `Obra-Prima Modular (${functions.map(id => rpgEquipment(id).name).join(' + ')})` :
-						definition.name, quantity: 1, category: 'talent-items', registryCategory: 'key',
+					definition.name, quantity: 1, category: 'talent-items', registryCategory: 'key',
 					description: `${descriptions.join(' · ')}${instance.prototypeComponents ?
 						' · Uma função por ação, salvo se ambas forem passivas.' : ''} ` +
 						(instance.prototypeActive ? 'Protótipo ativo; operar não consome cargas do kit.' :
-							'Programação especial inativa; o objeto permanece mundano.'),
+						'Programação especial inativa; o objeto permanece mundano.'),
 					favorite: false, mission: false, actions: [], equippedIn: [],
 					icon: './assets/item-icons/prototipo-tecnologico.png', sprite: null,
 					tags: ['trainer-talent', 'prototype'], weightKg: instance.prototypeComponents ?
 						functions.reduce((sum, id) => sum + rpgEquipment(id).weight, 0) : definition.weight,
 					slots: instance.prototypeComponents ? functions.reduce((sum, id) => sum + rpgEquipment(id).spaces, 0) :
-						definition.spaces,
+					definition.spaces,
 				});
 			}
 			if (session.platformTableId) {
@@ -8282,37 +8592,59 @@ export class RPGLoginService {
 				view.items.push(...talentItems.filter(item => !search ||
 					toID(item.name + ' ' + item.description).includes(search)));
 			}
-			const food = (record.state.trainerInventory?.items || [])
-				.filter(item => item.location === 'bag' && !item.prototypeCreatorId)
-				.map(item => ({ item, definition: rpgEquipment(item.itemId) }));
-			const foodCategory = view.categories.find(entry => entry.id === 'food-items');
-			if (foodCategory) {
-				foodCategory.itemTypes = new Set(food.map(entry => entry.item.itemId)).size;
-				foodCategory.quantity = food.reduce((sum, entry) => sum + entry.item.quantity, 0);
-			}
-			if (!query.category || query.category === 'food-items') {
-				for (const itemId of new Set(food.map(entry => entry.item.itemId))) {
-					const definition = rpgEquipment(itemId);
-					if (search && !toID(definition.name).includes(search)) continue;
-					const quantity = food.filter(entry => entry.item.itemId === itemId)
-						.reduce((sum, entry) => sum + entry.item.quantity, 0);
-					view.items.push({ id: `equipment:${itemId}`, name: definition.name, quantity,
-						category: 'food-items', registryCategory: 'key',
-						description: itemId === 'alimento' ?
-							(record.state.trainerSheet?.talents.apex === 'cozinheiro:mesa-para-todos' ?
-								'Uma unidade de Alimento rende 4 porções de refeição. Com Aproveitamento Superior, 4 porções preparadas rendem 6; em preparos comunitários de pelo menos 10 porções, Mesa para Todos dobra o rendimento no lugar dos outros benefícios. O preparo fica no roleplay.' :
-								record.state.trainerSheet?.talents.class.includes('cozinheiro:aproveitamento-superior') ?
-									'Uma unidade de Alimento rende 4 porções de refeição. Com Aproveitamento Superior, 4 porções preparadas rendem 6 (+50%). Ele substitui Aproveitamento Integral; os bônus não se somam. O preparo fica no roleplay.' :
-									record.state.trainerSheet?.classId === 'cozinheiro' ?
-										'Uma unidade de Alimento rende 4 porções de refeição. Com Aproveitamento Integral, 4 porções preparadas rendem 5. O preparo fica no roleplay.' :
-										'Uma unidade de Alimento rende 4 porções de refeição. O preparo fica no roleplay.') :
-							'Item armazenado na Bag do treinador.',
+			const equipmentCategory = (definition: ReturnType<typeof rpgEquipment>): RPGManagedBagCategory => {
+				if (definition.category === 'vehicle' || definition.category === 'vehicle-supply') return 'trainer-vehicles';
+				if (definition.category === 'refill' &&
+					['spray-pimenta', 'dispositivo-choque', 'taser'].includes(definition.refillFor || '')) {
+					return 'trainer-weapons';
+				}
+				if (definition.category === 'kit' || definition.category === 'refill') return 'trainer-kits';
+				if (['melee', 'ranged', 'nonlethal', 'shield', 'ammunition', 'outfit', 'improvement']
+					.includes(definition.category)) return 'trainer-weapons';
+				if (definition.category === 'device' || definition.category === 'prototype') return 'trainer-devices';
+				return 'trainer-exploration';
+			};
+			const equipmentItems = inventory.items.filter(item =>
+				(item.location === 'bag' ||
+					(item.location === 'vehicle' && !!rpgEquipment(item.itemId).vehicle)) && !item.prototypeCreatorId)
+				.map(instance => {
+					const definition = rpgEquipment(instance.itemId);
+					const category = equipmentCategory(definition);
+					const description = instance.itemId === 'alimento' ?
+						(record.state.trainerSheet?.talents.apex === 'cozinheiro:mesa-para-todos' ?
+							'Uma unidade de Alimento rende 4 porções de refeição. Com Aproveitamento Superior, 4 porções preparadas rendem 6; em preparos comunitários de pelo menos 10 porções, Mesa para Todos dobra o rendimento no lugar dos outros benefícios. O preparo fica no roleplay.' :
+							record.state.trainerSheet?.talents.class.includes('cozinheiro:aproveitamento-superior') ?
+								'Uma unidade de Alimento rende 4 porções de refeição. Com Aproveitamento Superior, 4 porções preparadas rendem 6 (+50%). Ele substitui Aproveitamento Integral; os bônus não se somam. O preparo fica no roleplay.' :
+								record.state.trainerSheet?.classId === 'cozinheiro' ?
+									'Uma unidade de Alimento rende 4 porções de refeição. Com Aproveitamento Integral, 4 porções preparadas rendem 5. O preparo fica no roleplay.' :
+									'Uma unidade de Alimento rende 4 porções de refeição. O preparo fica no roleplay.') :
+						'Equipamento do treinador. Consulte peso, espaços, cargas e requisitos nos detalhes.';
+					return { id: `equipment:${instance.id}`, name: definition.name, quantity: instance.quantity,
+						category, registryCategory: 'key' as const, description,
 						favorite: false, mission: false, actions: [], equippedIn: [],
-						icon: null, sprite: null, tags: ['trainer-equipment'],
-						weightKg: definition.weight * quantity, slots: food.filter(entry => entry.item.itemId === itemId)
-							.reduce((sum, entry) => sum + definition.spaces, 0) });
+						icon: rpgEquipmentIconPath(instance.itemId), sprite: null,
+						tags: ['trainer-equipment'], equipmentInstanceId: instance.id, equipmentItemId: instance.itemId,
+						equipmentKind: definition.category,
+						equipmentLocation: instance.location, equipmentCharges: instance.charges,
+						equipmentMaxCharges: definition.maxCharges, equipmentEquipped: instance.equipped,
+						equipmentDomain: definition.domain, equipmentLegality: definition.legality,
+						equipmentStackLimit: definition.stackLimit, equipmentEquipSlot: definition.equipSlot,
+						equipmentDomainKnown: !definition.domain || !!record.state.trainerSheet?.proficiencies?.includes(definition.domain),
+						equipmentLicense: rpgEquipmentLicenseId(definition) || undefined,
+						equipmentLicensed: !rpgEquipmentLicenseId(definition) ||
+							!!rpgHasLicense(inventory, rpgEquipmentLicenseId(definition)!, this.now()),
+						weightKg: rpgEquipmentWeight([instance]), slots: instance.equipped || instance.location !== 'bag' ?
+							0 : definition.spaces };
+				});
+			for (const category of view.categories) {
+				const items = equipmentItems.filter(item => item.category === category.id);
+				if (items.length) {
+					category.itemTypes = new Set(items.map(item => item.equipmentItemId)).size;
+					category.quantity = items.reduce((sum, item) => sum + item.quantity, 0);
 				}
 			}
+			view.items.push(...equipmentItems.filter(item => (!query.category || query.category === item.category) &&
+				(!search || toID(item.name).includes(search))));
 		}
 		const knowsFossilQuality = session.role === 'master' ||
 			record.state.trainerSheet?.talents.class.includes('arqueologo:avaliacao-paleontologica-de-campo');
@@ -8342,7 +8674,7 @@ export class RPGLoginService {
 					entry.itemId === concealment.itemId && entry.location === 'bag' && entry.quantity > 0) :
 				concealment?.kind === 'pokemon' ?
 					RPGBagSystem.getRegularQuantity(record.state.inventory.bag, concealment.itemId) > 0 : false;
-			const concealedId = concealment?.kind === 'equipment' ? `equipment:${concealment.itemId}` : concealment?.itemId;
+			const concealedId = concealment?.kind === 'equipment' ? `equipment:${concealment.instanceId}` : concealment?.itemId;
 			for (const item of view.items) {
 				if (concealedPresent && item.id === concealedId && !item.mission) item.concealedStatus = 'hidden';
 			}
@@ -9338,11 +9670,11 @@ export class RPGLoginService {
 		species: string, level: number, gender: RPGCharacterGender,
 		ability: string, nature: string, shiny?: boolean,
 		capture?: { hpPercent: number, status: string, encounterId: string,
-			conditions?: { isNight?: boolean, isCave?: boolean, isInWater?: boolean } },
+			conditions?: { isNight?: boolean, isCave?: boolean, isInWater?: boolean }, },
 	}): { box?: RPGBoxManagementView, pokemon?: RPGCharacterState['team'][number],
 		destination?: 'party' | 'box', capture?: { success: boolean, throwHit: boolean,
-			throwRoll?: number, throwTotal?: number, throwDC?: number, probability: number, ball: string },
-		pending?: boolean } {
+			throwRoll?: number, throwTotal?: number, throwDC?: number, probability: number, ball: string, },
+		pending?: boolean, } {
 		this.requireMasterMode(token);
 		this.requirePlatformTablePermission(token, 'characters.manage');
 		const record = this.requireCharacter(characterId);
@@ -9354,11 +9686,11 @@ export class RPGLoginService {
 	private createPlayerPokemonForRecord(record: RPGStoredCharacter, input: {
 		species: string, level: number, gender: RPGCharacterGender, ability: string, nature: string, shiny?: boolean,
 		capture?: { hpPercent: number, status: string, encounterId: string, ball?: string,
-			conditions?: { isNight?: boolean, isCave?: boolean, isInWater?: boolean } },
+			conditions?: { isNight?: boolean, isCave?: boolean, isInWater?: boolean }, },
 	}, throwResult?: { natural: number, total: number }): { box?: RPGBoxManagementView,
 		pokemon?: RPGCharacterState['team'][number], destination?: 'party' | 'box',
 		capture?: { success: boolean, throwHit: boolean, throwRoll?: number, throwTotal?: number,
-			throwDC?: number, probability: number, ball: string }, pending?: boolean } {
+			throwDC?: number, probability: number, ball: string, }, pending?: boolean, } {
 		const dex = Dex.mod('gen9');
 		const species = dex.species.get(input.species);
 		if (!species.exists || !RPG_MASTER_GIFT_SPECIES.has(species.id)) {
@@ -9377,7 +9709,7 @@ export class RPGLoginService {
 		const nature = dex.natures.get(input.nature);
 		if (!nature.exists) throw new Error('Escolha uma natureza válida');
 		let capture: { success: boolean, throwHit: boolean, throwRoll?: number,
-			throwTotal?: number, throwDC?: number, probability: number, ball: string } | undefined;
+			throwTotal?: number, throwDC?: number, probability: number, ball: string, } | undefined;
 		let captureBall = 'pokeball';
 		let captureFriendship = 50;
 		if (input.capture) {
@@ -9473,10 +9805,10 @@ export class RPGLoginService {
 						record.state.inventory.bag, captureBall, 1, record.state.inventory.bag.revision).bag;
 				}
 				if (!capture || capture.success) {
-				if (destination === 'party') RPGBoxManagement.insertParty(record.state, entry);
-				else RPGBoxManagement.insert(record.state, entry);
-				this.addPokedexSpecies(this.trainerProfile(record.state), 'seen', species.name);
-				this.addPokedexSpecies(this.trainerProfile(record.state), 'caught', species.name);
+					if (destination === 'party') RPGBoxManagement.insertParty(record.state, entry);
+					else RPGBoxManagement.insert(record.state, entry);
+					this.addPokedexSpecies(this.trainerProfile(record.state), 'seen', species.name);
+					this.addPokedexSpecies(this.trainerProfile(record.state), 'caught', species.name);
 				} else this.addPokedexSpecies(this.trainerProfile(record.state), 'seen', species.name);
 				this.persistBoxRecord(record);
 			});
@@ -9489,7 +9821,7 @@ export class RPGLoginService {
 	}
 
 	trainerPendingCapture(token: string, characterId: string): { species: string, balls: { id: string,
-		name: string, quantity: number }[] } | null {
+		name: string, quantity: number, }[], } | null {
 		const session = this.getSession(token);
 		if (session.mode !== 'player' || toID(session.viewAsCharacterId || session.characterId || '') !== toID(characterId)) {
 			throw new Error('Esta tentativa de captura não pertence ao treinador');
@@ -11424,6 +11756,14 @@ export class RPGLoginService {
 	private requireCharacter(id: string): RPGStoredCharacter {
 		const record = this.repository.get(id);
 		if (!record) throw new Error('Unknown RPG character');
+		if (record.state.trainerSheet?.status === 'complete' && record.state.trainerInventory &&
+			!record.state.trainerInventory.licenses.some(license => license.id === 'contencao')) {
+			record.state.trainerInventory.licenses = [
+				...record.state.trainerInventory.licenses.filter(license => license.id !== 'contencao'),
+				{ id: 'contencao', status: 'active', issuedBy: 'system' },
+			];
+			this.repository.set(record);
+		}
 		return record;
 	}
 	private int(maximum: number): number {

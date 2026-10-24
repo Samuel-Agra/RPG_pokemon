@@ -1,10 +1,10 @@
 /** Catálogo e invariantes do equipamento humano. Não modifica os atributos de Pokémon em batalha. */
 import type { RPGTrainerSheet } from './trainer-sheet';
 
-export type RPGEquipmentLegality = 'free' | 'controlled' | 'restricted' | 'institutional';
+export type RPGEquipmentLegality = 'free' | 'controlled' | 'restricted';
 export type RPGEquipmentSlot = 'body-outfit' | 'body-improvement' | 'head-improvement' | 'shield' | 'accessory';
 export interface RPGEquipmentDefinition {
-	id: string; name: string; category: string; weight: number; spaces: number; stackLimit: number;
+	id: string; name: string; category: string; icon: string; weight: number; spaces: number; stackLimit: number;
 	price: number; rarity: 'common' | 'uncommon' | 'rare' | 'very-rare';
 	legality: RPGEquipmentLegality; maxCharges?: number; refillFor?: string;
 	domain?: string; skill?: string; equipSlot?: RPGEquipmentSlot; tier?: number;
@@ -148,10 +148,16 @@ const rows: Row[] = [
 ];
 export const RPG_EQUIPMENT_CATALOG: Readonly<Record<string, RPGEquipmentDefinition>> = Object.freeze(Object.fromEntries(
 	rows.map(([id, name, category, weight, spaces, stackLimit, price, legality = 'free', extra]) =>
-		[id, Object.freeze({ id, name, category, weight, spaces, stackLimit, price, legality,
+		[id, Object.freeze({ id, name, category,
+			icon: `./assets/item-icons/equipment-${id}.png?v=20261023-2`,
+			weight, spaces, stackLimit, price, legality,
 			rarity: price >= 20000 ? 'very-rare' : price >= 5000 || legality === 'restricted' ? 'rare' :
 			price >= 1000 || legality === 'controlled' ? 'uncommon' : 'common', ...extra })])
 ));
+/** Ícones originais compartilhados pelas variações do mesmo tipo de equipamento. */
+export function rpgEquipmentIconPath(itemId: string): string {
+	return rpgEquipment(itemId).icon;
+}
 export function rpgEquipment(id: string): RPGEquipmentDefinition {
 	const item = RPG_EQUIPMENT_CATALOG[id];
 	if (!item) throw new Error('Equipamento desconhecido: ' + id);
@@ -168,6 +174,11 @@ export interface RPGTrainerInventory {
 	version: 1; revision: number; items: RPGEquipmentInstance[]; licenses: RPGLicense[];
 	pokemonStorage?: { itemId: string, quantity: number, location: 'bank' | 'vehicle', vehicleId?: string }[];
 }
+
+export const RPG_TRAINER_LICENSE_FEES: Readonly<Record<string, number>> = Object.freeze({
+	contencao: 1000, defensiva: 1000, medica: 1000, cientifica: 1000,
+	tecnologica: 1000, veiculo: 2500, 'arma-fogo': 5000, restrito: 5000,
+});
 
 export function rpgInitialTrainerInventory(sheet: RPGTrainerSheet): RPGTrainerInventory {
 	const items: RPGEquipmentInstance[] = [];
@@ -187,18 +198,20 @@ export function rpgInitialTrainerInventory(sheet: RPGTrainerSheet): RPGTrainerIn
 			location: 'bag',
 		});
 	}
-	return { version: 1, revision: 0, items, licenses: [], pokemonStorage: [] };
+	return { version: 1, revision: 0, items,
+		licenses: sheet.status === 'complete' ? [{ id: 'contencao', status: 'active', issuedBy: 'system' }] : [],
+		pokemonStorage: [] };
 }
 
 export function rpgEquipmentSlots(items: readonly RPGEquipmentInstance[], location: RPGEquipmentInstance['location'] = 'bag'): number {
 	return items.reduce((total, entry) => total + (entry.location === location && !entry.equipped ?
 		(entry.prototypeComponents ? entry.prototypeComponents.reduce((sum, id) => sum + rpgEquipment(id).spaces, 0) :
-			rpgEquipment(entry.itemId).spaces) : 0), 0);
+		rpgEquipment(entry.itemId).spaces) : 0), 0);
 }
 export function rpgEquipmentWeight(items: readonly RPGEquipmentInstance[], location?: RPGEquipmentInstance['location']): number {
 	return items.reduce((total, entry) => total + (!location || entry.location === location ?
 		(entry.prototypeComponents ? entry.prototypeComponents.reduce((sum, id) => sum + rpgEquipment(id).weight, 0) :
-			rpgEquipment(entry.itemId).weight * entry.quantity) + (entry.itemId === 'cantil' ? (entry.charges || 0) * 0.5 : 0) : 0), 0);
+		rpgEquipment(entry.itemId).weight * entry.quantity) + (entry.itemId === 'cantil' ? (entry.charges || 0) * 0.5 : 0) : 0), 0);
 }
 export function rpgHasLicense(inventory: RPGTrainerInventory, id: string, now: number): boolean {
 	return inventory.licenses.some(license => license.id === id &&
@@ -208,7 +221,6 @@ export function rpgHasLicense(inventory: RPGTrainerInventory, id: string, now: n
 export function rpgEquipmentLicenseId(item: RPGEquipmentDefinition): string | null {
 	if (item.legality === 'free') return null;
 	if (item.legality === 'restricted') return item.category === 'ranged' || item.category === 'ammunition' ? 'arma-fogo' : 'restrito';
-	if (item.legality === 'institutional') return 'institucional';
 	if (item.category === 'vehicle' || item.category === 'vehicle-supply') return 'veiculo';
 	if (item.category === 'kit' || item.category === 'refill') {
 		if (item.id.includes('medic')) return 'medica';

@@ -266,7 +266,7 @@ describe('RPG trainer classes and talents', () => {
 		assert.deepEqual(bonus.targets, ['skill:tecnologia']);
 		assert.deepEqual(rpgTrainerTalentCatalog(specialized)
 			.find(entry => entry.id === option.id).variantChoices,
-			option.variantChoices.filter(area => area !== 'hardware'));
+		option.variantChoices.filter(area => area !== 'hardware'));
 		const reverseEngineering = rpgTrainerTalentCatalog(specialized)
 			.find(entry => entry.id === 'tecnologo:engenharia-reversa');
 		assert.deepEqual(reverseEngineering.attributeChoices, []);
@@ -2004,9 +2004,9 @@ describe('RPG trainer classes and talents', () => {
 	it('registers all twenty class bases, innate features and all published talents', () => {
 		assert.equal(Object.keys(RPG_TRAINER_CLASSES).length, 20);
 		assert.equal(Object.keys(RPG_TRAINER_CLASS_FEATURES).length, 20);
-		assert.equal(RPG_TRAINER_TALENTS.length, 454);
+		assert.equal(RPG_TRAINER_TALENTS.length, 453);
 		assert.equal(RPG_TRAINER_TALENTS.filter(talent => talent.kind === 'general').length, 54);
-		assert.equal(new Set(RPG_TRAINER_TALENTS.map(talent => talent.id)).size, 454);
+		assert.equal(new Set(RPG_TRAINER_TALENTS.map(talent => talent.id)).size, 453);
 		assert(!RPG_TRAINER_TALENTS.some(talent => talent.id === 'artista:memoria-de-repertorio'));
 		assert(!RPG_TRAINER_TALENTS.some(talent => talent.id === 'criador-pokemon:primeiros-cuidados-rapidos'));
 		for (const classId of Object.keys(RPG_TRAINER_CLASSES)) {

@@ -11,6 +11,7 @@ const rpgUi = fs.readFileSync(path.join(root, 'server/static/rpg/rpg.js'), 'utf8
 const battleRoom = fs.readFileSync(path.join(root, 'server/static/rpg/battle-room.js'), 'utf8');
 const html = fs.readFileSync(path.join(root, 'server/static/rpg/index.html'), 'utf8');
 const css = fs.readFileSync(path.join(root, 'server/static/rpg/rpg.css'), 'utf8');
+const http = fs.readFileSync(path.join(root, 'server/rpg-showdown/http.ts'), 'utf8');
 
 describe('RPG Bag frontend', () => {
 	it('destaca a unidade preparada e permite escolher itens da Bag própria ou do armazenamento compartilhado', () => {
@@ -21,16 +22,72 @@ describe('RPG Bag frontend', () => {
 		assert.match(css, /\.bag-ui-concealed-item/);
 		assert.match(trainerSheetUi, /Sua CD atual/);
 	});
-	it('shows separate external and shared inventories and opens shared support caches', () => {
-		assert.match(bagUi, /\['Externo', 'Compartilhado'\]/);
+	it('shows bank and shared inventories separately and opens shared support caches', () => {
+		assert.match(bagUi, /\['Banco', 'Compartilhado'\]/);
 		assert.match(bagUi, /areaTitle\.append\(el\('small', '', 'Inventário'\), el\('h2', '', title\)\)/);
 		assert.match(bagUi, /bag-ui-auxiliary-content/);
 		assert.match(bagUi, /\/trainer\/support-caches/);
-		assert.match(bagUi, /selectedSharedId = entry\.cacheId/);
+		assert.match(bagUi, /\/trainer\/shared-vehicles/);
+		assert.match(bagUi, /entry\.kind === 'vehicle' \? 'Veículos' : 'Pontos de Apoio'/);
+		assert.match(bagUi, /\/trainer\/shared-vehicle\?vehicleId=/);
+		assert.match(http, /\/api\/rpg\/trainer\/shared-vehicle/);
+		assert.match(bagUi, /selectedSharedId = entry\.key/);
 		assert.match(bagUi, /action: 'withdraw'/);
 		assert.match(bagUi, /renderSharedInventory\(\)/);
 		assert.match(css, /\.bag-ui-auxiliary-panel/);
 		assert.match(css, /\.bag-ui-shared-sidebar/);
+		assert.match(bagUi, /\/trainer\/item-bank\?characterId=/);
+		assert.match(bagUi, /bankAvailable = bagData\.bankAvailable !== false/);
+		assert.match(bagUi, /auxiliaryExpanded\.Banco = false/);
+		assert.match(bagUi, /toggle\.setAttribute\('aria-expanded'/);
+		assert.match(bagUi, /toggle\.disabled = locked/);
+		assert.match(css, /\.bag-ui-auxiliary-content\[hidden\] \{ display: none; \}/);
+		assert.match(bagUi, /externalData\.itemTypes.*tipos de itens/);
+		assert.match(bagUi, /externalData\.balance/);
+		assert.match(bagUi, /\/rpg\/assets\/bags\/bank\.png/);
+		assert(fs.existsSync(path.join(root, 'server/static/rpg/assets/bags/bank.png')));
+		assert.match(bagUi, /showBankItemDetails\(item, card\)/);
+		assert.match(bagUi, /action: item\.kind === 'pokemon' \? 'movePokemon' : 'move'/);
+		assert.match(http, /\/api\/rpg\/trainer\/item-bank/);
+	});
+	it('mantém só o cabeçalho quando não há inventários compartilhados', () => {
+		assert.match(bagUi, /const empty = sharedLoaded && !sharedError && !sharedInventory\.length/);
+		assert.match(bagUi, /sharedToggle\.hidden = empty/);
+		assert.match(bagUi, /sharedContent\.hidden = empty \|\| !auxiliaryExpanded\.Compartilhado/);
+		assert.match(bagUi, /if \(empty\) return/);
+	});
+	it('expande abaixo das Pokécoins apenas as licenças válidas sem abrir janela', () => {
+		assert.match(bagUi, /bagIdentity\.append\(licensesToggle, licensesList\)/);
+		assert.match(bagUi, /licensesList\.hidden = !licensesExpanded/);
+		assert.match(bagUi, /\(bagData\.licenses \|\| \[\]\)\.filter\(license => license\.valid && licenseNames\[license\.id\]\)/);
+		assert.match(bagUi, /if \(!sidebar\.isConnected\) return/);
+		assert.match(bagUi, /navigation\.getBoundingClientRect\(\)\.bottom -/);
+		assert.match(bagUi, /if \(available > 0\) licensesList\.style\.maxHeight/);
+		assert.match(bagUi, /if \(licensesExpanded\) requestAnimationFrame\(fitLicenses\)/);
+		assert.match(css, /\.bag-ui-licenses-list \{ width: 100%; overflow-y: auto/);
+		assert.match(css, /\.bag-ui-license-row \{[\s\S]*?grid-template-columns: minmax\(0, 1fr\) 36px 54px/);
+		assert.match(css, /\.bag-ui-license-row \{[\s\S]*?min-height: 42px/);
+	});
+	it('permite apenas ao Mestre conceder e revogar licenças na Bag do jogador', () => {
+		assert.match(bagUi, /if \(options\.isMaster\) \{/);
+		assert.match(bagUi, /\/trainer\/equipment\/license/);
+		assert.match(bagUi, /license: \{ id, status, issuedBy: '' \}/);
+		assert.match(bagUi, /available = Object\.entries\(licenseNames\)\.filter/);
+		assert.match(bagUi, /'arma-fogo': 'Armas de fogo'/);
+		assert.match(bagUi, /defensiva: 'Armas e proteção'/);
+		assert.doesNotMatch(bagUi, /institucional: 'Equipamentos institucionais'/);
+		assert.match(bagUi, /!owned\.some\(license => license\.id === id\)/);
+		assert.match(bagUi, /veiculo: 'Veículos'/);
+		assert.match(bagUi, /updateLicense\(license\.id, 'revoked'\)/);
+		assert.match(bagUi, /updateLicense\(select\.value, 'active', !checkbox\.checked\)/);
+		assert.match(bagUi, /bagData\.licenseFees\?\.\[select\.value\]/);
+		assert.match(bagUi, /select\.addEventListener\('change', updateChargeText\)/);
+	});
+	it('permite ao Mestre apagar um Ponto de Apoio e não oferece banco para veículos', () => {
+		assert.match(bagUi, /options\.isMaster && selectedShared\.kind === 'cache'/);
+		assert.match(bagUi, /action: 'delete', cacheId: selectedShared\.cacheId/);
+		assert.match(bagUi, /confirmContents: true/);
+		assert.match(bagUi, /bankAvailable && item\.equipmentKind !== 'vehicle'/);
 	});
 	it('offers mission items and shared support caches under Enviar para without listing caches on the sheet', () => {
 		assert.match(bagUi, /if \(action === 'move-to-mission'\) return 'Enviar para'/);
@@ -46,11 +103,17 @@ describe('RPG Bag frontend', () => {
 		assert.doesNotMatch(trainerSheetUi, /openSupportCache\(/);
 		assert.match(trainerSheetUi, /action: 'create', location: location\.value/);
 	});
-	it('lets the Master add catalogued trainer equipment and shows it without sprites', () => {
+	it('lets the Master add catalogued trainer equipment in separated categories', () => {
 		assert.match(bagUi, /makeButton\('Adicionar item'/);
-		assert.match(bagUi, /\['trainer-equipment', 'Itens novos'\]/);
+		assert.match(bagUi, /\['trainer-kits', 'Kits'\]/);
+		assert.match(bagUi, /\['trainer-vehicles', 'Veículos'\]/);
+		assert.doesNotMatch(bagUi, /\['food-items', 'Alimentos e rações'\]/);
+		assert.doesNotMatch(bagUi, /\['trainer-outfits', 'Trajes e melhorias'\]/);
+		assert.match(bagUi, /kind === 'refill' && \['spray-pimenta', 'dispositivo-choque', 'taser'\]/);
+		assert.match(bagUi, /'shield', 'ammunition'/);
 		assert.match(bagUi, /action: 'grant', characterId: options\.characterId/);
-		assert.match(bagUi, /item\.category !== 'food-items'/);
+		assert.match(bagUi, /showEquipmentDetails\(item, dialog, close\)/);
+		assert.match(bagUi, /bag-ui-weight/);
 	});
 	it('offers random and explicit fossil grades when the Master adds an item', () => {
 		assert.match(bagUi, /\['', 'Aleatório'\].*\['fragmented', 'Frag\.'\].*\['preserved', 'Pres\.'\].*\['exceptional', 'Excep\.'\]/);

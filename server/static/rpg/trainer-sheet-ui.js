@@ -1638,22 +1638,22 @@
 					dialog.append(el('h2', '', 'Escolher protótipo'));
 					const list = el('div', 'trainer-sheet-record-list');
 					const closePicker = () => { overlay.remove(); recordPicker = null; choose.focus(); };
-				if (secondFunction) {
-					const clear = el('button', 'trainer-sheet-record-choice', 'Criar protótipo simples');
-					clear.type = 'button'; clear.addEventListener('click', () => {
-						secondSelectedId = ''; showSelection(); closePicker();
-					}); list.append(clear);
-				}
-				for (const option of data.options.filter(entry => !secondFunction || entry.id !== selectedId)) {
+					if (secondFunction) {
+						const clear = el('button', 'trainer-sheet-record-choice', 'Criar protótipo simples');
+						clear.type = 'button'; clear.addEventListener('click', () => {
+							secondSelectedId = ''; showSelection(); closePicker();
+						}); list.append(clear);
+					}
+					for (const option of data.options.filter(entry => !secondFunction || entry.id !== selectedId)) {
 						const choice = el('button', 'trainer-sheet-record-choice'); choice.type = 'button';
 						choice.append(el('strong', '', option.name),
 							el('span', '', `${option.effect} · ${option.charges} carga(s)${option.advanced ?
 								' · Kit Tecnológico II ou III' : ''}`));
-					choice.addEventListener('click', () => {
-						if (secondFunction) secondSelectedId = option.id;
-						else { selectedId = option.id; if (secondSelectedId === selectedId) secondSelectedId = ''; }
-						showSelection(); closePicker();
-					});
+						choice.addEventListener('click', () => {
+							if (secondFunction) secondSelectedId = option.id;
+							else { selectedId = option.id; if (secondSelectedId === selectedId) secondSelectedId = ''; }
+							showSelection(); closePicker();
+						});
 						list.append(choice);
 					}
 					dialog.append(list); overlay.append(dialog);
@@ -1704,7 +1704,7 @@
 						choice.append(el('strong', '', active.prototypeComponents ?
 							`Obra-Prima Modular: ${active.prototypeComponents.map(id => data.options.find(entry => entry.id === id)?.name || id).join(' + ')}` :
 							(option?.name || active.itemId)),
-							el('span', '', `Com ${owner?.name || 'destinatário desconhecido'}`));
+						el('span', '', `Com ${owner?.name || 'destinatário desconhecido'}`));
 						choice.addEventListener('click', () => { closePicker(); void construct(active.slot); });
 						list.append(choice);
 					}
@@ -4061,9 +4061,9 @@
 			...(rules?.classFeatures?.[sheet.classId] || []).map(feature =>
 				({ id: sheet.classId === 'mestre-pokemon' && feature.name === 'Captura Calculada' ?
 					'mestre-pokemon:captura-calculada' : sheet.classId === 'cientista' && feature.name === 'Registro Reprodutível' ?
-					'cientista:registro-reprodutivel' : sheet.classId === 'tecnologo' &&
-						feature.name === 'Protótipo Tecnológico' ? 'tecnologo:prototipo-tecnologico' : sheet.classId === 'coreografo' &&
-							feature.name === 'Ensaio Conjunto' ? 'coreografo:ensaio-conjunto' :
+						'cientista:registro-reprodutivel' : sheet.classId === 'tecnologo' &&
+							feature.name === 'Protótipo Tecnológico' ? 'tecnologo:prototipo-tecnologico' : sheet.classId === 'coreografo' &&
+								feature.name === 'Ensaio Conjunto' ? 'coreografo:ensaio-conjunto' :
 						feature.name === 'Refeição Revigorante' ? 'cozinheiro:refeicao-revigorante' :
 						feature.name === 'Primeiros Cuidados' ? 'criador-pokemon:primeiros-cuidados' :
 						feature.name === 'Atendimento Emergencial' ? 'medico:atendimento-emergencial' : undefined,
@@ -4145,8 +4145,8 @@
 														!readOnly && id === 'cientista:registro-reprodutivel' ? { id, api, refresh,
 															scientistRecord: progression.scientistRecord } :
 														!readOnly && ['tecnologo:prototipo-tecnologico',
-													'tecnologo:central-de-prototipos', 'tecnologo:obra-prima-modular'].includes(id) ? { id, api, refresh,
-																	technologicalPrototype: progression.technologicalPrototype } :
+															'tecnologo:central-de-prototipos', 'tecnologo:obra-prima-modular'].includes(id) ? { id, api, refresh,
+															technologicalPrototype: progression.technologicalPrototype } :
 														!readOnly && id === 'cientista:hipotese-persistente' ?
 															{ id, api, refresh, persistentHypothesis: progression.persistentHypothesis,
 																persistentHypothesisCharacterId: character.id } :
@@ -4205,44 +4205,44 @@
 																																					limit: Math.max(1, progression.proficiency + Math.floor((sheet.attributes.intelligence - 10) / 2)) } } :
 																																				!readOnly && id === 'mentalista:persona-preparada' ?
 																																					{ id, api, preparedPersona: true } :
-																					!readOnly && id === 'psiquico:terceiro-olho' ?
-																						{ id, api, refresh, thirdEye: { exhaustion: sheet.survival?.exhaustion || 0,
-																							conscious: (sheet.survival?.lifeState || 'conscious') === 'conscious' } } :
-																					!readOnly && ['segundo-folego', 'sortudo', 'determinado', 'esforco-heroico'].includes(id) ?
-																																						{ id, api, refresh, reroll: id !== 'segundo-folego',
-																																							available: progression.rerollAvailability?.[id],
-																																							used: progression.activeTalentUses?.used?.[id] === progression.activeTalentUses?.restCycle } :
-																																						!readOnly && id === 'medico:protocolo-preventivo' ?
-																																							{ id, api, refresh, preventiveProtocol: true } :
-																																							!readOnly && id === 'medico:medicina-integrada' ?
-																																								{ id, api, refresh, spriteUrl, integratedMedicine: true } :
-																																								!readOnly && id === 'medico:plano-individual-de-recuperacao' ?
-																																									{ id, api, individualRecoveryNote: sheet.individualRecoveryNote || '' } :
-																																									!readOnly && id === 'medico:tratamento-de-queimaduras' ?
-																																										{ id, api, refresh, trainerSpriteUrl, burnTreatment: true } :
-																																										!readOnly && id === 'medico:estimulo-neuromuscular' ?
-																																											{ id, api, refresh, trainerSpriteUrl, neuromuscularTreatment: true } :
-																																											!readOnly && id === 'medico:aquecimento-controlado' ?
-																																												{ id, api, refresh, trainerSpriteUrl, controlledWarming: true } :
-																																												!readOnly && id === 'medico:resposta-neurologica' ?
-																																													{ id, api, refresh, trainerSpriteUrl, neurologicalResponse: true } :
-																																													!readOnly && id === 'medico:atendimento-emergencial' ?
-																																														{ id, api, refresh, trainerSpriteUrl, emergencyCare: true } :
-																																														!readOnly && id === 'medico:entre-a-vida-e-a-morte' ?
-																																															{ id, api, refresh, trainerSpriteUrl, reanimation: true, rollTalents: progression.rollTalents,
-																																																medicalTrained: sheet.skills.trained.includes('medicina') } :
-																																															!readOnly && id === 'medico:recuperacao-extraordinaria' ?
-																																																{ id, api, refresh, extraordinaryRecovery: progression.extraordinaryRecovery } :
-																																																!readOnly && sheet.classId === 'medico' && name === 'Recuperação Assistida' ?
-																																																	{ id, api, assistedRecovery: progression.assistedRecovery } :
-																																																	!readOnly && id === 'mestre-pokemon:captura-calculada' ?
-																																																		{ id, api, captureCombatAttribute: sheet.captureCombatAttribute || 'dexterity' } :
-																																								!readOnly && id === 'mestre-pokemon:isca-ecologica' ?
-																																									{ id, api, ecologicalBait: true } :
-																																																		!readOnly && manualRest ? { id, api, refresh, manualRest } :
-																																																		!readOnly && ['cozinheiro:refeicao-reconfortante', 'cozinheiro:nutricao-de-recuperacao'].includes(id) ?
-																																																			{ restStatus: mealUsed ? 'Usado neste descanso longo junto com Refeição Revigorante.' :
-																																																			'Será ativado junto com Refeição Revigorante.' } : null));
+																																					!readOnly && id === 'psiquico:terceiro-olho' ?
+																																						{ id, api, refresh, thirdEye: { exhaustion: sheet.survival?.exhaustion || 0,
+																																							conscious: (sheet.survival?.lifeState || 'conscious') === 'conscious' } } :
+																																						!readOnly && ['segundo-folego', 'sortudo', 'determinado', 'esforco-heroico'].includes(id) ?
+																																							{ id, api, refresh, reroll: id !== 'segundo-folego',
+																																								available: progression.rerollAvailability?.[id],
+																																								used: progression.activeTalentUses?.used?.[id] === progression.activeTalentUses?.restCycle } :
+																																							!readOnly && id === 'medico:protocolo-preventivo' ?
+																																								{ id, api, refresh, preventiveProtocol: true } :
+																																								!readOnly && id === 'medico:medicina-integrada' ?
+																																									{ id, api, refresh, spriteUrl, integratedMedicine: true } :
+																																									!readOnly && id === 'medico:plano-individual-de-recuperacao' ?
+																																										{ id, api, individualRecoveryNote: sheet.individualRecoveryNote || '' } :
+																																										!readOnly && id === 'medico:tratamento-de-queimaduras' ?
+																																											{ id, api, refresh, trainerSpriteUrl, burnTreatment: true } :
+																																											!readOnly && id === 'medico:estimulo-neuromuscular' ?
+																																												{ id, api, refresh, trainerSpriteUrl, neuromuscularTreatment: true } :
+																																												!readOnly && id === 'medico:aquecimento-controlado' ?
+																																													{ id, api, refresh, trainerSpriteUrl, controlledWarming: true } :
+																																													!readOnly && id === 'medico:resposta-neurologica' ?
+																																														{ id, api, refresh, trainerSpriteUrl, neurologicalResponse: true } :
+																																														!readOnly && id === 'medico:atendimento-emergencial' ?
+																																															{ id, api, refresh, trainerSpriteUrl, emergencyCare: true } :
+																																															!readOnly && id === 'medico:entre-a-vida-e-a-morte' ?
+																																																{ id, api, refresh, trainerSpriteUrl, reanimation: true, rollTalents: progression.rollTalents,
+																																																	medicalTrained: sheet.skills.trained.includes('medicina') } :
+																																																!readOnly && id === 'medico:recuperacao-extraordinaria' ?
+																																																	{ id, api, refresh, extraordinaryRecovery: progression.extraordinaryRecovery } :
+																																																	!readOnly && sheet.classId === 'medico' && name === 'Recuperação Assistida' ?
+																																																		{ id, api, assistedRecovery: progression.assistedRecovery } :
+																																																		!readOnly && id === 'mestre-pokemon:captura-calculada' ?
+																																																			{ id, api, captureCombatAttribute: sheet.captureCombatAttribute || 'dexterity' } :
+																																																			!readOnly && id === 'mestre-pokemon:isca-ecologica' ?
+																																																				{ id, api, ecologicalBait: true } :
+																																																				!readOnly && manualRest ? { id, api, refresh, manualRest } :
+																																																				!readOnly && ['cozinheiro:refeicao-reconfortante', 'cozinheiro:nutricao-de-recuperacao'].includes(id) ?
+																																																					{ restStatus: mealUsed ? 'Usado neste descanso longo junto com Refeição Revigorante.' :
+																																																					'Será ativado junto com Refeição Revigorante.' } : null));
 			talentList.append(button);
 		}
 		talentSection.append(talentList);

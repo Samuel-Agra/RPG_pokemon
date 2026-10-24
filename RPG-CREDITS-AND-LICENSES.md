@@ -29,6 +29,10 @@ O sprite sheet server/static/rpg/assets/hud/battle-effects.png e um recurso orig
 
 Os 20 emblemas em pixel art de `server/static/rpg/assets/trainer-classes/` foram criados para as classes de treinador com geracao de imagens da OpenAI/Codex. Cada imagem representa objetos da classe, sem reutilizar sprites oficiais.
 
+O sprite original do banco em `server/static/rpg/assets/bags/bank.png` foi criado para a interface de inventario com geracao de imagens da OpenAI/Codex, sem reutilizar arte oficial.
+
+Os sprites individuais dos equipamentos da versao 3 (`server/static/rpg/assets/item-icons/equipment-*.png`) foram criados para este RPG com geracao de imagens da OpenAI/Codex. Cada entrada do catalogo possui sua propria arte; nenhuma arte oficial foi incorporada.
+
 ### Insignias de Liga Pokemon
 
 O arquivo `server/static/rpg/assets/badges-kanto-unova.png` utiliza recriacoes vetoriais de insignias do projeto [pokemon-badges](https://github.com/SteGriff/pokemon-badges), de Stephen Griffiths, Copyright (c) 2011.

@@ -183,15 +183,31 @@
 	}
 
 	const CATALOG_CATEGORIES = [
-		['trainer-equipment', 'Itens novos'],
+		['trainer-kits', 'Kits'],
+		['trainer-weapons', 'Armas e proteção'],
+		['trainer-exploration', 'Exploração e acampamento'], ['trainer-devices', 'Dispositivos'],
+		['trainer-vehicles', 'Veículos'],
 		['pokeballs', 'Poké Balls'], ['medicines', 'Medicamentos'],
 		['held-items', 'Held Items'], ['evolution-items', 'Itens de Evolução'],
 		['tms', 'TMs'], ['fossils', 'Fósseis'], ['treasures', 'Tesouros'],
 		['mega-stones', 'Mega Pedras'], ['key-items', 'Itens-chave'],
 		['mission-items', 'Itens de Missão'],
 	];
+	function equipmentCategoryId(item) {
+		const kind = item.equipmentCategory;
+		if (kind === 'vehicle' || kind === 'vehicle-supply') return 'trainer-vehicles';
+		if (kind === 'refill' && ['spray-pimenta', 'dispositivo-choque', 'taser'].includes(item.refillFor)) {
+			return 'trainer-weapons';
+		}
+		if (kind === 'kit' || kind === 'refill') return 'trainer-kits';
+		if (['melee', 'ranged', 'nonlethal', 'shield', 'ammunition', 'outfit', 'improvement'].includes(kind)) {
+			return 'trainer-weapons';
+		}
+		if (['device', 'prototype'].includes(kind)) return 'trainer-devices';
+		return 'trainer-exploration';
+	}
 	function catalogCategoryId(item) {
-		if (item.category === 'trainer-equipment') return 'trainer-equipment';
+		if (item.category === 'trainer-equipment') return equipmentCategoryId(item);
 		if (item.tags?.includes('mission')) return 'mission-items';
 		if (item.category === 'ball') return 'pokeballs';
 		if (['healing', 'status', 'pp', 'revive'].includes(item.category)) return 'medicines';
@@ -231,10 +247,21 @@
 		let selectedSharedId = null;
 		let selectedShared = null;
 		let sharedContent = null;
+		let sharedToggle = null;
 		let sharedSignature = '';
 		let sharedRequest = 0;
 		let sharedError = '';
 		let sharedLoaded = false;
+		let externalContent = null;
+		let externalData = null;
+		let externalCategory = null;
+		let externalSearch = '';
+		let externalSignature = '';
+		let externalError = '';
+		let externalRequest = 0;
+		let bankAvailable = true;
+		let licensesExpanded = false;
+		const auxiliaryExpanded = { Banco: true, Compartilhado: true };
 
 		async function load() {
 			if (loading) return;
@@ -247,6 +274,12 @@
 				lastSignature = signature;
 				closeDialogGroup();
 				bagData = data.bag;
+				bankAvailable = bagData.bankAvailable !== false;
+				if (!bankAvailable) {
+					auxiliaryExpanded.Banco = false;
+					externalData = null;
+					externalSignature = '';
+				}
 				if (!activeCategory && !search && bagData.categories.length) activeCategory = bagData.categories[0].id;
 				renderShell();
 			} catch (error) {
@@ -283,11 +316,93 @@
 			const sprite = el('img', 'bag-ui-bag-sprite');
 			sprite.src = '/rpg/assets/bags/' + tier.sprite + '.png';
 			sprite.alt = tier.name;
+			const capacity = el('div', 'bag-ui-capacity-panel');
+			capacity.append(el('small', 'bag-ui-capacity', bagData.capacity.usedSlots + ' / ' + (bagData.capacity.maxSlots || '∞') + ' tipos de itens'));
+			if (bagData.weight) {
+				const weight = bagData.weight;
+				const format = value => new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 1 }).format(value);
+				const level = weight.currentKg > weight.heavyKg ? ' danger' : weight.currentKg > weight.comfortableKg ? ' warning' : '';
+				capacity.append(el('small', 'bag-ui-weight' + level,
+					`Peso: ${format(weight.currentKg)} / ${format(weight.comfortableKg)} kg`));
+			}
 			bagIdentity.append(
-				sprite,
-				el('small', 'bag-ui-capacity', bagData.capacity.usedSlots + ' / ' + (bagData.capacity.maxSlots || '∞') + ' tipos de itens'),
+				sprite, capacity,
 				el('div', 'bag-ui-pokecoins', 'Pokécoins: ' + new Intl.NumberFormat('pt-BR').format(bagData.money || 0) + ' ₽')
 			);
+			const licensesToggle = makeButton('', 'bag-ui-licenses-toggle');
+			const licensesList = el('div', 'bag-ui-licenses-list');
+			const licenseNames = {
+				'arma-fogo': 'Armas de fogo', cientifica: 'Equipamentos científicos',
+				contencao: 'Equipamentos controlados', defensiva: 'Armas e proteção',
+				medica: 'Equipamentos médicos',
+				restrito: 'Itens restritos', tecnologica: 'Equipamentos tecnológicos',
+				veiculo: 'Veículos',
+			};
+			const owned = (bagData.licenses || []).filter(license => license.valid && licenseNames[license.id]);
+			const updateLicense = async (id, status, waiveFee = false) => {
+				try {
+					await options.api('/trainer/equipment/license', { method: 'POST', body: {
+						characterId: options.characterId, license: { id, status, issuedBy: '' }, waiveFee,
+					} });
+					options.toast(status === 'revoked' ? 'Licença revogada.' : 'Licença concedida.');
+					await load();
+				} catch (error) { options.toast(error.message || 'Não foi possível alterar a licença.', true); }
+			};
+			for (const license of owned) {
+				const row = el('div', 'bag-ui-license-row');
+				row.append(el('span', '', licenseNames[license.id] || license.id),
+					el('small', '', license.status === 'temporary' ? 'Temporária' : 'Ativa'));
+				if (options.isMaster) {
+					const revoke = makeButton('Revogar', 'bag-ui-license-revoke');
+					let armed = false;
+					revoke.addEventListener('click', () => {
+						if (!armed) { armed = true; revoke.textContent = 'Confirmar'; return; }
+						revoke.disabled = true;
+						void updateLicense(license.id, 'revoked').finally(() => { revoke.disabled = false; });
+					});
+					row.append(revoke);
+				}
+				licensesList.append(row);
+			}
+			if (!owned.length) licensesList.append(el('p', 'bag-ui-licenses-empty', 'Nenhuma licença ativa.'));
+			if (options.isMaster) {
+				const available = Object.entries(licenseNames).filter(([id]) =>
+					!owned.some(license => license.id === id));
+				if (available.length) {
+					const grant = el('div', 'bag-ui-license-grant');
+					const select = el('select');
+					select.setAttribute('aria-label', 'Licença para conceder');
+					for (const [id, name] of available) {
+						const option = el('option', '', name); option.value = id; select.append(option);
+					}
+					const charge = el('label', 'bag-ui-license-charge');
+					const checkbox = el('input'); checkbox.type = 'checkbox';
+					const chargeText = el('span');
+					const updateChargeText = () => {
+						const fee = bagData.licenseFees?.[select.value];
+						chargeText.textContent = fee === undefined ? 'Cobrar taxa da licença' :
+							`Cobrar taxa: ${new Intl.NumberFormat('pt-BR').format(fee)} ₽`;
+					};
+					select.addEventListener('change', updateChargeText);
+					updateChargeText();
+					charge.append(checkbox, chargeText);
+					const submit = makeButton('Conceder', 'button');
+					submit.addEventListener('click', async () => {
+						submit.disabled = true;
+						await updateLicense(select.value, 'active', !checkbox.checked);
+						submit.disabled = false;
+					});
+					grant.append(select, charge, submit);
+					licensesList.append(grant);
+				}
+			}
+			const updateLicenses = () => {
+				licensesToggle.textContent = `Licenças ${licensesExpanded ? '▴' : '▾'}`;
+				licensesToggle.setAttribute('aria-expanded', String(licensesExpanded));
+				licensesList.hidden = !licensesExpanded;
+			};
+			updateLicenses();
+			bagIdentity.append(licensesToggle, licensesList);
 			sidebar.append(bagIdentity);
 			const navigation = el('nav', 'bag-ui-category-list');
 			for (const category of bagData.categories) {
@@ -302,6 +417,18 @@
 				navigation.append(categoryButton);
 			}
 			sidebar.append(navigation);
+			const fitLicenses = () => {
+				if (!sidebar.isConnected) return;
+				const available = navigation.getBoundingClientRect().bottom -
+					licensesToggle.getBoundingClientRect().bottom - 18;
+				if (available > 0) licensesList.style.maxHeight = Math.floor(available) + 'px';
+			};
+			licensesToggle.addEventListener('click', () => {
+				licensesExpanded = !licensesExpanded;
+				updateLicenses();
+				if (licensesExpanded) fitLicenses();
+			});
+			if (licensesExpanded) requestAnimationFrame(fitLicenses);
 			return sidebar;
 		}
 
@@ -332,7 +459,10 @@
 				name.append(el('strong', '', item.name));
 				if (item.concealedStatus) name.append(el('small', 'bag-ui-concealed-mark', 'No compartimento · 1 unidade'));
 				if (item.category === 'talent-items') name.append(el('small', '', item.description));
-				if (item.category !== 'food-items') card.append(itemIcon(item));
+				card.append(itemIcon(item));
+				if (item.equipmentEquipped) name.append(el('small', '', 'Equipado'));
+				if (item.equipmentMaxCharges !== undefined) name.append(el('small', '',
+					`${item.equipmentCharges ?? 0}/${item.equipmentMaxCharges} cargas`));
 				card.append(name, el('b', 'bag-ui-quantity', '×' + item.quantity));
 				if (item.favorite) card.append(el('span', 'bag-ui-favorite-mark', '★'));
 				card.addEventListener('click', () => showItemDetails(item, card));
@@ -400,40 +530,178 @@
 			});
 			searchBar.append(input);
 			main.append(searchBar, content);
-			workspace.append(renderSidebar(), main);
+			const sidebar = renderSidebar();
+			workspace.append(sidebar, main);
 			panel.append(header, workspace);
 			root.append(panel);
-			for (const title of ['Externo', 'Compartilhado']) {
+			for (const title of ['Banco', 'Compartilhado']) {
 				const area = el('section', 'panel bag-ui-auxiliary-panel');
 				const areaHeader = el('header', 'bag-ui-header');
 				const areaTitle = el('div');
 				areaTitle.append(el('small', '', 'Inventário'), el('h2', '', title));
-				areaHeader.append(areaTitle);
+				const toggle = makeButton('', 'bag-ui-auxiliary-toggle');
+				const locked = title === 'Banco' && !bankAvailable;
+				toggle.textContent = auxiliaryExpanded[title] ? '▴' : '▾';
+				toggle.setAttribute('aria-label', `${auxiliaryExpanded[title] ? 'Recolher' : 'Expandir'} inventário ${title.toLowerCase()}`);
+				toggle.setAttribute('aria-expanded', String(auxiliaryExpanded[title]));
+				toggle.disabled = locked;
+				areaHeader.append(areaTitle, toggle);
 				const areaContent = el('div', 'bag-ui-auxiliary-content');
-				if (title === 'Compartilhado') sharedContent = areaContent;
+				areaContent.hidden = !auxiliaryExpanded[title];
+				toggle.addEventListener('click', () => {
+					auxiliaryExpanded[title] = !auxiliaryExpanded[title];
+					areaContent.hidden = !auxiliaryExpanded[title];
+					toggle.textContent = auxiliaryExpanded[title] ? '▴' : '▾';
+					toggle.setAttribute('aria-label', `${auxiliaryExpanded[title] ? 'Recolher' : 'Expandir'} inventário ${title.toLowerCase()}`);
+					toggle.setAttribute('aria-expanded', String(auxiliaryExpanded[title]));
+				});
+				if (title === 'Compartilhado') {
+					sharedContent = areaContent;
+					sharedToggle = toggle;
+				} else externalContent = areaContent;
 				area.append(areaHeader, areaContent);
 				root.append(area);
 			}
 			renderMainContent(content);
+			renderExternalInventory();
 			renderSharedInventory();
+		}
+
+		async function loadExternalInventory() {
+			const request = ++externalRequest;
+			if (!bankAvailable) return;
+			try {
+				const data = await options.api('/trainer/item-bank?characterId=' + encodeURIComponent(options.characterId));
+				if (request !== externalRequest) return;
+				const signature = JSON.stringify(data);
+				if (signature === externalSignature && !externalError) return;
+				externalData = data;
+				externalSignature = signature;
+				externalError = '';
+				if (!externalCategory) externalCategory = data.categories[0]?.id || null;
+				renderExternalInventory();
+			} catch (error) {
+				if (request !== externalRequest) return;
+				externalError = error.message || 'Não foi possível carregar o banco de itens.';
+				renderExternalInventory();
+			}
+		}
+
+		function showBankItemDetails(item, anchor) {
+			const dialog = createDialog('bag-ui-item-dialog', null, anchor);
+			dialogHeading(dialog.card, item.name, dialog.closeAll);
+			const summary = el('div', 'bag-ui-detail-summary');
+			summary.append(itemIcon(item, 'large'), el('strong', '', item.name),
+				el('b', '', '×' + item.quantity));
+			dialog.card.append(summary, el('p', 'bag-ui-description', item.description));
+			if (item.maxCharges !== undefined) dialog.card.append(el('p', 'bag-ui-description',
+				`Cargas: ${item.charges ?? 0}/${item.maxCharges}`));
+			const feedback = el('p', 'bag-ui-description');
+			const quantity = el('input');
+			quantity.type = 'number'; quantity.min = '1'; quantity.max = String(Math.min(item.quantity, 99));
+			quantity.value = '1';
+			if (item.kind === 'pokemon') dialog.card.append(el('label', '', 'Quantidade'), quantity);
+			const withdraw = makeButton('Retirar do banco', 'button primary');
+			withdraw.addEventListener('click', async () => {
+				const count = item.kind === 'equipment' ? item.quantity : Number(quantity.value);
+				if (!Number.isSafeInteger(count) || count < 1 || count > Math.min(item.quantity, 99)) {
+					feedback.textContent = 'Escolha uma quantidade válida.'; return;
+				}
+				withdraw.disabled = true;
+				try {
+					await options.api('/trainer/equipment', { method: 'POST', body: {
+						characterId: options.characterId, expectedRevision: externalData.equipmentRevision,
+						action: item.kind === 'pokemon' ? 'movePokemon' : 'move',
+						...(item.kind === 'pokemon' ? { itemId: item.itemId, sourceLocation: 'bank',
+							expectedBagRevision: externalData.bagRevision } : { instanceId: item.id }),
+						location: item.kind === 'equipment' && item.vehicle ? 'vehicle' : 'bag', quantity: count,
+					} });
+					dialog.closeAll();
+					options.toast(`${count} × ${item.name} retirado do banco.`);
+					await load();
+					await loadExternalInventory();
+					window.dispatchEvent(new CustomEvent('rpg:realtime-sync'));
+				} catch (error) { feedback.textContent = error.message; withdraw.disabled = false; }
+			});
+			dialog.card.append(feedback, withdraw);
+		}
+
+		function renderExternalInventory() {
+			if (!externalContent) return;
+			externalContent.replaceChildren();
+			if (!bankAvailable) return;
+			if (externalError) { externalContent.append(el('p', 'empty-state', externalError)); return; }
+			if (!externalData) { externalContent.append(el('p', 'empty-state', 'Carregando o banco de itens...')); return; }
+			const workspace = el('div', 'bag-ui-workspace bag-ui-bank-workspace');
+			const sidebar = el('aside', 'bag-ui-sidebar');
+			const identity = el('div', 'bag-ui-bag-identity');
+			const bankSprite = el('img', 'bag-ui-bank-sprite');
+			bankSprite.src = '/rpg/assets/bags/bank.png';
+			bankSprite.alt = 'Banco de itens';
+			identity.append(bankSprite,
+				el('small', 'bag-ui-capacity', `${externalData.itemTypes} tipos de itens`),
+				el('div', 'bag-ui-pokecoins', 'Pokécoins: ' +
+				new Intl.NumberFormat('pt-BR').format(externalData.balance) + ' ₽'));
+			sidebar.append(identity);
+			const navigation = el('nav', 'bag-ui-category-list');
+			for (const category of externalData.categories) {
+				const button = makeButton('', 'bag-ui-category-link' + (externalCategory === category.id ? ' active' : ''));
+				button.append(el('strong', '', category.name));
+				button.addEventListener('click', () => { externalCategory = category.id; externalSearch = ''; renderExternalInventory(); });
+				navigation.append(button);
+			}
+			sidebar.append(navigation);
+			const main = el('div', 'bag-ui-main');
+			const searchBar = el('label', 'bag-ui-search');
+			searchBar.append(el('span', '', 'Pesquisar'));
+			const search = el('input'); search.type = 'search'; search.placeholder = 'Nome do item';
+			search.value = externalSearch;
+			const content = el('div', 'bag-ui-content');
+			const renderItems = () => {
+				content.replaceChildren();
+				const category = externalData.categories.find(entry => entry.id === externalCategory);
+				content.append(el('h2', '', externalSearch ? 'Resultados da pesquisa' : category?.name || 'Itens'));
+				const visible = externalData.items.filter(item =>
+					(!externalSearch || item.name.toLocaleLowerCase('pt-BR').includes(externalSearch.toLocaleLowerCase('pt-BR'))) &&
+					(externalSearch || !externalCategory || item.category === externalCategory));
+				if (!visible.length) { content.append(el('p', 'empty-state bag-ui-empty', 'Nenhum item encontrado.')); return; }
+				const list = el('div', 'bag-ui-item-grid');
+				for (const item of visible) {
+					const card = makeButton('', 'bag-ui-item');
+					const name = el('span', 'bag-ui-item-name'); name.append(el('strong', '', item.name));
+					card.append(itemIcon(item), name, el('b', 'bag-ui-quantity', '×' + item.quantity));
+					card.addEventListener('click', () => showBankItemDetails(item, card));
+					list.append(card);
+				}
+				content.append(list);
+			};
+			search.addEventListener('input', () => { externalSearch = search.value; renderItems(); });
+			searchBar.append(search); main.append(searchBar, content);
+			renderItems(); workspace.append(sidebar, main); externalContent.append(workspace);
 		}
 
 		async function loadSharedInventory() {
 			const request = ++sharedRequest;
 			try {
-				const entries = await options.api('/trainer/support-caches');
+				const [vehicles, caches] = await Promise.all([
+					options.api('/trainer/shared-vehicles'), options.api('/trainer/support-caches'),
+				]);
+				const entries = [
+					...vehicles.map(entry => ({ ...entry, kind: 'vehicle', key: `vehicle:${entry.vehicleId}` })),
+					...caches.map(entry => ({ ...entry, kind: 'cache', key: `cache:${entry.cacheId}` })),
+				];
 				if (request !== sharedRequest) return;
-				const selected = entries.some(entry => entry.cacheId === selectedSharedId) ?
-					selectedSharedId : entries[0]?.cacheId || null;
-				const detail = selected ? await options.api('/trainer/support-cache?cacheId=' +
-					encodeURIComponent(selected)) : null;
+				const selected = entries.find(entry => entry.key === selectedSharedId) || entries[0] || null;
+				const detail = selected ? await options.api(selected.kind === 'vehicle' ?
+					'/trainer/shared-vehicle?vehicleId=' + encodeURIComponent(selected.vehicleId) :
+					'/trainer/support-cache?cacheId=' + encodeURIComponent(selected.cacheId)) : null;
 				if (request !== sharedRequest) return;
 				const signature = JSON.stringify({ entries, detail });
 				if (signature === sharedSignature && !sharedError) return;
 				sharedSignature = signature;
 				sharedInventory = entries;
-				selectedSharedId = selected;
-				selectedShared = detail;
+				selectedSharedId = selected?.key || null;
+				selectedShared = detail && { ...detail, kind: selected.kind };
 				sharedError = '';
 				sharedLoaded = true;
 				renderSharedInventory();
@@ -458,8 +726,9 @@
 			const withdraw = makeButton('Retirar', 'button primary'); withdraw.type = 'submit';
 			const feedback = el('p', 'bag-ui-shared-feedback');
 			form.append(amount, withdraw, feedback);
-			if (selectedShared.canConceal && (selectedShared.concealmentOwnerId === options.characterId &&
-				item.concealedStatus || !selectedShared.items.some(entry => entry.concealedStatus))) {
+			if (selectedShared.kind === 'cache' && selectedShared.canConceal &&
+				(selectedShared.concealmentOwnerId === options.characterId &&
+					item.concealedStatus || !selectedShared.items.some(entry => entry.concealedStatus))) {
 				const conceal = makeButton(item.concealedStatus ? 'Desfazer compartimento' :
 					'Preparar compartimento', 'button');
 				conceal.addEventListener('click', async () => {
@@ -467,7 +736,7 @@
 					try {
 						const action = item.concealedStatus ? 'reveal' : 'conceal';
 						await options.api('/trainer/talents/hidden-compartment', { method: 'POST', body: {
-							container: 'support-cache', cacheId: selectedSharedId, action,
+							container: 'support-cache', cacheId: selectedShared.cacheId, action,
 							kind: item.kind, itemId: item.itemId,
 							instanceId: item.kind === 'equipment' ? item.id : undefined,
 						} });
@@ -489,17 +758,23 @@
 				}
 				withdraw.disabled = true;
 				try {
-					const updated = await options.api('/trainer/support-cache', { method: 'POST', body: {
-						cacheId: selectedSharedId, action: 'withdraw', kind: item.kind,
-						itemId: item.itemId, instanceId: item.kind === 'equipment' ? item.id : undefined,
-						quantity, expectedRevision: selectedShared.revision,
-						expectedBagRevision: selectedShared.bagRevision,
-						expectedEquipmentRevision: selectedShared.equipmentRevision,
-					} });
+					const vehicle = selectedShared.kind === 'vehicle';
+					const updated = await options.api(vehicle ? '/trainer/shared-vehicle' : '/trainer/support-cache', {
+						method: 'POST', body: {
+							...(vehicle ? { vehicleId: selectedShared.vehicleId,
+								expectedOwnerRevision: selectedShared.ownerRevision,
+								expectedActorRevision: selectedShared.actorRevision } :
+							{ cacheId: selectedShared.cacheId, expectedRevision: selectedShared.revision,
+								expectedEquipmentRevision: selectedShared.equipmentRevision }),
+							action: 'withdraw', kind: item.kind,
+							itemId: item.itemId, instanceId: item.kind === 'equipment' ? item.id : undefined,
+							quantity,
+							expectedBagRevision: selectedShared.bagRevision,
+						} });
 					dialog.closeAll();
-					selectedShared = updated; sharedSignature = '';
+					selectedShared = { ...updated, kind: selectedShared.kind }; sharedSignature = '';
 					renderSharedInventory();
-					options.toast(`${quantity} × ${item.name} retirado do Ponto de Apoio.`);
+					options.toast(`${quantity} × ${item.name} retirado de ${selectedShared.location}.`);
 					await load();
 					void loadSharedInventory();
 					window.dispatchEvent(new CustomEvent('rpg:realtime-sync'));
@@ -513,18 +788,27 @@
 		function renderSharedInventory() {
 			if (!sharedContent) return;
 			sharedContent.replaceChildren();
+			const empty = sharedLoaded && !sharedError && !sharedInventory.length;
+			if (sharedToggle) sharedToggle.hidden = empty;
+			sharedContent.hidden = empty || !auxiliaryExpanded.Compartilhado;
+			if (empty) return;
 			const workspace = el('div', 'bag-ui-workspace bag-ui-shared-workspace');
 			const sidebar = el('aside', 'bag-ui-shared-sidebar');
 			sidebar.append(el('h3', '', 'Locais'));
 			const navigation = el('nav', 'bag-ui-category-list');
-			if (sharedInventory.length) navigation.append(el('h4', '', 'Pontos de Apoio'));
+			let previousKind = null;
 			for (const entry of sharedInventory) {
+				if (entry.kind !== previousKind) {
+					navigation.append(el('h4', '', entry.kind === 'vehicle' ? 'Veículos' : 'Pontos de Apoio'));
+					previousKind = entry.kind;
+				}
 				const choice = makeButton('', 'bag-ui-category-link' +
-					(selectedSharedId === entry.cacheId ? ' active' : ''));
-				choice.append(el('strong', '', entry.location), el('small', '', entry.ownerName));
+					(selectedSharedId === entry.key ? ' active' : ''));
+				choice.append(el('strong', '', entry.kind === 'vehicle' ? entry.name : entry.location),
+					el('small', '', entry.ownerName));
 				choice.addEventListener('click', () => {
-					if (selectedSharedId === entry.cacheId) return;
-					selectedSharedId = entry.cacheId; selectedShared = null;
+					if (selectedSharedId === entry.key) return;
+					selectedSharedId = entry.key; selectedShared = null;
 					renderSharedInventory(); void loadSharedInventory();
 				});
 				navigation.append(choice);
@@ -539,6 +823,34 @@
 				heading.append(el('h2', '', selectedShared.location),
 					el('small', '', `${selectedShared.ownerName} · ${selectedShared.usedSlots} / ` +
 					`${selectedShared.maxSlots} espaços`));
+				if (options.isMaster && selectedShared.kind === 'cache') {
+					const remove = makeButton('Apagar Ponto de Apoio', 'button bag-ui-cache-delete');
+					let armed = false;
+					remove.addEventListener('click', async () => {
+						if (!armed) {
+							armed = true;
+							remove.classList.add('danger');
+							remove.textContent = selectedShared.items.length ?
+								'Confirmar: apagar local e itens' : 'Confirmar exclusão';
+							return;
+						}
+						remove.disabled = true;
+						try {
+							await options.api('/trainer/support-cache', { method: 'POST', body: {
+								action: 'delete', cacheId: selectedShared.cacheId,
+								expectedRevision: selectedShared.revision, confirmContents: true,
+							} });
+							selectedSharedId = null; selectedShared = null; sharedSignature = '';
+							options.toast('Ponto de Apoio apagado.');
+							await loadSharedInventory();
+							window.dispatchEvent(new CustomEvent('rpg:realtime-sync'));
+						} catch (error) {
+							options.toast(error.message || 'Não foi possível apagar o Ponto de Apoio.', true);
+							remove.disabled = false;
+						}
+					});
+					heading.append(remove);
+				}
 				content.append(heading);
 				if (selectedShared.items.length) {
 					const list = el('div', 'bag-ui-item-grid');
@@ -552,7 +864,10 @@
 						list.append(card);
 					}
 					content.append(list);
-				} else { content.append(el('p', 'empty-state bag-ui-empty', 'Nenhum item neste Ponto de Apoio.')); }
+				} else {
+					content.append(el('p', 'empty-state bag-ui-empty',
+						selectedShared.kind === 'vehicle' ? 'Nenhum item neste veículo.' : 'Nenhum item neste Ponto de Apoio.'));
+				}
 			} else {
 				content.append(el('p', 'empty-state bag-ui-empty',
 					!sharedLoaded || sharedInventory.length ? 'Carregando os itens...' :
@@ -666,6 +981,71 @@
 			dialog.card.append(content);
 		}
 
+		function showVehicleDeposit(item, vehicle, kind, parentDialog) {
+			const dialog = createDialog('bag-ui-send-deposit', parentDialog);
+			const close = () => dialog.overlay.remove();
+			dialogHeading(dialog.card, 'Quantidade', close);
+			const content = el('div', 'bag-ui-transfer-content');
+			const quantity = quantityInput(Math.min(item.quantity, 99));
+			quantity.setAttribute('aria-label', `Quantidade de ${item.name} para enviar`);
+			const feedback = el('p', 'bag-ui-shared-feedback');
+			const actions = el('div', 'bag-ui-dialog-inline-actions');
+			const confirm = makeButton('Enviar', 'button primary');
+			const cancel = makeButton('Cancelar', 'button');
+			cancel.addEventListener('click', close);
+			confirm.addEventListener('click', async () => {
+				const amount = Number(quantity.value);
+				if (!Number.isSafeInteger(amount) || amount < 1 || amount > Math.min(item.quantity, 99)) {
+					feedback.textContent = 'Escolha uma quantidade válida.'; return;
+				}
+				confirm.disabled = true;
+				try {
+					const detail = await options.api('/trainer/shared-vehicle?vehicleId=' + encodeURIComponent(vehicle.vehicleId));
+					await options.api('/trainer/shared-vehicle', { method: 'POST', body: {
+						vehicleId: vehicle.vehicleId, action: 'deposit', kind,
+						itemId: kind === 'pokemon' ? item.id : undefined,
+						instanceId: kind === 'equipment' ? item.equipmentInstanceId : undefined,
+						quantity: amount, expectedOwnerRevision: detail.ownerRevision,
+						expectedActorRevision: detail.actorRevision, expectedBagRevision: detail.bagRevision,
+					} });
+					dialog.closeAll();
+					options.toast(`${amount} × ${item.name} enviado para ${vehicle.name}.`);
+					await load();
+					void loadSharedInventory();
+					window.dispatchEvent(new CustomEvent('rpg:realtime-sync'));
+				} catch (error) {
+					feedback.textContent = error.message || 'Não foi possível enviar o item.';
+					confirm.disabled = false;
+				}
+			});
+			actions.append(cancel, confirm);
+			content.append(quantity, feedback, actions);
+			dialog.card.append(content);
+		}
+
+		async function showVehicleEquipmentDestinations(item, parentDialog) {
+			const dialog = createDialog('bag-ui-send-destinations', parentDialog);
+			dialogHeading(dialog.card, 'Enviar para veículo', () => dialog.overlay.remove());
+			const destinations = el('div', 'bag-ui-transfer-content');
+			const status = el('p', 'bag-ui-shared-feedback', 'Carregando veículos...');
+			destinations.append(status);
+			dialog.card.append(destinations);
+			try {
+				const vehicles = await options.api('/trainer/shared-vehicles');
+				if (!dialog.card.isConnected) return;
+				status.remove();
+				if (!vehicles.length) destinations.append(el('p', 'empty-state', 'Nenhum veículo com carga disponível.'));
+				for (const vehicle of vehicles) {
+					const destination = makeButton('', 'button bag-ui-transfer-target');
+					destination.append(el('strong', '', vehicle.name), el('small', '', vehicle.ownerName));
+					destination.addEventListener('click', () => showVehicleDeposit(item, vehicle, 'equipment', dialog));
+					destinations.append(destination);
+				}
+			} catch (error) {
+				if (dialog.card.isConnected) status.textContent = error.message || 'Não foi possível carregar os veículos.';
+			}
+		}
+
 		async function showSendDestinations(item, parentDialog) {
 			const dialog = createDialog('bag-ui-send-destinations', parentDialog);
 			dialogHeading(dialog.card, 'Enviar para', () => dialog.overlay.remove());
@@ -673,13 +1053,26 @@
 			const mission = makeButton('Itens de Missão', 'button bag-ui-transfer-target');
 			mission.addEventListener('click', () => showMoveToMission(item, dialog));
 			destinations.append(mission);
-			const status = el('p', 'bag-ui-shared-feedback', 'Carregando Pontos de Apoio...');
+			if (bankAvailable) {
+				const bank = makeButton('Banco de itens', 'button bag-ui-transfer-target');
+				bank.addEventListener('click', () => showBankDeposit(item, dialog));
+				destinations.append(bank);
+			}
+			const status = el('p', 'bag-ui-shared-feedback', 'Carregando veículos e Pontos de Apoio...');
 			destinations.append(status);
 			dialog.card.append(destinations);
 			try {
-				const caches = await options.api('/trainer/support-caches');
+				const [vehicles, caches] = await Promise.all([
+					options.api('/trainer/shared-vehicles'), options.api('/trainer/support-caches'),
+				]);
 				if (!dialog.card.isConnected) return;
 				status.remove();
+				for (const vehicle of vehicles) {
+					const destination = makeButton('', 'button bag-ui-transfer-target');
+					destination.append(el('strong', '', vehicle.name), el('small', '', `Veículo de ${vehicle.ownerName}`));
+					destination.addEventListener('click', () => showVehicleDeposit(item, vehicle, 'pokemon', dialog));
+					destinations.append(destination);
+				}
 				for (const cache of caches) {
 					const destination = makeButton('', 'button bag-ui-transfer-target');
 					destination.append(el('strong', '', cache.location), el('small', '', `Ponto de Apoio de ${cache.ownerName}`));
@@ -691,6 +1084,144 @@
 			}
 		}
 
+		function showBankDeposit(item, parentDialog) {
+			const dialog = createDialog('bag-ui-send-deposit', parentDialog);
+			dialogHeading(dialog.card, 'Enviar ao banco', () => dialog.overlay.remove());
+			const quantity = quantityInput(Math.min(item.quantity, 99));
+			quantity.setAttribute('aria-label', `Quantidade de ${item.name} para guardar no banco`);
+			const feedback = el('p', 'bag-ui-shared-feedback');
+			const confirm = makeButton('Guardar', 'button primary');
+			confirm.addEventListener('click', async () => {
+				const count = Number(quantity.value);
+				if (!Number.isSafeInteger(count) || count < 1 || count > Math.min(item.quantity, 99)) {
+					feedback.textContent = 'Escolha uma quantidade válida.'; return;
+				}
+				confirm.disabled = true;
+				try {
+					const equipment = await options.api('/trainer/equipment?characterId=' + encodeURIComponent(options.characterId));
+					await options.api('/trainer/equipment', { method: 'POST', body: {
+						characterId: options.characterId, action: 'movePokemon', itemId: item.id,
+						sourceLocation: 'bag', location: 'bank', quantity: count,
+						expectedRevision: equipment.inventory.revision, expectedBagRevision: bagData.revision,
+					} });
+					dialog.closeAll();
+					options.toast(`${count} × ${item.name} guardado no banco.`);
+					await load();
+					await loadExternalInventory();
+					window.dispatchEvent(new CustomEvent('rpg:realtime-sync'));
+				} catch (error) { feedback.textContent = error.message; confirm.disabled = false; }
+			});
+			dialog.card.append(el('p', 'bag-ui-description', item.name), quantity, feedback, confirm);
+		}
+
+		async function showEquipmentDetails(item, dialog, close) {
+			const details = el('div', 'bag-ui-equipment-details');
+			const feedback = el('p', 'bag-ui-description');
+			const actions = el('div', 'bag-ui-detail-actions');
+			const format = value => new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 2 }).format(value);
+			const line = [
+				`Peso: ${format(item.weightKg || 0)} kg`,
+				`Espaços: ${item.slots || 0}`,
+				`Pilha: até ${item.equipmentStackLimit || 1}`,
+				item.equipmentMaxCharges === undefined ? '' : `Cargas: ${item.equipmentCharges ?? 0}/${item.equipmentMaxCharges}`,
+				item.equipmentDomain ? `Domínio: ${item.equipmentDomain} · ${item.equipmentDomainKnown ? 'dominado' : 'não dominado'}` : '',
+				item.equipmentLicense ? `Licença ${item.equipmentLicense}: ${item.equipmentLicensed ? 'ativa' : 'ausente'}` : '',
+			].filter(Boolean);
+			for (const entry of line) details.append(el('p', '', entry));
+			dialog.card.append(details, feedback, actions);
+			let state;
+			try {
+				state = await options.api('/trainer/equipment?characterId=' + encodeURIComponent(options.characterId));
+			} catch (error) { feedback.textContent = error.message; return; }
+			const run = async (action, extra = {}) => {
+				for (const button of actions.querySelectorAll('button')) button.disabled = true;
+				try {
+					await options.api('/trainer/equipment', { method: 'POST', body: {
+						characterId: options.characterId, action, expectedRevision: state.inventory.revision,
+						instanceId: item.equipmentInstanceId, ...extra,
+					} });
+					close();
+					await load();
+					window.dispatchEvent(new CustomEvent('rpg:realtime-sync'));
+					return true;
+				} catch (error) {
+					feedback.textContent = error.message;
+					for (const button of actions.querySelectorAll('button')) button.disabled = false;
+					return false;
+				}
+			};
+			const addAction = (label, action, extra) => {
+				const button = makeButton(label, 'button');
+				button.addEventListener('click', () => void run(action, extra));
+				actions.append(button);
+			};
+			const chooseQuantity = (action, target) => {
+				const choice = createDialog('bag-ui-transfer-dialog', dialog);
+				dialogHeading(choice.card, action === 'discard' ? 'Descartar' : 'Dar para outro jogador', () => choice.overlay.remove());
+				choice.card.append(el('p', 'bag-ui-description', `${item.name} · disponível: ${item.quantity}`));
+				const quantity = el('input', '');
+				quantity.type = 'number'; quantity.min = '1'; quantity.max = String(item.quantity);
+				quantity.value = '1';
+				choice.card.append(quantity);
+				const response = el('p', 'bag-ui-description');
+				const submit = makeButton('Confirmar', 'button primary');
+				submit.addEventListener('click', async () => {
+					const count = Number(quantity.value);
+					if (!Number.isSafeInteger(count) || count < 1 || count > item.quantity) {
+						response.textContent = 'Escolha uma quantidade disponível.'; return;
+					}
+					submit.disabled = true;
+					try {
+						const success = await run(action, { quantity: count, ...(target ?
+							{ targetCharacterId: target.id, expectedTargetRevision: target.revision } : {}) });
+						if (success) choice.overlay.remove();
+						else { response.textContent = feedback.textContent; submit.disabled = false; }
+					} catch (error) { response.textContent = error.message; submit.disabled = false; }
+				});
+				choice.card.append(response, submit);
+			};
+			if (item.equipmentLocation === 'bag') {
+				if (item.equipmentEquipSlot) addAction(item.equipmentEquipped ? 'Retirar' : 'Equipar', 'equip',
+					{ equipped: !item.equipmentEquipped });
+				if (item.equipmentKind === 'food') addAction('Consumir 1', 'consume', { quantity: 1 });
+				if (item.equipmentKind === 'device' && item.equipmentMaxCharges !== undefined && item.equipmentCharges > 0) {
+					addAction('Usar 1 carga', 'consume', { quantity: 1 });
+				}
+				if (!item.equipmentEquipped) {
+					if (bankAvailable && item.equipmentKind !== 'vehicle') {
+						addAction('Guardar no banco', 'move', { location: 'bank', quantity: item.quantity });
+					}
+					if (item.equipmentKind !== 'vehicle') {
+						const sendToVehicle = makeButton('Enviar para veículo', 'button');
+						sendToVehicle.addEventListener('click', () => void showVehicleEquipmentDestinations(item, dialog));
+						actions.append(sendToVehicle);
+					}
+					const discard = makeButton('Descartar', 'button');
+					discard.addEventListener('click', () => chooseQuantity('discard'));
+					actions.append(discard);
+					for (const recipient of state.recipients || []) {
+						const give = makeButton(`Dar para ${recipient.name}`, 'button');
+						give.addEventListener('click', () => chooseQuantity('transfer', recipient));
+						if (item.equipmentMaxCharges !== undefined && item.quantity > 1) give.disabled = true;
+						actions.append(give);
+					}
+				}
+			} else if (item.equipmentLocation === 'bank' && bankAvailable) {
+				addAction('Retirar do banco', 'move', {
+					location: item.equipmentKind === 'vehicle' ? 'vehicle' : 'bag', quantity: item.quantity,
+				});
+			}
+			if (item.equipmentMaxCharges !== undefined && item.equipmentCharges < item.equipmentMaxCharges &&
+				item.equipmentLocation === 'bag') {
+				const compatible = state.inventory.items.filter(entry => entry.location === 'bag' &&
+					entry.id !== item.equipmentInstanceId && state.catalog[entry.itemId]?.refillFor &&
+					(state.catalog[entry.itemId].refillFor === 'device' ? state.catalog[item.equipmentItemId]?.category === 'device' :
+					item.equipmentItemId.startsWith(state.catalog[entry.itemId].refillFor)));
+				for (const refill of compatible) addAction(`Repor com ${state.catalog[refill.itemId].name}`, 'refill',
+					{ refillInstanceId: refill.id });
+			}
+		}
+
 		function showItemDetails(item, itemAnchor) {
 			const dialog = createDialog('bag-ui-item-dialog', null, itemAnchor);
 			const close = () => dialog.overlay.remove();
@@ -698,12 +1229,14 @@
 			const summary = el('div', 'bag-ui-detail-summary');
 			const identity = el('div');
 			identity.append(el('strong', '', item.name));
-			if (item.category !== 'food-items') {
-				identity.append(el('small', '', item.registryCategory));
-				summary.append(itemIcon(item, 'large'));
-			}
+			identity.append(el('small', '', item.registryCategory));
+			summary.append(itemIcon(item, 'large'));
 			summary.append(identity, el('b', '', '×' + item.quantity));
 			dialog.card.append(summary, el('p', 'bag-ui-description', item.description));
+			if (item.equipmentInstanceId) {
+				void showEquipmentDetails(item, dialog, close);
+				return;
+			}
 			if (item.category === 'talent-items') dialog.card.append(el('p', 'bag-ui-description',
 				`Peso: ${item.weightKg || 0} kg · Espaços na Bag: ${item.slots || 0}`));
 			if (item.fossilDisplayOnly) dialog.card.append(el('p', 'bag-ui-description',
@@ -729,12 +1262,11 @@
 				conceal.addEventListener('click', async () => {
 					conceal.disabled = true;
 					try {
-						const equipmentItem = item.id.startsWith('equipment:');
-						const itemId = equipmentItem ? item.id.slice('equipment:'.length) : item.id;
+						const equipmentItem = !!item.equipmentInstanceId;
+						const itemId = equipmentItem ? item.equipmentItemId : item.id;
 						const inventory = equipmentItem && !item.concealedStatus ? await options.api(
 							'/trainer/equipment?characterId=' + encodeURIComponent(options.characterId)) : null;
-						const instance = inventory?.inventory?.items?.find(entry => entry.itemId === itemId &&
-							entry.location === 'bag' && !entry.equipped && entry.quantity > 0);
+						const instance = inventory?.inventory?.items?.find(entry => entry.id === item.equipmentInstanceId);
 						await options.api('/trainer/talents/hidden-compartment', { method: 'POST', body: {
 							container: 'bag', action: item.concealedStatus ? 'reveal' : 'conceal',
 							kind: equipmentItem ? 'equipment' : 'pokemon', itemId,
@@ -1228,7 +1760,8 @@
 				positionDialog(dialog);
 				window.requestAnimationFrame(() => positionDialog(dialog));
 			});
-			dialogHeading(dialog.card, 'Administrar itens', close);
+			dialogHeading(dialog.card, options.masterItemManagerOnly ?
+				'Dar item para ' + options.characterName : 'Administrar itens', close);
 			const form = el('form', 'bag-ui-master-form');
 			const operation = el('select');
 			for (const [value, label] of [['add', 'Adicionar / recompensa'], ['remove', 'Remover'], ['set', 'Definir quantidade']]) {
@@ -1246,14 +1779,19 @@
 			quantityField.append(el('span', '', 'Quantidade'), quantity);
 			const submit = makeButton('Aplicar', 'button primary hidden');
 			submit.type = 'submit';
-			form.append(el('label', '', 'Operação'), operation, stage, quantityField, submit);
+			if (options.masterItemManagerOnly) {
+				form.append(stage, quantityField, submit);
+			} else {
+				form.append(el('label', '', 'Operação'), operation, stage, quantityField, submit);
+			}
 			dialog.card.append(form);
 			try {
 				const data = await options.api('/bag/master/catalog');
 				const equipment = await options.api('/trainer/equipment?characterId=' + encodeURIComponent(options.characterId));
 				const catalog = [...(data.items || []), ...Object.values(equipment.catalog || {}).map(item => ({
 					id: 'equipment:' + item.id, name: item.name, category: 'trainer-equipment',
-					icon: null, sprite: null, tags: ['trainer-equipment'],
+					equipmentCategory: item.category, refillFor: item.refillFor,
+					icon: item.icon, sprite: null, tags: ['trainer-equipment'],
 				}))];
 				const owned = new Map();
 				for (const item of bagData.items || []) {
@@ -1311,7 +1849,7 @@
 							const choice = makeButton(
 								'', 'bag-ui-master-catalog-item' + (entry.id === selectedId && entry.quality === selectedQuality ? ' selected' : '')
 							);
-							if (entry.category !== 'trainer-equipment') choice.append(itemIcon(entry));
+							choice.append(itemIcon(entry));
 							choice.append(el('span', '', entry.displayName));
 							if (owned.has(entry.id)) choice.append(el('b', '', '×' + owned.get(entry.id).quantity));
 							choice.addEventListener('click', () => {
@@ -1367,6 +1905,7 @@
 						close();
 						options.toast('Bag atualizada pelo Mestre.');
 						await load();
+						if (options.onMasterItemUpdated) await options.onMasterItemUpdated();
 					} catch (error) {
 						submit.disabled = false;
 						options.toast(error.message, true);
@@ -1428,6 +1967,12 @@
 		}
 
 		await load();
+		if (options.masterItemManagerOnly) {
+			if (!options.isMaster) throw new Error('Apenas o Mestre pode entregar itens.');
+			await showQuantityManager(options.anchor);
+			return root;
+		}
+		await loadExternalInventory();
 		await loadSharedInventory();
 		const synchronize = () => {
 			if (!root.isConnected) {
@@ -1438,6 +1983,7 @@
 				root.contains(document.activeElement) &&
 				['INPUT', 'TEXTAREA', 'SELECT'].includes(document.activeElement.tagName)) return;
 			void load();
+			void loadExternalInventory();
 			void loadSharedInventory();
 		};
 		window.addEventListener('rpg:realtime-sync', synchronize);

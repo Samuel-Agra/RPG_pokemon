@@ -6,6 +6,40 @@ const { RPGLoginService, RPGMemoryCharacterRepository, createRPGPendingTrainerSh
 const { RPGBagSystem } = require('../../dist/sim/rpg-showdown');
 
 describe('RPG Ponto de Apoio do Explorador', () => {
+	it('lets the Master block an individual Ponto de Apoio without freeing its creation limit', () => {
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({ masterCode: 'teste', repository });
+		service.createCharacter({ characterName: 'Ana', playerName: 'Ana', avatar: 'lucas',
+			password: 'senha-rpg', initialMoney: 100, starter: { species: 'Squirtle', gender: 'M' } });
+		const record = repository.get('ana');
+		record.tableId = 'mesa-teste'; record.accountId = 'ana';
+		service.createCharacter({ characterName: 'Bia', playerName: 'Bia', avatar: 'lucas',
+			password: 'senha-rpg', initialMoney: 100, starter: { species: 'Squirtle', gender: 'F' } });
+		const ally = repository.get('bia');
+		ally.tableId = 'mesa-teste'; ally.accountId = 'bia'; repository.set(ally);
+		record.state.trainerSheet = { ...createRPGPendingTrainerSheet(), status: 'complete',
+			classId: 'explorador', level: 7,
+			attributes: { strength: 15, dexterity: 14, constitution: 13, intelligence: 12, wisdom: 10, charisma: 8 },
+			talents: { general: [], class: ['explorador:ponto-de-apoio'], apex: null } };
+		repository.set(record);
+		let activeId = 'ana';
+		service.getSession = token => token === 'master' ?
+			{ mode: 'master', role: 'master', platformTableId: 'mesa-teste' } :
+			{ mode: 'player', role: 'player', platformTableId: 'mesa-teste', characterId: activeId };
+		service.accounts.repository.getMembership = () => ({ status: 'active' });
+		const cache = service.createSupportCache('player', 'Bosque');
+		assert.equal(service.getCharacterSharedInventories('master', 'ana').caches.length, 1);
+		service.setCharacterSharedInventoryAccess('master', 'ana', `cache:${cache.cacheId}`, false);
+		assert.equal(service.getSupportCaches('player').length, 0);
+		assert.throws(() => service.getSupportCache('player', cache.cacheId), /indisponível/);
+		activeId = 'bia';
+		assert.equal(service.getSupportCaches('player').length, 0);
+		assert.throws(() => service.getSupportCache('player', cache.cacheId), /indisponível/);
+		activeId = 'ana';
+		assert.throws(() => service.createSupportCache('player', 'Outra trilha'), /Limite de 1/);
+		service.setCharacterSharedInventoryAccess('master', 'ana', `cache:${cache.cacheId}`, true);
+		assert.equal(service.getSupportCaches('player').length, 1);
+	});
 	it('remove Caminho Alternativo e libera Ponto de Apoio sem o talento extinto', () => {
 		assert.equal(RPG_TRAINER_TALENTS.some(talent => talent.id === 'explorador:caminho-alternativo'), false);
 		const sheet = { ...createRPGPendingTrainerSheet(), status: 'complete', classId: 'explorador', level: 7,
@@ -171,8 +205,10 @@ describe('RPG Ponto de Apoio do Explorador', () => {
 			repository.set(record);
 		}
 		let activeId = 'ana';
-		service.getSession = () => ({ mode: 'player', role: 'player',
-			platformTableId: activeId === 'caio' ? 'outra-mesa' : 'mesa-teste', characterId: activeId });
+		service.getSession = token => token === 'master' ?
+			{ mode: 'player', role: 'master', platformTableId: 'mesa-teste', viewAsCharacterId: 'bia' } :
+			{ mode: 'player', role: 'player',
+				platformTableId: activeId === 'caio' ? 'outra-mesa' : 'mesa-teste', characterId: activeId };
 		service.accounts.repository.getMembership = () => ({ status: 'active' });
 		const owner = repository.get('ana');
 		owner.state.inventory.bag = RPGBagSystem.add(owner.state.inventory.bag, 'potion', 1).bag;
@@ -199,5 +235,9 @@ describe('RPG Ponto de Apoio do Explorador', () => {
 			expectedRevision: filled.revision, confirmContents: true });
 		assert.equal(service.getSupportCaches('player').length, 0);
 		assert.throws(() => service.getSupportCache('player', cache.cacheId), /indisponível/);
+		const masterTarget = service.createSupportCache('player', 'Trilha');
+		assert.deepEqual(service.deleteSupportCache('master', { cacheId: masterTarget.cacheId,
+			expectedRevision: masterTarget.revision }), { cacheId: masterTarget.cacheId, deleted: true });
+		assert.equal(service.getSupportCaches('player').length, 0);
 	});
 });

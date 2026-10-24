@@ -449,6 +449,23 @@ export class RPGHttpServer {
 			this.json(res, 200, this.login.getSupportCaches(this.token(req)));
 			return;
 		}
+		if (method === 'GET' && url.pathname === '/api/rpg/trainer/shared-vehicles') {
+			this.json(res, 200, this.login.getSharedVehicles(this.token(req)));
+			return;
+		}
+		if (url.pathname === '/api/rpg/trainer/shared-vehicle') {
+			if (method === 'GET') {
+				this.json(res, 200, this.login.getSharedVehicle(this.token(req),
+					url.searchParams.get('vehicleId') || ''));
+				return;
+			}
+			if (method === 'POST') {
+				const body = await this.body(req);
+				this.json(res, 200, this.login.changeSharedVehicle(this.token(req), body as unknown as
+					Parameters<RPGLoginService['changeSharedVehicle']>[1]));
+				return;
+			}
+		}
 		if (method === 'POST' && url.pathname === '/api/rpg/trainer/talents/hidden-compartment') {
 			const body = await this.body(req);
 			this.json(res, 200, this.login.setTrainerHiddenCompartment(this.token(req), body as unknown as
@@ -1091,6 +1108,11 @@ export class RPGHttpServer {
 					body as unknown as Parameters<RPGLoginService['changeTrainerEquipment']>[1]));
 				return;
 			}
+		}
+		if (method === 'GET' && url.pathname === '/api/rpg/trainer/item-bank') {
+			this.json(res, 200, this.login.getTrainerItemBank(this.token(req),
+				url.searchParams.get('characterId') || undefined));
+			return;
 		}
 		if (method === 'GET' && url.pathname === '/api/rpg/trainer/equipment/offers') {
 			this.json(res, 200, { offers: this.login.getTrainerEquipmentOffers(this.token(req),
@@ -1890,6 +1912,19 @@ export class RPGHttpServer {
 				this.token(req), this.string(body.characterId), this.string(body.shopId), body.allowed === true
 			) });
 			return;
+		}
+		if (url.pathname === '/api/rpg/characters/shared-inventories') {
+			if (method === 'GET') {
+				this.json(res, 200, this.login.getCharacterSharedInventories(this.token(req),
+					url.searchParams.get('characterId') || ''));
+				return;
+			}
+			if (method === 'PUT') {
+				const body = await this.body(req);
+				this.json(res, 200, this.login.setCharacterSharedInventoryAccess(this.token(req),
+					this.string(body.characterId), this.string(body.inventoryId), body.allowed === true));
+				return;
+			}
 		}
 
 		if (method === 'GET' && url.pathname === '/api/rpg/pokemon-center') {

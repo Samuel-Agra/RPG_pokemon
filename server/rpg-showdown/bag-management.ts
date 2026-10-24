@@ -24,7 +24,9 @@ export const RPG_BAG_MANAGEMENT_VERSION = 1;
 export type RPGManagedBagContext = 'world' | 'battle';
 export type RPGManagedBagCategory = 'pokeballs' | 'medicines' | 'held-items' |
 	'evolution-items' | 'tms' | 'fossils' | 'treasures' | 'favorites' | 'mission-items' |
-	'mega-stones' | 'key-items' | 'battle-items' | 'talent-items' | 'food-items';
+	'mega-stones' | 'key-items' | 'battle-items' | 'talent-items' |
+	'trainer-kits' | 'trainer-weapons' | 'trainer-exploration' |
+	'trainer-devices' | 'trainer-vehicles';
 export type RPGManagedBagAction = 'use' | 'equip' | 'remove' | 'teach' | 'favorite' | 'unfavorite' |
 	'move-to-mission' | 'remove-from-mission' | 'edit-mission-note' | 'discard' | 'give' |
 	'use-record' | 'produce-record' | 'finish-record' | 'cancel-record';
@@ -70,6 +72,20 @@ export interface RPGManagedBagItemView {
 	/** Projeção de talento: não ocupa peso ou espaço e não pode ser transferida. */
 	weightKg?: number;
 	slots?: number;
+	equipmentInstanceId?: string;
+	equipmentItemId?: string;
+	equipmentKind?: string;
+	equipmentLocation?: 'bag' | 'bank' | 'vehicle';
+	equipmentCharges?: number;
+	equipmentMaxCharges?: number;
+	equipmentEquipped?: boolean;
+	equipmentDomain?: string;
+	equipmentDomainKnown?: boolean;
+	equipmentLegality?: string;
+	equipmentLicense?: string;
+	equipmentLicensed?: boolean;
+	equipmentStackLimit?: number;
+	equipmentEquipSlot?: string;
 	recordCraftId?: string;
 	linkedEggId?: string;
 	actions: RPGManagedBagAction[];
@@ -89,6 +105,11 @@ export interface RPGManagedBagView {
 	revision: number;
 	tier?: string;
 	capacity: ReturnType<typeof RPGBagSystem.getCapacity>;
+	weight?: { currentKg: number, comfortableKg: number, heavyKg: number, maximumKg: number };
+	bankAvailable?: boolean;
+	licenses?: { id: string, status: 'active' | 'temporary' | 'suspended' | 'revoked',
+		expiresAt?: number, valid: boolean, }[];
+	licenseFees?: Readonly<Record<string, number>>;
 	categories: RPGManagedBagCategoryView[];
 	items: RPGManagedBagItemView[];
 	canConceal?: boolean;
@@ -136,8 +157,11 @@ const WORLD_CATEGORIES: readonly { id: RPGManagedBagCategory, name: string }[] =
 	{ id: 'mega-stones', name: 'Mega Pedras' },
 	{ id: 'key-items', name: 'Itens-chave' },
 	{ id: 'mission-items', name: 'Itens de Missão' },
-	// Agrupamento visual temporário da V3; o id antigo preserva Bags e filtros já salvos.
-	{ id: 'food-items', name: 'Itens novos' },
+	{ id: 'trainer-kits', name: 'Kits' },
+	{ id: 'trainer-weapons', name: 'Armas e proteção' },
+	{ id: 'trainer-exploration', name: 'Exploração e acampamento' },
+	{ id: 'trainer-devices', name: 'Dispositivos' },
+	{ id: 'trainer-vehicles', name: 'Veículos' },
 	{ id: 'talent-items', name: 'Itens de talentos' },
 ];
 const BATTLE_CATEGORIES: readonly { id: RPGManagedBagCategory, name: string }[] = [
@@ -351,7 +375,7 @@ export class RPGBagManagement {
 		return RPGBoxManagement.setHeldItem(character, pokemonId, undefined, expectedBoxRevision);
 	}
 
-	private static category(
+	static category(
 		item: RPGItemDefinition, context: RPGManagedBagContext
 	): RPGManagedBagCategory | undefined {
 		if (item.category === 'ball') return 'pokeballs';

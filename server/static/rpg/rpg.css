@@ -2790,7 +2790,25 @@ input, select {
 .bag-manager { display: grid; gap: 12px; }
 .bag-ui-panel { overflow: hidden; }
 .bag-ui-auxiliary-panel { overflow: hidden; }
+.bag-ui-auxiliary-panel > .bag-ui-header { justify-content: space-between; flex-direction: row; align-items: center; }
+.bag-ui-auxiliary-toggle {
+	flex: none;
+	width: 34px;
+	height: 34px;
+	padding: 0;
+	border: 1px solid #a6b8d0;
+	border-radius: 5px;
+	background: #ffffff1a;
+	color: #fff;
+	font-size: 24px;
+	line-height: 1;
+	cursor: pointer;
+}
+.bag-ui-auxiliary-toggle:hover:not(:disabled) { background: #ffffff33; }
+.bag-ui-auxiliary-toggle[hidden] { display: none; }
+.bag-ui-auxiliary-toggle:disabled { opacity: .55; cursor: default; }
 .bag-ui-auxiliary-content { min-height: 110px; background: #f5f6f8; }
+.bag-ui-auxiliary-content[hidden] { display: none; }
 .bag-ui-shared-sidebar { min-width: 0; padding: 16px; background: #f3f4f6; border-right: 1px solid #aeb7c2; }
 .bag-ui-shared-sidebar h3 { margin: 0 0 16px; color: #273a53; font-family: Georgia, serif; font-size: 22px; }
 .bag-ui-shared-sidebar h4 { margin: 0; padding: 8px 2px; color: #405673; font-size: 13px; }
@@ -2837,6 +2855,7 @@ input, select {
 .bag-ui-category small { align-self: start; color: #6b7888; }
 .bag-ui-list-heading { display: flex; align-items: center; gap: 13px; margin-bottom: 11px; }
 .bag-ui-list-heading h2 { margin: 0; color: #2d4566; font-family: Georgia, serif; font-size: 18px; }
+.bag-ui-cache-delete { margin-left: auto; white-space: normal; }
 .bag-ui-item-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .bag-ui-item {
 	position: relative; display: grid; grid-template-columns: 50px minmax(0, 1fr) auto; align-items: center;
@@ -3092,6 +3111,12 @@ input, select {
 }
 .bag-ui-bag-identity { display: grid; grid-template-columns: 1fr; gap: 6px; padding: 0; }
 .bag-ui-bag-sprite { width: 200px; height: 172px; }
+.bag-ui-bank-sprite {
+	display: block;
+	width: 200px;
+	height: 172px;
+	object-fit: contain;
+}
 .bag-ui-capacity {
 	display: block;
 	width: 100%;
@@ -3101,6 +3126,16 @@ input, select {
 	background: #dfe3e8;
 	text-align: center;
 }
+.bag-ui-capacity-panel { width: 100%; background: #dfe3e8; }
+.bag-ui-weight {
+	display: block;
+	padding: 0 5px 5px;
+	color: #536479;
+	text-align: center;
+	font-size: 11px;
+}
+.bag-ui-weight.warning { color: #9a570e; font-weight: 700; }
+.bag-ui-weight.danger { color: #af3030; font-weight: 700; }
 .bag-ui-pokecoins {
 	margin-top: 12px;
 	color: #273a53;
@@ -3108,6 +3143,50 @@ input, select {
 	font-weight: bold;
 	text-align: center;
 }
+.bag-ui-licenses-toggle {
+	width: 100%;
+	padding: 5px 8px;
+	border: 0;
+	background: transparent;
+	color: #273a53;
+	font: inherit;
+	font-weight: bold;
+	cursor: pointer;
+}
+.bag-ui-licenses-list { width: 100%; overflow-y: auto; text-align: left; }
+.bag-ui-licenses-list[hidden] { display: none; }
+.bag-ui-licenses-empty { margin: 4px 0; color: #65758a; font-size: 12px; }
+.bag-ui-license-row {
+	display: grid;
+	grid-template-columns: minmax(0, 1fr) 36px 54px;
+	align-items: center;
+	column-gap: 4px;
+	min-height: 42px;
+	box-sizing: border-box;
+	padding: 4px 3px;
+	border-bottom: 1px solid #c9d0da;
+	font-size: 11px;
+}
+.bag-ui-license-row > span {
+	min-width: 0;
+	line-height: 1.25;
+	overflow-wrap: break-word;
+}
+.bag-ui-license-row small { color: #276843; font-size: 11px; text-align: center; }
+.bag-ui-license-revoke {
+	padding: 0;
+	border: 0;
+	background: transparent;
+	color: #a02f2f;
+	font: inherit;
+	font-size: 11px;
+	text-align: right;
+	cursor: pointer;
+}
+.bag-ui-license-grant { display: grid; gap: 5px; padding: 8px 2px 2px; }
+.bag-ui-license-grant select { width: 100%; min-width: 0; }
+.bag-ui-license-grant .button { padding: 4px 6px; font-size: 11px; }
+.bag-ui-license-charge { display: flex; align-items: center; gap: 4px; font-size: 11px; text-align: left; }
 .bag-ui-category-list {
 	display: grid;
 	gap: 0;
@@ -3144,14 +3223,14 @@ input, select {
 	.bag-ui-workspace { grid-template-columns: 320px minmax(0, 1fr); }
 	.bag-ui-shared-workspace { grid-template-columns: 240px minmax(0, 1fr); }
 	.bag-ui-sidebar { grid-template-columns: 172px minmax(120px, 1fr); }
-	.bag-ui-bag-sprite { width: 168px; height: 145px; }
+	.bag-ui-bag-sprite, .bag-ui-bank-sprite { width: 168px; height: 145px; }
 	.bag-ui-item-grid { grid-template-columns: 1fr; }
 }
 @media (max-width: 620px) {
 	.bag-ui-workspace { grid-template-columns: 1fr; }
 	.bag-ui-shared-sidebar { border-right: 0; border-bottom: 1px solid #aeb7c2; }
 	.bag-ui-sidebar { grid-template-columns: 145px minmax(0, 1fr); border-bottom: 1px solid #aeb7c2; }
-	.bag-ui-bag-sprite { width: 140px; height: 120px; }
+	.bag-ui-bag-sprite, .bag-ui-bank-sprite { width: 140px; height: 120px; }
 	.bag-ui-main { border-left: 0; }
 }
 
@@ -3249,6 +3328,7 @@ input, select {
 .master-player-tagline { margin: 0; padding: 11px 14px; color: #526981; background: #fff; border-left: 3px solid #7e94ad; font: italic 15px/1.4 Georgia, serif; }
 .master-player-overview-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
 .master-player-add-pokemon { justify-self: start; }
+.master-player-gift-actions { display: flex; flex-wrap: wrap; gap: 8px; justify-self: start; }
 .master-player-pokemon-gift-backdrop { z-index: 1850; padding: 18px; }
 .master-player-pokemon-gift-dialog { width: min(1120px, 96vw); max-height: 92vh; overflow: hidden; }
 .master-player-pokemon-gift-head { display: grid; grid-template-columns: 40px 1fr 40px; align-items: center; padding: 12px 15px; color: #fff; background: linear-gradient(#476b98, #2c4c75); }
@@ -3397,6 +3477,8 @@ input, select {
 .master-shop-access-row {
 	display: block;
 }
+.master-inventory-access-heading { margin: 4px 2px 0; color: #38516f; font-size: 13px; }
+.master-inventory-access-empty { margin: 2px; color: #60738f; font-size: 13px; }
 .master-shop-toggle { width: 100%; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 @media (max-width: 700px) {
 	.master-player-controls { grid-template-columns: 1fr; width: auto; }

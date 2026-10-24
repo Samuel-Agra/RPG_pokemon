@@ -41,6 +41,16 @@ function update(service, token, itemId, quantity, operation = 'add') {
 }
 
 describe('RPG Bag management backend', () => {
+	it('mostra as licenças do treinador na Bag fora de batalha', () => {
+		const service = createService();
+		createCharacter(service);
+		const master = service.loginMaster('14081998');
+		service.setTrainerLicense(master.token, 'samuel',
+			{ id: 'defensiva', status: 'active', issuedBy: '' }, true);
+		const bag = service.getBag(master.token, 'samuel');
+		assert(bag.licenses.some(license => license.id === 'defensiva' && license.valid));
+		assert.equal(service.getBag(master.token, 'samuel', { context: 'battle' }).licenses, undefined);
+	});
 	it('projects shared archives as weightless, non-transferable talent items outside battle', () => {
 		const service = createService();
 		createCharacter(service);
@@ -103,7 +113,9 @@ describe('RPG Bag management backend', () => {
 		const world = service.getBag(master.token, 'samuel');
 		assert.deepEqual(world.categories.map(category => category.id), [
 			'favorites', 'pokeballs', 'medicines', 'held-items', 'evolution-items',
-			'tms', 'fossils', 'treasures', 'mega-stones', 'key-items', 'mission-items', 'food-items', 'talent-items',
+			'tms', 'fossils', 'treasures', 'mega-stones', 'key-items', 'mission-items',
+			'trainer-kits', 'trainer-weapons', 'trainer-exploration', 'trainer-devices',
+			'trainer-vehicles', 'talent-items',
 		]);
 		assert.equal(world.money, 3250);
 		assert.equal(world.items.find(item => item.id === 'charizarditey').category, 'mega-stones');

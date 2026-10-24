@@ -168,7 +168,7 @@ export interface RPGTrainerSheet {
 		custom?: { name: string, description: string, kitTier: number, charges: number }, }[];
 	/** Protótipos físicos ativos, vinculados à programação do criador. */
 	technologicalPrototypes?: { slot: number, itemId: string, recipientCharacterId: string, instanceId: string,
-		prototypeComponents?: [string, string] }[];
+		prototypeComponents?: [string, string], }[];
 	/** Uma falha prepara o bônus; a rolagem aguarda seu resultado antes de outra falha. Campos antigos são opcionais para compatibilidade. */
 	persistentHypothesis?: { failures: number, awaitingOutcome?: boolean, topic?: string,
 		lastEvidence?: string, preparedEvidence?: string, };

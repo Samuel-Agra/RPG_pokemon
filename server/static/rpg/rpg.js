@@ -48,6 +48,7 @@ const state = {
 	teamBuilderReturnView: 'box',
 	dismissedBattleSessionIds: new Set(),
 	expandedShopAccessIds: new Set(),
+	expandedInventoryAccessIds: new Set(),
 	expandedMasterPlayerIds: new Set(),
 	expandedCampaignMasterIds: new Set(),
 	dashboardHistory: [],
@@ -613,7 +614,8 @@ function prepareTableTransition() {
 	state.characters = []; state.currentCharacter = null; state.campaignCharacters = [];
 	state.battleSessions = []; state.dismissedBattleSessionIds.clear();
 	state.deletionChallenge = null; state.teamBuilderPokemonId = null;
-	state.dashboardHistory = []; state.expandedShopAccessIds.clear(); state.expandedMasterPlayerIds.clear();
+	state.dashboardHistory = []; state.expandedShopAccessIds.clear(); state.expandedInventoryAccessIds.clear();
+	state.expandedMasterPlayerIds.clear();
 	state.expandedCampaignMasterIds.clear();
 	state.dashboardView = 'overview';
 	state.tableReadOnly = false;
@@ -5556,8 +5558,10 @@ async function openMasterPlayerPokemonGift(character) {
 				if (captureToggle.checked) masterCaptureDrafts.set(character.id, draft);
 				else masterCaptureDrafts.delete(character.id);
 				close();
-				if (response.pending) { showToast('Aguardando a rolagem de Captura de ' + character.characterName + '.');
-					await renderDashboard(); return; }
+				if (response.pending) {
+					showToast('Aguardando a rolagem de Captura de ' + character.characterName + '.');
+					await renderDashboard(); return;
+				}
 				showToast(selected.name + ' foi enviado para ' + character.characterName +
 					(response.destination === 'party' ? ' e entrou na equipe.' : ' e foi guardado na Box.'));
 				await renderDashboard();
@@ -6078,7 +6082,16 @@ async function renderMasterBody(characters) {
 		details.append(tagline);
 		const addPokemon = button('Dar novo Pokémon', 'button primary master-player-add-pokemon');
 		addPokemon.addEventListener('click', () => void openMasterPlayerPokemonGift(character));
-		details.append(addPokemon);
+		const addItem = button('Dar item', 'button master-player-add-item');
+		addItem.addEventListener('click', () => void window.RPGBagUI.render({
+			api, characterId: character.id, characterName: character.characterName,
+			isMaster: true, toast: showToast,
+			masterItemManagerOnly: true, anchor: addItem,
+			onMasterItemUpdated: () => renderDashboard(),
+		}).catch(error => showToast(error.message, true)));
+		const giftActions = createElement('div', 'master-player-gift-actions');
+		giftActions.append(addPokemon, addItem);
+		details.append(giftActions);
 		const overview = createElement('div', 'master-player-overview-metrics');
 		const caught = character.profile?.pokedex?.caught?.length || 0;
 		overview.append(
@@ -6195,6 +6208,7 @@ async function renderMasterBody(characters) {
 			permissions.append(pageToggle(page, label));
 		}
 		const shopAccess = createElement('div', 'master-shop-access');
+		let closeInventories = () => {};
 		const shopMain = createElement('div', 'master-shop-access-main');
 		let shopExpanded = state.expandedShopAccessIds.has(character.id);
 		const shopsToggle = button('Lojas', 'master-shops-picker-toggle');
@@ -6243,6 +6257,7 @@ async function renderMasterBody(characters) {
 			outsideShopsHandler = undefined;
 		};
 		shopsToggle.addEventListener('click', () => {
+			closeInventories();
 			shopExpanded = !shopExpanded;
 			if (shopExpanded) state.expandedShopAccessIds.add(character.id);
 			else state.expandedShopAccessIds.delete(character.id);
@@ -6255,6 +6270,77 @@ async function renderMasterBody(characters) {
 			setTimeout(() => document.addEventListener('pointerdown', outsideShopsHandler), 0);
 		});
 		permissions.append(shopAccess);
+		const inventoryAccess = createElement('div', 'master-shop-access');
+		const inventoryToggle = button('Inventários', 'master-shops-picker-toggle');
+		let inventoryExpanded = state.expandedInventoryAccessIds.has(character.id);
+		inventoryToggle.setAttribute('aria-expanded', String(inventoryExpanded));
+		const inventoryPanel = createElement('div', 'master-shop-access-panel');
+		inventoryPanel.classList.toggle('hidden', !inventoryExpanded);
+		inventoryAccess.append(inventoryToggle, inventoryPanel);
+		let outsideInventoriesHandler;
+		closeInventories = () => {
+			inventoryExpanded = false;
+			state.expandedInventoryAccessIds.delete(character.id);
+			inventoryPanel.classList.add('hidden');
+			inventoryToggle.setAttribute('aria-expanded', 'false');
+			if (outsideInventoriesHandler) document.removeEventListener('pointerdown', outsideInventoriesHandler);
+			outsideInventoriesHandler = undefined;
+		};
+		const renderInventories = data => {
+			inventoryPanel.replaceChildren();
+			inventoryPanel.append(createElement('p', 'master-inventory-access-empty',
+				'O bloqueio deste inventário vale para todos os jogadores da mesa.'));
+			for (const [title, entries] of [['Veículos', data.vehicles], ['Pontos de Apoio', data.caches]]) {
+				if (!entries.length) continue;
+				inventoryPanel.append(createElement('h3', 'master-inventory-access-heading', title));
+				for (const entry of entries) {
+					const row = createElement('div', 'master-shop-access-row');
+					const toggle = button(entry.name,
+						'master-access-toggle master-shop-toggle ' + (entry.allowed ? 'allowed' : 'blocked'));
+					toggle.setAttribute('aria-pressed', String(entry.allowed));
+					toggle.setAttribute('aria-label', `${entry.allowed ? 'Bloquear' : 'Desbloquear'} ${entry.name}`);
+					toggle.addEventListener('click', async () => {
+						toggle.disabled = true;
+						try {
+							const updated = await api('/characters/shared-inventories', { method: 'PUT', body: {
+								characterId: character.id, inventoryId: entry.id, allowed: !entry.allowed,
+							} });
+							renderInventories(updated);
+						} catch (error) { toggle.disabled = false; showToast(error.message, true); }
+					});
+					row.append(toggle); inventoryPanel.append(row);
+				}
+			}
+			if (!data.vehicles.length && !data.caches.length) {
+				inventoryPanel.append(createElement('p', 'master-inventory-access-empty',
+					'Este jogador ainda não possui inventários compartilhados.'));
+			}
+		};
+		const loadInventories = async () => {
+			inventoryPanel.replaceChildren(createElement('p', 'master-inventory-access-empty', 'Carregando inventários...'));
+			try {
+				const data = await api('/characters/shared-inventories?characterId=' + encodeURIComponent(character.id));
+				if (inventoryExpanded) renderInventories(data);
+			} catch (error) {
+				if (inventoryExpanded) inventoryPanel.replaceChildren(createElement('p', 'master-inventory-access-empty',
+					error.message || 'Não foi possível carregar os inventários.'));
+			}
+		};
+		inventoryToggle.addEventListener('click', () => {
+			if (inventoryExpanded) { closeInventories(); return; }
+			closeShops();
+			inventoryExpanded = true;
+			state.expandedInventoryAccessIds.add(character.id);
+			inventoryPanel.classList.remove('hidden');
+			inventoryToggle.setAttribute('aria-expanded', 'true');
+			void loadInventories();
+			outsideInventoriesHandler = event => {
+				if (!inventoryAccess.contains(event.target)) closeInventories();
+			};
+			setTimeout(() => document.addEventListener('pointerdown', outsideInventoriesHandler), 0);
+		});
+		if (inventoryExpanded) void loadInventories();
+		permissions.append(inventoryAccess);
 		const view = button('Visualizar como Player', 'button');
 		view.addEventListener('click', () => viewAsPlayer(character, 'overview'));
 		actions.append(view);
