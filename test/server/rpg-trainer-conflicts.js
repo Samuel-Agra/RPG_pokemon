@@ -60,6 +60,19 @@ describe('RPG human conflicts', () => {
 			{ weapon: { dice: 1, sides: 6, ranged: true, normalRange: 10, maximumRange: 20 }, nonlethal: true }), /não letal/);
 	});
 
+	it('uses catalog firearm damage, Dexterity and the shotgun close-range bonus', () => {
+		const state = scene();
+		const attacker = state.order[0];
+		const target = state.order[1];
+		const revolver = attackRPGHuman(state, attacker, target, { weaponId: 'revolver' }, () => 0.5);
+		assert.equal(revolver.damage, 13); // 2d10 (6 + 6) + DES 1
+		const shotgun = attackRPGHuman(state, attacker, target, { weaponId: 'espingarda' }, () => 0.5);
+		assert.equal(shotgun.damage, 19); // 3d8 (5 + 5 + 5) + DES 1 + proximidade 3
+		const rifle = attackRPGHuman(state, attacker, target, { weaponId: 'rifle' }, () => 0.5);
+		assert.equal(rifle.damage, 19); // 3d10 (6 + 6 + 6) + DES 1
+		assert.equal(state.participants.find(entry => entry.id === target).sheet.hitPoints.current, 20);
+	});
+
 	it('applies grapple and opposed shoves to the human sheet', () => {
 		const state = scene();
 		const actor = state.order[0];

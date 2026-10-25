@@ -1030,6 +1030,12 @@ input, select {
 .master-scene-empty { grid-column: 1 / -1; margin: 4px 0; color: #708098; font-size: 13px; }
 .master-scene-npc { position: relative; display: grid; grid-template-columns: 92px 88px; grid-template-rows: 92px auto; justify-content: center; justify-items: center; align-items: center; gap: 3px 6px; min-width: 0; padding: 8px; border: 1px solid #bdcad8; border-radius: 7px; background: linear-gradient(#fff, #edf3fa); }
 .master-scene-npc > strong { grid-column: 1; grid-row: 2; align-self: start; max-width: 92px; color: #2e4664; text-align: center; overflow-wrap: anywhere; }
+.master-scene-human-combat { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center;
+	justify-content: center; gap: 3px; width: 100%; margin-top: 5px; font: 700 11px Arial, sans-serif; color: #344b68; }
+.master-scene-human-combat input { box-sizing: border-box; width: 36px; min-width: 0; padding: 3px 1px;
+	border: 1px solid #b9c8d9; border-radius: 4px; text-align: center; font: inherit; }
+.master-scene-human-combat button { padding: 3px 5px; font: inherit; }
+.master-scene-human-combat small { width: 100%; overflow-wrap: anywhere; }
 .master-scene-trainer { grid-column: 1; grid-row: 1; display: grid; width: 92px; height: 92px; place-items: center; color: #fff; border: 1px solid #5975a0; border-radius: 6px; background: linear-gradient(#6e8bbb, #425e8b); font-size: 26px; font-weight: bold; }
 .master-scene-trainer img { max-width: 86px; max-height: 86px; object-fit: contain; image-rendering: pixelated; }
 .master-scene-team { grid-column: 2; grid-row: 1 / span 2; display: grid; grid-template-columns: repeat(2, 42px); grid-template-rows: repeat(3, 42px); place-content: center; gap: 4px; min-width: 0; }
@@ -1573,6 +1579,59 @@ input, select {
 .player-roster-drawer-pokemon .pokemon-sprite { width: 46px; height: 44px; }
 .player-roster-drawer-pokemon .pokemon-sprite img { max-width: 44px; max-height: 42px; }
 .player-roster-drawer-pokemon.empty { color: #a1acb8; border-style: dashed; }
+.player-roster-drawer-combat { box-sizing: border-box; display: grid; grid-column: 2;
+	grid-row: 1 / span 4; grid-template-columns: minmax(0, 1.55fr) minmax(0, .9fr);
+	align-content: start; gap: 7px 8px; width: 100%; min-width: 0; padding: 3px 0 3px 8px;
+	border-left: 1px solid #ccd7e3; text-align: left; font: 11px Arial, sans-serif; }
+.player-roster-combat-class { display: flex; grid-column: 1 / -1; align-items: center; gap: 9px;
+	min-width: 0; padding-bottom: 7px; border-bottom: 1px solid #d5dfe9; }
+.player-roster-combat-class-sprite { width: 68px; height: 68px; flex: 0 0 68px; object-fit: contain;
+	image-rendering: pixelated; }
+.player-roster-combat-class-details { display: grid; gap: 5px; min-width: 0; }
+.player-roster-combat-class-details strong, .player-roster-combat-class-details small {
+	min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.player-roster-combat-class-details strong { font-size: 16px; }
+.player-roster-combat-class-details small { color: #617790; font-size: 12px; }
+.player-roster-combat-hp { display: grid; grid-column: 1; grid-template-columns: auto 1fr;
+	align-items: center; gap: 4px; min-width: 0; }
+.player-roster-combat-hp > strong { font-size: 12px; }
+.player-roster-combat-hp > span { justify-self: end; white-space: nowrap; font-weight: 700; }
+.player-roster-combat-hp-track { grid-column: 1 / -1; height: 10px; overflow: hidden;
+	border: 1px solid #aebed0; border-radius: 6px; background: #dbe3ec; }
+.player-roster-combat-hp-fill { height: 100%; background: #43a966; transition: width .2s ease; }
+.player-roster-combat-hp-track.wounded .player-roster-combat-hp-fill { background: #e0aa35; }
+.player-roster-combat-hp-track.critical .player-roster-combat-hp-fill { background: #d25757; }
+.player-roster-combat-measures { display: grid; grid-column: 1;
+	grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 3px; }
+.player-roster-combat-measure { display: grid; justify-items: center; min-width: 0; padding: 3px 1px;
+	border: 1px solid #cfdae6; border-radius: 4px; background: #f7faff; text-align: center; }
+.player-roster-combat-measure small { font-size: 9px; color: #647993; }
+.player-roster-combat-measure strong { font-size: 11px; white-space: nowrap; }
+.player-roster-combat-attacks { display: grid; grid-column: 1; gap: 3px; min-width: 0; }
+.player-roster-combat-attacks small, .player-roster-combat-status small { font-size: 9px; color: #617790; }
+.player-roster-combat-attacks span { padding: 3px 4px; border-radius: 4px; background: #edf3f9;
+	font-weight: 700; overflow-wrap: anywhere; }
+.player-roster-combat-status { display: flex; grid-column: 2; grid-row: 2 / span 3;
+	flex-direction: column; align-items: start; gap: 5px; min-width: 0; padding-left: 7px;
+	border-left: 1px solid #d5dfe9; }
+.player-roster-combat-status > strong { font-size: 11px; }
+.player-roster-combat-condition { max-width: 100%; padding: 3px 5px; border-radius: 4px;
+	background: #f8e6ce; color: #805623; overflow-wrap: anywhere; text-transform: capitalize; }
+.player-roster-combat-no-condition, .player-roster-combat-pending { color: #75869a; }
+.player-roster-combat-death-saves { display: grid; gap: 3px; width: 100%; padding-top: 5px;
+	border-top: 1px solid #d5dfe9; }
+.player-roster-combat-death-saves small { font-weight: 700; }
+.player-roster-combat-death-saves span { white-space: nowrap; }
+@media (max-width: 1550px) {
+	.player-roster-combat-class { flex-direction: column; text-align: center; }
+}
+@media (max-width: 1700px) {
+	.player-roster-drawer-player { grid-template-columns: minmax(0, 1fr); }
+	.player-roster-drawer-combat { grid-column: 1; grid-row: auto; grid-template-columns: minmax(0, 1fr);
+		padding: 7px 0 0; border-left: 0; border-top: 1px solid #ccd7e3; }
+	.player-roster-combat-status { grid-column: 1; grid-row: auto; flex-direction: row; flex-wrap: wrap;
+		align-items: center; padding-left: 0; border-left: 0; }
+}
 .player-roster-drawer-empty { padding: 15px 5px; color: #7a8898; font-size: 10px; text-align: center; }
 .player-overview > .overview-identity, .player-overview > .overview-badges-panel { grid-column: 1 / -1; }
 .overview-identity { display: flex; align-items: center; gap: 24px; padding: 22px 28px; background: linear-gradient(120deg, #fdfefe, #e7eef7); }

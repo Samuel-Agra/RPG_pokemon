@@ -121,6 +121,11 @@ describe('RPG version 2 account authentication frontend', () => {
 		assert(style.includes('.player-roster-drawer-team'));
 		assert.match(style, /\.player-roster-drawer-team \{[^}]*grid-template-columns: repeat\(3/);
 		assert(style.includes('.player-roster-drawer-pokemon'));
+		assert(script.includes("const combat = createElement('div', 'player-roster-drawer-combat')"));
+		assert(script.includes("track.setAttribute('role', 'progressbar')"));
+		assert(script.includes("measure('Defesa', stats.defense)"));
+		assert(script.includes("Exaustão ${stats.exhaustion}"));
+		assert(style.includes('.player-roster-combat-status'));
 		assert(html.includes('id="player-roster-master-list"'));
 		assert(script.includes("master.member.role === 'owner' ? 'PM' : 'M'"));
 		assert(script.includes("setAccountAvatar(badge, master.account, master.member.role === 'owner' ? 'PM' : 'M')"));

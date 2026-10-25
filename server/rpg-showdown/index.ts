@@ -72,12 +72,14 @@ import { rpgAutomaticGeneralTalentNames, rpgUsedAutomaticGeneralTalents,
 	rpgRenewManualRestTalents } from './trainer-manual-rest';
 import {
 	RPG_EQUIPMENT_CATALOG, RPG_TRAINER_LICENSE_FEES, rpgAssertEquipmentLicense, rpgEquipment, rpgEquipmentIconPath, rpgEquipmentLicenseId, rpgHasLicense, rpgEquipmentSlots,
+	rpgEquipmentAttackProfile,
 	rpgEquipmentWeight, rpgInitialTrainerInventory, rpgCanAcquireKitDomain, rpgEquipmentDerivedOptions, rpgKitBonus,
 	type RPGEquipmentInstance, type RPGTrainerInventory, type RPGLicense,
 } from './trainer-equipment';
 import {
 	RPG_DIFFICULTIES, RPG_SKILL_ATTRIBUTES, RPG_KNOWLEDGE_DOMAINS, RPG_CRAFT_DOMAINS,
 	rpgTrainerDerivedStatistics,
+	rollRPGTrainerAttack, rollRPGTrainerDamage,
 	rpgTrainerAttackBonus, rpgTrainerProficiency, rpgTrainerResistanceBonus, rpgTrainerSkillBonus,
 	rpgTrainerSkillAttributes,
 	rollRPGTrainerAttributeCheck, rollRPGTrainerResistance, rollRPGTrainerSkillCheck, rpgHelpBonus,
@@ -292,6 +294,13 @@ export interface RPGPlayerRosterEntry extends RPGCharacterSelection {
 		spriteId?: string,
 		baseSpriteId?: string,
 	}[];
+	combat?: {
+		classId: string, className: string, level: number, experience: number, nextLevelXP: number | null,
+		hp: { current: number, maximum: number, temporary: number },
+		defense: number, initiative: number, movementMeters: number,
+		attacks: { melee: number, ranged: number }, exhaustion: number, lifeState: string, conditions: string[],
+		deathSaves: { successes: number, failures: number },
+	};
 }
 
 export interface RPGCharacterPageAccess {
@@ -1323,13 +1332,17 @@ export class RPGLoginService {
 			active.lastSeenAt >= onlineThreshold
 		).map(active => active.characterId!));
 		return this.repository.list()
-			.filter(record => record.state.id !== currentCharacterId)
+			.filter(record => record.state.id !== currentCharacterId &&
+				(!session.platformTableId || record.tableId === session.platformTableId))
 			.map(record => ({
 				...this.selection(record.state),
 				...(record.accountId ? { accountId: record.accountId } : {}),
 				online: onlineCharacterIds.has(record.state.id),
 				presence: presenceByCharacter.get(record.state.id) ?? ('offline' as const),
 				occupiedTeamSlots: Math.min(6, record.state.box.party.length + this.activeEggs(record).length),
+				...(record.state.trainerSheet?.status === 'complete' ? {
+					combat: this.playerRosterCombat(record),
+				} : {}),
 				team: record.state.team.slice(0, 6).map(pokemon => {
 					const visual = pokemon as typeof pokemon & {
 						shiny?: boolean, spriteId?: string, baseSpriteId?: string,
@@ -1343,6 +1356,29 @@ export class RPGLoginService {
 				}),
 			}))
 			.sort((a, b) => a.characterName.localeCompare(b.characterName, 'pt-BR'));
+	}
+
+	private playerRosterCombat(record: RPGStoredCharacter): NonNullable<RPGPlayerRosterEntry['combat']> {
+		const sheet = record.state.trainerSheet!;
+		const equipment = record.state.trainerInventory || rpgInitialTrainerInventory(sheet);
+		const bag = record.state.inventory.bag;
+		const bagWeight = ({ starter: 1, trainer: 1.5, adventurer: 2.5, expert: 3.5, master: 5, legendary: 6.5 })[
+			RPGBagSystem.getTier(bag) || 'starter'];
+		const derived = rpgTrainerDerivedStatistics(sheet, rpgEquipmentDerivedOptions(sheet, equipment,
+			bag.items.reduce((total, item) => total + item.quantity, 0), bagWeight));
+		const survival = rpgTrainerSurvival(sheet);
+		return { classId: sheet.classId!, className: RPG_TRAINER_CLASSES[sheet.classId!].name,
+			level: sheet.level, experience: sheet.experience,
+			nextLevelXP: sheet.level >= 10 ? null : RPG_TRAINER_LEVEL_XP[sheet.level],
+			hp: { current: sheet.hitPoints.current || 0, maximum: sheet.hitPoints.maximum || 0,
+				temporary: sheet.hitPoints.temporary || 0 },
+			defense: derived.defense, initiative: derived.initiativeBonus,
+			movementMeters: derived.movementMeters,
+			attacks: { melee: rpgTrainerAttackBonus(sheet, 'strength', false),
+				ranged: rpgTrainerAttackBonus(sheet, 'dexterity', false) },
+			exhaustion: survival.exhaustion, lifeState: survival.lifeState,
+			conditions: survival.conditions.map(condition => condition.id),
+			deathSaves: { successes: survival.deathSaves.successes, failures: survival.deathSaves.failures } };
 	}
 
 	advanceCampaignTime(token: string, hours: number): RPGCampaignTimeAdvanceResult {
@@ -2018,6 +2054,173 @@ export class RPGLoginService {
 			}];
 		});
 		return { npcs };
+	}
+
+	setSceneNPCCombat(token: string, npcId: string, input: { hp?: number, maximum?: number, defense?: number,
+		clearConditions?: boolean, }) {
+		this.requireMasterMode(token);
+		if (!this.campaignSettings.sceneNpcIds.includes(npcId)) throw new Error('NPC não está em cena');
+		const npc = (Array.isArray(this.masterNPCLibrary?.npcs) ? this.masterNPCLibrary.npcs : [])
+			.find(entry => entry && typeof entry === 'object' && (entry as Record<string, unknown>).id === npcId) as
+			Record<string, unknown> | undefined;
+		if (!npc) throw new Error('NPC em cena não encontrado');
+		const previous = npc.humanCombat && typeof npc.humanCombat === 'object' ?
+			npc.humanCombat as Record<string, unknown> : { hp: 20, maximum: 20, defense: 10, conditions: [] };
+		const maximum = input.maximum === undefined ? Number(previous.maximum) : input.maximum;
+		const hp = input.hp === undefined ? Number(previous.hp) : input.hp;
+		const defense = input.defense === undefined ? Number(previous.defense) : input.defense;
+		if (![maximum, hp, defense].every(Number.isSafeInteger) || maximum < 1 || maximum > 100000 ||
+			hp < 0 || hp > maximum || defense < 0 || defense > 1000) throw new Error('PV ou Defesa inválidos');
+		npc.humanCombat = { hp, maximum, defense,
+			conditions: input.clearConditions ? [] : Array.isArray(previous.conditions) ? previous.conditions : [] };
+		this.persistMasterNPCLibrary();
+		return { humanCombat: npc.humanCombat };
+	}
+
+	getTrainerWeaponTargets(token: string) {
+		const session = this.getSession(token);
+		if (session.mode !== 'player') throw new Error('Entre como jogador para atacar');
+		const actorId = session.role === 'master' ? session.viewAsCharacterId : session.characterId;
+		if (!actorId) throw new Error('Selecione um personagem');
+		return { players: this.trainerRecordRecipients(token).filter(entry => entry.id !== actorId),
+			npcs: this.getCampaignSceneNPCs(token).npcs.map(npc => ({ id: npc.id, name: npc.name, sprite: npc.sprite })) };
+	}
+
+	attackWithTrainerWeapon(token: string, input: { characterId: string, instanceId: string,
+		targetType: 'player' | 'scene-npc' | 'other-npc', targetId?: string, targetName?: string,
+		attackAttribute?: 'strength' | 'dexterity', closeRange?: boolean, }) {
+		if (!input || typeof input !== 'object') throw new Error('Ataque inválido');
+		const session = this.getSession(token);
+		if (session.mode !== 'player' || !session.platformTableId) throw new Error('Entre como jogador em uma mesa');
+		const actorId = session.role === 'master' ? session.viewAsCharacterId : session.characterId;
+		if (!actorId || toID(input.characterId) !== toID(actorId)) throw new Error('Personagem atacante inválido');
+		const actor = structuredClone(this.requireBagRecord(token, actorId, 'bag:edit'));
+		const previousActor = structuredClone(actor);
+		const actorInventory = this.ensureTrainerInventory(actor);
+		const sheet = actor.state.trainerSheet;
+		if (!sheet || sheet.status !== 'complete' || !sheet.attributes || rpgTrainerSurvival(sheet).lifeState !== 'conscious') {
+			throw new Error('O treinador não pode atacar agora');
+		}
+		const item = actorInventory.items.find(entry => entry.id === input.instanceId &&
+			entry.equipped && entry.location === 'bag');
+		if (!item) throw new Error('Arma equipada não encontrada');
+		const weapon = rpgEquipment(item.itemId);
+		if (weapon.equipSlot !== 'hand' || weapon.category === 'shield' ||
+			!weapon.weaponDamage && !weapon.weaponEffect) throw new Error('Este item não permite atacar');
+		const bow = item.itemId === 'arco-curto' || item.itemId === 'arco-longo';
+		const arrows = bow ? actorInventory.items.find(entry => entry.itemId === 'flecha' &&
+			entry.location === 'bag' && entry.quantity > 0 && (entry.charges ?? 10) > 0) : undefined;
+		if (bow && !arrows) throw new Error('Sem flechas na Bag');
+		if (!bow && weapon.maxCharges !== undefined && (item.charges ?? weapon.maxCharges) < 1) {
+			throw new Error('Arma sem munição ou cargas; recarregue antes de atacar');
+		}
+		if (!['player', 'scene-npc', 'other-npc'].includes(input.targetType)) throw new Error('Tipo de alvo inválido');
+		let target: RPGStoredCharacter | undefined;
+		let npc: Record<string, unknown> | undefined;
+		let targetName = '';
+		if (input.targetType === 'player') {
+			if (!input.targetId || !this.trainerRecordRecipients(token).some(entry => entry.id === input.targetId) ||
+				input.targetId === actorId) throw new Error('Player fora da mesa ou indisponível');
+			target = structuredClone(this.requireCharacter(input.targetId));
+			if (target.state.trainerSheet?.status !== 'complete') throw new Error('O alvo não possui ficha completa');
+			targetName = target.state.characterName;
+		} else if (input.targetType === 'scene-npc') {
+			if (!input.targetId || !this.campaignSettings.sceneNpcIds.includes(input.targetId)) throw new Error('NPC não está em cena');
+			npc = (Array.isArray(this.masterNPCLibrary?.npcs) ? this.masterNPCLibrary.npcs : [])
+				.find(entry => entry && typeof entry === 'object' && (entry as Record<string, unknown>).id === input.targetId) as Record<string, unknown> | undefined;
+			if (!npc) throw new Error('NPC em cena não encontrado');
+			targetName = String(npc.name || 'NPC');
+		} else {
+			targetName = String(input.targetName || '').trim();
+			if (!targetName || targetName.length > 80) throw new Error('Informe o nome do NPC');
+		}
+		const ranged = !!weapon.rangedAttack || item.itemId === 'spray-pimenta';
+		const attackAttribute = ranged ? 'dexterity' :
+			weapon.agile && input.attackAttribute === 'dexterity' ? 'dexterity' : 'strength';
+		if (input.attackAttribute && input.attackAttribute !== attackAttribute) throw new Error('Atributo inválido para a arma');
+		if (input.closeRange && item.itemId !== 'espingarda') throw new Error('Distância inválida para a arma');
+		const modifier = Math.floor((sheet.attributes[attackAttribute] - 10) / 2);
+		const proficient = !weapon.domain || (sheet.proficiencies || []).includes(weapon.domain);
+		const bonus = rpgTrainerAttackBonus(sheet, attackAttribute, proficient);
+		const targetSheet = target?.state.trainerSheet;
+		const npcCombat = npc?.humanCombat && typeof npc.humanCombat === 'object' ?
+			npc.humanCombat as Record<string, unknown> : { hp: 20, maximum: 20, defense: 10, conditions: [] };
+		const previousTarget = target ? structuredClone(target) : null;
+		const previousNpcCombat = npc?.humanCombat === undefined ? undefined : structuredClone(npc.humanCombat);
+		const defense = targetSheet ? rpgTrainerDerivedStatistics(targetSheet,
+			rpgEquipmentDerivedOptions(targetSheet, this.ensureTrainerInventory(target!), 0, 0)).defense :
+			npc ? Number(npcCombat.defense ?? 10) : 0;
+		const attack = rollRPGTrainerAttack(bonus, defense, this.random);
+		const hit = input.targetType === 'other-npc' ? null : attack.hit;
+		const profile = weapon.weaponDamage ? rpgEquipmentAttackProfile(item.itemId) : null;
+		const damage = profile && (hit === true || hit === null) ?
+			rollRPGTrainerDamage(profile.dice, profile.sides, modifier +
+			(input.closeRange ? profile.closeRangeBonus : 0), attack.critical, this.random) : null;
+		let condition = '';
+		let save: { natural: number, total: number, dc: number } | null = null;
+		if (hit && item.itemId === 'spray-pimenta') {
+			const dc = 13;
+			const fortitude = targetSheet ? rpgTrainerResistanceBonus(targetSheet, 'fortitude') : 0;
+			const natural = Math.floor(this.random() * 20) + 1;
+			save = { natural, total: natural + fortitude, dc };
+			if (save.total < dc) condition = 'cego';
+		}
+		if (target && targetSheet && hit) {
+			let next = damage ? rpgTrainerTakeDamage(targetSheet, damage.total, { nonlethal: weapon.category === 'nonlethal' }) : targetSheet;
+			if (condition && rpgTrainerSurvival(next).lifeState !== 'dead') {
+				next = rpgTrainerApplyCondition(next, { id: 'cego', source: weapon.name });
+			}
+			target.state.trainerSheet = next;
+			target.state.updatedAt = this.now();
+		} else if (npc && hit) {
+			const current = Math.max(0, Number(npcCombat.hp) || 0);
+			const conditions = Array.isArray(npcCombat.conditions) ? npcCombat.conditions as string[] : [];
+			npc.humanCombat = { ...npcCombat, hp: Math.max(0, current - (damage?.total || 0)),
+				conditions: condition ? [...new Set([...conditions, condition])] : conditions };
+		}
+		let spent = false;
+		if (bow && arrows) {
+			arrows.charges = (arrows.charges ?? 10) - 1;
+			if (!arrows.charges) {
+				arrows.quantity--;
+				if (arrows.quantity) arrows.charges = 10;
+				else actorInventory.items.splice(actorInventory.items.indexOf(arrows), 1);
+			}
+			spent = true;
+		} else if (weapon.maxCharges !== undefined) {
+			item.charges = (item.charges ?? weapon.maxCharges) - 1;
+			spent = true;
+		}
+		if (spent) {
+			actorInventory.revision++;
+			actor.state.updatedAt = this.now();
+			this.validateTrainerInventory(actor);
+		}
+		try {
+			this.persistAtomically(() => {
+				if (spent) this.repository.set(actor);
+				if (target && hit) this.repository.set(target);
+				if (npc && hit) this.persistMasterNPCLibrary();
+			});
+		} catch (error) {
+			if (spent) this.repository.set(previousActor);
+			if (target && hit && previousTarget) this.repository.set(previousTarget);
+			if (npc && hit) {
+				if (previousNpcCombat === undefined) delete npc.humanCombat;
+				else npc.humanCombat = previousNpcCombat;
+			}
+			throw error;
+		}
+		const message = `${actor.state.characterName} atacou ${targetName} com ${weapon.name}.\n` +
+			`Ataque: 1d20 tirou ${attack.natural} ${bonus < 0 ? '-' : '+'} ${Math.abs(bonus)} = ${attack.total}` +
+			(hit === null ? ' (Mestre determina o acerto)' : ` contra Defesa ${defense}: ${hit ? 'acertou' : 'errou'}`) +
+			(damage ? `\nDano: ${damage.dice.map(die => String(die)).join(' + ')} ` +
+			`${modifier + (input.closeRange ? profile?.closeRangeBonus || 0 : 0) < 0 ? '-' : '+'} ` +
+			`${Math.abs(modifier + (input.closeRange ? profile?.closeRangeBonus || 0 : 0))} = ${damage.total}` : '') +
+			(save ? `\nFortitude: ${save.natural} + ${save.total - save.natural} = ${save.total} contra CD ${save.dc}` : '') +
+			(condition ? `\nCondição: ${condition}.` : '') +
+			(hit === null && weapon.weaponEffect ? `\nEfeito para o Mestre: ${weapon.weaponEffect}` : '');
+		return { attack, hit, damage, condition, save, message };
 	}
 
 	setCampaignScenePokemonReveal(token: string, npcId: unknown, index: unknown, revealed: unknown) {
@@ -2850,13 +3053,15 @@ export class RPGLoginService {
 		const bagWeight = ({ starter: 1, trainer: 1.5, adventurer: 2.5, expert: 3.5, master: 5, legendary: 6.5 })[
 			RPGBagSystem.getTier(bag) || 'starter'];
 		const carried = rpgEquipmentWeight(equipment.items, 'bag') + bag.items.reduce((sum, item) => sum + item.quantity * 0.1, 0) + bagWeight;
-		const maximumKg = record.state.trainerSheet?.status === 'complete' ?
-			rpgTrainerDerivedStatistics(record.state.trainerSheet,
-				rpgEquipmentDerivedOptions(record.state.trainerSheet, equipment,
+		const sheet = record.state.trainerSheet;
+		const maximumKg = sheet?.status === 'complete' && sheet.attributes ?
+			rpgTrainerDerivedStatistics(sheet,
+				rpgEquipmentDerivedOptions(sheet, equipment,
 					bag.items.reduce((sum, item) => sum + item.quantity, 0), bagWeight)).carrying.maximumKg :
 			strength * 7.5;
 		if (carried > maximumKg + 1e-9) throw new Error('O peso excede a capacidade máxima do treinador');
 		const slots = new Set<string>();
+		const hands = new Set<'left' | 'right'>();
 		const instanceIds = new Set<string>();
 		for (const entry of equipment.items) {
 			const item = rpgEquipment(entry.itemId);
@@ -2878,8 +3083,22 @@ export class RPGLoginService {
 				entry.charges < 0 || entry.charges > item.maxCharges)) throw new Error('Cargas inválidas');
 			if (entry.equipped) {
 				if (entry.location !== 'bag' || !item.equipSlot || entry.quantity !== 1) throw new Error('Equipamento não pode ser vestido');
-				if (item.equipSlot !== 'accessory' && slots.has(item.equipSlot)) throw new Error('Espaço de equipamento ocupado');
-				slots.add(item.equipSlot);
+				if (entry.equippedHand && !['left', 'right'].includes(entry.equippedHand)) throw new Error('Mão inválida');
+				if (item.equipSlot === 'hand') {
+					if (item.handCount === 2) {
+						if (entry.equippedHand || hands.size) throw new Error('As duas mãos devem estar livres');
+						hands.add('left'); hands.add('right');
+					} else {
+						const hand = entry.equippedHand || (hands.has('left') ? 'right' : 'left');
+						if (hands.has(hand)) throw new Error('Mão ocupada');
+						hands.add(hand);
+					}
+				} else {
+					if (entry.equippedHand || (item.equipSlot !== 'accessory' && slots.has(item.equipSlot))) {
+						throw new Error('Espaço de equipamento ocupado');
+					}
+					slots.add(item.equipSlot);
+				}
 			}
 			if (item.vehicle && entry.location === 'bag') throw new Error('Veículos devem ficar na garagem ou no banco');
 			if (entry.location === 'vehicle') {
@@ -3491,14 +3710,15 @@ export class RPGLoginService {
 
 	/** Compra, consumo, banco e transferência compartilham a mesma validação e o mesmo COMMIT. */
 	changeTrainerEquipment(token: string, input: {
-		action: 'buy' | 'sell' | 'grant' | 'transfer' | 'move' | 'movePokemon' | 'equip' | 'consume' | 'refill' | 'discard',
+		action: 'buy' | 'sell' | 'grant' | 'transfer' | 'move' | 'movePokemon' | 'equip' | 'consume' | 'refill' | 'reloadWeapon' | 'discard',
 		characterId?: string, expectedRevision: number, itemId?: string, instanceId?: string,
 		quantity?: number, shopId?: string, targetCharacterId?: string, expectedTargetRevision?: number,
 		expectedBagRevision?: number, sourceLocation?: 'bag' | 'bank' | 'vehicle',
 		location?: RPGEquipmentInstance['location'], vehicleId?: string, equipped?: boolean,
+		hand?: 'left' | 'right',
 		refillInstanceId?: string,
 	}) {
-		if (!input || !['buy', 'sell', 'grant', 'transfer', 'move', 'movePokemon', 'equip', 'consume', 'refill', 'discard'].includes(input.action)) {
+		if (!input || !['buy', 'sell', 'grant', 'transfer', 'move', 'movePokemon', 'equip', 'consume', 'refill', 'reloadWeapon', 'discard'].includes(input.action)) {
 			throw new Error('Ação de equipamento inválida');
 		}
 		const actor = structuredClone(this.requireBagRecord(token, input.characterId, 'bag:edit'));
@@ -3538,7 +3758,8 @@ export class RPGLoginService {
 			if (location === 'vehicle' && !item.vehicle && !vehicleId) throw new Error('Escolha um veículo para a carga');
 			let left = count;
 			for (const stack of inventory.items.filter(entry => entry.itemId === item.id && entry.location === location &&
-				entry.vehicleId === vehicleId && !entry.equipped && entry.quantity < item.stackLimit)) {
+				entry.vehicleId === vehicleId && !entry.equipped && entry.quantity < item.stackLimit &&
+				(item.maxCharges === undefined || entry.charges === item.maxCharges))) {
 				const moved = Math.min(left, item.stackLimit - stack.quantity);
 				stack.quantity += moved; left -= moved;
 				if (!left) break;
@@ -3672,8 +3893,16 @@ export class RPGLoginService {
 		} else if (input.action === 'equip') {
 			const entry = find(input.instanceId);
 			if (entry.location !== 'bag') throw new Error('O item deve estar na Bag');
-			if (!rpgEquipment(entry.itemId).equipSlot) throw new Error('Este item não pode ser equipado');
+			const definition = rpgEquipment(entry.itemId);
+			if (!definition.equipSlot) throw new Error('Este item não pode ser equipado');
+			if (input.hand && !['left', 'right'].includes(input.hand)) throw new Error('Mão inválida');
 			entry.equipped = !!input.equipped;
+			delete entry.equippedHand;
+			if (entry.equipped && definition.equipSlot === 'hand' && definition.handCount !== 2) {
+				entry.equippedHand = input.hand || (actorInventory.items.some(item => item.id !== entry.id &&
+					item.equipped && rpgEquipment(item.itemId).equipSlot === 'hand' &&
+					(item.equippedHand || 'left') === 'left') ? 'right' : 'left');
+			}
 		} else if (input.action === 'consume') {
 			const entry = find(input.instanceId);
 			if (entry.prototypeCreatorId) throw new Error('Protótipos não são consumíveis');
@@ -3709,6 +3938,30 @@ export class RPGLoginService {
 				refill.quantity--;
 				if (refill.quantity) refill.charges = refillRule.maxCharges;
 				else actorInventory.items.splice(actorInventory.items.indexOf(refill), 1);
+			}
+		} else if (input.action === 'reloadWeapon') {
+			const weapon = find(input.instanceId);
+			const ammunition = ({ revolver: 'municao-revolver', espingarda: 'municao-espingarda',
+				rifle: 'municao-rifle' } as Record<string, string>)[weapon.itemId];
+			const capacity = rpgEquipment(weapon.itemId).maxCharges;
+			if (!ammunition || weapon.location !== 'bag' || !weapon.equipped || capacity === undefined ||
+				weapon.charges === undefined || weapon.charges >= capacity) {
+				throw new Error('Esta arma não precisa ser recarregada');
+			}
+			const stacks = actorInventory.items.filter(entry => entry.itemId === ammunition && entry.location === 'bag' &&
+				!entry.equipped);
+			const previousCharges = weapon.charges;
+			let needed = capacity - weapon.charges;
+			for (const stack of stacks) {
+				const loaded = Math.min(needed, stack.quantity);
+				stack.quantity -= loaded;
+				weapon.charges += loaded;
+				needed -= loaded;
+				if (!stack.quantity) actorInventory.items.splice(actorInventory.items.indexOf(stack), 1);
+				if (!needed) break;
+			}
+			if (weapon.charges === previousCharges) {
+				throw new Error('Sem munição compatível na Bag');
 			}
 		}
 		actorInventory.revision++;
@@ -8484,26 +8737,31 @@ export class RPGLoginService {
 		if (view.context === 'world') {
 			view.bankAvailable = session.role !== 'player' || record.state.pageAccess?.bank !== false;
 			if (session.role === 'master') view.licenseFees = RPG_TRAINER_LICENSE_FEES;
-			const inventory = this.ensureTrainerInventory(record);
+			const bag = record.state.inventory?.bag;
+			const inventory = bag ? this.ensureTrainerInventory(record) :
+				record.state.trainerInventory || rpgInitialTrainerInventory(
+					record.state.trainerSheet || createRPGPendingTrainerSheet());
 			view.licenses = inventory.licenses.map(license => ({
 				id: license.id, status: license.status,
 				...(license.expiresAt !== undefined ? { expiresAt: license.expiresAt } : {}),
 				valid: rpgHasLicense(inventory, license.id, this.now()),
 			}));
-			const bag = record.state.inventory.bag;
-			const bagWeight = ({ starter: 1, trainer: 1.5, adventurer: 2.5, expert: 3.5, master: 5, legendary: 6.5 })[
-				RPGBagSystem.getTier(bag) || 'starter'];
-			const currentKg = rpgEquipmentWeight(inventory.items, 'bag') +
-				bag.items.reduce((sum, item) => sum + item.quantity * 0.1, 0) + bagWeight;
-			const strength = record.state.trainerSheet?.attributes?.strength || 10;
-			const carrying = record.state.trainerSheet?.status === 'complete' ?
-				rpgTrainerDerivedStatistics(record.state.trainerSheet,
-					rpgEquipmentDerivedOptions(record.state.trainerSheet, inventory,
-						bag.items.reduce((sum, item) => sum + item.quantity, 0), bagWeight)).carrying :
-				{ normalKg: strength * 2.5, encumberedKg: strength * 5, maximumKg: strength * 7.5 };
-			view.weight = { currentKg: Math.round(currentKg * 10) / 10,
-				comfortableKg: carrying.normalKg, heavyKg: carrying.encumberedKg,
-				maximumKg: carrying.maximumKg };
+			if (bag) {
+				const bagWeight = ({ starter: 1, trainer: 1.5, adventurer: 2.5, expert: 3.5, master: 5, legendary: 6.5 })[
+					RPGBagSystem.getTier(bag) || 'starter'];
+				const currentKg = rpgEquipmentWeight(inventory.items, 'bag') +
+					bag.items.reduce((sum, item) => sum + item.quantity * 0.1, 0) + bagWeight;
+				const strength = record.state.trainerSheet?.attributes?.strength || 10;
+				const sheet = record.state.trainerSheet;
+				const carrying = sheet?.status === 'complete' && sheet.attributes ?
+					rpgTrainerDerivedStatistics(sheet,
+						rpgEquipmentDerivedOptions(sheet, inventory,
+							bag.items.reduce((sum, item) => sum + item.quantity, 0), bagWeight)).carrying :
+					{ normalKg: strength * 2.5, encumberedKg: strength * 5, maximumKg: strength * 7.5 };
+				view.weight = { currentKg: Math.round(currentKg * 10) / 10,
+					comfortableKg: carrying.normalKg, heavyKg: carrying.encumberedKg,
+					maximumKg: carrying.maximumKg };
+			}
 			const talentItems: RPGManagedBagItemView[] = this.sharedArchiveOptions(token, record.state.id).map(option => ({
 				id: option.key, name: 'Acervo Compartilhado', quantity: 1,
 				category: 'talent-items' as const, registryCategory: 'key' as const,
@@ -8612,7 +8870,8 @@ export class RPGLoginService {
 			};
 			const equipmentItems = inventory.items.filter(item =>
 				(item.location === 'bag' ||
-					(item.location === 'vehicle' && !!rpgEquipment(item.itemId).vehicle)) && !item.prototypeCreatorId)
+					(item.location === 'vehicle' && !!rpgEquipment(item.itemId).vehicle)) &&
+					!item.prototypeCreatorId && !item.equipped)
 				.map(instance => {
 					const definition = rpgEquipment(instance.itemId);
 					const category = equipmentCategory(definition);

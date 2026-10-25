@@ -5,7 +5,8 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 const { RPGLoginService, RPGMemoryCharacterRepository, RPG_TRAINER_CLASSES,
-	RPG_EQUIPMENT_CATALOG, rpgInitialTrainerInventory, rpgEquipmentSlots,
+	RPG_EQUIPMENT_CATALOG, rpgEquipmentAttackProfile, rpgInitialTrainerInventory, rpgEquipmentSlots,
+	rpgEquipmentWeight,
 	rpgCanAcquireKitDomain, rpgKitBonus,
 	rpgHasLicense, RPG_TRAINER_LICENSE_FEES,
 	rpgTractionCapacity, rpgTractionLoad,
@@ -21,6 +22,180 @@ function character(service, name) {
 }
 
 describe('RPG trainer equipment and item bank', () => {
+	it('shares only current-table trainer combat summaries in the Player roster', () => {
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({ masterCode: 'teste', repository });
+		for (const name of ['Alice', 'Bob', 'Carol']) character(service, name);
+		for (const id of ['alice', 'bob', 'carol']) {
+			const record = repository.get(id);
+			record.tableId = id === 'carol' ? 'outra-mesa' : 'mesa-teste'; record.accountId = id;
+			record.state.trainerSheet = completeRPGTrainerSheet(createRPGPendingTrainerSheet(),
+				{ classId: 'arqueologo', attributes,
+					optionalSkills: ['atletismo', 'captura', 'furtividade'], gearChoices: { arma: 'faca' } }, 'standard');
+			repository.set(record);
+		}
+		const bob = repository.get('bob');
+		bob.state.trainerSheet.hitPoints.current = 8;
+		bob.state.trainerSheet.survival = { lifeState: 'conscious', exhaustion: 2,
+			conditions: [{ id: 'cego', source: 'Teste' }], deathSaves: { successes: 0, failures: 0 },
+			wounds: [], shortCareUsed: false };
+		repository.set(bob);
+		service.getSession = () => ({ mode: 'player', role: 'player', platformTableId: 'mesa-teste', characterId: 'alice' });
+		const roster = service.listOtherPlayers('player');
+		assert.deepEqual(roster.map(entry => entry.id), ['bob']);
+		assert.equal(roster[0].combat.classId, 'arqueologo');
+		assert.equal(roster[0].combat.className, 'Arqueólogo');
+		assert.equal(roster[0].combat.level, 1);
+		assert.equal(roster[0].combat.experience, 0);
+		assert.equal(roster[0].combat.nextLevelXP, 937500);
+		assert.equal(roster[0].combat.hp.current, 8);
+		assert.equal(roster[0].combat.exhaustion, 2);
+		assert.deepEqual(roster[0].combat.conditions, ['cego']);
+		assert.equal(typeof roster[0].combat.defense, 'number');
+		assert.equal(typeof roster[0].combat.initiative, 'number');
+		assert.equal(typeof roster[0].combat.attacks.melee, 'number');
+		assert.deepEqual(roster[0].combat.deathSaves, { successes: 0, failures: 0 });
+		bob.state.trainerSheet.hitPoints.current = 0;
+		bob.state.trainerSheet.survival.lifeState = 'dying';
+		bob.state.trainerSheet.survival.deathSaves = { successes: 2, failures: 1 };
+		repository.set(bob);
+		assert.deepEqual(service.listOtherPlayers('player')[0].combat.deathSaves,
+			{ successes: 2, failures: 1 });
+		assert.equal('trainerSheet' in roster[0], false);
+	});
+	it('resolves equipped weapon attacks against table players and scene NPCs', () => {
+		const repository = new RPGMemoryCharacterRepository();
+		const service = new RPGLoginService({ masterCode: 'teste', repository, random: () => 0.95 });
+		character(service, 'Alice'); character(service, 'Bob');
+		for (const id of ['alice', 'bob']) {
+			const record = repository.get(id);
+			record.tableId = 'mesa-teste'; record.accountId = id;
+			record.state.trainerSheet = completeRPGTrainerSheet(createRPGPendingTrainerSheet(),
+				{ classId: 'arqueologo', attributes,
+					optionalSkills: ['atletismo', 'captura', 'furtividade'], gearChoices: { arma: 'faca' } }, 'standard');
+			repository.set(record);
+		}
+		service.getSession = () => ({ mode: 'player', role: 'player', platformTableId: 'mesa-teste', characterId: 'alice' });
+		service.requirePermission = () => {};
+		service.accounts.repository.getMembership = () => ({ status: 'active' });
+		const weapon = service.changeTrainerEquipment('player', { action: 'equip',
+			expectedRevision: service.getTrainerEquipment('player').inventory.revision,
+			instanceId: service.getTrainerEquipment('player').inventory.items.find(item => item.itemId === 'faca').id,
+			equipped: true, hand: 'left' }).inventory.items.find(item => item.itemId === 'faca');
+		const before = repository.get('bob').state.trainerSheet.hitPoints.current;
+		const hit = service.attackWithTrainerWeapon('player', { characterId: 'alice', instanceId: weapon.id,
+			targetType: 'player', targetId: 'bob' });
+		assert.equal(hit.hit, true);
+		assert(repository.get('bob').state.trainerSheet.hitPoints.current < before);
+		assert.throws(() => service.attackWithTrainerWeapon('player', { characterId: 'alice',
+			instanceId: weapon.id, targetType: 'player', targetId: 'outsider' }), /fora da mesa|indisponível/);
+		service.masterNPCLibrary = { npcs: [{ id: 'npc-1', name: 'Guarda', team: [] }] };
+		service.campaignSettings.sceneNpcIds = ['npc-1'];
+		const npcHit = service.attackWithTrainerWeapon('player', { characterId: 'alice',
+			instanceId: weapon.id, targetType: 'scene-npc', targetId: 'npc-1' });
+		assert.equal(npcHit.hit, true);
+		assert(service.masterNPCLibrary.npcs[0].humanCombat.hp < 20);
+		const manual = service.attackWithTrainerWeapon('player', { characterId: 'alice',
+			instanceId: weapon.id, targetType: 'other-npc', targetName: 'Viajante' });
+		assert.equal(manual.hit, null);
+		assert(manual.damage.total > 0);
+		const inventory = service.getTrainerEquipment('player').inventory;
+		service.changeTrainerEquipment('player', { action: 'equip', instanceId: weapon.id,
+			equipped: false, expectedRevision: inventory.revision });
+		const loaded = repository.get('alice');
+		loaded.state.trainerInventory.items.push(
+			{ id: 'gun', itemId: 'revolver', quantity: 1, location: 'bag', equipped: true,
+				equippedHand: 'left', charges: 2 },
+			{ id: 'bullets', itemId: 'municao-revolver', quantity: 4, location: 'bag', equipped: false });
+		repository.set(loaded);
+		for (const expected of [1, 0]) {
+			service.attackWithTrainerWeapon('player', { characterId: 'alice', instanceId: 'gun',
+				targetType: 'other-npc', targetName: 'Alvo' });
+			assert.equal(repository.get('alice').state.trainerInventory.items.find(item => item.id === 'gun').charges, expected);
+		}
+		assert.throws(() => service.attackWithTrainerWeapon('player', { characterId: 'alice',
+			instanceId: 'gun', targetType: 'other-npc', targetName: 'Alvo' }), /recarregue/i);
+		const refilled = service.changeTrainerEquipment('player', { action: 'reloadWeapon', instanceId: 'gun',
+			expectedRevision: service.getTrainerEquipment('player').inventory.revision }).inventory;
+		assert.equal(refilled.items.find(item => item.id === 'gun').charges, 4);
+		assert.equal(refilled.items.some(item => item.id === 'bullets'), false);
+		assert.throws(() => service.changeTrainerEquipment('player', { action: 'reloadWeapon', instanceId: 'gun',
+			expectedRevision: refilled.revision }), /Sem munição/);
+		const archer = repository.get('alice');
+		archer.state.trainerInventory.items.find(item => item.id === 'gun').equipped = false;
+		archer.state.trainerInventory.items.push(
+			{ id: 'bow', itemId: 'arco-curto', quantity: 1, location: 'bag', equipped: true },
+			{ id: 'arrows', itemId: 'flecha', quantity: 2, location: 'bag', equipped: false, charges: 1 });
+		repository.set(archer);
+		service.attackWithTrainerWeapon('player', { characterId: 'alice', instanceId: 'bow',
+			targetType: 'other-npc', targetName: 'Alvo' });
+		const remainingArrows = repository.get('alice').state.trainerInventory.items.find(item => item.id === 'arrows');
+		assert.equal(remainingArrows.quantity, 1);
+		assert.equal(remainingArrows.charges, 10);
+		const sprayRecord = repository.get('alice');
+		sprayRecord.state.trainerInventory.items.find(item => item.id === 'bow').equipped = false;
+		sprayRecord.state.trainerInventory.items.push(
+			{ id: 'spray', itemId: 'spray-pimenta', quantity: 1, location: 'bag', equipped: true,
+				equippedHand: 'left', charges: 0 },
+			{ id: 'spray-refill', itemId: 'refil-spray-pimenta', quantity: 1, location: 'bag',
+				equipped: false, charges: 4 });
+		repository.set(sprayRecord);
+		assert.throws(() => service.attackWithTrainerWeapon('player', { characterId: 'alice',
+			instanceId: 'spray', targetType: 'other-npc', targetName: 'Alvo' }), /recarregue/i);
+		service.changeTrainerEquipment('player', { action: 'refill', instanceId: 'spray',
+			refillInstanceId: 'spray-refill', expectedRevision: service.getTrainerEquipment('player').inventory.revision });
+		service.attackWithTrainerWeapon('player', { characterId: 'alice', instanceId: 'spray',
+			targetType: 'other-npc', targetName: 'Alvo' });
+		assert.equal(repository.get('alice').state.trainerInventory.items.find(item => item.id === 'spray').charges, 3);
+	});
+	it('defines damage for firearms and effects for weapons without damage', () => {
+		for (const [id, damage, dice, sides] of [
+			['revolver', '2d10 + Destreza', 2, 10],
+			['espingarda', '3d8 + Destreza', 3, 8],
+			['rifle', '3d10 + Destreza', 3, 10],
+		]) {
+			assert.equal(RPG_EQUIPMENT_CATALOG[id].weaponDamage, damage);
+			assert.equal(rpgEquipmentAttackProfile(id).dice, dice);
+			assert.equal(rpgEquipmentAttackProfile(id).sides, sides);
+		}
+		for (const item of Object.values(RPG_EQUIPMENT_CATALOG).filter(entry =>
+			entry.equipSlot === 'hand' && entry.category !== 'shield')) {
+			assert(item.weaponDamage || item.weaponEffect, `Arma sem dano ou efeito: ${item.id}`);
+		}
+		assert.match(RPG_EQUIPMENT_CATALOG['spray-pimenta'].weaponEffect, /Cego/);
+	});
+	it('equips two one-handed items or one two-handed item without removing their weight', () => {
+		const service = new RPGLoginService({ masterCode: 'teste', repository: new RPGMemoryCharacterRepository() });
+		const master = service.loginMaster('teste');
+		const player = character(service, 'Armada');
+		for (const itemId of ['faca', 'escudo', 'arco-curto']) {
+			const { inventory } = service.getTrainerEquipment(player.token);
+			service.changeTrainerEquipment(master.token, { action: 'grant', characterId: 'armada',
+				expectedRevision: inventory.revision, itemId, quantity: 1 });
+		}
+		const change = (itemId, equipped, hand) => {
+			const { inventory } = service.getTrainerEquipment(player.token);
+			const item = inventory.items.find(entry => entry.itemId === itemId);
+			return service.changeTrainerEquipment(player.token, { action: 'equip',
+				expectedRevision: inventory.revision, instanceId: item.id, equipped, hand });
+		};
+		const before = service.getTrainerEquipment(player.token).inventory;
+		const weight = rpgEquipmentWeight(before.items, 'bag');
+		const spaces = rpgEquipmentSlots(before.items);
+		change('faca', true, 'left');
+		change('escudo', true, 'right');
+		assert.throws(() => change('arco-curto', true), /duas mãos/i);
+		assert.equal(service.getBag(player.token).items.some(item => item.equipmentItemId === 'faca'), false);
+		assert.equal(service.getBag(player.token).items.some(item => item.equipmentItemId === 'escudo'), false);
+		assert.equal(rpgEquipmentWeight(service.getTrainerEquipment(player.token).inventory.items, 'bag'), weight);
+		assert.equal(rpgEquipmentSlots(service.getTrainerEquipment(player.token).inventory.items), spaces - 4);
+		change('faca', false);
+		change('escudo', false);
+		change('arco-curto', true);
+		assert.throws(() => change('faca', true, 'left'), /mãos devem estar livres|Mão ocupada/);
+		assert.equal(service.getTrainerEquipment(player.token).inventory.items.find(item =>
+			item.itemId === 'arco-curto').equipped, true);
+	});
 	it('provides a local sprite for every trainer equipment entry', () => {
 		const icons = new Set();
 		const images = new Set();

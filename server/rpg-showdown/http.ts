@@ -1115,6 +1115,24 @@ export class RPGHttpServer {
 				return;
 			}
 		}
+		if (url.pathname === '/api/rpg/trainer/weapon-targets' && method === 'GET') {
+			this.json(res, 200, this.login.getTrainerWeaponTargets(this.token(req)));
+			return;
+		}
+		if (url.pathname === '/api/rpg/trainer/weapon-attack' && method === 'POST') {
+			const token = this.token(req);
+			const session = this.login.getSession(token);
+			if (!this.login.mysqlPersistence || !session.platformTableId || !session.platformAccountId) {
+				throw new RPGHttpError(503, 'O ataque no chat requer o banco de dados');
+			}
+			const body = await this.body(req);
+			const result = this.login.attackWithTrainerWeapon(token, body as unknown as
+				Parameters<RPGLoginService['attackWithTrainerWeapon']>[1]);
+			await this.login.mysqlPersistence.createTableChatMessage(session.platformTableId,
+				session.platformAccountId, result.message);
+			this.json(res, 200, result);
+			return;
+		}
 		if (method === 'GET' && url.pathname === '/api/rpg/trainer/item-bank') {
 			this.json(res, 200, this.login.getTrainerItemBank(this.token(req),
 				url.searchParams.get('characterId') || undefined));
@@ -1812,6 +1830,12 @@ export class RPGHttpServer {
 		}
 		if (method === 'GET' && url.pathname === '/api/rpg/campaign/scene-npcs') {
 			this.json(res, 200, this.login.getCampaignSceneNPCs(this.token(req)));
+			return;
+		}
+		if (method === 'PUT' && url.pathname === '/api/rpg/campaign/scene-npcs/combat') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.setSceneNPCCombat(this.token(req), this.string(body.npcId),
+				body as Parameters<RPGLoginService['setSceneNPCCombat']>[2]));
 			return;
 		}
 		if (method === 'PUT' && url.pathname === '/api/rpg/campaign/scene-npcs/reveal') {

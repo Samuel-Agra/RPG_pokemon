@@ -11,6 +11,28 @@ describe('RPG trainer sheet read-only frontend', () => {
 	const page = fs.readFileSync(path.join(root, 'trainer-sheet-ui.js'), 'utf8');
 	const style = fs.readFileSync(path.join(root, 'trainer-sheet.css'), 'utf8');
 	const http = fs.readFileSync(path.resolve(root, '../../rpg-showdown/http.ts'), 'utf8');
+	it('mostra características ao abrir um item equipado, inclusive na ficha de leitura', () => {
+		assert(page.includes('if (current) {'));
+		assert(page.includes('Jogada de ataque: 1d20'));
+		assert(page.includes('Dano: ${definition.weaponDamage.replace'));
+		assert(page.includes('Efeito: ${definition.weaponEffect}'));
+		assert(page.includes('Redução de dano acidental de exploração:'));
+		assert(!page.includes('Espaços na Bag se retirado:'));
+		assert(page.includes('Deslocamento:'));
+		assert(page.includes('Cargas disponíveis:'));
+		assert(page.includes("current ? readOnly ? [] : [current]"));
+		assert(page.includes("readOnly && !item ? 'div' : 'button'"));
+	});
+	it('oferece ataque somente ao dono da ficha e envia o alvo para a rota validada', () => {
+		assert(page.includes("api('/trainer/weapon-targets')"));
+		assert(page.includes("api('/trainer/weapon-attack'"));
+		assert(page.includes("if (!readOnly && definition.equipSlot === 'hand'"));
+		assert(page.includes('close();\n\t\t\t\t\t\ttry { await attackWith(current); }'));
+		assert(http.includes("url.pathname === '/api/rpg/trainer/weapon-attack'"));
+		assert(page.includes("action: ['revolver', 'espingarda', 'rifle'].includes(current.itemId) ?"));
+		assert(page.includes("const ammunition = ({ revolver: 'municao-revolver'"));
+		assert(!page.includes("'arco-curto': 'flecha'"));
+	});
 	it('bloqueia a mesa inteira com uma camada vermelha enquanto o treinador está morto', () => {
 		assert(app.includes("overlay.id = 'trainer-death-overlay'"));
 		assert(app.includes("character?.trainerSheet?.survival?.lifeState === 'dead'"));
@@ -281,7 +303,8 @@ describe('RPG trainer sheet read-only frontend', () => {
 		assert(app.includes('RPGTrainerSheetUI.render({ api, state, master: false, character,'));
 		assert(page.includes('if (master) {'));
 		assert(page.includes("api('/trainer/sheet' + query)"));
-		assert(!page.includes("api('/trainer/equipment' + query)"));
+		assert(page.includes("api('/trainer/equipment' + query)"));
+		assert(page.includes("section('Itens equipados'"));
 	});
 
 	it('separates earned XP from level confirmation and presents available talents beside acquired ones', () => {

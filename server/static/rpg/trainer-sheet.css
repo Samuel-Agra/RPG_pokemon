@@ -1,4 +1,39 @@
 .trainer-sheet-page { display: grid; gap: 18px; color: #263753; }
+.trainer-sheet-equipped { display: grid; gap: 12px; }
+.trainer-sheet-equipped-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.trainer-sheet-equipment-slot { display: grid; grid-template-columns: 48px minmax(0, 1fr);
+	grid-template-rows: auto 1fr; align-items: center; gap: 3px 9px; min-height: 78px;
+	padding: 10px; border: 1px solid #bfcee1; border-radius: 8px; background: #f5f8fc;
+	color: #263753; text-align: left; font: inherit; }
+button.trainer-sheet-equipment-slot { cursor: pointer; }
+button.trainer-sheet-equipment-slot:hover { border-color: #648dbe; background: #edf4fe; }
+.trainer-sheet-equipment-slot small { grid-column: 1 / -1; color: #60789a; font: 700 12px Arial, sans-serif; }
+.trainer-sheet-equipment-slot img { width: 44px; height: 44px; object-fit: contain; image-rendering: pixelated; }
+.trainer-sheet-equipment-slot strong, .trainer-sheet-equipment-slot span { min-width: 0; overflow-wrap: anywhere; }
+.trainer-sheet-equipment-slot > span { grid-column: 1 / -1; color: #6c7b91; font-size: 13px; }
+.trainer-sheet-equipment-overlay { position: fixed; inset: 0; z-index: 10004; display: grid;
+	place-items: center; padding: 18px; background: #14243eaa; }
+.trainer-sheet-equipment-dialog { position: relative; display: grid; gap: 9px;
+	width: min(460px, 100%); max-height: min(80vh, 650px); overflow-y: auto; }
+.trainer-sheet-equipment-close { position: absolute; top: 8px; right: 10px; border: 0;
+	background: transparent; color: #263753; font: 700 26px Arial, sans-serif; cursor: pointer; }
+.trainer-sheet-equipment-option { display: flex; align-items: center; gap: 10px; width: 100%;
+	padding: 8px; border: 1px solid #c5d2e2; border-radius: 7px; background: #f6f9fd;
+	color: #263753; text-align: left; cursor: pointer; }
+.trainer-sheet-equipment-option img { width: 36px; height: 36px; object-fit: contain; image-rendering: pixelated; }
+.trainer-sheet-equipment-option span { flex: 1; }
+.trainer-sheet-equipment-option small { color: #657b9a; }
+.trainer-sheet-equipment-info { display: grid; gap: 5px; padding: 10px;
+	border: 1px solid #c5d2e2; border-radius: 8px; background: #f6f9fd; }
+.trainer-sheet-equipment-info-heading { display: flex; align-items: center; gap: 10px; margin-bottom: 4px; }
+.trainer-sheet-equipment-info-heading img { width: 48px; height: 48px; object-fit: contain; image-rendering: pixelated; }
+.trainer-sheet-equipment-info-heading strong { overflow-wrap: anywhere; }
+.trainer-sheet-equipment-info p { margin: 0; color: #3d5272; font-size: 13px; }
+.trainer-sheet-equipment-target-name { box-sizing: border-box; width: 100%; padding: 9px 10px;
+	border: 1px solid #b9c9dd; border-radius: 7px; background: #fff; color: #263753; font: inherit; }
+.trainer-sheet-equipment-option[aria-pressed="true"] { border-color: #d2a333; background: #fff2ca; }
+@container (max-width: 720px) { .trainer-sheet-equipped-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container (max-width: 460px) { .trainer-sheet-equipped-grid { grid-template-columns: minmax(0, 1fr); } }
 .trainer-death-overlay { position: fixed; inset: 0; z-index: 2147483600;
 	display: grid; place-items: center; padding: 20px; background: #a91d1d91;
 	backdrop-filter: saturate(.65); }

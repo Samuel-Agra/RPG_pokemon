@@ -4000,6 +4000,74 @@ async function renderPlayerRosterDrawer() {
 		}
 		card.append(avatar, createElement('span', 'player-roster-drawer-handle', handle),
 			createElement('strong', '', player.characterName), team);
+		const combat = createElement('div', 'player-roster-drawer-combat');
+		if (player.combat) {
+			const stats = player.combat;
+			const compactXP = value => new Intl.NumberFormat('pt-BR', {
+				notation: 'compact', maximumFractionDigits: 1,
+			}).format(value);
+			const classHeader = createElement('div', 'player-roster-combat-class');
+			const classSprite = createElement('img', 'player-roster-combat-class-sprite');
+			classSprite.src = './assets/trainer-classes/' + encodeURIComponent(stats.classId) + '.png';
+			classSprite.alt = '';
+			classSprite.decoding = 'async';
+			const classDetails = createElement('div', 'player-roster-combat-class-details');
+			classDetails.append(createElement('strong', '', stats.className),
+				createElement('small', '', `Nv. ${stats.level} · XP ${compactXP(stats.experience)} / ` +
+				(stats.nextLevelXP == null ? 'máx.' : compactXP(stats.nextLevelXP))));
+			classHeader.append(classSprite, classDetails);
+			combat.append(classHeader);
+			const hp = createElement('div', 'player-roster-combat-hp');
+			const maximum = Math.max(1, stats.hp.maximum);
+			const percent = Math.max(0, Math.min(100, stats.hp.current / maximum * 100));
+			const tone = percent > 50 ? 'healthy' : percent > 20 ? 'wounded' : 'critical';
+			hp.append(createElement('strong', '', 'PV'), createElement('span', '',
+				`${stats.hp.current} / ${stats.hp.maximum}${stats.hp.temporary ? ` (+${stats.hp.temporary})` : ''}`));
+			const track = createElement('div', `player-roster-combat-hp-track ${tone}`);
+			track.setAttribute('role', 'progressbar');
+			track.setAttribute('aria-label', `Pontos de vida de ${player.characterName}`);
+			track.setAttribute('aria-valuemin', '0');
+			track.setAttribute('aria-valuemax', String(stats.hp.maximum));
+			track.setAttribute('aria-valuenow', String(stats.hp.current));
+			const fill = createElement('div', 'player-roster-combat-hp-fill');
+			fill.style.width = percent + '%'; track.append(fill); hp.append(track);
+			const measures = createElement('div', 'player-roster-combat-measures');
+			const measure = (label, value) => {
+				const box = createElement('div', 'player-roster-combat-measure');
+				box.append(createElement('small', '', label), createElement('strong', '', String(value)));
+				return box;
+			};
+			const signed = value => `${value >= 0 ? '+' : ''}${value}`;
+			measures.append(measure('Defesa', stats.defense), measure('Iniciativa', signed(stats.initiative)),
+				measure('Desloc.', `${new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 1 }).format(stats.movementMeters)} m`));
+			const attacks = createElement('div', 'player-roster-combat-attacks');
+			attacks.append(createElement('small', '', 'Jogadas de ataque'),
+				createElement('span', '', `Corpo a corpo ${signed(stats.attacks.melee)}`),
+				createElement('span', '', `À distância ${signed(stats.attacks.ranged)}`));
+			const status = createElement('div', 'player-roster-combat-status');
+			status.append(createElement('strong', '', 'Estado'),
+				createElement('span', '', `Exaustão ${stats.exhaustion}`),
+				createElement('small', '', 'Condições'));
+			if (stats.lifeState && stats.lifeState !== 'conscious') {
+				status.append(createElement('span', 'player-roster-combat-condition',
+					({ dying: 'Morrendo', stable: 'Estável', dead: 'Morto' })[stats.lifeState] || stats.lifeState));
+			}
+			if (stats.conditions.length) {
+				for (const condition of [...new Set(stats.conditions)]) {
+					status.append(createElement('span', 'player-roster-combat-condition',
+						condition.replaceAll('-', ' ')));
+				}
+			} else status.append(createElement('span', 'player-roster-combat-no-condition', 'Nenhuma'));
+			if (stats.hp.current <= 0 && stats.deathSaves) {
+				const deathSaves = createElement('div', 'player-roster-combat-death-saves');
+				deathSaves.append(createElement('small', '', 'Testes de morte'),
+					createElement('span', '', `Sucessos ${stats.deathSaves.successes}/3`),
+					createElement('span', '', `Falhas ${stats.deathSaves.failures}/3`));
+				status.append(deathSaves);
+			}
+			combat.append(hp, measures, attacks, status);
+		} else combat.append(createElement('span', 'player-roster-combat-pending', 'Ficha ainda não concluída'));
+		card.append(combat);
 		if (memberEntry) {
 			openRosterDetailsOnContext(card, memberEntry, player.characterName);
 		} else {
@@ -5877,6 +5945,41 @@ async function renderMasterBody(characters) {
 					pokemon.append(slot);
 				}
 				card.append(remove, sprite, pokemon, createElement('strong', '', npc.name || 'NPC'));
+				const human = npc.humanCombat || { hp: 20, maximum: 20, defense: 10, conditions: [] };
+				const combat = createElement('div', 'master-scene-human-combat');
+				const hp = createElement('input'); hp.type = 'number'; hp.min = '0'; hp.max = '100000';
+				hp.value = String(human.hp);
+				const maximum = createElement('input'); maximum.type = 'number'; maximum.min = '1';
+				maximum.max = '100000'; maximum.value = String(human.maximum);
+				const defense = createElement('input'); defense.type = 'number'; defense.min = '0';
+				defense.max = '1000'; defense.value = String(human.defense);
+				const save = button('Salvar', 'master-scene-combat-save');
+				save.addEventListener('click', async () => {
+					save.disabled = true;
+					try {
+						const result = await api('/campaign/scene-npcs/combat', { method: 'PUT', body: {
+							npcId: npc.id, hp: Number(hp.value), maximum: Number(maximum.value), defense: Number(defense.value),
+						} });
+						npc.humanCombat = result.humanCombat;
+						renderScene();
+					} catch (error) { showToast(error.message, true); save.disabled = false; }
+				});
+				combat.append(createElement('span', '', 'PV'), hp, createElement('span', '', '/'), maximum,
+					createElement('span', '', 'Defesa'), defense, save);
+				if (human.conditions?.length) {
+					combat.append(createElement('small', '', `Condições: ${human.conditions.join(', ')}`));
+					const clear = button('Limpar condições', 'master-scene-combat-save');
+					clear.addEventListener('click', async () => {
+						clear.disabled = true;
+						try {
+							const result = await api('/campaign/scene-npcs/combat', { method: 'PUT', body: {
+								npcId: npc.id, clearConditions: true,
+							} });
+							npc.humanCombat = result.humanCombat; renderScene();
+						} catch (error) { showToast(error.message, true); clear.disabled = false; }
+					}); combat.append(clear);
+				}
+				card.append(combat);
 				sceneGrid.append(card);
 			}
 		};

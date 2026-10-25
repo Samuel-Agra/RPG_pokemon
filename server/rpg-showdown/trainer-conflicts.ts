@@ -6,6 +6,7 @@ import { rpgTrainerAddExhaustion, rpgTrainerApplyCondition, rpgTrainerRemoveCond
 	rpgTrainerStabilize, rpgTrainerSurvivalEffects,
 	rpgTrainerTakeDamage } from './trainer-survival';
 import type { RPGTrainerSheet } from './trainer-sheet';
+import { rpgEquipmentAttackProfile } from './trainer-equipment';
 
 export type RPGHumanAction = 'attack' | 'dash' | 'disengage' | 'dodge' | 'help' | 'hide' |
 	'ready' | 'search' | 'use-item' | 'stabilize' | 'maneuver';
@@ -147,6 +148,7 @@ export function triggerRPGHumanReaction(state: RPGHumanConflict, id: string,
 }
 
 export interface RPGHumanAttackOptions {
+	weaponId?: string;
 	weapon?: { dice: number, sides: number, ranged?: boolean, normalRange?: number, maximumRange?: number };
 	proficient?: boolean; nonlethal?: boolean; cover?: 0 | 2 | 5 | 'total';
 	concealed?: boolean; visible?: boolean; adjacentHostile?: boolean;
@@ -158,28 +160,36 @@ export function attackRPGHuman(state: RPGHumanConflict, attackerId: string, targ
 	const turn = current(state, attackerId);
 	canAct(attacker, state);
 	if (turn.actionUsed) throw new Error('Ação já utilizada');
-	const ranged = !!options.weapon?.ranged;
+	if (options.weaponId && options.weapon) throw new Error('Informe apenas uma arma para o ataque');
+	const catalogWeapon = options.weaponId ? rpgEquipmentAttackProfile(options.weaponId) : null;
+	const weapon = catalogWeapon || options.weapon;
+	const ranged = !!weapon?.ranged;
 	const separation = distance(attacker, target);
-	if ((!ranged && separation > 1.5) || (ranged && separation > (options.weapon?.maximumRange || 0))) {
+	if ((!ranged && separation > 1.5) || (ranged && separation > (weapon?.maximumRange || 0))) {
 		throw new Error('Alvo fora do alcance');
 	}
 	if (options.cover === 'total') throw new Error('Alvo em cobertura total');
-	if (options.nonlethal && ranged) throw new Error('Ataque à distância não pode ser convertido em não letal');
+	if (options.nonlethal && ranged && !catalogWeapon?.nonlethal) {
+		throw new Error('Ataque à distância não pode ser convertido em não letal');
+	}
 	const adverse = rpgTrainerSurvivalEffects(attacker.sheet).attackDisadvantage ||
-		(ranged && (separation > (options.weapon?.normalRange || 0) || options.adjacentHostile)) ||
+		(ranged && (separation > (weapon?.normalRange || 0) || options.adjacentHostile)) ||
 		options.concealed || options.visible === false || state.turns[targetId].dodging;
 	const defense = rpgTrainerDerivedStatistics(target.sheet).defense + (options.cover || 0);
 	const attack = rollRPGTrainerAttack(rpgTrainerAttackBonus(attacker.sheet,
 		ranged ? 'dexterity' : 'strength', !!options.proficient), defense, random,
 	{ disadvantages: adverse ? 1 : 0 });
 	const strength = Math.floor((attacker.sheet.attributes!.strength - 10) / 2);
-	const damage = attack.hit ? (options.weapon ?
-		rollRPGTrainerDamage(options.weapon.dice, options.weapon.sides, ranged ? 0 : strength, attack.critical, random).total :
+	const dexterity = Math.floor((attacker.sheet.attributes!.dexterity - 10) / 2);
+	const damage = attack.hit ? (weapon ?
+		rollRPGTrainerDamage(weapon.dice, weapon.sides, ranged ? dexterity : strength,
+			attack.critical, random).total + (catalogWeapon?.closeRangeBonus && separation <= 6 ?
+			catalogWeapon.closeRangeBonus : 0) :
 		Math.max(1, 1 + strength)) : 0;
 	const next = copy(state);
 	next.turns[attackerId].actionUsed = true;
 	if (damage) next.participants.find(entry => entry.id === targetId)!.sheet =
-		rpgTrainerTakeDamage(target.sheet, damage, { nonlethal: options.nonlethal });
+		rpgTrainerTakeDamage(target.sheet, damage, { nonlethal: !!options.nonlethal || !!catalogWeapon?.nonlethal });
 	return { state: next, attack, damage };
 }
 

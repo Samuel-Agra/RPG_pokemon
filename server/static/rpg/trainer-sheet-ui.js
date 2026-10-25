@@ -3668,9 +3668,254 @@
 		spriteFrame.append(sprite);
 		title.append(spriteFrame);
 	}
+	function renderEquippedItems(root, character, sheet, progression, equipment, api, readOnly, refresh) {
+		const panel = section('Itens equipados', 'trainer-sheet-panel trainer-sheet-equipped');
+		const grid = el('div', 'trainer-sheet-equipped-grid');
+		const items = equipment?.inventory?.items || [];
+		const catalog = equipment?.catalog || {};
+		const worn = items.filter(item => item.equipped && item.location === 'bag');
+		const bySlot = new Map();
+		const hands = { left: null, right: null };
+		for (const item of worn) {
+			const definition = catalog[item.itemId];
+			if (!definition) continue;
+			if (definition.equipSlot !== 'hand') { bySlot.set(definition.equipSlot, item); continue; }
+			if (definition.handCount === 2) { hands.left = hands.right = item; continue; }
+			const hand = item.equippedHand || (hands.left ? 'right' : 'left');
+			hands[hand] = item;
+		}
+		const labels = [
+			['body-outfit', 'Traje'], ['body-improvement', 'Melhoria de corpo'],
+			['head-improvement', 'Melhoria de cabeça'], ['left', 'Mão esquerda'],
+			['right', 'Mão direita'], ['accessory', 'Acessório'],
+		];
+		async function attackWith(item) {
+			const overlay = el('div', 'trainer-sheet-equipment-overlay');
+			const dialog = section('Atacar com ' + catalog[item.itemId].name,
+				'trainer-sheet-panel trainer-sheet-equipment-dialog');
+			const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
+			const onKey = event => { if (event.key === 'Escape') close(); };
+			overlay.addEventListener('click', event => { if (event.target === overlay) close(); });
+			const dismiss = el('button', 'trainer-sheet-equipment-close', '×');
+			dismiss.type = 'button'; dismiss.setAttribute('aria-label', 'Fechar');
+			dismiss.addEventListener('click', close); dialog.append(dismiss);
+			const feedback = el('p', 'trainer-sheet-progression-feedback');
+			feedback.textContent = 'Carregando alvos...';
+			dialog.append(feedback); overlay.append(dialog); document.body.append(overlay);
+			document.addEventListener('keydown', onKey); dismiss.focus();
+			let targets;
+			try { targets = await api('/trainer/weapon-targets'); } catch (error) {
+				feedback.textContent = error.message || 'Não foi possível carregar os alvos.'; return;
+			}
+			if (!overlay.isConnected) return;
+			feedback.textContent = '';
+			let attackAttribute = catalog[item.itemId].rangedAttack || item.itemId === 'spray-pimenta' ?
+				'dexterity' : 'strength';
+			if (catalog[item.itemId].agile && !catalog[item.itemId].rangedAttack) {
+				const attribute = el('select', 'trainer-sheet-equipment-target-name');
+				for (const [value, label] of [['strength', 'Força'], ['dexterity', 'Destreza']]) {
+					const option = el('option', '', label); option.value = value; attribute.append(option);
+				}
+				attribute.addEventListener('change', () => { attackAttribute = attribute.value; });
+				dialog.append(el('strong', '', 'Atributo do ataque'), attribute);
+			}
+			let closeRange = false;
+			if (item.itemId === 'espingarda') {
+				const near = el('button', 'trainer-sheet-equipment-option', 'Alvo a até 6 m (+3 de dano)');
+				near.type = 'button'; near.setAttribute('aria-pressed', 'false');
+				near.addEventListener('click', () => {
+					closeRange = !closeRange; near.setAttribute('aria-pressed', String(closeRange));
+				}); dialog.append(near);
+			}
+			async function perform(targetType, targetId, targetName, button) {
+				button.disabled = true; feedback.textContent = '';
+				try {
+					const result = await api('/trainer/weapon-attack', { method: 'POST', body: {
+						characterId: character.id, instanceId: item.id, targetType, targetId, targetName,
+						attackAttribute, closeRange,
+					} });
+					feedback.textContent = result.hit === null ? 'Rolagens enviadas ao chat. O Mestre decide o efeito.' :
+						result.hit ? 'Ataque acertou. O resultado foi aplicado.' : 'Ataque errou.';
+					window.dispatchEvent(new CustomEvent('rpg:realtime-sync', { detail: { tableId: selectedTable } }));
+					await refresh();
+				} catch (error) { feedback.textContent = error.message || 'Não foi possível realizar o ataque.'; } finally { button.disabled = false; }
+			}
+			for (const [title, list, type] of [
+				['Players', targets.players, 'player'], ['NPCs em cena', targets.npcs, 'scene-npc'],
+			]) {
+				dialog.append(el('strong', '', title));
+				if (!list.length) dialog.append(el('small', '', 'Nenhum alvo disponível.'));
+				for (const target of list) {
+					const choice = el('button', 'trainer-sheet-equipment-option', target.name);
+					choice.type = 'button'; choice.addEventListener('click', () => perform(type, target.id, '', choice));
+					dialog.append(choice);
+				}
+			}
+			dialog.append(el('strong', '', 'Outro NPC'));
+			const other = el('input', 'trainer-sheet-equipment-target-name');
+			other.type = 'text'; other.maxLength = 80; other.placeholder = 'Nome do NPC';
+			const manual = el('button', 'trainer-sheet-equipment-option', 'Rolar ataque e dano');
+			manual.type = 'button'; manual.addEventListener('click', () => perform('other-npc', '', other.value, manual));
+			dialog.append(other, manual);
+		}
+		function picker(slot, current) {
+			const overlay = el('div', 'trainer-sheet-equipment-overlay');
+			const dialog = section(current ? 'Item equipado' : `Equipar: ${labels.find(entry => entry[0] === slot)[1]}`,
+				'trainer-sheet-panel trainer-sheet-equipment-dialog');
+			dialog.setAttribute('role', 'dialog'); dialog.setAttribute('aria-modal', 'true');
+			const close = () => { overlay.remove(); document.removeEventListener('keydown', onKey); };
+			const onKey = event => { if (event.key === 'Escape') close(); };
+			overlay.addEventListener('click', event => { if (event.target === overlay) close(); });
+			const dismiss = el('button', 'trainer-sheet-equipment-close', '×');
+			dismiss.type = 'button'; dismiss.setAttribute('aria-label', 'Fechar');
+			dismiss.addEventListener('click', close); dialog.append(dismiss);
+			const feedback = el('p', 'trainer-sheet-progression-feedback');
+			if (current) {
+				const definition = catalog[current.itemId];
+				const info = el('div', 'trainer-sheet-equipment-info');
+				const heading = el('div', 'trainer-sheet-equipment-info-heading');
+				const icon = el('img'); icon.src = definition.icon; icon.alt = '';
+				heading.append(icon, el('strong', '', definition.name)); info.append(heading);
+				const format = value => new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 2 }).format(value);
+				const rangedAttack = definition.rangedAttack || current.itemId === 'spray-pimenta';
+				const proficient = !definition.domain || (sheet.proficiencies || []).includes(definition.domain);
+				const attackBase = rangedAttack ? progression.attacks?.ranged : progression.attacks?.melee;
+				const attackBonus = attackBase == null ? null : attackBase + (proficient ? progression.proficiency || 0 : 0);
+				const agileAttackBonus = definition.agile && progression.attacks?.ranged != null ?
+					progression.attacks.ranged + (proficient ? progression.proficiency || 0 : 0) : null;
+				const strengthBonus = Math.floor(((sheet.attributes?.strength || 10) - 10) / 2);
+				const dexterityBonus = Math.floor(((sheet.attributes?.dexterity || 10) - 10) / 2);
+				const details = [
+					definition.category === 'shield' ?
+						`Defesa: +${(sheet.proficiencies || []).includes('escudos') ? 2 : 1}` :
+						definition.defenseBonus ? `Defesa: +${definition.defenseBonus}` : '',
+					['roupa-exploracao-leve', 'roupa-exploracao-reforcada', 'roupa-exploracao-pesada'].includes(current.itemId) ?
+						`Redução de dano acidental de exploração: ${definition.defenseBonus}` : '',
+					current.itemId === 'capacete' ? 'Redução de dano acidental de exploração: 1' : '',
+					definition.movementBonusMeters ?
+						`Deslocamento: ${definition.movementBonusMeters > 0 ? '+' : ''}${format(definition.movementBonusMeters)} m` : '',
+					current.itemId === 'roupa-exploracao-pesada' ? 'Desvantagem em Furtividade.' : '',
+					definition.equipSlot === 'hand' && definition.category !== 'shield' ?
+						`Jogada de ataque: 1d20 ${attackBonus == null ? '' : signed(attackBonus)}`.trim() : '',
+					definition.agile ? `Com Destreza: 1d20 ${agileAttackBonus == null ? '' : signed(agileAttackBonus)}`.trim() : '',
+					definition.weaponDamage ? `Dano: ${definition.weaponDamage.replace('+ Força',
+						`${strengthBonus < 0 ? '−' : '+'} ${Math.abs(strengthBonus)}`).replace('+ Destreza',
+						`${dexterityBonus < 0 ? '−' : '+'} ${Math.abs(dexterityBonus)}`)}` : '',
+					definition.weaponEffect ? `Efeito: ${definition.weaponEffect}` : '',
+					current.itemId === 'espingarda' ? 'A até 6 m: +3 de dano.' : '',
+					({ 'colete-flutuacao': '+2 em Atletismo para nadar ou flutuar.',
+						'arnes-escalada': '+2 em Atletismo para escalar com corda ou ancoragem.',
+						'forro-termico': 'Protege contra frio; vantagem contra frio extremo.',
+						'sistema-resfriamento': 'Protege contra calor; vantagem contra calor extremo.',
+						'camada-impermeavel': 'Protege da chuva e umidade; vantagem contra exposição prolongada.',
+						'oculos-protecao': 'Protege os olhos de partículas; vantagem contra Cego ambiental.',
+						'mascara-filtrante': 'Filtra fumaça e partículas; vantagem contra gases concentrados.',
+						'lanterna-cabeca': 'Ilumina 12 m claramente e mais 12 m com luz fraca.',
+						'protetor-auditivo': 'Vantagem contra Surdo por ruído; desvantagem para ouvir.',
+					}[current.itemId]) || '',
+					definition.maxCharges === undefined ? '' :
+					`Cargas disponíveis: ${current.charges ?? definition.maxCharges}/${definition.maxCharges}`,
+				].filter(Boolean);
+				if (!details.length) details.push('Sem bônus mecânico definido.');
+				for (const detail of details) info.append(el('p', '', detail));
+				dialog.append(info);
+				if (!readOnly && definition.equipSlot === 'hand' && definition.category !== 'shield' &&
+					(definition.weaponDamage || definition.weaponEffect)) {
+					const ammunition = ({ revolver: 'municao-revolver', espingarda: 'municao-espingarda',
+						rifle: 'municao-rifle', taser: 'cartucho-taser',
+						'spray-pimenta': 'refil-spray-pimenta', 'dispositivo-choque': 'bateria-choque' })[current.itemId];
+					if (ammunition && definition.maxCharges !== undefined) {
+						const reload = el('button', 'trainer-sheet-equipment-option',
+							`Recarregar (${current.charges ?? definition.maxCharges}/${definition.maxCharges})`);
+						reload.type = 'button';
+						reload.addEventListener('click', async () => {
+							reload.disabled = true; feedback.textContent = '';
+							const refill = items.find(entry => entry.itemId === ammunition && entry.location === 'bag' &&
+								entry.quantity > 0 && (entry.charges === undefined || entry.charges > 0));
+							if (!refill) {
+								feedback.textContent = 'Sem munição compatível na Bag.'; reload.disabled = false; return;
+							}
+							try {
+								await api('/trainer/equipment', { method: 'POST', body: {
+									characterId: character.id, action: ['revolver', 'espingarda', 'rifle'].includes(current.itemId) ?
+										'reloadWeapon' : 'refill', instanceId: current.id, refillInstanceId: refill.id,
+									expectedRevision: equipment.inventory.revision,
+								} });
+								close(); await refresh();
+								window.dispatchEvent(new CustomEvent('rpg:realtime-sync', { detail: { tableId: selectedTable } }));
+							} catch (error) {
+								feedback.textContent = error.message || 'Não foi possível recarregar a arma.';
+								reload.disabled = false;
+							}
+						}); dialog.append(reload);
+					}
+					const attack = el('button', 'trainer-sheet-equipment-option', 'Atacar');
+					attack.type = 'button'; attack.addEventListener('click', async () => {
+						attack.disabled = true;
+						close();
+						try { await attackWith(current); } catch (error) {
+							feedback.textContent = error.message || 'Não foi possível abrir os alvos.'; attack.disabled = false;
+						}
+					}); dialog.append(attack);
+				}
+			}
+			const candidates = current ? readOnly ? [] : [current] : items.filter(item => {
+				const definition = catalog[item.itemId];
+				return item.location === 'bag' && !item.equipped && definition &&
+					(slot === 'left' || slot === 'right' ? definition.equipSlot === 'hand' &&
+					(definition.handCount !== 2 || !hands.left && !hands.right) :
+					definition.equipSlot === slot) &&
+					(slot !== 'body-improvement' && slot !== 'head-improvement' || bySlot.has('body-outfit'));
+			});
+			if (!current && !candidates.length) dialog.append(el('p', '', 'Nenhum item disponível para este espaço.'));
+			for (const item of candidates) {
+				const definition = catalog[item.itemId];
+				const choice = el('button', 'trainer-sheet-equipment-option'); choice.type = 'button';
+				if (current) choice.append(el('span', '', 'Retirar equipamento'));
+				else {
+					const icon = el('img'); icon.src = definition.icon; icon.alt = '';
+					choice.append(icon, el('span', '', definition.name),
+						el('small', '', definition.handCount === 2 ? 'Ocupa as duas mãos' : 'Equipar'));
+				}
+				choice.addEventListener('click', async () => {
+					choice.disabled = true; feedback.textContent = '';
+					try {
+						await api('/trainer/equipment', { method: 'POST', body: {
+							characterId: character.id, action: 'equip', instanceId: item.id,
+							equipped: !current, expectedRevision: equipment.inventory.revision,
+							...(!current && (slot === 'left' || slot === 'right') ? { hand: slot } : {}),
+						} });
+						close(); await refresh();
+						window.dispatchEvent(new CustomEvent('rpg:realtime-sync',
+							{ detail: { tableId: selectedTable } }));
+					} catch (error) { feedback.textContent = error.message || 'Não foi possível alterar o equipamento.'; choice.disabled = false; }
+				});
+				dialog.append(choice);
+			}
+			dialog.append(feedback); overlay.append(dialog); document.body.append(overlay);
+			document.addEventListener('keydown', onKey); dismiss.focus();
+		}
+		for (const [slot, name] of labels) {
+			const item = slot === 'left' || slot === 'right' ? hands[slot] : bySlot.get(slot);
+			const definition = item && catalog[item.itemId];
+			const card = el(slot === 'accessory' || readOnly && !item ? 'div' : 'button',
+				'trainer-sheet-equipment-slot' + (item ? ' occupied' : ''));
+			if (card.tagName === 'BUTTON') { card.type = 'button'; card.addEventListener('click', () => picker(slot, item)); }
+			card.append(el('small', '', name));
+			if (definition) {
+				const icon = el('img'); icon.src = definition.icon; icon.alt = '';
+				card.append(icon, el('strong', '', definition.name));
+			} else card.append(el('span', '', slot === 'accessory' ? 'Sem uso por enquanto' : 'Vazio'));
+			grid.append(card);
+		}
+		panel.append(grid);
+		if (!equipment) panel.append(el('small', '', 'Não foi possível consultar os equipamentos.'));
+		root.append(panel);
+	}
+
 	function renderSheet(root, character, sheet, progression, talents, rules, api, readOnly, refresh,
 		masterControls = false, spriteUrl = null, canRemoveTrueBond = false, trainerSpriteUrl = null,
-		masterVitalControls = false) {
+		masterVitalControls = false, equipment = null) {
 		if (closeSkillPopover) closeSkillPopover();
 		if (closeAttributePopover) closeAttributePopover();
 		if (closeTalentPopover && (!closeTalentPopover.preserveOnRefresh ||
@@ -4299,6 +4544,7 @@
 			conditions.append(edit);
 		}
 		rightStats.append(conditions);
+		renderEquippedItems(root, character, sheet, progression, equipment, api, readOnly, refresh);
 	}
 
 	async function render({ api, state, master, characters = [], character, spriteUrl, trainerSpriteUrl }) {
@@ -4500,9 +4746,14 @@
 					}
 					return;
 				}
-				const [rules, talents] = await Promise.all([api('/trainer/rules'), api('/trainer/talents' + query)]);
+				const [rules, talents, equipmentResult] = await Promise.all([
+					api('/trainer/rules'), api('/trainer/talents' + query),
+					api('/trainer/equipment' + query).then(value => ({ value }), error => ({ error })),
+				]);
 				if (!root.isConnected || active()?.id !== target.id) return;
-				const nextSignature = JSON.stringify([tableId, target.id, progression, talents.sheet]);
+				const equipment = equipmentResult.value || null;
+				const nextSignature = JSON.stringify([tableId, target.id, progression, talents.sheet,
+					equipment?.inventory?.revision, !!equipmentResult.error]);
 				if (nextSignature !== signature) {
 					signature = nextSignature;
 					updateTrainerHeading(progression.sheet, progression, rules, masterSummary);
@@ -4512,7 +4763,7 @@
 						state.tableReadOnly || master, refresh, master && !state.tableReadOnly, spriteUrl,
 						!master && state.session?.role === 'master', trainerSpriteUrl,
 						state.session?.role === 'master' &&
-						(master || state.session?.mode === 'player') && !state.tableReadOnly);
+						(master || state.session?.mode === 'player') && !state.tableReadOnly, equipment);
 					const controls = content.querySelector('.trainer-sheet-progression-controls');
 					if (controls && masterSummary) root.insertBefore(controls, masterSummary);
 				}

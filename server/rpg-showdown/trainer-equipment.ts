@@ -2,13 +2,16 @@
 import type { RPGTrainerSheet } from './trainer-sheet';
 
 export type RPGEquipmentLegality = 'free' | 'controlled' | 'restricted';
-export type RPGEquipmentSlot = 'body-outfit' | 'body-improvement' | 'head-improvement' | 'shield' | 'accessory';
+export type RPGEquipmentSlot = 'body-outfit' | 'body-improvement' | 'head-improvement' | 'hand' | 'accessory';
 export interface RPGEquipmentDefinition {
 	id: string; name: string; category: string; icon: string; weight: number; spaces: number; stackLimit: number;
 	price: number; rarity: 'common' | 'uncommon' | 'rare' | 'very-rare';
 	legality: RPGEquipmentLegality; maxCharges?: number; refillFor?: string;
 	domain?: string; skill?: string; equipSlot?: RPGEquipmentSlot; tier?: number;
+	handCount?: 1 | 2;
 	defenseBonus?: number; movementBonusMeters?: number;
+	/** Efeitos de uso exibidos na ficha; os valores seguem as regras de equipamento. */
+	weaponDamage?: string; weaponEffect?: string; agile?: boolean; rangedAttack?: boolean;
 	vehicle?: { passengers: number, cargoSpaces: number, cargoKg: number, energy?: number, registration: boolean };
 }
 type Row = [string, string, string, number, number, number, number, RPGEquipmentLegality?, Partial<RPGEquipmentDefinition>?];
@@ -46,30 +49,33 @@ const rows: Row[] = [
 	['refil-cientifico', 'Refil Científico', 'refill', 1, 1, 9, 1500, 'controlled', { maxCharges: 5, refillFor: 'kit-cientifico' }],
 	['refil-tecnologico', 'Refil Tecnológico', 'refill', 1, 1, 9, 1200, 'controlled', { maxCharges: 5, refillFor: 'kit-tecnologico' }],
 	['refil-disfarce', 'Refil de Disfarce', 'refill', 0.5, 1, 9, 500, 'free', { maxCharges: 5, refillFor: 'kit-disfarce' }],
-	['faca', 'Faca', 'melee', 0.5, 1, 1, 150], ['machadinha', 'Machadinha', 'melee', 1, 1, 1, 300],
-	['martelo-leve', 'Martelo Leve', 'melee', 0.8, 1, 1, 150],
-	['espada', 'Espada', 'melee', 1.5, 2, 1, 1200, 'controlled', { domain: 'armas-melee-exoticas' }],
-	['nunchaku', 'Nunchaku', 'melee', 0.7, 1, 1, 600, 'controlled', { domain: 'armas-melee-exoticas' }],
-	['lanca', 'Lança', 'melee', 2.5, 3, 1, 500, 'controlled', { domain: 'armas-melee-exoticas' }],
-	['arco-curto', 'Arco Curto', 'ranged', 1, 2, 1, 600], ['arco-longo', 'Arco Longo', 'ranged', 1.5, 3, 1, 1200],
-	['revolver', 'Revólver', 'ranged', 1, 1, 1, 8000, 'restricted', { domain: 'armas-ranged-exoticas', maxCharges: 6 }],
-	['espingarda', 'Espingarda', 'ranged', 3.5, 3, 1, 12000, 'restricted', { domain: 'armas-ranged-exoticas', maxCharges: 6 }],
-	['rifle', 'Rifle', 'ranged', 4, 4, 1, 16000, 'restricted', { domain: 'armas-ranged-exoticas', maxCharges: 5 }],
-	['flecha', 'Pacote de 10 flechas', 'ammunition', 0.5, 1, 9, 100],
+	['faca', 'Faca', 'melee', 0.5, 1, 1, 150, 'free', { equipSlot: 'hand', handCount: 1, weaponDamage: '2d4 + Força', agile: true }],
+	['machadinha', 'Machadinha', 'melee', 1, 1, 1, 300, 'free', { equipSlot: 'hand', handCount: 1, weaponDamage: '2d6 + Força' }],
+	['martelo-leve', 'Martelo Leve', 'melee', 0.8, 1, 1, 150, 'free', { equipSlot: 'hand', handCount: 1, weaponDamage: '2d6 + Força' }],
+	['espada', 'Espada', 'melee', 1.5, 2, 1, 1200, 'controlled', { domain: 'armas-melee-exoticas', equipSlot: 'hand', handCount: 1, weaponDamage: '2d8 + Força' }],
+	['nunchaku', 'Nunchaku', 'melee', 0.7, 1, 1, 600, 'controlled', { domain: 'armas-melee-exoticas', equipSlot: 'hand', handCount: 1, weaponDamage: '2d6 + Força', agile: true }],
+	['lanca', 'Lança', 'melee', 2.5, 3, 1, 500, 'controlled', { domain: 'armas-melee-exoticas', equipSlot: 'hand', handCount: 2, weaponDamage: '2d8 + Força' }],
+	['arco-curto', 'Arco Curto', 'ranged', 1, 2, 1, 600, 'free', { equipSlot: 'hand', handCount: 2, domain: 'armas-ranged-comuns', weaponDamage: '2d6 + Destreza', rangedAttack: true }],
+	['arco-longo', 'Arco Longo', 'ranged', 1.5, 3, 1, 1200, 'free', { equipSlot: 'hand', handCount: 2, domain: 'armas-ranged-comuns', weaponDamage: '2d8 + Destreza', rangedAttack: true }],
+	['revolver', 'Revólver', 'ranged', 1, 1, 1, 8000, 'restricted', { domain: 'armas-ranged-exoticas', maxCharges: 6, equipSlot: 'hand', handCount: 1, weaponDamage: '2d10 + Destreza', rangedAttack: true }],
+	['espingarda', 'Espingarda', 'ranged', 3.5, 3, 1, 12000, 'restricted', { domain: 'armas-ranged-exoticas', maxCharges: 6, equipSlot: 'hand', handCount: 2, weaponDamage: '3d8 + Destreza', rangedAttack: true }],
+	['rifle', 'Rifle', 'ranged', 4, 4, 1, 16000, 'restricted', { domain: 'armas-ranged-exoticas', maxCharges: 5, equipSlot: 'hand', handCount: 2, weaponDamage: '3d10 + Destreza', rangedAttack: true }],
+	['flecha', 'Pacote de 10 flechas', 'ammunition', 0.5, 1, 9, 100, 'free', { maxCharges: 10 }],
 	['municao-revolver', 'Munição de revólver', 'ammunition', 0.2, 1, 9, 500, 'restricted'],
 	['municao-espingarda', 'Munição de espingarda', 'ammunition', 0.4, 1, 9, 700, 'restricted'],
 	['municao-rifle', 'Munição de rifle', 'ammunition', 0.3, 1, 9, 800, 'restricted'],
-	['spray-pimenta', 'Spray de Pimenta', 'nonlethal', 0.2, 1, 1, 400, 'free', { maxCharges: 4 }],
+	['spray-pimenta', 'Spray de Pimenta', 'nonlethal', 0.2, 1, 1, 400, 'free', { maxCharges: 4, equipSlot: 'hand', handCount: 1,
+		weaponEffect: 'No acerto, o alvo testa Fortitude CD 13; em falha, fica Cego.' }],
 	['refil-spray-pimenta', 'Refil de Spray', 'refill', 0.2, 1, 9, 250, 'free', { maxCharges: 4, refillFor: 'spray-pimenta' }],
-	['dispositivo-choque', 'Dispositivo de Choque', 'nonlethal', 0.4, 1, 1, 900, 'controlled', { maxCharges: 5 }],
+	['dispositivo-choque', 'Dispositivo de Choque', 'nonlethal', 0.4, 1, 1, 900, 'controlled', { maxCharges: 5, equipSlot: 'hand', handCount: 1, weaponDamage: '1d6 + Força', agile: true }],
 	['bateria-choque', 'Bateria de Choque', 'refill', 0.2, 1, 9, 400, 'controlled', { maxCharges: 5, refillFor: 'dispositivo-choque' }],
-	['taser', 'Taser', 'nonlethal', 0.8, 1, 1, 2500, 'controlled', { maxCharges: 1 }],
+	['taser', 'Taser', 'nonlethal', 0.8, 1, 1, 2500, 'controlled', { maxCharges: 1, equipSlot: 'hand', handCount: 1, domain: 'armas-nao-letais', weaponDamage: '1d6 + Destreza', rangedAttack: true }],
 	['cartucho-taser', 'Cartucho de Taser', 'refill', 0.1, 1, 9, 350, 'controlled', { maxCharges: 1, refillFor: 'taser' }],
-	['bastao-contencao', 'Bastão de Contenção', 'nonlethal', 0.8, 1, 1, 700, 'controlled'],
+	['bastao-contencao', 'Bastão de Contenção', 'nonlethal', 0.8, 1, 1, 700, 'controlled', { equipSlot: 'hand', handCount: 1, weaponDamage: '2d4 + Força', agile: true }],
 	['roupa-exploracao-leve', 'Roupa de Exploração Leve', 'outfit', 2, 2, 1, 1000, 'free', { equipSlot: 'body-outfit', defenseBonus: 1 }],
 	['roupa-exploracao-reforcada', 'Roupa de Exploração Reforçada', 'outfit', 5, 3, 1, 4000, 'free', { equipSlot: 'body-outfit', defenseBonus: 2 }],
 	['roupa-exploracao-pesada', 'Roupa de Exploração Pesada', 'outfit', 10, 5, 1, 12000, 'free', { equipSlot: 'body-outfit', defenseBonus: 3, movementBonusMeters: -1.5 }],
-	['escudo', 'Escudo', 'shield', 4, 3, 1, 2500, 'controlled', { equipSlot: 'shield', domain: 'escudos' }],
+	['escudo', 'Escudo', 'shield', 4, 3, 1, 2500, 'controlled', { equipSlot: 'hand', handCount: 1, domain: 'escudos' }],
 	['forro-termico', 'Forro Térmico', 'improvement', 2, 2, 1, 2000, 'free', { equipSlot: 'body-improvement' }],
 	['sistema-resfriamento', 'Sistema de Resfriamento', 'improvement', 2, 2, 1, 2500, 'free', { equipSlot: 'body-improvement' }],
 	['camada-impermeavel', 'Camada Impermeável', 'improvement', 1, 1, 1, 1200, 'free', { equipSlot: 'body-improvement' }],
@@ -163,8 +169,24 @@ export function rpgEquipment(id: string): RPGEquipmentDefinition {
 	if (!item) throw new Error('Equipamento desconhecido: ' + id);
 	return item;
 }
+/** Perfil de dano humano extraído do mesmo catálogo apresentado na ficha. */
+export function rpgEquipmentAttackProfile(id: string) {
+	const item = rpgEquipment(id);
+	const match = /^(\d+)d(\d+)(?: \+ (?:Força|Destreza))?$/.exec(item.weaponDamage || '');
+	if (!match) throw new Error('Este equipamento não possui dano para ataque humano');
+	const ranges: Record<string, [number, number]> = {
+		'arco-curto': [18, 72], 'arco-longo': [45, 180], revolver: [18, 54],
+		espingarda: [12, 36], rifle: [60, 240], taser: [6, 12],
+	};
+	const range = ranges[id];
+	return { dice: Number(match[1]), sides: Number(match[2]), ranged: !!item.rangedAttack,
+		...(range ? { normalRange: range[0], maximumRange: range[1] } : {}),
+		closeRangeBonus: id === 'espingarda' ? 3 : 0,
+		nonlethal: item.category === 'nonlethal' };
+}
 export interface RPGEquipmentInstance {
 	id: string; itemId: string; quantity: number; equipped: boolean; charges?: number;
+	equippedHand?: 'left' | 'right';
 	location: 'bag' | 'bank' | 'vehicle'; vehicleId?: string;
 	prototypeCreatorId?: string; prototypeActive?: boolean;
 	prototypeComponents?: [string, string];
@@ -183,17 +205,26 @@ export const RPG_TRAINER_LICENSE_FEES: Readonly<Record<string, number>> = Object
 export function rpgInitialTrainerInventory(sheet: RPGTrainerSheet): RPGTrainerInventory {
 	const items: RPGEquipmentInstance[] = [];
 	const occupiedSlots = new Set<RPGEquipmentSlot>();
+	const occupiedHands = new Set<'left' | 'right'>();
 	for (const [index, entry] of (sheet.equipment || []).entries()) {
 		const definition = RPG_EQUIPMENT_CATALOG[entry.itemId];
 		if (!definition) continue; // Itens Pokémon iniciais continuam na Bag legada.
 		if (!Number.isSafeInteger(entry.quantity) || entry.quantity < 1) throw new Error('Quantidade inicial inválida');
 		const split = definition.stackLimit === 1 ? entry.quantity : Math.ceil(entry.quantity / definition.stackLimit);
-		const equipped = !!entry.equipped && !!definition.equipSlot && !occupiedSlots.has(definition.equipSlot);
-		if (equipped) occupiedSlots.add(definition.equipSlot!);
+		const hand = definition.equipSlot === 'hand' ?
+			(['left', 'right'] as const).find(candidate => !occupiedHands.has(candidate)) : undefined;
+		const equipped = !!entry.equipped && !!definition.equipSlot &&
+			(definition.equipSlot === 'hand' ? !!hand &&
+			(definition.handCount !== 2 || occupiedHands.size === 0) : !occupiedSlots.has(definition.equipSlot));
+		if (equipped && definition.equipSlot === 'hand') {
+			occupiedHands.add(hand!);
+			if (definition.handCount === 2) occupiedHands.add(hand === 'left' ? 'right' : 'left');
+		} else if (equipped) occupiedSlots.add(definition.equipSlot!);
 		for (let part = 0; part < split; part++) items.push({
 			id: `initial-${index}-${part}`, itemId: definition.id,
 			quantity: Math.min(definition.stackLimit, entry.quantity - part * definition.stackLimit),
 			equipped: equipped && part === 0,
+			...(equipped && definition.equipSlot === 'hand' && definition.handCount !== 2 ? { equippedHand: hand } : {}),
 			...(definition.maxCharges !== undefined ? { charges: entry.charges ?? definition.maxCharges } : {}),
 			location: 'bag',
 		});
@@ -256,7 +287,7 @@ export function rpgKitBonus(sheet: RPGTrainerSheet, itemId: string | null): { bo
 export function rpgEquipmentDerivedOptions(sheet: RPGTrainerSheet, inventory: RPGTrainerInventory,
 	pokemonItemQuantity = 0, bagWeight = 1) {
 	const worn = inventory.items.filter(entry => entry.equipped && entry.location === 'bag').map(entry => rpgEquipment(entry.itemId));
-	const shield = worn.find(item => item.equipSlot === 'shield');
+	const shield = worn.find(item => item.category === 'shield');
 	return {
 		carriedKg: rpgEquipmentWeight(inventory.items, 'bag') + pokemonItemQuantity * 0.1 + bagWeight,
 		shield: !!shield && (sheet.proficiencies || []).includes('escudos'),
