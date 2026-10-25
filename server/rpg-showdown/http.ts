@@ -318,7 +318,7 @@ export class RPGHttpServer {
 			));
 			return;
 		}
-		const shopMatch = /^\/api\/rpg\/shops\/([^/]+)(?:\/(trade|master-offer|master-bulk))?$/.exec(url.pathname);
+		const shopMatch = /^\/api\/rpg\/shops\/([^/]+)(?:\/(trade|farm-cart|master-offer|master-bulk))?$/.exec(url.pathname);
 		if (shopMatch) {
 			const token = this.token(req);
 			const shopId = decodeURIComponent(shopMatch[1]);
@@ -342,6 +342,30 @@ export class RPGHttpServer {
 					expectedCatalogRevision: Number(body.expectedCatalogRevision),
 				};
 				this.json(res, 200, this.login.tradeCommerceShop(token, shopId, request, characterId));
+				return;
+			}
+			if (method === 'POST' && action === 'farm-cart') {
+				if (shopId !== 'farm-central') throw new Error('Carrinho misto disponível somente na Fazenda');
+				const body = await this.body(req);
+				const request: RPGCommerceTradeRequest & { equipmentRevision: number,
+					equipmentLines: { itemId: string, quantity: number, instanceId?: string }[], } = {
+					actionId: this.string(body.actionId), type: this.string(body.type) as RPGCommerceTradeRequest['type'],
+					lines: Array.isArray(body.lines) ? body.lines.map(line => ({
+						itemId: this.string((line as Record<string, unknown>).itemId),
+						quantity: Number((line as Record<string, unknown>).quantity),
+					})) : [],
+					equipmentLines: Array.isArray(body.equipmentLines) ? body.equipmentLines.map(line => ({
+						itemId: this.string((line as Record<string, unknown>).itemId),
+						quantity: Number((line as Record<string, unknown>).quantity),
+						instanceId: (line as Record<string, unknown>).instanceId === undefined ? undefined :
+						this.string((line as Record<string, unknown>).instanceId),
+					})) : [],
+					expectedAccountRevision: Number(body.expectedAccountRevision),
+					expectedBagRevision: Number(body.expectedBagRevision),
+					expectedCatalogRevision: Number(body.expectedCatalogRevision),
+					equipmentRevision: Number(body.equipmentRevision),
+				};
+				this.json(res, 200, this.login.tradeFarmCart(token, request, characterId));
 				return;
 			}
 			if (method === 'POST' && action === 'master-bulk') {
@@ -1147,7 +1171,15 @@ export class RPGHttpServer {
 			const body = await this.body(req);
 			this.json(res, 200, this.login.setTrainerEquipmentOffer(this.token(req),
 				this.string(body.shopId), this.string(body.itemId), Number(body.stock),
-				body.price === undefined ? undefined : Number(body.price)));
+				body.price === undefined ? undefined : Number(body.price),
+				body.buyEnabled as boolean | undefined, body.sellEnabled as boolean | undefined,
+				body.sellPrice === undefined ? undefined : Number(body.sellPrice)));
+			return;
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/trainer/equipment/offer/bulk') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.setTrainerEquipmentOffersBulk(this.token(req),
+				this.string(body.shopId), this.string(body.action) as import('./shop-management').RPGCommerceBulkAction));
 			return;
 		}
 		if (method === 'POST' && url.pathname === '/api/rpg/trainer/equipment/license') {

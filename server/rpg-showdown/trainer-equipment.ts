@@ -160,6 +160,23 @@ export const RPG_EQUIPMENT_CATALOG: Readonly<Record<string, RPGEquipmentDefiniti
 			rarity: price >= 20000 ? 'very-rare' : price >= 5000 || legality === 'restricted' ? 'rare' :
 			price >= 1000 || legality === 'controlled' ? 'uncommon' : 'common', ...extra })])
 ));
+/** Loja padrão de cada item comercial do treinador; protótipos e itens pessoais ficam fora do catálogo. */
+export function rpgEquipmentShopId(item: RPGEquipmentDefinition): string | null {
+	if (item.price <= 0 || item.category === 'prototype') return null;
+	if (item.category === 'food') return 'farm-central';
+	if (item.category === 'kit') return 'trainer-kits-central';
+	if (item.category === 'refill') {
+		return ['spray-pimenta', 'dispositivo-choque', 'taser', 'mascara-filtrante'].includes(item.refillFor || '') ?
+			'trainer-defense-central' : item.refillFor === 'vehicle' ? 'trainer-vehicles-central' :
+			item.refillFor === 'device' ? 'trainer-technology-central' : 'trainer-kits-central';
+	}
+	if (['melee', 'ranged', 'nonlethal', 'ammunition', 'shield', 'outfit', 'improvement'].includes(item.category)) {
+		return 'trainer-defense-central';
+	}
+	if (item.category === 'vehicle' || item.category === 'vehicle-supply') return 'trainer-vehicles-central';
+	if (item.category === 'device') return 'trainer-technology-central';
+	return 'trainer-exploration-central';
+}
 /** Ícones originais compartilhados pelas variações do mesmo tipo de equipamento. */
 export function rpgEquipmentIconPath(itemId: string): string {
 	return rpgEquipment(itemId).icon;

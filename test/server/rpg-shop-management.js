@@ -235,18 +235,18 @@ describe('RPG shared commerce management', () => {
 		assert.throws(() => service.tradeCommerceShop(
 			player.token, 'poke-mart-central', {}, undefined
 		), /acesso às Lojas/);
-		assert.equal(service.listCommerceShops(master.token, 'samuel').shops.length, 7);
-		assert.equal(service.listCommerceShops(master.token).shops.length, 7);
+		assert.equal(service.listCommerceShops(master.token, 'samuel').shops.length, 12);
+		assert.equal(service.listCommerceShops(master.token).shops.length, 12);
 		assert.equal(service.getCommerceShop(master.token, 'poke-mart-central').shop.id, 'poke-mart-central');
 
 		character = service.setCharacterPageAccess(master.token, 'samuel', 'shops', true);
 		character = service.setCharacterShopAccess(master.token, 'samuel', 'tm-central', false);
 		assert.equal(character.shopAccess['tm-central'], false);
 		const directory = service.listCommerceShops(player.token);
-		assert.equal(directory.shops.length, 7);
+		assert.equal(directory.shops.length, 12);
 		assert.equal(directory.shops.find(shop => shop.id === 'tm-central').allowed, false);
 		assert.equal(directory.shops.some(shop => shop.id === 'poke-mart-central'), true);
-		assert.equal(service.listCommerceShops(master.token, 'samuel').shops.length, 7);
+		assert.equal(service.listCommerceShops(master.token, 'samuel').shops.length, 12);
 		assert.equal(service.getCommerceShop(master.token, 'tm-central', 'samuel').shop.id, 'tm-central');
 		assert.throws(() => service.getCommerceShop(player.token, 'tm-central'), /não está disponível/);
 		assert.throws(() => service.tradeCommerceShop(
@@ -260,7 +260,7 @@ describe('RPG shared commerce management', () => {
 		assert.throws(() => service.setCharacterShopAccess(master.token, 'samuel', 'invalid-shop', false), /inválida/);
 	});
 
-	it('starts with the seven requested establishments and specialized Master catalogs', () => {
+	it('includes the trainer stores and specialized Master catalogs', () => {
 		const service = new RPGLoginService({
 			masterCode: '14081998',
 			repository: new RPGMemoryCharacterRepository(),
@@ -270,6 +270,7 @@ describe('RPG shared commerce management', () => {
 		const directory = service.listCommerceShops(master.token);
 		assert.deepEqual(directory.shops.map(shop => shop.type), [
 			'poke-mart', 'equipment', 'evolution', 'tm', 'mega-stone', 'farm', 'thrift',
+			'trainer-kits', 'trainer-defense', 'trainer-exploration', 'trainer-technology', 'trainer-vehicles',
 		]);
 		for (const shop of directory.shops) {
 			const catalog = service.getCommerceShop(master.token, shop.id);

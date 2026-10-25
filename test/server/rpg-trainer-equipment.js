@@ -22,6 +22,118 @@ function character(service, name) {
 }
 
 describe('RPG trainer equipment and item bank', () => {
+	it('lists new trainer stores and puts food at the end of the Farm catalog', () => {
+		const service = new RPGLoginService({ masterCode: 'teste', repository: new RPGMemoryCharacterRepository() });
+		const master = service.loginMaster('teste');
+		const player = character(service, 'Alice');
+		const shops = service.listCommerceShops(master.token).shops.map(shop => shop.id);
+		assert(shops.includes('trainer-kits-central'));
+		assert(shops.includes('trainer-defense-central'));
+		assert(shops.includes('trainer-exploration-central'));
+		assert(shops.includes('trainer-technology-central'));
+		assert(shops.includes('trainer-vehicles-central'));
+		const farm = service.getCommerceShop(master.token, 'farm-central');
+		assert(farm.candidates.some(item => item.category === 'berries'));
+		assert.deepEqual(farm.trainerOffers.map(item => item.itemId),
+			['alimento', 'cantil', 'racao-artesanal-pokemon', 'racao', 'racao-pokemon']);
+		assert(service.getCommerceShop(master.token, 'trainer-kits-central').trainerOffers.some(
+			item => item.itemId === 'kit-medico-1'));
+		assert.equal(service.getCommerceShop(master.token, 'trainer-technology-central').trainerOffers.some(
+			item => item.itemId === 'projetor-holografico'), false);
+		assert.throws(() => service.setTrainerEquipmentOffer(master.token, 'farm-central', 'taser', 1),
+			/não pertence/);
+		assert.throws(() => service.setTrainerEquipmentOffer(master.token, 'farm-central', 'alimento', 4,
+			75, true, true, -1), /Preço de compra inválido/);
+		service.setTrainerEquipmentOffer(master.token, 'farm-central', 'alimento', 4, 75, true, true, 30);
+		const visible = service.getCommerceShop(player.token, 'farm-central').trainerOffers;
+		assert.equal(visible.find(item => item.itemId === 'alimento').stock, 4);
+		assert.equal(visible.find(item => item.itemId === 'alimento').price, 75);
+		assert.equal(visible.find(item => item.itemId === 'alimento').sellPrice, 30);
+		assert.equal(visible.some(item => item.itemId === 'cantil'), false);
+		assert.equal(service.listCommerceShops(master.token).shops.find(shop => shop.id === 'farm-central')
+			.availableItemTypes, 1);
+		const revision = service.getTrainerEquipment(player.token).inventory.revision;
+		const bought = service.changeTrainerEquipment(player.token, { action: 'buy',
+			expectedRevision: revision, shopId: 'farm-central', itemId: 'alimento', quantity: 2 });
+		assert.equal(bought.money, 9850);
+		assert.equal(service.getCommerceShop(player.token, 'farm-central').trainerOffers.find(
+			item => item.itemId === 'alimento').stock, 2);
+		const stack = bought.inventory.items.find(item => item.itemId === 'alimento');
+		const sold = service.changeTrainerEquipment(player.token, { action: 'sell',
+			expectedRevision: bought.inventory.revision, shopId: 'farm-central', instanceId: stack.id, quantity: 1 });
+		assert.equal(sold.money, 9880);
+		assert.equal(sold.inventory.items.find(item => item.id === stack.id).quantity, 1);
+		service.setTrainerEquipmentOffer(master.token, 'farm-central', 'alimento', 3, 75, false, false);
+		assert.equal(service.getCommerceShop(player.token, 'farm-central').trainerOffers.some(
+			item => item.itemId === 'alimento'), false);
+		assert.throws(() => service.changeTrainerEquipment(player.token, { action: 'buy',
+			expectedRevision: sold.inventory.revision, shopId: 'farm-central', itemId: 'alimento' }),
+		/não está disponível/);
+		assert.throws(() => service.changeTrainerEquipment(player.token, { action: 'sell',
+			expectedRevision: sold.inventory.revision, shopId: 'farm-central', instanceId: stack.id }),
+		/não negocia/);
+	});
+	it('updates every trainer item in one shop with the shared bulk controls', () => {
+		const service = new RPGLoginService({ masterCode: 'teste', repository: new RPGMemoryCharacterRepository() });
+		const master = service.loginMaster('teste');
+		const shopId = 'trainer-kits-central';
+		const original = service.getCommerceShop(master.token, shopId).trainerOffers;
+		assert(original.length > 1);
+		service.setTrainerEquipmentOffersBulk(master.token, shopId, 'increase-stock');
+		let offers = service.getCommerceShop(master.token, shopId).trainerOffers;
+		assert(offers.every(offer => offer.stock === 1));
+		service.setTrainerEquipmentOffersBulk(master.token, shopId, 'disable-buy');
+		service.setTrainerEquipmentOffersBulk(master.token, shopId, 'increase-stock');
+		offers = service.getCommerceShop(master.token, shopId).trainerOffers;
+		assert(offers.every(offer => offer.stock === 1 && !offer.buyEnabled));
+		service.setTrainerEquipmentOffersBulk(master.token, shopId, 'enable-buy');
+		service.setTrainerEquipmentOffersBulk(master.token, shopId, 'disable-sell');
+		assert(service.getCommerceShop(master.token, shopId).trainerOffers.every(offer => !offer.sellEnabled));
+		service.setTrainerEquipmentOffersBulk(master.token, shopId, 'increase-prices');
+		offers = service.getCommerceShop(master.token, shopId).trainerOffers;
+		assert(offers.every(offer => offer.price === Math.round(offer.basePrice * 1.1) &&
+			offer.sellPrice === Math.round(offer.baseSellPrice * 1.1)));
+		service.setTrainerEquipmentOffersBulk(master.token, shopId, 'reset-prices');
+		offers = service.getCommerceShop(master.token, shopId).trainerOffers;
+		assert(offers.every(offer => offer.price === offer.basePrice && offer.sellPrice === offer.baseSellPrice));
+		assert.throws(() => service.setTrainerEquipmentOffersBulk(master.token, shopId, 'invalid'), /Ação em massa inválida/);
+	});
+	it('checks and saves a mixed Farm cart as one transaction', () => {
+		const service = new RPGLoginService({ masterCode: 'teste', repository: new RPGMemoryCharacterRepository() });
+		const master = service.loginMaster('teste');
+		const player = character(service, 'Alice');
+		const shopId = 'farm-central';
+		let view = service.getCommerceShop(master.token, shopId);
+		service.configureCommerceOffer(master.token, shopId, { itemId: 'oranberry', stock: 3,
+			buyMode: 'available', buyPrice: 500, sellEnabled: true, sellPrice: 125,
+			expectedRevision: view.shop.revision });
+		service.setTrainerEquipmentOffer(master.token, shopId, 'alimento', 3, 75, true, true, 30);
+		view = service.getCommerceShop(player.token, shopId);
+		const request = { actionId: 'farm-mixed-1', type: 'buy',
+			lines: [{ itemId: 'oranberry', quantity: 1 }],
+			equipmentLines: [{ itemId: 'alimento', quantity: 2 }],
+			expectedAccountRevision: view.accountRevision, expectedBagRevision: view.bagRevision,
+			expectedCatalogRevision: view.shop.revision, equipmentRevision: view.equipmentRevision };
+		assert.throws(() => service.tradeFarmCart(player.token, { ...request,
+			equipmentLines: [{ itemId: 'alimento', quantity: 4 }] }), /Alimento não está disponível/);
+		assert.equal(service.getCommerceShop(player.token, shopId).offers.find(item => item.itemId === 'oranberry').stock, 3);
+		const result = service.tradeFarmCart(player.token, request);
+		assert.equal(result.money, 9350);
+		assert.equal(result.offers.find(item => item.itemId === 'oranberry').stock, 2);
+		assert.equal(result.trainerOffers.find(item => item.itemId === 'alimento').stock, 1);
+		assert.equal(service.getTrainerEquipment(player.token).inventory.items.find(item => item.itemId === 'alimento').quantity, 2);
+		assert.throws(() => service.tradeFarmCart(player.token, request), /Inventário alterado/);
+		const saleView = service.getCommerceShop(player.token, shopId);
+		const instanceId = saleView.trainerOffers.find(item => item.itemId === 'alimento').instances[0].id;
+		const sold = service.tradeFarmCart(player.token, { actionId: 'farm-mixed-2', type: 'sell',
+			lines: [{ itemId: 'oranberry', quantity: 1 }],
+			equipmentLines: [{ itemId: 'alimento', quantity: 1, instanceId }],
+			expectedAccountRevision: saleView.accountRevision, expectedBagRevision: saleView.bagRevision,
+			expectedCatalogRevision: saleView.shop.revision, equipmentRevision: saleView.equipmentRevision });
+		assert.equal(sold.money, 9505);
+		assert.equal(sold.offers.find(item => item.itemId === 'oranberry').stock, 3);
+		assert.equal(sold.trainerOffers.find(item => item.itemId === 'alimento').stock, 2);
+	});
 	it('shares only current-table trainer combat summaries in the Player roster', () => {
 		const repository = new RPGMemoryCharacterRepository();
 		const service = new RPGLoginService({ masterCode: 'teste', repository });
@@ -398,7 +510,7 @@ describe('RPG trainer equipment and item bank', () => {
 		const initial = service.getTrainerEquipment(alice.token);
 		assert(initial.inventory.items.some(item => item.itemId === 'kit-arqueologia'));
 		assert(initial.capacity.usedSlots > repository.get('alice').state.inventory.bag.items.length);
-		const shopId = service.listCommerceShops(master.token).shops[0].id;
+		const shopId = 'trainer-defense-central';
 		service.setTrainerEquipmentOffer(master.token, shopId, 'taser', 2);
 		assert.throws(() => service.changeTrainerEquipment(alice.token, { action: 'buy', expectedRevision: 0,
 			itemId: 'taser', shopId }), /Licença/);

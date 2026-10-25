@@ -18,7 +18,8 @@ import { RPGBagManagement } from './bag-management';
 import type { RPGTrainerSheet } from './trainer-sheet';
 
 export const RPG_COMMERCE_VERSION = 1;
-export type RPGShopType = 'poke-mart' | 'equipment' | 'evolution' | 'tm' | 'mega-stone' | 'farm' | 'thrift';
+export type RPGShopType = 'poke-mart' | 'equipment' | 'evolution' | 'tm' | 'mega-stone' | 'farm' | 'thrift' |
+	'trainer-kits' | 'trainer-defense' | 'trainer-exploration' | 'trainer-technology' | 'trainer-vehicles';
 export type RPGShopBuyMode = 'available' | 'hidden' | 'locked';
 
 export interface RPGCommerceOffer {
@@ -81,6 +82,9 @@ function tradePrice(price: number, type: 'buy' | 'sell', character?: RPGCommerce
 	const benefit = tradeBenefit(type, character);
 	return benefit ? Math.round(price * benefit.multiplier) : price;
 }
+export function rpgCommerceTradePrice(price: number, type: 'buy' | 'sell', character?: RPGCommerceCharacter): number {
+	return tradePrice(price, type, character);
+}
 
 export interface RPGCommerceTradeLine {
 	itemId: string;
@@ -130,6 +134,11 @@ const SHOP_DEFINITIONS: readonly Omit<RPGCommerceShopState, 'version' | 'revisio
 	{ id: 'mega-stone-central', type: 'mega-stone', name: 'Loja de Mega Pedras', description: 'Mega Stones para Pokémon compatíveis.' },
 	{ id: 'farm-central', type: 'farm', name: 'Fazenda', description: 'Berries e produtos agrícolas.' },
 	{ id: 'thrift-central', type: 'thrift', name: 'Brechó', description: 'Tesouros, fósseis e itens diversos.' },
+	{ id: 'trainer-kits-central', type: 'trainer-kits', name: 'Kits e Ofícios', description: 'Kits profissionais e refis.' },
+	{ id: 'trainer-defense-central', type: 'trainer-defense', name: 'Armas e Proteção', description: 'Armas, munições, trajes e proteção.' },
+	{ id: 'trainer-exploration-central', type: 'trainer-exploration', name: 'Aventura', description: 'Acampamento e ferramentas de viagem.' },
+	{ id: 'trainer-technology-central', type: 'trainer-technology', name: 'Tecnologia', description: 'Dispositivos e fontes de energia.' },
+	{ id: 'trainer-vehicles-central', type: 'trainer-vehicles', name: 'Veículos', description: 'Veículos e suprimentos de transporte.' },
 ];
 
 function defaultShop(definition: typeof SHOP_DEFINITIONS[number]): RPGCommerceShopState {

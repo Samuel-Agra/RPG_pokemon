@@ -12,6 +12,24 @@ const appCss = fs.readFileSync(path.join(root, 'server/static/rpg/rpg.css'), 'ut
 const html = fs.readFileSync(path.join(root, 'server/static/rpg/index.html'), 'utf8');
 
 describe('RPG commerce frontend', () => {
+	it('shows trainer equipment stores and places food below the Farm catalog', () => {
+		assert.match(ui, /function trainerCatalogPage/);
+		assert.match(ui, /trainerEquipmentSection\(view, options\)/);
+		assert.match(ui, /view\.shop\.type === 'farm'\) root\.append\(trainerEquipmentSection/);
+		assert.match(ui, /\/trainer\/equipment\/offer/);
+		assert.match(ui, /\/trainer\/equipment\/offer\/bulk/);
+		assert.match(ui, /\/farm-cart/);
+		assert.match(ui, /equipmentLines: equipmentLines\.map/);
+		assert.match(ui, /trainerEquipmentSection\(view, options, renderCart\)/);
+		assert.match(ui, /\/trainer\/equipment'/);
+		assert.match(ui, /const trainerCart = new Map\(\)/);
+		assert.match(ui, /Confirmar compra/);
+		assert.match(ui, /shop-item-card/);
+		assert.match(ui, /shop-master-stock/);
+		assert.doesNotMatch(css, /shop-trainer-row/);
+		assert.match(ui, /rpg:realtime-sync/);
+		assert.match(css, /shop-type-trainer-vehicles/);
+	});
 	it('provides the central establishment selector and Player buy/sell cart', () => {
 		assert.doesNotMatch(ui, /Onde deseja ir/);
 		assert.match(ui, /COMÉRCIO DA CAMPANHA/);

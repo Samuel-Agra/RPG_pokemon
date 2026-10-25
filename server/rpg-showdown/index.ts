@@ -71,7 +71,7 @@ import { rpgAutomaticGeneralTalentNames, rpgUsedAutomaticGeneralTalents,
 	rpgManualRestTalentOptions, rpgManualTalentUsed, rpgMarkManualTalentUsed,
 	rpgRenewManualRestTalents } from './trainer-manual-rest';
 import {
-	RPG_EQUIPMENT_CATALOG, RPG_TRAINER_LICENSE_FEES, rpgAssertEquipmentLicense, rpgEquipment, rpgEquipmentIconPath, rpgEquipmentLicenseId, rpgHasLicense, rpgEquipmentSlots,
+	RPG_EQUIPMENT_CATALOG, RPG_TRAINER_LICENSE_FEES, rpgAssertEquipmentLicense, rpgEquipment, rpgEquipmentIconPath, rpgEquipmentLicenseId, rpgEquipmentShopId, rpgHasLicense, rpgEquipmentSlots,
 	rpgEquipmentAttackProfile,
 	rpgEquipmentWeight, rpgInitialTrainerInventory, rpgCanAcquireKitDomain, rpgEquipmentDerivedOptions, rpgKitBonus,
 	type RPGEquipmentInstance, type RPGTrainerInventory, type RPGLicense,
@@ -192,6 +192,7 @@ import {
 	RPGCommerceManagement,
 	RPGFileCommerceRepository,
 	RPGMemoryCommerceRepository,
+	rpgCommerceTradePrice,
 	type RPGCommerceBulkInput,
 	type RPGCommerceOfferInput,
 	type RPGCommerceRepository,
@@ -917,7 +918,8 @@ export class RPGLoginService {
 		trueBondRequests: RPGTrueBondRequest[],
 		supplierOrders: RPGSupplierOrder[],
 		playerNotes: Record<string, string>, sceneNpcIds: string[], sceneNpcRevealed: Record<string, number[]>,
-		equipmentOffers: Record<string, Record<string, { stock: number, price: number }>>,
+		equipmentOffers: Record<string, Record<string, { stock: number, price: number, sellPrice?: number,
+			buyEnabled?: boolean, sellEnabled?: boolean, }>>,
 		supportCaches: Record<string, RPGSupportCache>,
 		trainerHelp: { characterId: string, skill: string, total: number, bonus: number }[],
 		campaignRestReceipts: { requestId: string, kind: 'short' | 'long',
@@ -3659,18 +3661,97 @@ export class RPGLoginService {
 		return structuredClone(this.campaignSettings.equipmentOffers[shopId] || {});
 	}
 
-	setTrainerEquipmentOffer(token: string, shopId: string, itemId: string, stock: number, price?: number) {
+	private trainerShopOffers(shopId: string, record?: RPGStoredCharacter, master = false) {
+		const inventory = record ? this.ensureTrainerInventory(record) : undefined;
+		const configured = this.campaignSettings.equipmentOffers[shopId] || {};
+		return Object.values(RPG_EQUIPMENT_CATALOG)
+			.filter(item => rpgEquipmentShopId(item) === shopId)
+			.sort((left, right) => left.name.localeCompare(right.name, 'pt-BR'))
+			.flatMap(item => {
+				const offer = configured[item.id];
+				const owned = inventory?.items.filter(entry => entry.itemId === item.id && !entry.equipped &&
+					(entry.location === 'bag' || entry.location === 'vehicle')) || [];
+				const canBuy = !!offer && offer.buyEnabled !== false && offer.stock > 0;
+				const canSell = !!offer && offer.sellEnabled !== false;
+				if (!master && !canBuy && (!canSell || !owned.length)) return [];
+				const licenseId = rpgEquipmentLicenseId(item);
+				const basePrice = offer?.price ?? item.price;
+				const defaultSellPrice = Math.floor(basePrice * 0.25 / 10) * 10;
+				const baseSellPrice = offer?.sellPrice ?? defaultSellPrice;
+				return [{ itemId: item.id, name: item.name, category: item.category, icon: rpgEquipmentIconPath(item.id),
+					price: master ? basePrice : rpgCommerceTradePrice(basePrice, 'buy', record?.state),
+					basePrice: item.price, baseSellPrice: Math.floor(item.price * 0.25 / 10) * 10,
+					stock: offer?.stock ?? 0,
+					canBuy, canSell, buyEnabled: offer?.buyEnabled !== false, sellEnabled: offer?.sellEnabled !== false,
+					sellPrice: master ? baseSellPrice : rpgCommerceTradePrice(baseSellPrice, 'sell', record?.state),
+					owned: owned.reduce((sum, entry) => sum + entry.quantity, 0),
+					instances: owned.map(entry => ({ id: entry.id, quantity: entry.quantity })),
+					licenseId, licenseActive: !licenseId || !!inventory && rpgHasLicense(inventory, licenseId, this.now()),
+					maxCharges: item.maxCharges, weight: item.weight, legality: item.legality }];
+			});
+	}
+
+	setTrainerEquipmentOffer(token: string, shopId: string, itemId: string, stock: number, price?: number,
+		buyEnabled?: boolean, sellEnabled?: boolean, sellPrice?: number) {
 		this.requireMasterRole(token);
 		if (!this.commerce.directory().shops.some(shop => shop.id === shopId)) throw new Error('Loja inválida');
 		const item = rpgEquipment(itemId);
+		if (rpgEquipmentShopId(item) !== shopId) throw new Error('Este item não pertence a esta loja');
 		if (!Number.isSafeInteger(stock) || stock < 0) throw new Error('Estoque inválido');
 		const selectedPrice = price ?? item.price;
 		if (!Number.isSafeInteger(selectedPrice) || selectedPrice < 0) throw new Error('Preço inválido');
+		if (sellPrice !== undefined && (!Number.isSafeInteger(sellPrice) || sellPrice < 0)) {
+			throw new Error('Preço de compra inválido');
+		}
+		if (buyEnabled !== undefined && typeof buyEnabled !== 'boolean' ||
+			sellEnabled !== undefined && typeof sellEnabled !== 'boolean') throw new Error('Disponibilidade inválida');
 		const previous = structuredClone(this.campaignSettings.equipmentOffers);
 		this.campaignSettings.equipmentOffers[shopId] ||= {};
-		this.campaignSettings.equipmentOffers[shopId][item.id] = { stock, price: selectedPrice };
+		const existing = this.campaignSettings.equipmentOffers[shopId][item.id];
+		this.campaignSettings.equipmentOffers[shopId][item.id] = { stock, price: selectedPrice,
+			...(sellPrice !== undefined ? { sellPrice } : existing?.sellPrice !== undefined ? { sellPrice: existing.sellPrice } : {}),
+			buyEnabled: buyEnabled ?? existing?.buyEnabled ?? true,
+			sellEnabled: sellEnabled ?? existing?.sellEnabled ?? true };
 		try { this.persistAtomically(() => this.persistCampaignSettings()); } catch (error) { this.campaignSettings.equipmentOffers = previous; throw error; }
 		return structuredClone(this.campaignSettings.equipmentOffers[shopId][item.id]);
+	}
+
+	setTrainerEquipmentOffersBulk(token: string, shopId: string, action: RPGCommerceBulkInput['action']) {
+		this.requireMasterRole(token);
+		if (!this.commerce.directory().shops.some(shop => shop.id === shopId)) throw new Error('Loja inválida');
+		const allowed: RPGCommerceBulkInput['action'][] = [
+			'enable-buy', 'disable-buy', 'enable-sell', 'disable-sell',
+			'increase-prices', 'decrease-prices', 'reset-prices', 'increase-stock', 'decrease-stock',
+		];
+		if (!allowed.includes(action)) throw new Error('Ação em massa inválida');
+		const items = Object.values(RPG_EQUIPMENT_CATALOG).filter(item => rpgEquipmentShopId(item) === shopId);
+		const previous = structuredClone(this.campaignSettings.equipmentOffers);
+		const offers = structuredClone(previous[shopId] || {});
+		for (const item of items) {
+			const baseSellPrice = Math.floor(item.price * 0.25 / 10) * 10;
+			const current = offers[item.id] || { stock: 0, price: item.price, sellPrice: baseSellPrice,
+				buyEnabled: true, sellEnabled: true };
+			const next = { ...current };
+			if (action === 'enable-buy') next.buyEnabled = true;
+			if (action === 'disable-buy') next.buyEnabled = false;
+			if (action === 'enable-sell') next.sellEnabled = true;
+			if (action === 'disable-sell') next.sellEnabled = false;
+			if (action === 'increase-stock' && next.buyEnabled !== false) next.stock++;
+			if (action === 'decrease-stock' && next.buyEnabled !== false) next.stock = Math.max(0, next.stock - 1);
+			if (action === 'reset-prices') { next.price = item.price; next.sellPrice = baseSellPrice; }
+			if (action === 'increase-prices' || action === 'decrease-prices') {
+				const multiplier = action === 'increase-prices' ? 1.1 : 0.9;
+				next.price = Math.max(0, Math.round(item.price * multiplier));
+				next.sellPrice = Math.max(0, Math.round(baseSellPrice * multiplier));
+			}
+			offers[item.id] = next;
+		}
+		this.campaignSettings.equipmentOffers[shopId] = offers;
+		try { this.persistAtomically(() => this.persistCampaignSettings()); } catch (error) {
+			this.campaignSettings.equipmentOffers = previous;
+			throw error;
+		}
+		return this.trainerShopOffers(shopId, undefined, true);
 	}
 
 	setTrainerLicense(token: string, characterId: string, license: RPGLicense, waiveFee = false) {
@@ -3785,10 +3866,13 @@ export class RPGLoginService {
 			const item = rpgEquipment(input.itemId || '');
 			const shopId = input.shopId || '';
 			this.requireCommerceAccess(token, actor, shopId);
+			if (rpgEquipmentShopId(item) !== shopId) throw new Error('Este item não pertence a esta loja');
 			const offer = workingOffers[shopId]?.[item.id];
-			if (!offer || offer.stock < quantity || offer.price <= 0) throw new Error('Equipamento não está disponível na loja');
+			if (!offer || offer.buyEnabled === false || offer.stock < quantity || offer.price <= 0) {
+				throw new Error('Equipamento não está disponível na loja');
+			}
 			rpgAssertEquipmentLicense(actorInventory, item, this.now());
-			const cost = offer.price * quantity;
+			const cost = rpgCommerceTradePrice(offer.price, 'buy', actor.state) * quantity;
 			if (!Number.isSafeInteger(cost) || cost > actor.state.money) throw new Error('Pokécoin insuficiente');
 			actor.state.money -= cost; offer.stock -= quantity;
 			add(actorInventory, item.id, quantity, item.vehicle ? 'vehicle' : 'bag');
@@ -3797,10 +3881,14 @@ export class RPGLoginService {
 			const item = rpgEquipment(entry.itemId);
 			const shopId = input.shopId || '';
 			this.requireCommerceAccess(token, actor, shopId);
+			if (rpgEquipmentShopId(item) !== shopId) throw new Error('Este item não pertence a esta loja');
 			const offer = workingOffers[shopId]?.[item.id];
-			if (!offer || offer.price <= 0) throw new Error('A loja não negocia este equipamento');
+			if (!offer || offer.sellEnabled === false || offer.price <= 0) {
+				throw new Error('A loja não negocia este equipamento');
+			}
 			if (entry.location !== 'bag' && entry.location !== 'vehicle') throw new Error('Retire o item do banco antes de vender');
-			const payment = Math.floor(offer.price * 0.25 / 10) * 10 * quantity;
+			const payment = rpgCommerceTradePrice(offer.sellPrice ?? Math.floor(offer.price * 0.25 / 10) * 10,
+				'sell', actor.state) * quantity;
 			if (actor.state.money + payment > 10_000_000) throw new Error('Limite de Pokécoin excedido');
 			take(entry, quantity); actor.state.money += payment; offer.stock += quantity;
 		} else if (input.action === 'transfer') {
@@ -7206,12 +7294,16 @@ export class RPGLoginService {
 	listCommerceShops(token: string, characterId?: string) {
 		const session = this.getSession(token);
 		const directory = this.commerce.directory();
-		if (session.role === 'master') return directory;
+		const shops = directory.shops.map(shop => ({ ...shop,
+			availableItemTypes: shop.availableItemTypes + Object.values(
+				this.campaignSettings.equipmentOffers[shop.id] || {}).filter(offer => offer.stock > 0 &&
+					offer.buyEnabled !== false).length }));
+		if (session.role === 'master') return { ...directory, shops };
 		const requestedCharacterId = characterId || session.viewAsCharacterId || session.characterId;
 		const record = this.requireBagRecord(token, requestedCharacterId, 'bag:read', true);
 		this.requireCommerceAccess(token, record);
 		const access = this.characterShopAccess(record.state);
-		return { ...directory, shops: directory.shops.map(shop => ({
+		return { ...directory, shops: shops.map(shop => ({
 			...shop, allowed: access[shop.id] !== false,
 		})) };
 	}
@@ -7220,11 +7312,14 @@ export class RPGLoginService {
 		const session = this.getSession(token);
 		const requestedCharacterId = characterId || session.viewAsCharacterId || session.characterId;
 		if (session.role === 'master' && session.mode === 'master' && !requestedCharacterId) {
-			return this.commerce.view(shopId, undefined, true);
+			return { ...this.commerce.view(shopId, undefined, true),
+				trainerOffers: this.trainerShopOffers(shopId, undefined, true) };
 		}
 		const record = this.requireBagRecord(token, requestedCharacterId, 'bag:read', true);
 		this.requireCommerceAccess(token, record, shopId);
-		return this.commerce.view(shopId, record.state, session.role === 'master');
+		return { ...this.commerce.view(shopId, record.state, session.role === 'master'),
+			trainerOffers: this.trainerShopOffers(shopId, record),
+			equipmentRevision: this.ensureTrainerInventory(record).revision };
 	}
 
 	configureCommerceOffer(token: string, shopId: string, input: RPGCommerceOfferInput) {
@@ -7267,6 +7362,102 @@ export class RPGLoginService {
 			view: this.commerce.view(shopId, record.state, this.getSession(token).role === 'master'),
 			transactions: prepared.transactions,
 		};
+	}
+
+	tradeFarmCart(token: string, request: RPGCommerceTradeRequest & {
+		equipmentRevision: number,
+		equipmentLines: { itemId: string, quantity: number, instanceId?: string }[],
+	}, characterId?: string) {
+		const shopId = 'farm-central';
+		const current = this.requireBagRecord(token, characterId, 'bag:edit', true);
+		this.requireCommerceAccess(token, current, shopId);
+		if (!Array.isArray(request.lines) || !Array.isArray(request.equipmentLines) ||
+			!request.lines.length && !request.equipmentLines.length || request.equipmentLines.length > 100) {
+			throw new Error('O carrinho está vazio ou possui itens demais');
+		}
+		const previousRecord = structuredClone(current);
+		const previousShop = this.commerce.repository.get(shopId);
+		const previousOffers = structuredClone(this.campaignSettings.equipmentOffers);
+		const working = structuredClone(current);
+		const equipment = this.ensureTrainerInventory(working);
+		if (equipment.revision !== request.equipmentRevision) throw new Error('Inventário alterado; atualize antes de tentar novamente');
+		const bag = RPGInventorySystem.migrate(working.state.inventory).bag;
+		if ((working.state.shopRevision || 0) !== request.expectedAccountRevision ||
+			bag.revision !== request.expectedBagRevision || previousShop?.revision !== request.expectedCatalogRevision) {
+			throw new Error('A loja ou a Bag foi alterada; atualize antes de tentar novamente');
+		}
+		const prepared = request.lines.length ? this.commerce.prepareTrade(shopId, working.state, request) : undefined;
+		if (prepared) {
+			working.state.money = prepared.character.money;
+			working.state.inventory = prepared.character.inventory;
+			working.state.shopRevision = prepared.character.shopRevision;
+			working.state.shopTransactions = prepared.character.shopTransactions;
+		}
+		const workingOffers = structuredClone(previousOffers);
+		const ids = new Set<string>();
+		for (const line of request.equipmentLines) {
+			if (!Number.isSafeInteger(line.quantity) || line.quantity < 1 || line.quantity > 99 ||
+				ids.has(line.itemId)) throw new Error('Quantidade ou item repetido inválido');
+			ids.add(line.itemId);
+			const item = rpgEquipment(line.itemId);
+			if (rpgEquipmentShopId(item) !== shopId) throw new Error('Este item não pertence à Fazenda');
+			const offer = workingOffers[shopId]?.[item.id];
+			if (request.type === 'buy') {
+				if (!offer || offer.buyEnabled === false || offer.stock < line.quantity || offer.price <= 0) {
+					throw new Error('Alimento não está disponível na Fazenda');
+				}
+				rpgAssertEquipmentLicense(equipment, item, this.now());
+				const cost = rpgCommerceTradePrice(offer.price, 'buy', working.state) * line.quantity;
+				if (!Number.isSafeInteger(cost) || cost > working.state.money) throw new Error('Pokécoin insuficiente');
+				working.state.money -= cost;
+				offer.stock -= line.quantity;
+				let remaining = line.quantity;
+				for (const stack of equipment.items.filter(entry => entry.itemId === item.id &&
+					entry.location === 'bag' && !entry.equipped && entry.quantity < item.stackLimit)) {
+					const added = Math.min(remaining, item.stackLimit - stack.quantity);
+					stack.quantity += added;
+					remaining -= added;
+					if (!remaining) break;
+				}
+				while (remaining) {
+					const added = Math.min(remaining, item.stackLimit);
+					equipment.items.push({ id: secureRandomBytes(12).toString('hex'), itemId: item.id,
+						quantity: added, equipped: false, location: 'bag' });
+					remaining -= added;
+				}
+			} else if (request.type === 'sell') {
+				const entry = equipment.items.find(candidate => candidate.id === line.instanceId && candidate.itemId === item.id);
+				if (!entry || entry.equipped || !['bag', 'vehicle'].includes(entry.location) ||
+					entry.quantity < line.quantity) throw new Error('Alimento indisponível para venda');
+				if (!offer || offer.sellEnabled === false || offer.price <= 0) throw new Error('A Fazenda não compra este alimento');
+				const payment = rpgCommerceTradePrice(offer.sellPrice ?? Math.floor(offer.price * 0.25 / 10) * 10,
+					'sell', working.state) * line.quantity;
+				if (working.state.money + payment > 10_000_000) throw new Error('Limite de Pokécoin excedido');
+				working.state.money += payment;
+				offer.stock += line.quantity;
+				entry.quantity -= line.quantity;
+				if (!entry.quantity) equipment.items.splice(equipment.items.indexOf(entry), 1);
+			} else throw new Error('Tipo de negociação inválido');
+		}
+		if (request.equipmentLines.length) equipment.revision++;
+		this.validateTrainerInventory(working);
+		working.state.updatedAt = this.now();
+		try {
+			this.persistAtomically(() => {
+				this.repository.set(working);
+				if (prepared) this.commerce.commit(prepared.shop);
+				if (request.equipmentLines.length) {
+					this.campaignSettings.equipmentOffers = workingOffers;
+					this.persistCampaignSettings();
+				}
+			});
+		} catch (error) {
+			this.repository.set(previousRecord);
+			if (previousShop && prepared) this.commerce.repository.set(previousShop);
+			this.campaignSettings.equipmentOffers = previousOffers;
+			throw error;
+		}
+		return this.getCommerceShop(token, shopId, characterId);
 	}
 
 	getNursery(token: string, characterId?: string) {
