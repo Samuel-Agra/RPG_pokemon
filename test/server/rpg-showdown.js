@@ -41,6 +41,16 @@ function createCharacter(service, overrides = {}) {
 }
 
 describe('RPG login', () => {
+	it('restores map adjustments beyond the former 250-place limit', () => {
+		const positions = Object.fromEntries(Array.from({ length: 252 }, (_, index) =>
+			[`Mapa:Local ${index}`, { x: index, y: index }]));
+		const service = createService({ campaignSettings: { mapPlacePositions: positions } });
+		const master = service.loginMaster('14081998');
+		const restored = service.getCampaignMapPlaces(master.token);
+		assert.equal(Object.keys(restored).length, 252);
+		assert.deepEqual(restored['Mapa:Local 251'], { x: 251, y: 251 });
+	});
+
 	it('keeps RPG character credentials independent from Showdown accounts', () => {
 		const repository = new RPGMemoryCharacterRepository();
 		const service = createService({ repository });

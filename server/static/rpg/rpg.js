@@ -3540,6 +3540,915 @@ function openPokedexSummary(character, catalog) {
 	layer.addEventListener('click', event => { if (event.target === layer) dismiss(); });
 }
 
+// Posições ajustadas na mesa de referência; mesas ainda podem sobrescrever cada marcador.
+const WORLD_MAP_DEFAULT_PLACE_POSITIONS = new Map([
+	["Unova:Nuvema Town", { x: 458.9, y: 669.6 }],
+	["Unova:Accumula Town", { x: 459.8, y: 658.5 }],
+	["Unova:Striaton City", { x: 458, y: 647 }],
+	["Unova:Nacrene City", { x: 436.6, y: 640.1 }],
+	["Unova:Castelia City", { x: 382.5, y: 645.8 }],
+	["Unova:Nimbasa City", { x: 377.4, y: 615.2 }],
+	["Unova:Driftveil City", { x: 335.7, y: 614.9 }],
+	["Unova:Mistralton City", { x: 306.2, y: 599.8 }],
+	["Unova:Icirrus City", { x: 331.6, y: 579.4 }],
+	["Unova:Anville Town", { x: 289.1, y: 563 }],
+	["Unova:Lentimas Town", { x: 422.7, y: 599.3 }],
+	["Unova:Opelucid City", { x: 371.9, y: 572.1 }],
+	["Unova:Lacunosa Town", { x: 425.6, y: 582.2 }],
+	["Unova:Undella Town", { x: 454, y: 597 }],
+	["Unova:Aspertia City", { x: 285.7, y: 650.2 }],
+	["Unova:Virbank City", { x: 329.7, y: 635.9 }],
+	["Unova:Humilau City", { x: 456.4, y: 568.9 }],
+	["Unova:Pokémon League", { x: 410.4, y: 546.6 }],
+	["Unova:Giant Chasm", { x: 450, y: 553.2 }],
+	["Kalos:Vaniville Town", { x: 353.7, y: 425.4 }],
+	["Kalos:Aquacorde Town", { x: 333.5, y: 411.6 }],
+	["Kalos:Santalune City", { x: 331.1, y: 398.8 }],
+	["Kalos:Lumiose City", { x: 313.5, y: 376.7 }],
+	["Kalos:Camphrier Town", { x: 296.9, y: 405.8 }],
+	["Kalos:Cyllage City", { x: 247.9, y: 403.5 }],
+	["Kalos:Ambrette Town", { x: 253.6, y: 419.2 }],
+	["Kalos:Geosenge Town", { x: 220.1, y: 390.4 }],
+	["Kalos:Shalour City", { x: 233.3, y: 375.2 }],
+	["Kalos:Coumarine City", { x: 273.4, y: 354.7 }],
+	["Kalos:Laverre City", { x: 316, y: 339.1 }],
+	["Kalos:Dendemille Town", { x: 356.1, y: 354.3 }],
+	["Kalos:Anistar City", { x: 396.9, y: 372.5 }],
+	["Kalos:Couriway Town", { x: 403.5, y: 384 }],
+	["Kalos:Snowbelle City", { x: 381.7, y: 398.4 }],
+	["Kalos:Pokémon League", { x: 356.3, y: 383.1 }],
+	["Kalos:Parfum Palace", { x: 270.1, y: 384.4 }],
+	["Galar:Postwick", { x: 121, y: 505.3 }],
+	["Galar:Wedgehurst", { x: 124.5, y: 489.9 }],
+	["Galar:Motostoke", { x: 117.1, y: 416.1 }],
+	["Galar:Turffield", { x: 72.1, y: 395.4 }],
+	["Galar:Hulbury", { x: 151.9, y: 412.4 }],
+	["Galar:Hammerlocke", { x: 106.7, y: 360 }],
+	["Galar:Stow-on-Side", { x: 70.6, y: 343.8 }],
+	["Galar:Ballonlea", { x: 71.5, y: 320.7 }],
+	["Galar:Circhester", { x: 154.6, y: 324.2 }],
+	["Galar:Spikemuth", { x: 170.2, y: 390.4 }],
+	["Galar:Wyndon", { x: 108, y: 286.2 }],
+	["Galar:Wild Area", { x: 122.1, y: 459 }],
+	["Galar:Isle of Armor", { x: 183.1, y: 364.5 }],
+	["Galar:Crown Tundra", { x: 113.6, y: 564.3 }],
+	["Johto:New Bark Town", { x: 932.7, y: 794.5 }],
+	["Johto:Cherrygrove City:pasio", { x: 902.2, y: 801.2 }],
+	["Johto:Violet City", { x: 879.2, y: 757.5 }],
+	["Johto:Azalea Town", { x: 865.1, y: 810.9 }],
+	["Johto:Goldenrod City", { x: 846.9, y: 787.7 }],
+	["Johto:Ecruteak City", { x: 861, y: 733.9 }],
+	["Johto:Olivine City", { x: 816.4, y: 751.4 }],
+	["Johto:Battle Frontier", { x: 804.1, y: 729.6 }],
+	["Johto:Cianwood City", { x: 798.7, y: 790.9 }],
+	["Johto:Mahogany Town", { x: 896.7, y: 744.1 }],
+	["Johto:Blackthorn City:pasio", { x: 939.5, y: 732.5 }],
+	["Johto:Lake of Rage:pasio", { x: 901.1, y: 711.8 }],
+	["Johto:Ruins of Alph", { x: 863.5, y: 765.4 }],
+	["Johto:Mt. Silver:pasio", { x: 948.1, y: 764.6 }],
+	["Johto:Whirl Islands", { x: 818.6, y: 777.9 }],
+	["Kanto:Pallet Town", { x: 1000.5, y: 789.3 }],
+	["Kanto:Viridian City", { x: 1002.8, y: 764.4 }],
+	["Kanto:Pewter City", { x: 1001.2, y: 729.2 }],
+	["Kanto:Cerulean City", { x: 1105.7, y: 720.9 }],
+	["Kanto:Vermilion City", { x: 1098.4, y: 773.5 }],
+	["Kanto:Lavender Town", { x: 1127.3, y: 753.2 }],
+	["Kanto:Celadon City", { x: 1069.7, y: 754.5 }],
+	["Kanto:Saffron City", { x: 1099.3, y: 744.2 }],
+	["Kanto:Fuchsia City", { x: 1079.8, y: 793.7 }],
+	["Kanto:Cinnabar Island", { x: 997.2, y: 817.7 }],
+	["Kanto:Indigo Plateau", { x: 969.1, y: 714.9 }],
+	["Kanto:Mt. Moon", { x: 1048, y: 729.1 }],
+	["Kanto:Seafoam Islands", { x: 1037.7, y: 815.2 }],
+	["Kanto:Power Plant", { x: 1127.5, y: 729.2 }],
+	["Sinnoh:Twinleaf Town", { x: 1137.3, y: 457 }],
+	["Sinnoh:Sandgem Town", { x: 1148.2, y: 447.6 }],
+	["Sinnoh:Jubilife City", { x: 1148.8, y: 435.3 }],
+	["Sinnoh:Oreburgh City", { x: 1163.6, y: 426.1 }],
+	["Sinnoh:Floaroma Town", { x: 1147.7, y: 410.3 }],
+	["Sinnoh:Eterna City", { x: 1177.1, y: 394.7 }],
+	["Sinnoh:Hearthome City", { x: 1208.7, y: 421.9 }],
+	["Sinnoh:Solaceon Town", { x: 1222.4, y: 411 }],
+	["Sinnoh:Veilstone City", { x: 1246.5, y: 400.3 }],
+	["Sinnoh:Pastoria City", { x: 1225.4, y: 442 }],
+	["Sinnoh:Canalave City", { x: 1121.3, y: 425.3 }],
+	["Sinnoh:Celestic Town", { x: 1207.3, y: 391 }],
+	["Sinnoh:Snowpoint City", { x: 1182.2, y: 344.2 }],
+	["Sinnoh:Sunyshore City", { x: 1288.2, y: 433.3 }],
+	["Sinnoh:Pokémon League", { x: 1282.8, y: 398 }],
+	["Sinnoh:Mt. Coronet", { x: 1203.4, y: 399.6 }],
+	["Sinnoh:Spear Pillar", { x: 1211, y: 405 }],
+	["Sinnoh:Stark Mountain", { x: 1257.1, y: 342.6 }],
+	["Sinnoh:Fight Area", { x: 1238.3, y: 374.5 }],
+	["Sinnoh:Survival Area", { x: 1245.5, y: 355 }],
+	["Sinnoh:Resort Area", { x: 1273.5, y: 378.7 }],
+	["Hoenn:Littleroot Town", { x: 592.4, y: 788.4 }],
+	["Hoenn:Oldale Town", { x: 597.5, y: 781 }],
+	["Hoenn:Petalburg City", { x: 576, y: 776.2 }],
+	["Hoenn:Rustboro City", { x: 567, y: 754.9 }],
+	["Hoenn:Dewford Town", { x: 582.6, y: 810.3 }],
+	["Hoenn:Slateport City", { x: 625, y: 795.3 }],
+	["Hoenn:Mauville City", { x: 624.6, y: 766.8 }],
+	["Hoenn:Verdanturf Town", { x: 591.1, y: 760.9 }],
+	["Hoenn:Fallarbor Town", { x: 588.4, y: 728 }],
+	["Hoenn:Lavaridge Town", { x: 608.8, y: 746.8 }],
+	["Hoenn:Fortree City", { x: 644.3, y: 731.5 }],
+	["Hoenn:Lilycove City", { x: 689.5, y: 749.7 }],
+	["Hoenn:Mossdeep City", { x: 729.8, y: 758 }],
+	["Hoenn:Sootopolis City", { x: 706, y: 767.9 }],
+	["Hoenn:Pacifidlog Town", { x: 680.8, y: 788.2 }],
+	["Hoenn:Ever Grande City", { x: 743.7, y: 783.8 }],
+	["Hoenn:Mt. Chimney", { x: 619.3, y: 738.7 }],
+	["Hoenn:Battle Frontier", { x: 732.8, y: 800.8 }],
+	["Alola:Iki Town", { x: 578.1, y: 896.3 }],
+	["Alola:Hau’oli City", { x: 571.7, y: 909.9 }],
+	["Alola:Heahea City", { x: 635, y: 931.5 }],
+	["Alola:Paniola Town", { x: 644.6, y: 914.8 }],
+	["Alola:Konikoni City", { x: 650.6, y: 944.6 }],
+	["Alola:Malie City", { x: 723.7, y: 971.5 }],
+	["Alola:Royal Avenue", { x: 667.1, y: 922.5 }],
+	["Alola:Tapu Village", { x: 699.6, y: 1000.4 }],
+	["Alola:Po Town", { x: 681, y: 960.3 }],
+	["Alola:Seafolk Village", { x: 472.8, y: 956.1 }],
+	["Alola:Aether Paradise", { x: 582.9, y: 954 }],
+	["Alola:Mount Lanakila", { x: 504.3, y: 946.2 }],
+	["Alola:Pokémon League", { x: 502.4, y: 940.1 }],
+	["Alola:Hokulani Observatory", { x: 703.6, y: 975.5 }],
+	["Sevii Islands:One Island", { x: 1033, y: 858 }],
+	["Sevii Islands:Two Island", { x: 1072.8, y: 842.7 }],
+	["Sevii Islands:Three Island", { x: 1118.2, y: 855.5 }],
+	["Sevii Islands:Four Island", { x: 1050.1, y: 890.8 }],
+	["Sevii Islands:Five Island", { x: 1120.1, y: 895.9 }],
+	["Sevii Islands:Six Island", { x: 1115.5, y: 937.4 }],
+	["Sevii Islands:Seven Island", { x: 1038, y: 942.6 }],
+	["Sevii Islands:Mt. Ember", { x: 1036.8, y: 840.1 }],
+	["Orange Islands:Valencia Island", { x: 843.2, y: 944.9 }],
+	["Orange Islands:Tangelo Island", { x: 800.5, y: 955.3 }],
+	["Orange Islands:Mikan Island", { x: 796.8, y: 923.3 }],
+	["Orange Islands:Navel Island", { x: 933.8, y: 926.3 }],
+	["Orange Islands:Mandarin Island South", { x: 873.2, y: 971.4 }],
+	["Orange Islands:Trovita Island", { x: 854.5, y: 987.4 }],
+	["Orange Islands:Kumquat Island", { x: 869.7, y: 875.8 }],
+	["Orange Islands:Pummelo Island", { x: 820.9, y: 870.2 }],
+	["Orange Islands:Ascorbia Island", { x: 935.9, y: 877 }],
+	["Orange Islands:Fairchild Island", { x: 868.5, y: 927.8 }],
+	["Orange Islands:Mandarin Island North", { x: 814.8, y: 902.5 }],
+	["Decolore Islands:Honey Island", { x: 289.6, y: 765.5 }],
+	["Decolore Islands:Scalchop Island", { x: 289.2, y: 794.7 }],
+	["Decolore Islands:Grand Spectrala Island", { x: 425.6, y: 842.7 }],
+	["Decolore Islands:Torom Island", { x: 345.8, y: 805.1 }],
+	["Decolore Islands:Wayfarer Island", { x: 356.8, y: 778.4 }],
+	["Decolore Islands:Capacia Island", { x: 342.2, y: 861.7 }],
+	["Decolore Islands:Harvest Island", { x: 318.8, y: 825.8 }],
+	["Decolore Islands:Cave Island", { x: 362.7, y: 826 }],
+	["Decolore Islands:Paladin Island", { x: 388.9, y: 859.3 }],
+	["Ransei:Ransei", { x: 551.1, y: 114.1 }],
+	["Ransei:Nixtorm", { x: 594.8, y: 66.4 }],
+	["Ransei:Dragnor", { x: 678.7, y: 100.7 }],
+	["Ransei:Valora", { x: 635.6, y: 108.3 }],
+	["Ransei:Spectra", { x: 707.1, y: 138.2 }],
+	["Ransei:Avia", { x: 630.3, y: 140.8 }],
+	["Ransei:Illusio", { x: 581.9, y: 126.2 }],
+	["Ransei:Chrysalia", { x: 427.2, y: 62.5 }],
+	["Ransei:Violight", { x: 457.5, y: 107.4 }],
+	["Ransei:Pugilis", { x: 525.4, y: 141.4 }],
+	["Ransei:Terrera", { x: 578.1, y: 164.9 }],
+	["Ransei:Viperia", { x: 654.3, y: 188.8 }],
+	["Ransei:Cragspur", { x: 619.9, y: 168.3 }],
+	["Ransei:Yaksha", { x: 608.6, y: 234.7 }],
+	["Ransei:Ignis", { x: 480, y: 143.5 }],
+	["Ransei:Fontaine", { x: 483.5, y: 183.8 }],
+	["Ransei:Greenleaf", { x: 406.5, y: 152.6 }],
+	["Ransei:Aurora", { x: 466.8, y: 159.1 }],
+	["Almia:Almia", { x: 1309, y: 233.4 }],
+	["Almia:Shiver Camp", { x: 1257.1, y: 185.5 }],
+	["Almia:Boyleland", { x: 1418.8, y: 224.7 }],
+	["Almia:Vientown", { x: 1300.7, y: 251.5 }],
+	["Almia:Pueltown", { x: 1296.9, y: 214.6 }],
+	["Almia:Chicole Village", { x: 1300.9, y: 272.8 }],
+	["Almia:Haruba Village", { x: 1412.6, y: 284.3 }],
+	["Almia:Ranger School", { x: 1328.5, y: 252 }],
+	["Almia:Hippowdon Temple", { x: 1437.2, y: 255.5 }],
+	["Almia:Chroma Highlands", { x: 1367.6, y: 191.1 }],
+	["Almia:Peril Cliffs", { x: 1278, y: 191.1 }],
+	["Almia:Oil Field Hideout", { x: 1357.6, y: 272.1 }],
+	["Almia:Almia Castle", { x: 1231.4, y: 179.1 }],
+	["Almia:Puel Sea", { x: 1368, y: 243.1 }],
+	["Almia:Sea of Wailord", { x: 1381.3, y: 253.2 }],
+	["Fiore:Ryme City", { x: 983.6, y: 282.5 }],
+	["Fiore:Fall City", { x: 1132.4, y: 262 }],
+	["Fiore:Ringtown", { x: 1026.2, y: 279.7 }],
+	["Fiore:Summerland", { x: 1094.2, y: 307.6 }],
+	["Fiore:Wintown", { x: 1074.5, y: 235.1 }],
+	["Fiore:Fiore Temple", { x: 1089.3, y: 209.2 }],
+	["Fiore:Safra Sea", { x: 1133.5, y: 312.9 }],
+	["Oblivia:Oblivia", { x: 965.2, y: 379.4 }],
+	["Oblivia:Cocona Village", { x: 920.2, y: 412.8 }],
+	["Oblivia:Wireless Tower", { x: 921.1, y: 390.1 }],
+	["Oblivia:Rasp Cavern", { x: 902.6, y: 402.8 }],
+	["Oblivia:Tilt Village", { x: 989.9, y: 390.2 }],
+	["Oblivia:Old Mansion", { x: 991.3, y: 367.9 }],
+	["Oblivia:Daybreak Ruins", { x: 1009.4, y: 375.6 }],
+	["Oblivia:Sky Fortress", { x: 956.9, y: 373.6 }],
+	["Oblivia:Aqua Resort", { x: 973.9, y: 349.8 }],
+	["Oblivia:Canal Ruins", { x: 958.1, y: 339.7 }],
+	["Oblivia:Oblivia Ruins", { x: 956.6, y: 355.5 }],
+	["Oblivia:Mt. Sorbet", { x: 981.1, y: 329.5 }],
+	["Oblivia:Faldera Volcano", { x: 999.2, y: 425.7 }],
+	["Oblivia:Rainbow Dais", { x: 869, y: 394.3 }],
+	["Oblivia:Mt. Layuda", { x: 889.1, y: 358.8 }],
+	["Oblivia:Tilikule Monument", { x: 889.4, y: 341.1 }],
+	["Orre:Orre", { x: 573.8, y: 676 }],
+	["Orre:Gateon Port", { x: 546, y: 671 }],
+	["Orre:Agate Village", { x: 579, y: 642.2 }],
+	["Orre:Mt. Battle", { x: 616.3, y: 621.8 }],
+	["Orre:Pokémon HQ Lab", { x: 542.5, y: 635.8 }],
+	["Orre:Phenac City", { x: 669.2, y: 678.5 }],
+	["Orre:Outskirt Stand", { x: 700.9, y: 667.1 }],
+	["Orre:Realgam Tower", { x: 637.3, y: 670.4 }],
+	["Orre:Pyrite Town", { x: 597, y: 685.8 }],
+	["Orre:The Under", { x: 570, y: 660.5 }],
+	["Orre:Snagem Hideout", { x: 695.9, y: 624 }],
+	["Orre:Cipher Lab", { x: 667.2, y: 639.6 }],
+	["Orre:Cipher Key Lair", { x: 651.8, y: 609.3 }],
+	["Pasio:Centra City", { x: 900.2, y: 610.5 }],
+	["Pasio:Champion Stadium", { x: 876.9, y: 614.9 }],
+	["Pasio:Battle Villa", { x: 850.2, y: 639.6 }],
+	["Pasio:Legendary Arena", { x: 894.2, y: 649.2 }],
+	["Pasio:Victory Road", { x: 894.2, y: 663.6 }],
+	["Pasio:Trainer Lodge", { x: 850.4, y: 610.9 }],
+	["Pasio:Pasio Academy", { x: 926.7, y: 629.5 }],
+	["Ferrum:Tellur Town", { x: 1224.1, y: 577.5 }],
+	["Ferrum:Neos City", { x: 1232.3, y: 599 }],
+	["Ferrum:Thalia Beach", { x: 1206, y: 616.8 }],
+	["Holon:Mirage Forest", { x: 813.7, y: 516.6 }],
+	["Holon:Holon Lake", { x: 767.9, y: 532.2 }],
+	["Holon:Dragon Frontiers", { x: 813, y: 464.7 }],
+	["TCG Island:Mason Laboratory", { x: 1473.5, y: 368 }],
+	["TCG Island:Challenge Hall (TCG)", { x: 1441.7, y: 343.5 }],
+	["TCG Island:Pokémon Dome", { x: 1476.3, y: 347.4 }],
+	["TCG Island:Airport (TCG)", { x: 1456.6, y: 356.3 }],
+	["GR Island:GR Psychic Stronghold", { x: 1380.6, y: 417.2 }],
+	["GR Island:Colorless Altar", { x: 1438, y: 379.1 }],
+	["GR Island:GR Castle", { x: 1408.5, y: 398.6 }],
+	["GR Island:Sealed Fort", { x: 1490.4, y: 351.2 }],
+	["GR Island:Challenge Hall (GR)", { x: 1395.5, y: 407.3 }],
+	["GR Island:Game Center", { x: 1449, y: 368.8 }],
+	["GR Island:Ishihara’s Villa", { x: 1456.8, y: 351.6 }],
+	["GR Island:Airport (GR)", { x: 1383, y: 411.5 }],
+	["Outros locais:White City", { x: 418.6, y: 618.6 }],
+	["Outros locais:Carmonte Island", { x: 505.2, y: 471.7 }],
+	["Outros locais:Holon", { x: 788.9, y: 510.8 }],
+	["Outros locais:Tokyo City", { x: 1001.7, y: 550.8 }],
+	["Outros locais:Pasio", { x: 885.3, y: 634.3 }],
+	["Outros locais:Milote Town", { x: 1088.6, y: 674.7 }],
+	["Outros locais:Ferrum", { x: 1195.4, y: 603.8 }],
+	["Outros locais:Pokémon Island", { x: 1191.4, y: 725.3 }],
+	["Outros locais:Decolore", { x: 314, y: 806.6 }],
+	["Outros locais:Guyana", { x: 96.1, y: 647.6 }],
+	["Outros locais:Faraway Island", { x: 284.3, y: 813.8 }],
+]);
+
+// Coordenadas legadas da montagem anterior; convertidas abaixo para o mapa atual.
+// Posições salvas pelo Mestre na campanha sempre têm prioridade sobre estes valores.
+const WORLD_MAP_EXTRA_ORANGE_ISLANDS = new Map([
+	['Mandarin Island South', [430, 605]],
+	['Trovita Island', [500, 605]],
+	['Kumquat Island', [570, 605]],
+	['Pummelo Island', [640, 605]],
+	['Ascorbia Island', [430, 635]],
+	['Fairchild Island', [500, 635]],
+	['Mandarin Island North', [570, 635]],
+]);
+const WORLD_MAP_DECOLORE_ISLANDS = new Map([
+	['Honey Island', [130, 560]], ['Scalchop Island', [205, 560]],
+	['Grand Spectrala Island', [280, 560]], ['Torom Island', [130, 600]],
+	['Wayfarer Island', [205, 600]], ['Capacia Island', [280, 600]],
+	['Harvest Island', [130, 640]], ['Cave Island', [205, 640]],
+	['Paladin Island', [280, 640]],
+]);
+const WORLD_MAP_PLACES = [
+	['Unova', [
+		['Nuvema Town', 215, 526], ['Accumula Town', 185, 506], ['Striaton City', 174, 444],
+		['Nacrene City', 105, 452], ['Castelia City', 86, 426, 1], ['Nimbasa City', 167, 300, 1],
+		['Driftveil City', 69, 330], ['Mistralton City', 67, 298], ['Icirrus City', 117, 281],
+		['Anville Town', 90, 260], ['Lentimas Town', 210, 445],
+		['Opelucid City', 237, 371], ['Lacunosa Town', 288, 400], ['Undella Town', 258, 477],
+		['Aspertia City', 188, 548], ['Virbank City', 204, 508], ['Humilau City', 285, 501],
+		['Pokémon League', 168, 301, 1], ['Giant Chasm', 254, 309],
+	]],
+	['Kalos', [
+		['Vaniville Town', 558, 440], ['Aquacorde Town', 561, 404], ['Santalune City', 470, 342],
+		['Lumiose City', 560, 346, 1], ['Camphrier Town', 488, 343], ['Cyllage City', 416, 342],
+		['Ambrette Town', 389, 394], ['Geosenge Town', 478, 360], ['Shalour City', 469, 310],
+		['Coumarine City', 585, 282], ['Laverre City', 608, 332], ['Dendemille Town', 670, 330],
+		['Anistar City', 669, 363], ['Couriway Town', 638, 404], ['Snowbelle City', 559, 404],
+		['Pokémon League', 579, 256, 1], ['Parfum Palace', 513, 314],
+	]],
+	['Galar', [
+		['Postwick', 560, 215], ['Wedgehurst', 559, 190], ['Motostoke', 578, 163, 1],
+		['Turffield', 503, 153], ['Hulbury', 622, 158], ['Hammerlocke', 570, 134],
+		['Stow-on-Side', 502, 116], ['Ballonlea', 485, 96], ['Circhester', 575, 95],
+		['Spikemuth', 633, 106], ['Wyndon', 575, 59, 1], ['Wild Area', 594, 184, 1],
+		['Isle of Armor', 700, 128], ['Crown Tundra', 540, 45],
+	]],
+	['Paldea', [
+		['Cabo Poco', 562, 723], ['Los Platos', 540, 704], ['Mesagoza', 562, 684, 1],
+		['Cortondo', 497, 659], ['Artazon', 619, 643], ['Levincia', 689, 576],
+		['Cascarrafa', 486, 593], ['Medali', 499, 528], ['Montenevera', 543, 510],
+		['Alfornada', 468, 603], ['Glaseado', 562, 556], ['Porto Marinada', 423, 575],
+		['Zapapico', 637, 567], ['Pokémon League', 528, 587], ['Area Zero', 563, 610, 1],
+	]],
+	['Johto', [
+		['New Bark Town', 1169, 490], ['Cherrygrove City', 1126, 488], ['Violet City', 1089, 371],
+		['Azalea Town', 1032, 469], ['Goldenrod City', 1058, 396, 1], ['Ecruteak City', 1058, 322],
+		['Olivine City', 1025, 408], ['Battle Frontier', 996, 391],
+		['Cianwood City', 956, 445], ['Mahogany Town', 1112, 330],
+		['Blackthorn City', 1180, 322], ['Lake of Rage', 1120, 306], ['Ruins of Alph', 1078, 382],
+		['Mt. Silver', 1005, 345], ['Whirl Islands', 981, 478],
+	]],
+	['Kanto', [
+		['Pallet Town', 1265, 430], ['Viridian City', 1265, 399], ['Pewter City', 1240, 379],
+		['Cerulean City', 1371, 340], ['Vermilion City', 1345, 444], ['Lavender Town', 1434, 389],
+		['Celadon City', 1278, 390], ['Saffron City', 1344, 391, 1], ['Fuchsia City', 1458, 480],
+		['Cinnabar Island', 1270, 511], ['Indigo Plateau', 1198, 328, 1],
+		['Mt. Moon', 1336, 335], ['Seafoam Islands', 1295, 477], ['Power Plant', 1402, 344],
+	]],
+	['Sinnoh', [
+		['Twinleaf Town', 1168, 227], ['Sandgem Town', 1203, 223], ['Jubilife City', 1198, 206, 1],
+		['Oreburgh City', 1257, 179], ['Floaroma Town', 1167, 144], ['Eterna City', 1204, 142],
+		['Hearthome City', 1283, 179], ['Solaceon Town', 1312, 177], ['Veilstone City', 1367, 179],
+		['Pastoria City', 1315, 220], ['Canalave City', 1128, 179], ['Celestic Town', 1281, 146],
+		['Snowpoint City', 1238, 64], ['Sunyshore City', 1403, 221], ['Pokémon League', 1417, 184],
+		['Mt. Coronet', 1266, 123, 1], ['Spear Pillar', 1265, 102],
+		['Stark Mountain', 1455, 65], ['Fight Area', 1435, 135],
+		['Survival Area', 1470, 105], ['Resort Area', 1490, 150],
+	]],
+	['Hoenn', [
+		['Littleroot Town', 1055, 702], ['Oldale Town', 1057, 667], ['Petalburg City', 1007, 674],
+		['Rustboro City', 983, 576], ['Dewford Town', 889, 686], ['Slateport City', 985, 705],
+		['Mauville City', 1056, 642, 1], ['Verdanturf Town', 1007, 642], ['Fallarbor Town', 1046, 592],
+		['Lavaridge Town', 1014, 619], ['Fortree City', 1110, 590], ['Lilycove City', 1151, 639],
+		['Mossdeep City', 1139, 675], ['Sootopolis City', 1062, 677], ['Pacifidlog Town', 939, 695],
+		['Ever Grande City', 1155, 700], ['Mt. Chimney', 1020, 592, 1],
+		['Battle Frontier', 455, 610, 1],
+	]],
+	['Alola', [
+		['Iki Town', 441, 860], ['Hau’oli City', 505, 903, 1], ['Heahea City', 594, 895],
+		['Paniola Town', 587, 925], ['Konikoni City', 614, 938], ['Malie City', 666, 838],
+		['Royal Avenue', 622, 920],
+		['Tapu Village', 644, 890], ['Po Town', 645, 914], ['Seafolk Village', 771, 912],
+		['Aether Paradise', 601, 841, 1], ['Mount Lanakila', 667, 836],
+		['Pokémon League', 740, 825, 1],
+		['Hokulani Observatory', 735, 875],
+	]],
+	['Sevii Islands', [
+		['One Island', 1367, 644, 1], ['Two Island', 1391, 688], ['Three Island', 1422, 707],
+		['Four Island', 1300, 739], ['Five Island', 1365, 753], ['Six Island', 1405, 770],
+		['Seven Island', 1453, 788], ['Mt. Ember', 1358, 614],
+	]],
+	['Orange Islands', [
+		['Valencia Island', 1141, 856, 1], ['Tangelo Island', 1210, 862],
+		['Mikan Island', 1140, 891], ['Navel Island', 1211, 897],
+		...Array.from(WORLD_MAP_EXTRA_ORANGE_ISLANDS, ([name, [x, y]]) => [name, x, y]),
+	]],
+	['Decolore Islands', Array.from(WORLD_MAP_DECOLORE_ISLANDS,
+		([name, [x, y]]) => [name, x, y])],
+	// Âncoras das demais áreas representadas na própria imagem, em pixels da referência 910 × 747.
+	['Ransei', [
+		['Ransei', 302, 125, 1],
+		['Nixtorm', 245, 50], ['Dragnor', 290, 50], ['Valora', 335, 50], ['Spectra', 380, 50],
+		['Avia', 245, 90], ['Illusio', 290, 90], ['Chrysalia', 335, 90], ['Violight', 380, 90],
+		['Pugilis', 245, 135], ['Terrera', 290, 135], ['Viperia', 335, 135], ['Cragspur', 380, 135],
+		['Yaksha', 245, 175], ['Ignis', 290, 175], ['Fontaine', 335, 175], ['Greenleaf', 380, 175],
+		['Aurora', 300, 195],
+	]],
+	['Almia', [
+		['Almia', 808, 188, 1],
+		['Shiver Camp', 765, 120], ['Boyleland', 850, 140],
+		['Vientown', 730, 180], ['Pueltown', 790, 180],
+		['Chicole Village', 760, 230], ['Haruba Village', 850, 230],
+		['Ranger School', 760, 195], ['Hippowdon Temple', 870, 245],
+		['Chroma Highlands', 790, 155], ['Peril Cliffs', 835, 175],
+		['Oil Field Hideout', 870, 200], ['Almia Castle', 800, 100],
+		['Puel Sea', 790, 265], ['Sea of Wailord', 850, 280],
+	]],
+	['Fiore', [
+		['Fiore', 642, 204, 1], ['Ryme City', 570, 190],
+		['Fall City', 605, 170], ['Ringtown', 675, 170],
+		['Summerland', 605, 235], ['Wintown', 675, 235],
+		['Fiore Temple', 605, 265], ['Safra Sea', 675, 265],
+	]],
+	['Oblivia', [
+		['Oblivia', 555, 285, 1],
+		['Cocona Village', 500, 245], ['Wireless Tower', 555, 245], ['Rasp Cavern', 610, 245],
+		['Tilt Village', 500, 270], ['Old Mansion', 610, 270],
+		['Daybreak Ruins', 500, 300], ['Sky Fortress', 610, 300],
+		['Aqua Resort', 500, 330], ['Canal Ruins', 555, 330], ['Oblivia Ruins', 610, 330],
+		['Mt. Sorbet', 555, 355],
+		['Faldera Volcano', 485, 375], ['Rainbow Dais', 530, 375],
+		['Mt. Layuda', 575, 375], ['Tilikule Monument', 620, 375],
+	]],
+	['Orre', [
+		['Orre Colosseum', 358, 482, 1],
+		['Gateon Port', 305, 400], ['Agate Village', 365, 400], ['Mt. Battle', 425, 400],
+		['Pokémon HQ Lab', 485, 400], ['Phenac City', 305, 435], ['Outskirt Stand', 365, 435],
+		['Realgam Tower', 425, 435],
+		['Pyrite Town', 305, 505], ['The Under', 365, 505], ['Snagem Hideout', 425, 505],
+		['Cipher Lab', 485, 505], ['Cipher Key Lair', 305, 540], ['Citadark Isle', 425, 540],
+	]],
+	['Pasio', [
+		['Centra City', 495, 430], ['Champion Stadium', 555, 430],
+		['Battle Villa', 475, 465], ['Legendary Arena', 575, 465],
+		['Victory Road', 475, 500], ['Trainer Lodge', 525, 500],
+		['Pasio Academy', 575, 500],
+	]],
+	['Ferrum', [
+		['Tellur Town', 675, 405], ['Neos City', 745, 405], ['Thalia Beach', 745, 475],
+	]],
+	['Holon', [
+		['Mirage Forest', 435, 345], ['Holon Lake', 505, 345],
+		['Dragon Frontiers', 505, 410],
+	]],
+	['TCG Island', [
+		['Mason Laboratory', 859, 267],
+		['Challenge Hall (TCG)', 860, 296], ['Pokémon Dome', 875, 295],
+		['Airport (TCG)', 858, 307],
+	]],
+	['GR Island', [
+		['GR Psychic Stronghold', 831, 284],
+		['Colorless Altar', 820, 295], ['GR Castle', 832, 297],
+		['Sealed Fort', 809, 299], ['Challenge Hall (GR)', 819, 308],
+		['Game Center', 831, 309], ['Ishihara’s Villa', 810, 316],
+		['Airport (GR)', 831, 320],
+	]],
+	['Outros locais', [
+		['White City', 117, 372], ['Carmonte Island', 282, 368], ['Vila de Holon', 466, 379],
+		['Tokyo City', 592, 396], ['Pasio', 525, 465], ['Milote Town', 632, 479],
+		['Ferrum Stadium', 713, 441], ['Pokémon Island', 711, 548], ['Decolore', 195, 611],
+		['Guyana', 61, 459], ['Faraway Island', 120, 496],
+	]],
+];
+
+// Ajusta as âncoras da montagem anterior à geografia do mapa enviado pelo usuário.
+// As posições arrastadas pelo Mestre continuam em coordenadas estáveis de 1536 × 1024.
+const WORLD_MAP_REGION_BOUNDS = {
+	Unova: [[65, 280, 290, 550], [185, 405, 295, 505]],
+	Kalos: [[385, 250, 675, 445], [145, 205, 285, 310]],
+	Galar: [[480, 40, 705, 220], [16, 185, 128, 375]],
+	Johto: [[950, 300, 1185, 495], [478, 510, 580, 595]],
+	Kanto: [[1190, 325, 1465, 515], [580, 505, 685, 595]],
+	Sinnoh: [[1120, 60, 1425, 235], [645, 240, 800, 355]],
+	Hoenn: [[880, 570, 1160, 710], [325, 510, 455, 595]],
+	Alola: [[435, 830, 780, 945], [275, 655, 450, 733]],
+	'Sevii Islands': [[1290, 605, 1460, 795], [605, 610, 715, 710]],
+	'Orange Islands': [[1135, 850, 1220, 905], [475, 640, 565, 730]],
+};
+const WORLD_MAP_DIRECT_REGIONS = new Set(['Ransei', 'Almia', 'Fiore', 'Oblivia', 'Orre', 'Pasio', 'Ferrum', 'Holon', 'TCG Island', 'GR Island', 'Outros locais', 'Decolore Islands']);
+// Quatro rótulos de Johto ficam provisoriamente perto de Pasio para o Mestre encontrá-los e arrastá-los.
+const WORLD_MAP_TEMPORARY_PLACES = {
+	'Johto:Blackthorn City': [470, 430],
+	'Johto:Lake of Rage': [550, 430],
+	'Johto:Mt. Silver': [470, 495],
+	'Johto:Cherrygrove City': [550, 495],
+};
+
+function defaultWorldMapPlace(region, name, x, y) {
+	if (region === 'Hoenn' && name === 'Battle Frontier') return { x: x / 910 * 1536, y: y / 747 * 1024 };
+	const extraOrange = region === 'Orange Islands' ? WORLD_MAP_EXTRA_ORANGE_ISLANDS.get(name) : null;
+	if (extraOrange) return { x: extraOrange[0] / 910 * 1536, y: extraOrange[1] / 747 * 1024 };
+	const temporary = WORLD_MAP_TEMPORARY_PLACES[`${region}:${name}`];
+	if (temporary) return { x: temporary[0] / 910 * 1536, y: temporary[1] / 747 * 1024 };
+	if (WORLD_MAP_DIRECT_REGIONS.has(region)) return { x: x / 910 * 1536, y: y / 747 * 1024 };
+	const bounds = WORLD_MAP_REGION_BOUNDS[region];
+	if (!bounds) return null;
+	const [[oldLeft, oldTop, oldRight, oldBottom], [newLeft, newTop, newRight, newBottom]] = bounds;
+	const newX = newLeft + (x - oldLeft) / (oldRight - oldLeft) * (newRight - newLeft);
+	const newY = newTop + (y - oldTop) / (oldBottom - oldTop) * (newBottom - newTop);
+	return { x: newX / 910 * 1536, y: newY / 747 * 1024 };
+}
+
+function openWorldMap() {
+	document.querySelector('.world-map-layer .world-map-close')?.click();
+	const layer = createElement('div', 'modal-backdrop world-map-layer');
+	const dialog = createElement('section', 'panel world-map-dialog');
+	dialog.setAttribute('role', 'dialog');
+	dialog.setAttribute('aria-modal', 'true');
+	dialog.setAttribute('aria-label', 'Mapa-múndi da campanha');
+	const heading = createElement('div', 'world-map-heading');
+	const headingText = createElement('div', 'world-map-heading-text');
+	const title = createElement('h2', '', 'Mapa-múndi');
+	const gridToggle = button('Grid', 'world-map-grid-toggle');
+	gridToggle.type = 'button';
+	gridToggle.setAttribute('aria-pressed', 'false');
+	const placesToggle = button('Cidades e locais', 'world-map-grid-toggle');
+	placesToggle.type = 'button';
+	placesToggle.setAttribute('aria-pressed', 'false');
+	headingText.append(title, gridToggle, placesToggle);
+	const canEditPlaces = state.session?.role === 'master' && !state.tableReadOnly;
+	const editToggle = canEditPlaces ? button('Ajustar nomes', 'world-map-grid-toggle') : null;
+	if (editToggle) {
+		editToggle.type = 'button';
+		editToggle.disabled = true;
+		editToggle.setAttribute('aria-pressed', 'false');
+		headingText.append(editToggle);
+	}
+	const close = button('×', 'world-map-close');
+	close.type = 'button';
+	close.setAttribute('aria-label', 'Fechar mapa');
+	close.addEventListener('click', dismiss);
+	heading.append(headingText, close);
+	const viewport = createElement('div', 'world-map-viewport');
+	const map = createElement('img', 'world-map-image');
+	map.src = './assets/mapa-mundi-final.png';
+	map.alt = 'Mapa das regiões Pokémon da campanha';
+	map.draggable = false;
+	const grid = createElement('canvas', 'world-map-grid');
+	grid.setAttribute('aria-hidden', 'true');
+	const placesLayer = createElement('div', 'world-map-places');
+	placesLayer.setAttribute('aria-hidden', 'true');
+	const places = WORLD_MAP_PLACES.flatMap(([region, entries]) => entries.map(([name, x, y, major]) => {
+		// Os nomes novos mantêm as posições que o Mestre já salvou para os antigos marcadores.
+		const placeId = region === 'Orre' && name === 'Orre Colosseum' ? 'Orre:Orre' :
+			region === 'Outros locais' && name === 'Ferrum Stadium' ? 'Outros locais:Ferrum' :
+			region === 'Outros locais' && name === 'Vila de Holon' ? 'Outros locais:Holon' : `${region}:${name}`;
+		const id = WORLD_MAP_TEMPORARY_PLACES[placeId] ? `${placeId}:pasio` : placeId;
+		const position = WORLD_MAP_DEFAULT_PLACE_POSITIONS.get(id) || defaultWorldMapPlace(region, name, x, y);
+		if (!position) return null;
+		const label = createElement('span', 'world-map-place', name);
+		label.dataset.region = region;
+		if (major) label.classList.add('is-major');
+		placesLayer.append(label);
+		return { label, id,
+			name, x: position.x, y: position.y, defaultX: position.x, defaultY: position.y,
+			major: Boolean(major) };
+	}).filter(Boolean)).sort((a, b) => Number(b.major) - Number(a.major));
+	viewport.append(map, grid, placesLayer);
+	dialog.append(heading, viewport);
+	let scale = 1;
+	let panX = 0;
+	let panY = 0;
+	let drag = null;
+	let gridVisible = false;
+	let placesVisible = false;
+	let editingPlaces = false;
+	let placeDrag = null;
+	let positionsSignature = '';
+	let positionsLoading = false;
+	function renderPlaces() {
+		if (!placesVisible) {
+			placesLayer.hidden = true;
+			return;
+		}
+		placesLayer.hidden = false;
+		const rect = viewport.getBoundingClientRect();
+		const imageWidth = map.naturalWidth || 1536;
+		const imageHeight = map.naturalHeight || 1024;
+		const imageScale = Math.min(rect.width / imageWidth, rect.height / imageHeight) * scale;
+		const left = (rect.width - imageWidth * imageScale) / 2 + panX;
+		const top = (rect.height - imageHeight * imageScale) / 2 + panY;
+		const occupied = [];
+		for (const place of places) {
+			const x = left + place.x / 1536 * imageWidth * imageScale;
+			const y = top + place.y / 1024 * imageHeight * imageScale;
+			const width = place.name.length * 7 + 22;
+			const bounds = { left: x + 6, right: x + 6 + width, top: y - 12, bottom: y + 12 };
+			const show = (editingPlaces || scale >= 2.4 || place.major) && bounds.right > 0 && bounds.left < rect.width &&
+				bounds.bottom > 0 && bounds.top < rect.height &&
+				(editingPlaces || !occupied.some(other => bounds.left < other.right && bounds.right > other.left &&
+					bounds.top < other.bottom && bounds.bottom > other.top));
+			place.label.hidden = !show;
+			if (!show) continue;
+			place.label.style.left = `${x + 6}px`;
+			place.label.style.top = `${y}px`;
+			occupied.push(bounds);
+		}
+	}
+	function drawGrid() {
+		const rect = viewport.getBoundingClientRect();
+		const pixelRatio = window.devicePixelRatio || 1;
+		const width = Math.round(rect.width * pixelRatio);
+		const height = Math.round(rect.height * pixelRatio);
+		if (grid.width !== width || grid.height !== height) {
+			grid.width = width;
+			grid.height = height;
+		}
+		const context = grid.getContext('2d');
+		if (!context) return;
+		context.clearRect(0, 0, width, height);
+		if (!gridVisible || !width || !height) return;
+		const imageWidth = map.naturalWidth || 1536;
+		const imageHeight = map.naturalHeight || 1024;
+		const fit = Math.min(rect.width / imageWidth, rect.height / imageHeight);
+		const imageScale = fit * scale;
+		const left = (rect.width - imageWidth * imageScale) / 2 + panX;
+		const top = (rect.height - imageHeight * imageScale) / 2 + panY;
+		// Escala de campanha aproximada: Kanto ocupa 290 px neste mapa e representa 300 km.
+		// A largura entre centros de hexágonos vizinhos corresponde aos 6 km do motor de viagem.
+		const kantoMapWidthPx = 150;
+		const kantoCampaignWidthKm = 300;
+		const kilometersPerMapPixel = kantoCampaignWidthKm / kantoMapWidthPx;
+		const radius = 6 / kilometersPerMapPixel / Math.sqrt(3);
+		const columnStep = Math.sqrt(3) * radius;
+		const rowStep = 1.5 * radius;
+		// Em escala mundial os hexágonos ficam menores que a espessura da linha; só desenhá-los quando legíveis.
+		if (columnStep * imageScale < 12) return;
+		const minX = Math.max(0, (0 - left) / imageScale - radius);
+		const maxX = Math.min(imageWidth, (rect.width - left) / imageScale + radius);
+		const minY = Math.max(0, (0 - top) / imageScale - radius);
+		const maxY = Math.min(imageHeight, (rect.height - top) / imageScale + radius);
+		context.save();
+		context.scale(pixelRatio, pixelRatio);
+		context.beginPath();
+		context.rect(left, top, imageWidth * imageScale, imageHeight * imageScale);
+		context.clip();
+		context.strokeStyle = '#132c42b3';
+		context.lineWidth = Math.max(0.6, Math.min(1.2, imageScale));
+		context.beginPath();
+		for (let row = Math.max(0, Math.floor(minY / rowStep)); row * rowStep <= maxY; row++) {
+			const centerY = row * rowStep;
+			const rowOffset = row % 2 ? columnStep / 2 : 0;
+			for (let column = Math.max(0, Math.floor((minX - rowOffset) / columnStep));
+				column * columnStep + rowOffset <= maxX; column++) {
+				const centerX = column * columnStep + rowOffset;
+				for (let corner = 0; corner < 6; corner++) {
+					const angle = (corner * 60 - 30) * Math.PI / 180;
+					const x = left + (centerX + radius * Math.cos(angle)) * imageScale;
+					const y = top + (centerY + radius * Math.sin(angle)) * imageScale;
+					if (corner === 0) context.moveTo(x, y);
+					else context.lineTo(x, y);
+				}
+				context.closePath();
+			}
+		}
+		context.stroke();
+		context.restore();
+	}
+	function clampPan() {
+		const { width, height } = viewport.getBoundingClientRect();
+		const imageWidth = map.naturalWidth || 1536;
+		const imageHeight = map.naturalHeight || 1024;
+		const fit = Math.min(width / imageWidth, height / imageHeight);
+		const limitX = Math.max(0, (imageWidth * fit * scale - width) / 2);
+		const limitY = Math.max(0, (imageHeight * fit * scale - height) / 2);
+		panX = Math.max(-limitX, Math.min(limitX, panX));
+		panY = Math.max(-limitY, Math.min(limitY, panY));
+	}
+	function renderMap() {
+		clampPan();
+		map.style.transform = `translate(${panX}px, ${panY}px) scale(${scale})`;
+		viewport.classList.toggle('is-zoomed', scale > 1);
+		drawGrid();
+		renderPlaces();
+	}
+	placesToggle.addEventListener('click', () => {
+		if (editingPlaces) return;
+		placesVisible = !placesVisible;
+		placesToggle.setAttribute('aria-pressed', String(placesVisible));
+		if (placesVisible && scale < 2.4) {
+			const rect = viewport.getBoundingClientRect();
+			setZoom(2.4, rect.left + rect.width / 2, rect.top + rect.height / 2);
+		} else renderPlaces();
+	});
+	editToggle?.addEventListener('click', () => {
+		editingPlaces = !editingPlaces;
+		placesVisible = true;
+		placesToggle.setAttribute('aria-pressed', 'true');
+		placesLayer.classList.toggle('is-editing', editingPlaces);
+		editToggle.setAttribute('aria-pressed', String(editingPlaces));
+		editToggle.textContent = editingPlaces ? 'Concluir ajuste' : 'Ajustar nomes';
+		if (editingPlaces && scale < 2.4) {
+			const rect = viewport.getBoundingClientRect();
+			setZoom(2.4, rect.left + rect.width / 2, rect.top + rect.height / 2);
+		} else renderPlaces();
+	});
+	for (const place of places) {
+		place.label.addEventListener('pointerdown', event => {
+			if (!editingPlaces || place.saving || (event.pointerType === 'mouse' && event.button !== 0)) return;
+			event.stopPropagation();
+			placeDrag = { place, pointerId: event.pointerId, clientX: event.clientX, clientY: event.clientY,
+				x: place.x, y: place.y, moved: false };
+			place.label.setPointerCapture(event.pointerId);
+			place.label.classList.add('is-dragging');
+		});
+		place.label.addEventListener('pointermove', event => {
+			if (!placeDrag || placeDrag.place !== place || placeDrag.pointerId !== event.pointerId) return;
+			const rect = viewport.getBoundingClientRect();
+			const imageWidth = map.naturalWidth || 1536;
+			const imageHeight = map.naturalHeight || 1024;
+			const imageScale = Math.min(rect.width / imageWidth, rect.height / imageHeight) * scale;
+			place.x = Math.max(0, Math.min(1536, placeDrag.x + (event.clientX - placeDrag.clientX) / imageScale / imageWidth * 1536));
+			place.y = Math.max(0, Math.min(1024, placeDrag.y + (event.clientY - placeDrag.clientY) / imageScale / imageHeight * 1024));
+			placeDrag.moved ||= Math.abs(event.clientX - placeDrag.clientX) + Math.abs(event.clientY - placeDrag.clientY) > 2;
+			renderPlaces();
+		});
+		async function finishPlaceDrag(event) {
+			if (!placeDrag || placeDrag.place !== place || placeDrag.pointerId !== event.pointerId) return;
+			const moved = placeDrag.moved && event.type !== 'pointercancel';
+			const original = { x: placeDrag.x, y: placeDrag.y };
+			placeDrag = null;
+			place.label.classList.remove('is-dragging');
+			if (!moved) { place.x = original.x; place.y = original.y; renderPlaces(); return; }
+			place.saving = true;
+			try {
+				const result = await api('/campaign/map-places', { method: 'PUT', body: { id: place.id, x: place.x, y: place.y } });
+				place.x = result.position.x;
+				place.y = result.position.y;
+				positionsSignature = '';
+			} catch (error) {
+				place.x = original.x; place.y = original.y;
+				showToast(error.message || 'Não foi possível salvar a posição do local.');
+			} finally { place.saving = false; renderPlaces(); }
+		}
+		place.label.addEventListener('pointerup', finishPlaceDrag);
+		place.label.addEventListener('pointercancel', finishPlaceDrag);
+	}
+	async function loadPlacePositions() {
+		if (positionsLoading || editingPlaces || placeDrag || !layer.isConnected) return;
+		positionsLoading = true;
+		try {
+			const result = await api('/campaign/map-places', { cache: 'no-store' });
+			if (!layer.isConnected || editingPlaces || placeDrag) return;
+			const signature = JSON.stringify(result.positions || {});
+			if (signature === positionsSignature) return;
+			positionsSignature = signature;
+			const orangeAnchorNames = ['Valencia Island', 'Tangelo Island', 'Mikan Island', 'Navel Island'];
+			const orangeAnchors = places.filter(place => place.id.startsWith('Orange Islands:') &&
+				orangeAnchorNames.includes(place.name));
+			const orangeShift = orangeAnchors.reduce((offset, place) => {
+				const saved = result.positions?.[place.id];
+				offset.x += (saved?.x ?? place.defaultX) - place.defaultX;
+				offset.y += (saved?.y ?? place.defaultY) - place.defaultY;
+				return offset;
+			}, { x: 0, y: 0 });
+			orangeShift.x /= orangeAnchors.length || 1;
+			orangeShift.y /= orangeAnchors.length || 1;
+			const decoloreAnchor = places.find(place => place.id === 'Outros locais:Decolore');
+			const savedDecolore = decoloreAnchor && result.positions?.[decoloreAnchor.id];
+			const decoloreShift = decoloreAnchor ? {
+				x: (savedDecolore?.x ?? decoloreAnchor.defaultX) - decoloreAnchor.defaultX,
+				y: (savedDecolore?.y ?? decoloreAnchor.defaultY) - decoloreAnchor.defaultY,
+			} : { x: 0, y: 0 };
+			const pasioAnchor = places.find(place => place.id === 'Outros locais:Pasio');
+			const savedPasio = pasioAnchor && result.positions?.[pasioAnchor.id];
+			const pasioShift = pasioAnchor ? {
+				x: (savedPasio?.x ?? pasioAnchor.defaultX) - pasioAnchor.defaultX,
+				y: (savedPasio?.y ?? pasioAnchor.defaultY) - pasioAnchor.defaultY,
+			} : { x: 0, y: 0 };
+			const ferrumAnchor = places.find(place => place.id === 'Outros locais:Ferrum');
+			const savedFerrum = ferrumAnchor && result.positions?.[ferrumAnchor.id];
+			const ferrumShift = ferrumAnchor ? {
+				x: (savedFerrum?.x ?? ferrumAnchor.defaultX) - ferrumAnchor.defaultX,
+				y: (savedFerrum?.y ?? ferrumAnchor.defaultY) - ferrumAnchor.defaultY,
+			} : { x: 0, y: 0 };
+			const holonAnchor = places.find(place => place.id === 'Outros locais:Holon');
+			const savedHolon = holonAnchor && result.positions?.[holonAnchor.id];
+			const holonShift = holonAnchor ? {
+				x: (savedHolon?.x ?? holonAnchor.defaultX) - holonAnchor.defaultX,
+				y: (savedHolon?.y ?? holonAnchor.defaultY) - holonAnchor.defaultY,
+			} : { x: 0, y: 0 };
+			const ranseiAnchor = places.find(place => place.id === 'Ransei:Ransei');
+			const savedRansei = ranseiAnchor && result.positions?.[ranseiAnchor.id];
+			const ranseiShift = ranseiAnchor ? {
+				x: (savedRansei?.x ?? ranseiAnchor.defaultX) - ranseiAnchor.defaultX,
+				y: (savedRansei?.y ?? ranseiAnchor.defaultY) - ranseiAnchor.defaultY,
+			} : { x: 0, y: 0 };
+			const obliviaAnchor = places.find(place => place.id === 'Oblivia:Oblivia');
+			const savedOblivia = obliviaAnchor && result.positions?.[obliviaAnchor.id];
+			const obliviaShift = obliviaAnchor ? {
+				x: (savedOblivia?.x ?? obliviaAnchor.defaultX) - obliviaAnchor.defaultX,
+				y: (savedOblivia?.y ?? obliviaAnchor.defaultY) - obliviaAnchor.defaultY,
+			} : { x: 0, y: 0 };
+			const fioreAnchor = places.find(place => place.id === 'Fiore:Fiore');
+			const savedFiore = fioreAnchor && result.positions?.[fioreAnchor.id];
+			const fioreShift = fioreAnchor ? {
+				x: (savedFiore?.x ?? fioreAnchor.defaultX) - fioreAnchor.defaultX,
+				y: (savedFiore?.y ?? fioreAnchor.defaultY) - fioreAnchor.defaultY,
+			} : { x: 0, y: 0 };
+			const almiaAnchor = places.find(place => place.id === 'Almia:Almia');
+			const savedAlmia = almiaAnchor && result.positions?.[almiaAnchor.id];
+			const almiaShift = almiaAnchor ? {
+				x: (savedAlmia?.x ?? almiaAnchor.defaultX) - almiaAnchor.defaultX,
+				y: (savedAlmia?.y ?? almiaAnchor.defaultY) - almiaAnchor.defaultY,
+			} : { x: 0, y: 0 };
+			for (const place of places) {
+				const position = result.positions?.[place.id];
+				if (position) { place.x = position.x; place.y = position.y; } else if (WORLD_MAP_DEFAULT_PLACE_POSITIONS.has(place.id)) {
+					place.x = place.defaultX; place.y = place.defaultY;
+				} else if (place.id.startsWith('Orange Islands:') &&
+					WORLD_MAP_EXTRA_ORANGE_ISLANDS.has(place.name)) {
+					place.x = Math.max(0, Math.min(1536, place.defaultX + orangeShift.x));
+					place.y = Math.max(0, Math.min(1024, place.defaultY + orangeShift.y));
+				} else if (place.id.startsWith('Decolore Islands:')) {
+					place.x = Math.max(0, Math.min(1536, place.defaultX + decoloreShift.x));
+					place.y = Math.max(0, Math.min(1024, place.defaultY + decoloreShift.y));
+				} else if (place.id.startsWith('Pasio:')) {
+					place.x = Math.max(0, Math.min(1536, place.defaultX + pasioShift.x));
+					place.y = Math.max(0, Math.min(1024, place.defaultY + pasioShift.y));
+				} else if (place.id.startsWith('Ferrum:')) {
+					place.x = Math.max(0, Math.min(1536, place.defaultX + ferrumShift.x));
+					place.y = Math.max(0, Math.min(1024, place.defaultY + ferrumShift.y));
+				} else if (place.id.startsWith('Holon:')) {
+					place.x = Math.max(0, Math.min(1536, place.defaultX + holonShift.x));
+					place.y = Math.max(0, Math.min(1024, place.defaultY + holonShift.y));
+				} else if (place.id.startsWith('Ransei:') && place.name !== 'Ransei') {
+					place.x = Math.max(0, Math.min(1536, place.defaultX + ranseiShift.x));
+					place.y = Math.max(0, Math.min(1024, place.defaultY + ranseiShift.y));
+				} else if (place.id.startsWith('Oblivia:') && place.name !== 'Oblivia') {
+					place.x = Math.max(0, Math.min(1536, place.defaultX + obliviaShift.x));
+					place.y = Math.max(0, Math.min(1024, place.defaultY + obliviaShift.y));
+				} else if (place.id.startsWith('Fiore:') && place.name !== 'Fiore' && place.name !== 'Ryme City') {
+					place.x = Math.max(0, Math.min(1536, place.defaultX + fioreShift.x));
+					place.y = Math.max(0, Math.min(1024, place.defaultY + fioreShift.y));
+				} else if (place.id.startsWith('Almia:') && place.name !== 'Almia') {
+					place.x = Math.max(0, Math.min(1536, place.defaultX + almiaShift.x));
+					place.y = Math.max(0, Math.min(1024, place.defaultY + almiaShift.y));
+				}
+			}
+			renderPlaces();
+		} catch (error) {
+			if (layer.isConnected) showToast(error.message || 'Não foi possível carregar os locais do mapa.');
+		} finally { positionsLoading = false; if (editToggle) editToggle.disabled = false; }
+	}
+	gridToggle.addEventListener('click', () => {
+		gridVisible = !gridVisible;
+		gridToggle.setAttribute('aria-pressed', String(gridVisible));
+		if (gridVisible) {
+			const rect = viewport.getBoundingClientRect();
+			const fit = Math.min(rect.width / (map.naturalWidth || 1536),
+				rect.height / (map.naturalHeight || 1024));
+			const readableScale = Math.max(3, 12 / ((6 * 150 / 300) * fit));
+			if (scale < readableScale) setZoom(readableScale, rect.left + rect.width / 2, rect.top + rect.height / 2);
+			else drawGrid();
+		} else drawGrid();
+	});
+	function setZoom(nextScale, clientX, clientY) {
+		const bounded = Math.max(1, Math.min(16, nextScale));
+		if (bounded === scale) return;
+		const rect = viewport.getBoundingClientRect();
+		const offsetX = clientX - rect.left - rect.width / 2;
+		const offsetY = clientY - rect.top - rect.height / 2;
+		const ratio = bounded / scale;
+		panX = offsetX - ratio * (offsetX - panX);
+		panY = offsetY - ratio * (offsetY - panY);
+		scale = bounded;
+		renderMap();
+	}
+	viewport.addEventListener('wheel', event => {
+		event.preventDefault();
+		setZoom(scale * (event.deltaY < 0 ? 1.2 : 1 / 1.2), event.clientX, event.clientY);
+	}, { passive: false });
+	viewport.addEventListener('pointerdown', event => {
+		if (event.pointerType === 'mouse' && event.button !== 0) return;
+		drag = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
+		viewport.setPointerCapture(event.pointerId);
+		viewport.classList.add('is-dragging');
+	});
+	viewport.addEventListener('pointermove', event => {
+		if (!drag || drag.pointerId !== event.pointerId) return;
+		panX += event.clientX - drag.x;
+		panY += event.clientY - drag.y;
+		drag.x = event.clientX;
+		drag.y = event.clientY;
+		renderMap();
+	});
+	function endDrag(event) {
+		if (!drag || drag.pointerId !== event.pointerId) return;
+		drag = null;
+		viewport.classList.remove('is-dragging');
+	}
+	viewport.addEventListener('pointerup', endDrag);
+	viewport.addEventListener('pointercancel', endDrag);
+	viewport.addEventListener('lostpointercapture', endDrag);
+	map.addEventListener('load', renderMap);
+	const mapResizeObserver = new ResizeObserver(renderMap);
+	mapResizeObserver.observe(viewport);
+	function dismiss() {
+		mapResizeObserver.disconnect();
+		window.removeEventListener('rpg:realtime-sync', loadPlacePositions);
+		layer.remove();
+	}
+	layer.append(dialog);
+	layer.addEventListener('pointerdown', event => { if (event.target === layer) dismiss(); });
+	document.body.append(layer);
+	window.addEventListener('rpg:realtime-sync', loadPlacePositions);
+	loadPlacePositions();
+	renderMap();
+	close.focus();
+}
+
+function worldMapButton(className) {
+	const control = button('', className);
+	control.type = 'button';
+	control.setAttribute('aria-label', 'Abrir mapa-múndi');
+	const sprite = createElement('img');
+	sprite.src = './assets/mapa-sprite.png';
+	sprite.alt = '';
+	control.append(sprite);
+	control.addEventListener('click', openWorldMap);
+	return control;
+}
+
 async function renderPlayerBody(character) {
 	const root = createElement('div', 'player-overview');
 	const campaignClock = await api('/campaign/clock', { cache: 'no-store' });
@@ -3571,7 +4480,9 @@ async function renderPlayerBody(character) {
 	const dateLabel = weekday + ', ' + pad(campaignDate.getDate()) + '/' + pad(campaignDate.getMonth() + 1) + '/' +
 		pad(campaignDate.getFullYear() % 100) + ', ' + pad(campaignDate.getHours()) + ':' + pad(campaignDate.getMinutes());
 	clock.append(celestial, createElement('time', '', dateLabel));
-	identity.append(avatar, identityText, clock);
+	const mapTools = createElement('div', 'overview-campaign-tools');
+	mapTools.append(clock, worldMapButton('overview-world-map-button'));
+	identity.append(avatar, identityText, mapTools);
 
 	const wallet = section('Carteira');
 	const bank = Math.max(0, Number(character.bank?.balance || 0));
@@ -5853,9 +6764,11 @@ async function renderMasterBody(characters) {
 		});
 		top.after(form); name.focus();
 	});
+	const masterTools = createElement('div', 'master-campaign-tools');
+	masterTools.append(configure, worldMapButton('master-world-map-button'));
 	const timeControls = createElement('div', 'master-campaign-time-controls');
 	timeControls.append(campaignDate, clockActions);
-	toolbar.append(configure, celestial, timeControls);
+	toolbar.append(masterTools, celestial, timeControls);
 	top.append(identity, metrics, toolbar);
 	if (state.dashboardView === 'overview') root.append(top);
 	if (state.dashboardView === 'overview') {

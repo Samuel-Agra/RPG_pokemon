@@ -33,6 +33,8 @@ O sprite original do banco em `server/static/rpg/assets/bags/bank.png` foi criad
 
 Os sprites individuais dos equipamentos da versao 3 (`server/static/rpg/assets/item-icons/equipment-*.png`) foram criados para este RPG com geracao de imagens da OpenAI/Codex. Cada entrada do catalogo possui sua propria arte; nenhuma arte oficial foi incorporada.
 
+O icone `server/static/rpg/assets/mapa-sprite.png` foi criado com geracao de imagens da OpenAI/Codex. O mapa `server/static/rpg/assets/mapa-mundi-final.png` foi criado com geracao de imagens a partir de uma referencia fornecida pelo usuario. A origem e os direitos da imagem de referencia nao foram verificados; o mapa nao deve ser tratado como mapa oficial ou recurso livre para redistribuicao publica.
+
 ### Insignias de Liga Pokemon
 
 O arquivo `server/static/rpg/assets/badges-kanto-unova.png` utiliza recriacoes vetoriais de insignias do projeto [pokemon-badges](https://github.com/SteGriff/pokemon-badges), de Stephen Griffiths, Copyright (c) 2011.

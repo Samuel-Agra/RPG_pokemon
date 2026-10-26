@@ -1850,6 +1850,18 @@ export class RPGHttpServer {
 			this.json(res, 200, this.login.getCampaignClock(this.token(req)));
 			return;
 		}
+		if (url.pathname === '/api/rpg/campaign/map-places') {
+			if (method === 'GET') {
+				this.json(res, 200, { positions: this.login.getCampaignMapPlaces(this.token(req)) });
+				return;
+			}
+			if (method === 'PUT') {
+				const body = await this.body(req);
+				this.json(res, 200, { position: this.login.setCampaignMapPlace(this.token(req),
+					body.id, body.x, body.y) });
+				return;
+			}
+		}
 		if (method === 'PUT' && url.pathname === '/api/rpg/campaign/quick-notes') {
 			const body = await this.body(req);
 			this.json(res, 200, this.login.setCampaignQuickNotes(this.token(req), body.notes));
@@ -3383,6 +3395,7 @@ export class RPGHttpServer {
 
 	/** Only established domain validation messages may cross the HTTP boundary. */
 	private isPublicValidationError(message: string): boolean {
+		if (/^(?:Posição do local no mapa inválida|Limite de locais ajustados no mapa atingido)$/.test(message)) return true;
 		if (/^(?:Escolha uma espécie de Pokémon válida|Escolha uma natureza válida|Escolha um status válido para a captura|Escolha uma Poké Bola válida|Escolha uma Poké Bola disponível na sua Bag para esta captura|A habilidade selecionada não está disponível para essa espécie|O gênero selecionado não está disponível para essa espécie|O nível deve estar entre 1 e 100|A vida do Pokémon deve estar entre 1% e 100%|Identificador da tentativa de captura inválido|Condições da captura inválidas|Este treinador já tem uma captura aguardando sua rolagem|Não há uma captura aguardando esta rolagem)$/.test(message)) return true;
 		if (/^(?:Tipo de descanso inválido|Identificador de descanso (?:inválido|já utilizado))$/.test(message)) return true;
 		if (/^(?:Identificador de recuperação (?:inválido|já utilizado)|Recuperação Assistida já preparada antes do próximo descanso longo|Escolha de um a \d+ participantes diferentes|Escolha inválida de pacientes para Recuperação da Exaustão|Este Médico não possui Recuperação da Exaustão|São necessárias \d+ cargas do Kit Médico para os benefícios escolhidos|Recuperação Intensiva exige uma carga do Kit Médico por paciente|Participante indisponível nesta mesa|Um treinador morto não pode receber Recuperação Assistida|.* (?:já possui Recuperação Assistida preparada|precisa de pelo menos dois níveis de Exaustão|já recebeu Recuperação da Exaustão nas últimas 24 horas))$/.test(message)) return true;

@@ -251,6 +251,7 @@ const GYM_BADGE_NAMES: Record<string, string[]> = {
 	paldea: ['Inseto', 'Planta', 'Elétrica', 'Água', 'Normal', 'Fantasma', 'Psíquica', 'Gelo'],
 };
 export const RPG_DEFAULT_SESSION_TTL = 24 * 60 * 60 * 1000;
+const RPG_MAX_CAMPAIGN_MAP_PLACES = 1000;
 export const RPG_NURSERY_BREEDING_BASE_FEE = 5_000;
 export const RPG_NURSERY_LOCAL_INCUBATION_FEE = 5_000;
 const RPG_NURSERY_SHOP_ITEM_IDS = Object.freeze([
@@ -918,6 +919,7 @@ export class RPGLoginService {
 		trueBondRequests: RPGTrueBondRequest[],
 		supplierOrders: RPGSupplierOrder[],
 		playerNotes: Record<string, string>, sceneNpcIds: string[], sceneNpcRevealed: Record<string, number[]>,
+		mapPlacePositions: Record<string, { x: number, y: number }>,
 		equipmentOffers: Record<string, Record<string, { stock: number, price: number, sellPrice?: number,
 			buyEnabled?: boolean, sellEnabled?: boolean, }>>,
 		supportCaches: Record<string, RPGSupportCache>,
@@ -967,7 +969,7 @@ export class RPGLoginService {
 		this.campaignSettings = {
 			name: 'Minha campanha', currentDateTime: new Date(this.now()).toISOString(), quickNotes: '', events: [],
 			publications: [], customRecordRequests: [], supplierOrders: [], confidantRequests: [], forageRequests: [], trueBondRequests: [],
-			playerNotes: {}, sceneNpcIds: [], sceneNpcRevealed: {},
+			playerNotes: {}, sceneNpcIds: [], sceneNpcRevealed: {}, mapPlacePositions: {},
 			equipmentOffers: {}, supportCaches: {}, trainerHelp: [], campaignRestReceipts: [],
 		};
 		const initialCampaignSettings = options.campaignSettings || (this.campaignSettingsFile && existsSync(this.campaignSettingsFile) ?
@@ -997,6 +999,14 @@ export class RPGLoginService {
 				this.campaignSettings.currentDateTime = new Date(stored.currentDateTime).toISOString();
 			}
 			if (typeof stored.quickNotes === 'string') this.campaignSettings.quickNotes = stored.quickNotes.slice(0, 50_000);
+			if (stored.mapPlacePositions && typeof stored.mapPlacePositions === 'object' &&
+				!Array.isArray(stored.mapPlacePositions)) {
+				this.campaignSettings.mapPlacePositions = Object.fromEntries(
+					Object.entries(stored.mapPlacePositions).filter(([id, point]) =>
+						id.length <= 120 && point && Number.isFinite(point.x) && Number.isFinite(point.y) &&
+						point.x >= 0 && point.x <= 1536 && point.y >= 0 && point.y <= 1024)
+						.slice(0, RPG_MAX_CAMPAIGN_MAP_PLACES).map(([id, point]) => [id, { x: point.x, y: point.y }]));
+			}
 			if (Array.isArray(stored.sceneNpcIds)) this.campaignSettings.sceneNpcIds = [...new Set(stored.sceneNpcIds
 				.filter((id): id is string => typeof id === 'string' && !!id))].slice(0, 100);
 			if (stored.sceneNpcRevealed && typeof stored.sceneNpcRevealed === 'object' && !Array.isArray(stored.sceneNpcRevealed)) {
@@ -1981,6 +1991,33 @@ export class RPGLoginService {
 	getCampaignClock(token: string): { currentDateTime: string } {
 		this.getSession(token);
 		return { currentDateTime: this.campaignSettings.currentDateTime };
+	}
+
+	getCampaignMapPlaces(token: string): Record<string, { x: number, y: number }> {
+		this.getSession(token);
+		return structuredClone(this.campaignSettings.mapPlacePositions);
+	}
+
+	setCampaignMapPlace(token: string, id: unknown, x: unknown, y: unknown): { x: number, y: number } {
+		this.requireMasterRole(token);
+		this.requirePlatformTablePermission(token, 'campaign.configure');
+		if (typeof id !== 'string' || !id || id.length > 120 ||
+			typeof x !== 'number' || !Number.isFinite(x) || x < 0 || x > 1536 ||
+			typeof y !== 'number' || !Number.isFinite(y) || y < 0 || y > 1024) {
+			throw new Error('Posição do local no mapa inválida');
+		}
+		if (!(id in this.campaignSettings.mapPlacePositions) &&
+			Object.keys(this.campaignSettings.mapPlacePositions).length >= RPG_MAX_CAMPAIGN_MAP_PLACES) {
+			throw new Error('Limite de locais ajustados no mapa atingido');
+		}
+		const point = { x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 };
+		const previous = this.campaignSettings.mapPlacePositions;
+		this.campaignSettings.mapPlacePositions = { ...previous, [id]: point };
+		try { this.persistCampaignSettings(); } catch (error) {
+			this.campaignSettings.mapPlacePositions = previous;
+			throw error;
+		}
+		return point;
 	}
 
 	updatePlayerPresence(token: string, area: unknown, idle: unknown): {

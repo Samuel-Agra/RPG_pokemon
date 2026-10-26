@@ -675,7 +675,8 @@ describe('RPG HTTP frontend API', () => {
 		}
 	});
 
-	it('keeps owner-only campaign configuration away from auxiliary masters', async () => {
+	it('keeps owner-only campaign configuration away from auxiliary masters', async function () {
+		this.timeout(30_000);
 		const { RPGAccountManagement, RPGMemoryAccountRepository } = require('../../dist/server/rpg-showdown/account-management');
 		const accounts = new RPGAccountManagement(new RPGMemoryAccountRepository());
 		accounts.createAccount('dono-campanha', 'Dono', 'Senha1!Segura');
@@ -714,6 +715,12 @@ describe('RPG HTTP frontend API', () => {
 			return { response, data: await response.json() };
 		};
 		try {
+			for (let index = 0; index < 250; index++) {
+				const saved = await scopedRequest('/campaign/map-places', owner.token, {
+					method: 'PUT', body: { id: `Mapa:Local ${index}`, x: index, y: index },
+				});
+				assert.equal(saved.response.status, 200, JSON.stringify(saved.data));
+			}
 			let result = await scopedRequest('/campaign/settings', owner.token, {
 				method: 'PUT', body: { name: 'Campanha configurada', currentDateTime: '2026-09-07T12:00:00.000Z' },
 			});
@@ -723,6 +730,28 @@ describe('RPG HTTP frontend API', () => {
 			});
 			assert.equal(result.response.status, 403, JSON.stringify(result.data));
 			assert.match(result.data.error, /campaign\.configure/);
+			result = await scopedRequest('/campaign/map-places', owner.token, {
+				method: 'PUT', body: { id: 'Kanto:Pallet Town', x: 600.5, y: 420.2 },
+			});
+			assert.equal(result.response.status, 200, JSON.stringify(result.data));
+			result = await scopedRequest('/campaign/map-places', auxiliary.token);
+			assert.deepEqual(result.data.positions['Kanto:Pallet Town'], { x: 600.5, y: 420.2 });
+			assert.equal(Object.keys(result.data.positions).length, 251);
+			result = await scopedRequest('/campaign/map-places', owner.token, {
+				method: 'PUT', body: { id: 'Sinnoh:Celestic Town', x: 620, y: 330 },
+			});
+			assert.equal(result.response.status, 200, JSON.stringify(result.data));
+			result = await scopedRequest('/campaign/map-places', auxiliary.token);
+			assert.equal(Object.keys(result.data.positions).length, 252);
+			assert.deepEqual(result.data.positions['Sinnoh:Celestic Town'], { x: 620, y: 330 });
+			result = await scopedRequest('/campaign/map-places', auxiliary.token, {
+				method: 'PUT', body: { id: 'Kanto:Pallet Town', x: 601, y: 421 },
+			});
+			assert.equal(result.response.status, 403, JSON.stringify(result.data));
+			result = await scopedRequest('/campaign/map-places', owner.token, {
+				method: 'PUT', body: { id: 'Kanto:Pallet Town', x: 2000, y: 421 },
+			});
+			assert.equal(result.response.status, 400, JSON.stringify(result.data));
 			result = await scopedRequest('/campaign/time/advance', auxiliary.token, {
 				method: 'POST', body: { hours: 1 },
 			});
