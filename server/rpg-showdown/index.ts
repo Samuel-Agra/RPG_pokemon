@@ -899,6 +899,7 @@ export class RPGLoginService {
 	readonly commerce: RPGCommerceManagement;
 	readonly tournaments: RPGTournamentSessionService;
 	private readonly sessions: Map<string, RPGInternalSession>;
+	private readonly mapCursors = new Map<string, { x: number, y: number, updatedAt: number }>();
 	private readonly masterCodeHash: Buffer;
 	private readonly deletionChallenges: RPGCharacterDeletionStore['challenges'];
 	private readonly lastDeletionWord: RPGCharacterDeletionStore['lastWords'];
@@ -922,6 +923,8 @@ export class RPGLoginService {
 		playerNotes: Record<string, string>, sceneNpcIds: string[], sceneNpcRevealed: Record<string, number[]>,
 		mapPlacePositions: Record<string, { x: number, y: number }>,
 		customMapPlaces: { id: string, name: string, x: number, y: number }[],
+		mapMarkerPosition: { x: number, y: number } | null,
+		mapTravel: { route: { x: number, y: number }[], durationHours: number, elapsedHours: number } | null,
 		equipmentOffers: Record<string, Record<string, { stock: number, price: number, sellPrice?: number,
 			buyEnabled?: boolean, sellEnabled?: boolean, }>>,
 		supportCaches: Record<string, RPGSupportCache>,
@@ -972,6 +975,7 @@ export class RPGLoginService {
 			name: 'Minha campanha', currentDateTime: new Date(this.now()).toISOString(), quickNotes: '', events: [],
 			publications: [], customRecordRequests: [], supplierOrders: [], confidantRequests: [], forageRequests: [], trueBondRequests: [],
 			playerNotes: {}, sceneNpcIds: [], sceneNpcRevealed: {}, mapPlacePositions: {}, customMapPlaces: [],
+			mapMarkerPosition: null, mapTravel: null,
 			equipmentOffers: {}, supportCaches: {}, trainerHelp: [], campaignRestReceipts: [],
 		};
 		const initialCampaignSettings = options.campaignSettings || (this.campaignSettingsFile && existsSync(this.campaignSettingsFile) ?
@@ -1008,6 +1012,25 @@ export class RPGLoginService {
 						id.length <= 120 && point && Number.isFinite(point.x) && Number.isFinite(point.y) &&
 						point.x >= 0 && point.x <= 1536 && point.y >= 0 && point.y <= 1024)
 						.slice(0, RPG_MAX_CAMPAIGN_MAP_PLACES).map(([id, point]) => [id, { x: point.x, y: point.y }]));
+			}
+			if (stored.mapMarkerPosition && Number.isFinite(stored.mapMarkerPosition.x) &&
+				Number.isFinite(stored.mapMarkerPosition.y) && stored.mapMarkerPosition.x >= 0 &&
+				stored.mapMarkerPosition.x <= 1536 && stored.mapMarkerPosition.y >= 0 &&
+				stored.mapMarkerPosition.y <= 1024) {
+				this.campaignSettings.mapMarkerPosition = this.snapCampaignMapMarker(
+					stored.mapMarkerPosition.x, stored.mapMarkerPosition.y);
+			}
+			if (stored.mapTravel && Array.isArray(stored.mapTravel.route) &&
+				stored.mapTravel.route.length >= 2 && stored.mapTravel.route.length <= 64 &&
+				stored.mapTravel.route.every(point => point && Number.isFinite(point.x) &&
+					Number.isFinite(point.y) && point.x >= 0 && point.x <= 1536 && point.y >= 0 && point.y <= 1024) &&
+					Number.isFinite(stored.mapTravel.durationHours) && stored.mapTravel.durationHours > 0 &&
+					stored.mapTravel.durationHours <= 1_000_000 && Number.isFinite(stored.mapTravel.elapsedHours) &&
+					stored.mapTravel.elapsedHours >= 0 && stored.mapTravel.elapsedHours < stored.mapTravel.durationHours) {
+				this.campaignSettings.mapTravel = {
+					route: stored.mapTravel.route.map(point => this.snapCampaignMapMarker(point.x, point.y)),
+					durationHours: stored.mapTravel.durationHours, elapsedHours: stored.mapTravel.elapsedHours,
+				};
 			}
 			if (Array.isArray(stored.customMapPlaces)) {
 				const ids = new Set<string>();
@@ -1742,6 +1765,12 @@ export class RPGLoginService {
 		this.campaignSettings.currentDateTime = new Date(
 			Date.parse(this.campaignSettings.currentDateTime) + milliseconds
 		).toISOString();
+		if (this.campaignSettings.mapTravel) {
+			const travel = this.campaignSettings.mapTravel;
+			travel.elapsedHours = Math.min(travel.durationHours, travel.elapsedHours + hours);
+			this.campaignSettings.mapMarkerPosition = this.campaignMapTravelPosition(travel);
+			if (travel.elapsedHours >= travel.durationHours) this.campaignSettings.mapTravel = null;
+		}
 		this.campaignSettings.trainerHelp = [];
 		for (const event of completedEvents) event.occurredAt = this.campaignSettings.currentDateTime;
 		this.campaignSettings.events.push(...completedEvents);
@@ -2012,6 +2041,134 @@ export class RPGLoginService {
 	getCampaignMapPlaces(token: string): Record<string, { x: number, y: number }> {
 		this.getSession(token);
 		return structuredClone(this.campaignSettings.mapPlacePositions);
+	}
+
+	getCampaignMapMarker(token: string): { x: number, y: number } | null {
+		this.getSession(token);
+		return this.campaignSettings.mapMarkerPosition && { ...this.campaignSettings.mapMarkerPosition };
+	}
+
+	getCampaignMapCursors(token: string) {
+		const session = this.getSession(token);
+		const now = this.now();
+		for (const [accountId, cursor] of this.mapCursors) {
+			if (now - cursor.updatedAt > 2_000) this.mapCursors.delete(accountId);
+		}
+		return [...this.mapCursors].filter(([accountId]) => accountId !== session.platformAccountId)
+			.map(([accountId, cursor]) => {
+				const account = this.accounts.repository.getAccount(accountId);
+				const character = this.repository.list().find(record => record.accountId === accountId &&
+					(!this.legacyTableId || record.tableId === this.legacyTableId));
+				return { id: accountId, name: character?.state.characterName ||
+					(account?.handle ? `@${account.handle}` : 'Mestre'), x: cursor.x, y: cursor.y };
+			});
+	}
+
+	setCampaignMapCursor(token: string, active: unknown, x: unknown, y: unknown): void {
+		const session = this.getSession(token);
+		const accountId = session.platformAccountId;
+		if (!accountId) throw new Error('Conta da mesa necessária para mostrar o cursor');
+		if (active === false) { this.mapCursors.delete(accountId); return; }
+		if (active !== true || typeof x !== 'number' || !Number.isFinite(x) || x < 0 || x > 1536 ||
+			typeof y !== 'number' || !Number.isFinite(y) || y < 0 || y > 1024) {
+			throw new Error('Posição do cursor no mapa inválida');
+		}
+		this.mapCursors.set(accountId, { x, y, updatedAt: this.now() });
+	}
+
+	getCampaignMapTravel(token: string) {
+		this.getSession(token);
+		return this.campaignSettings.mapTravel && structuredClone(this.campaignSettings.mapTravel);
+	}
+
+	private campaignMapTravelPosition(travel: NonNullable<typeof this.campaignSettings.mapTravel>) {
+		const lengths = travel.route.slice(1).map((point, index) =>
+			Math.hypot(point.x - travel.route[index].x, point.y - travel.route[index].y));
+		const total = lengths.reduce((sum, length) => sum + length, 0);
+		let distance = total * travel.elapsedHours / travel.durationHours;
+		for (let index = 0; index < lengths.length; index++) {
+			if (distance <= lengths[index] || index === lengths.length - 1) {
+				const start = travel.route[index];
+				const end = travel.route[index + 1];
+				const fraction = lengths[index] ? Math.min(1, distance / lengths[index]) : 1;
+				return this.snapCampaignMapMarker(start.x + (end.x - start.x) * fraction,
+					start.y + (end.y - start.y) * fraction);
+			}
+			distance -= lengths[index];
+		}
+		return travel.route[travel.route.length - 1];
+	}
+
+	startCampaignMapTravel(token: string, route: unknown, durationHours: unknown) {
+		this.requireMasterRole(token);
+		this.requirePlatformTablePermission(token, 'campaign.configure');
+		if (!Array.isArray(route) || route.length < 2 || route.length > 64 ||
+			!route.every(point => point && typeof point.x === 'number' && Number.isFinite(point.x) &&
+				typeof point.y === 'number' && Number.isFinite(point.y) &&
+				point.x >= 0 && point.x <= 1536 && point.y >= 0 && point.y <= 1024) ||
+				typeof durationHours !== 'number' || !Number.isFinite(durationHours) ||
+				durationHours < 0.25 || durationHours > 1_000_000) throw new Error('Rota ou duração de viagem inválida');
+		const start = this.campaignSettings.mapMarkerPosition || this.snapCampaignMapMarker(768, 512);
+		const snapped = route.map(point => this.snapCampaignMapMarker(point.x, point.y));
+		if (snapped[0].x !== start.x || snapped[0].y !== start.y ||
+			snapped.every(point => point.x === start.x && point.y === start.y)) {
+			throw new Error('A viagem deve começar na posição atual e ter outro destino');
+		}
+		const travel = { route: snapped, durationHours, elapsedHours: 0 };
+		const previous = this.campaignSettings.mapMarkerPosition;
+		const previousTravel = this.campaignSettings.mapTravel;
+		this.campaignSettings.mapMarkerPosition = start;
+		this.campaignSettings.mapTravel = travel;
+		try { this.persistCampaignSettings(); } catch (error) {
+			this.campaignSettings.mapMarkerPosition = previous;
+			this.campaignSettings.mapTravel = previousTravel;
+			throw error;
+		}
+		return structuredClone(travel);
+	}
+
+	stopCampaignMapTravel(token: string) {
+		this.requireMasterRole(token);
+		this.requirePlatformTablePermission(token, 'campaign.configure');
+		const previous = this.campaignSettings.mapTravel;
+		if (!previous) throw new Error('Não há viagem em andamento');
+		this.campaignSettings.mapTravel = null;
+		try { this.persistCampaignSettings(); } catch (error) {
+			this.campaignSettings.mapTravel = previous;
+			throw error;
+		}
+		return { position: this.campaignSettings.mapMarkerPosition };
+	}
+
+	private snapCampaignMapMarker(x: number, y: number): { x: number, y: number } {
+		const radius = 6 / (300 / 150) / Math.sqrt(3);
+		const columnStep = Math.sqrt(3) * radius;
+		const rowStep = 1.5 * radius;
+		const row = Math.max(0, Math.min(Math.floor(1024 / rowStep), Math.round(y / rowStep)));
+		const offset = row % 2 ? columnStep / 2 : 0;
+		const column = Math.max(0, Math.min(Math.floor((1536 - offset) / columnStep),
+			Math.round((x - offset) / columnStep)));
+		return { x: column * columnStep + offset, y: row * rowStep };
+	}
+
+	setCampaignMapMarker(token: string, x: unknown, y: unknown): { x: number, y: number } {
+		this.requireMasterRole(token);
+		this.requirePlatformTablePermission(token, 'campaign.configure');
+		if (typeof x !== 'number' || !Number.isFinite(x) || x < 0 || x > 1536 ||
+			typeof y !== 'number' || !Number.isFinite(y) || y < 0 || y > 1024) {
+			throw new Error('Posição do grupo no mapa inválida');
+		}
+		const previous = this.campaignSettings.mapMarkerPosition;
+		const previousTravel = this.campaignSettings.mapTravel;
+		const position = this.snapCampaignMapMarker(x, y);
+		this.campaignSettings.mapMarkerPosition = position;
+		this.campaignSettings.mapTravel = null;
+		try { this.persistCampaignSettings(); } catch (error) {
+			this.campaignSettings.mapMarkerPosition = previous;
+			this.campaignSettings.mapTravel = previousTravel;
+			throw error;
+		}
+		return { ...position };
 	}
 
 	getCampaignCustomMapPlaces(token: string): { id: string, name: string, x: number, y: number }[] {

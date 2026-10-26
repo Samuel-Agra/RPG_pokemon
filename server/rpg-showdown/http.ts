@@ -1854,7 +1854,9 @@ export class RPGHttpServer {
 			if (method === 'GET') {
 				const token = this.token(req);
 				this.json(res, 200, { positions: this.login.getCampaignMapPlaces(token),
-					customPlaces: this.login.getCampaignCustomMapPlaces(token) });
+					customPlaces: this.login.getCampaignCustomMapPlaces(token),
+					markerPosition: this.login.getCampaignMapMarker(token),
+					travel: this.login.getCampaignMapTravel(token) });
 				return;
 			}
 			if (method === 'POST') {
@@ -1867,6 +1869,35 @@ export class RPGHttpServer {
 				const body = await this.body(req);
 				this.json(res, 200, { position: this.login.setCampaignMapPlace(this.token(req),
 					body.id, body.x, body.y) });
+				return;
+			}
+		}
+		if (method === 'PUT' && url.pathname === '/api/rpg/campaign/map-marker') {
+			const body = await this.body(req);
+			this.json(res, 200, { position: this.login.setCampaignMapMarker(this.token(req), body.x, body.y) });
+			return;
+		}
+		if (url.pathname === '/api/rpg/campaign/map-cursors') {
+			if (method === 'GET') {
+				this.json(res, 200, { cursors: this.login.getCampaignMapCursors(this.token(req)) });
+				return;
+			}
+			if (method === 'POST') {
+				const body = await this.body(req);
+				this.login.setCampaignMapCursor(this.token(req), body.active, body.x, body.y);
+				this.json(res, 200, { active: body.active === true });
+				return;
+			}
+		}
+		if (url.pathname === '/api/rpg/campaign/map-travel') {
+			if (method === 'POST') {
+				const body = await this.body(req);
+				this.json(res, 200, { travel: this.login.startCampaignMapTravel(
+					this.token(req), body.route, body.durationHours) });
+				return;
+			}
+			if (method === 'DELETE') {
+				this.json(res, 200, this.login.stopCampaignMapTravel(this.token(req)));
 				return;
 			}
 		}

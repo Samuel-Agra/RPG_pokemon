@@ -746,6 +746,35 @@ describe('RPG HTTP frontend API', () => {
 			assert.equal(result.response.status, 200, JSON.stringify(result.data));
 			result = await scopedRequest('/campaign/map-places', auxiliary.token);
 			assert.deepEqual(result.data.customPlaces, [customBody]);
+			assert.equal(result.data.markerPosition, null);
+			result = await scopedRequest('/campaign/map-marker', owner.token, {
+				method: 'PUT', body: { x: 768, y: 512 },
+			});
+			assert.equal(result.response.status, 200, JSON.stringify(result.data));
+			const markerPosition = result.data.position;
+			assert.ok(Math.abs(markerPosition.x - 768) < 2);
+			assert.ok(Math.abs(markerPosition.y - 512) < 2);
+			result = await scopedRequest('/campaign/map-places', auxiliary.token);
+			assert.deepEqual(result.data.markerPosition, markerPosition);
+			result = await scopedRequest('/campaign/map-cursors', owner.token, {
+				method: 'POST', body: { active: true, x: 700, y: 400 },
+			});
+			assert.equal(result.response.status, 200, JSON.stringify(result.data));
+			result = await scopedRequest('/campaign/map-cursors', auxiliary.token);
+			assert.equal(result.data.cursors.length, 1);
+			assert.deepEqual({ x: result.data.cursors[0].x, y: result.data.cursors[0].y }, { x: 700, y: 400 });
+			assert.match(result.data.cursors[0].name, /@donocampanha/i);
+			result = await scopedRequest('/campaign/map-cursors', owner.token);
+			assert.deepEqual(result.data.cursors, []);
+			result = await scopedRequest('/campaign/map-cursors', owner.token, {
+				method: 'POST', body: { active: false },
+			});
+			result = await scopedRequest('/campaign/map-cursors', auxiliary.token);
+			assert.deepEqual(result.data.cursors, []);
+			result = await scopedRequest('/campaign/map-marker', auxiliary.token, {
+				method: 'PUT', body: { x: 500, y: 400 },
+			});
+			assert.equal(result.response.status, 403, JSON.stringify(result.data));
 			result = await scopedRequest('/campaign/map-places', owner.token, {
 				method: 'PUT', body: { id: customId, x: 620, y: 330 },
 			});
@@ -768,6 +797,47 @@ describe('RPG HTTP frontend API', () => {
 				method: 'PUT', body: { id: customId, x: 2000, y: 421 },
 			});
 			assert.equal(result.response.status, 400, JSON.stringify(result.data));
+			const bend = { x: markerPosition.x + 60, y: markerPosition.y };
+			const destination = { x: bend.x, y: bend.y + 60 };
+			result = await scopedRequest('/campaign/map-travel', auxiliary.token, {
+				method: 'POST', body: { route: [markerPosition, bend, destination], durationHours: 4 },
+			});
+			assert.equal(result.response.status, 403, JSON.stringify(result.data));
+			result = await scopedRequest('/campaign/map-travel', owner.token, {
+				method: 'POST', body: { route: [markerPosition, bend, destination], durationHours: 4 },
+			});
+			assert.equal(result.response.status, 200, JSON.stringify(result.data));
+			result = await scopedRequest('/campaign/time/advance', owner.token, {
+				method: 'POST', body: { hours: 1 },
+			});
+			assert.equal(result.response.status, 200, JSON.stringify(result.data));
+			result = await scopedRequest('/campaign/map-places', auxiliary.token);
+			assert.equal(result.data.travel.elapsedHours, 1);
+			assert.ok(result.data.markerPosition.x > markerPosition.x);
+			assert.ok(result.data.markerPosition.x < destination.x);
+			assert.equal(result.data.markerPosition.y, markerPosition.y);
+			const midway = result.data.markerPosition;
+			result = await scopedRequest('/campaign/map-travel', owner.token, {
+				method: 'POST', body: { route: [midway, { x: midway.x + 30, y: midway.y }], durationHours: 2 },
+			});
+			assert.equal(result.response.status, 200, JSON.stringify(result.data));
+			assert.deepEqual(result.data.travel.route[0], midway);
+			result = await scopedRequest('/campaign/map-travel', owner.token, { method: 'DELETE' });
+			assert.equal(result.response.status, 200, JSON.stringify(result.data));
+			result = await scopedRequest('/campaign/map-places', auxiliary.token);
+			assert.equal(result.data.travel, null);
+			const departure = result.data.markerPosition;
+			result = await scopedRequest('/campaign/map-travel', owner.token, {
+				method: 'POST', body: { route: [departure, { x: departure.x + 6, y: departure.y }], durationHours: 1 },
+			});
+			assert.equal(result.response.status, 200, JSON.stringify(result.data));
+			result = await scopedRequest('/campaign/time/advance', owner.token, {
+				method: 'POST', body: { hours: 1 },
+			});
+			assert.equal(result.response.status, 200, JSON.stringify(result.data));
+			result = await scopedRequest('/campaign/map-places', auxiliary.token);
+			assert.equal(result.data.travel, null);
+			assert.ok(result.data.markerPosition.x > departure.x);
 			result = await scopedRequest('/campaign/time/advance', auxiliary.token, {
 				method: 'POST', body: { hours: 1 },
 			});

@@ -4046,6 +4046,11 @@ function openWorldMap() {
 	placesToggle.setAttribute('aria-pressed', 'false');
 	headingText.append(title);
 	const canEditPlaces = state.session?.role === 'master' && !state.tableReadOnly;
+	const moveMarkerToggle = canEditPlaces ? button('Mover grupo', 'world-map-grid-toggle') : null;
+	if (moveMarkerToggle) {
+		moveMarkerToggle.type = 'button';
+		moveMarkerToggle.setAttribute('aria-pressed', 'false');
+	}
 	const editToggle = canEditPlaces ? button('Mover locais criados', 'world-map-grid-toggle') : null;
 	const createToggle = canEditPlaces ? button('Criar local', 'world-map-grid-toggle') : null;
 	if (createToggle) { createToggle.disabled = true; headingText.append(createToggle); }
@@ -4055,6 +4060,7 @@ function openWorldMap() {
 		editToggle.setAttribute('aria-pressed', 'false');
 		headingText.append(editToggle);
 	}
+	if (moveMarkerToggle) headingText.append(moveMarkerToggle);
 	headingText.append(placesToggle, gridToggle);
 	const close = button('×', 'world-map-close');
 	close.type = 'button';
@@ -4085,8 +4091,16 @@ function openWorldMap() {
 	map.draggable = false;
 	const grid = createElement('canvas', 'world-map-grid');
 	grid.setAttribute('aria-hidden', 'true');
+	const routeCanvas = createElement('canvas', 'world-map-route');
+	routeCanvas.setAttribute('aria-hidden', 'true');
+	const locationMarker = createElement('img', 'world-map-location-marker');
+	locationMarker.src = './assets/pikachu-map-marker.png';
+	locationMarker.alt = 'Localização do grupo';
+	locationMarker.draggable = false;
 	const placesLayer = createElement('div', 'world-map-places');
 	placesLayer.setAttribute('aria-hidden', 'true');
+	const cursorsLayer = createElement('div', 'world-map-cursors');
+	cursorsLayer.setAttribute('aria-hidden', 'true');
 	const places = WORLD_MAP_PLACES.flatMap(([region, entries]) => entries.map(([name, x, y, major]) => {
 		// Os nomes novos mantêm as posições que o Mestre já salvou para os antigos marcadores.
 		const placeId = region === 'Orre' && name === 'Orre Colosseum' ? 'Orre:Orre' :
@@ -4103,8 +4117,31 @@ function openWorldMap() {
 			name, x: position.x, y: position.y, defaultX: position.x, defaultY: position.y,
 			major: Boolean(major) };
 	}).filter(Boolean)).sort((a, b) => Number(b.major) - Number(a.major));
-	viewport.append(map, grid, placesLayer);
-	dialog.append(heading, createForm, viewport);
+	viewport.append(map, grid, routeCanvas, placesLayer, locationMarker, cursorsLayer);
+	const travelPanel = createElement('div', 'world-map-travel-panel');
+	travelPanel.hidden = true;
+	const travelTitle = createElement('strong', '', 'Planejar viagem');
+	const travelHint = createElement('p', '', 'Puxe a linha para entortar o caminho. Arraste os pontos para ajustar os desvios.');
+	const travelDistance = createElement('p');
+	const travelDurationLabel = createElement('label', '', 'Duração da viagem (horas)');
+	const travelDuration = createElement('input');
+	travelDuration.type = 'number';
+	travelDuration.min = '0.25';
+	travelDuration.max = '1000000';
+	travelDuration.step = '0.25';
+	travelDurationLabel.append(travelDuration);
+	const travelActions = createElement('div', 'world-map-create-actions');
+	const travelConfirm = button('Iniciar viagem', 'button primary');
+	const travelCancel = button('Cancelar');
+	travelActions.append(travelCancel, travelConfirm);
+	travelPanel.append(travelTitle, travelHint, travelDistance, travelDurationLabel, travelActions);
+	const activeTravelPanel = createElement('div', 'world-map-travel-panel');
+	activeTravelPanel.hidden = true;
+	const activeTravelText = createElement('strong');
+	const stopTravel = button('Interromper viagem');
+	stopTravel.hidden = !canEditPlaces;
+	activeTravelPanel.append(activeTravelText, stopTravel);
+	dialog.append(heading, createForm, viewport, travelPanel, activeTravelPanel);
 	let scale = 1;
 	let panX = 0;
 	let panY = 0;
@@ -4116,6 +4153,266 @@ function openWorldMap() {
 	let positionsSignature = '';
 	let positionsLoading = false;
 	let pendingPlaceId = null;
+	let markerPosition = null;
+	let markerDrag = null;
+	let draftRoute = null;
+	let activeTravel = null;
+	let routeDrag = null;
+	let cursorPoint = null;
+	let cursorSent = false;
+	let cursorBusy = false;
+	let remoteCursors = [];
+	const cursorNodes = new Map();
+	// O marcador começa no hexágono central; grade e rota usam os mesmos passos.
+	const hexRadius = 6 / (300 / 150) / Math.sqrt(3);
+	const hexColumnStep = Math.sqrt(3) * hexRadius;
+	const hexRowStep = 1.5 * hexRadius;
+	function snapMarker(x, y) {
+		const row = Math.max(0, Math.min(Math.floor(1024 / hexRowStep), Math.round(y / hexRowStep)));
+		const rowOffset = row % 2 ? hexColumnStep / 2 : 0;
+		const column = Math.max(0, Math.min(Math.floor((1536 - rowOffset) / hexColumnStep),
+			Math.round((x - rowOffset) / hexColumnStep)));
+		return { x: column * hexColumnStep + rowOffset, y: row * hexRowStep };
+	}
+	function renderLocationMarker() {
+		const rect = viewport.getBoundingClientRect();
+		const imageWidth = map.naturalWidth || 1536;
+		const imageHeight = map.naturalHeight || 1024;
+		const imageScale = Math.min(rect.width / imageWidth, rect.height / imageHeight) * scale;
+		const left = (rect.width - imageWidth * imageScale) / 2 + panX;
+		const top = (rect.height - imageHeight * imageScale) / 2 + panY;
+		const position = draftRoute?.[draftRoute.length - 1] || markerPosition || snapMarker(768, 512);
+		locationMarker.style.left = `${left + position.x / 1536 * imageWidth * imageScale}px`;
+		locationMarker.style.top = `${top + position.y / 1024 * imageHeight * imageScale}px`;
+		locationMarker.style.width = `${Math.max(24, 48 / Math.sqrt(scale))}px`;
+	}
+	function renderMapCursors() {
+		const rect = viewport.getBoundingClientRect();
+		const imageWidth = map.naturalWidth || 1536;
+		const imageHeight = map.naturalHeight || 1024;
+		const imageScale = Math.min(rect.width / imageWidth, rect.height / imageHeight) * scale;
+		const left = (rect.width - imageWidth * imageScale) / 2 + panX;
+		const top = (rect.height - imageHeight * imageScale) / 2 + panY;
+		const visible = new Set();
+		for (const cursor of remoteCursors) {
+			visible.add(cursor.id);
+			let node = cursorNodes.get(cursor.id);
+			if (!node) {
+				node = createElement('div', 'world-map-cursor');
+				const dot = createElement('span', 'world-map-cursor-dot');
+				const name = createElement('span', 'world-map-cursor-name');
+				node.append(dot, name);
+				const hue = [...cursor.id].reduce((sum, char) => sum + char.charCodeAt(0), 0) % 360;
+				node.style.setProperty('--world-map-cursor-color', `hsl(${hue} 78% 48%)`);
+				cursorNodes.set(cursor.id, node);
+				cursorsLayer.append(node);
+			}
+			node.lastElementChild.textContent = cursor.name;
+			node.style.left = `${left + cursor.x / 1536 * imageWidth * imageScale}px`;
+			node.style.top = `${top + cursor.y / 1024 * imageHeight * imageScale}px`;
+		}
+		for (const [id, node] of cursorNodes) {
+			if (!visible.has(id)) { node.remove(); cursorNodes.delete(id); }
+		}
+	}
+	function mapCoordinates(clientX, clientY) {
+		const rect = viewport.getBoundingClientRect();
+		const imageWidth = map.naturalWidth || 1536;
+		const imageHeight = map.naturalHeight || 1024;
+		const imageScale = Math.min(rect.width / imageWidth, rect.height / imageHeight) * scale;
+		const left = (rect.width - imageWidth * imageScale) / 2 + panX;
+		const top = (rect.height - imageHeight * imageScale) / 2 + panY;
+		return snapMarker(
+			Math.max(0, Math.min(1536, (clientX - rect.left - left) / imageScale / imageWidth * 1536)),
+			Math.max(0, Math.min(1024, (clientY - rect.top - top) / imageScale / imageHeight * 1024)));
+	}
+	function mapCursorCoordinates(clientX, clientY) {
+		const rect = viewport.getBoundingClientRect();
+		const imageWidth = map.naturalWidth || 1536;
+		const imageHeight = map.naturalHeight || 1024;
+		const imageScale = Math.min(rect.width / imageWidth, rect.height / imageHeight) * scale;
+		const left = (rect.width - imageWidth * imageScale) / 2 + panX;
+		const top = (rect.height - imageHeight * imageScale) / 2 + panY;
+		const x = (clientX - rect.left - left) / imageScale / imageWidth * 1536;
+		const y = (clientY - rect.top - top) / imageScale / imageHeight * 1024;
+		return x >= 0 && x <= 1536 && y >= 0 && y <= 1024 ? { x, y } : null;
+	}
+	function routeHitTest(clientX, clientY) {
+		if (!draftRoute) return null;
+		const rect = viewport.getBoundingClientRect();
+		const imageWidth = map.naturalWidth || 1536;
+		const imageHeight = map.naturalHeight || 1024;
+		const imageScale = Math.min(rect.width / imageWidth, rect.height / imageHeight) * scale;
+		const left = (rect.width - imageWidth * imageScale) / 2 + panX;
+		const top = (rect.height - imageHeight * imageScale) / 2 + panY;
+		const screen = point => ({ x: rect.left + left + point.x / 1536 * imageWidth * imageScale,
+			y: rect.top + top + point.y / 1024 * imageHeight * imageScale });
+		for (let index = draftRoute.length - 1; index > 0; index--) {
+			const point = screen(draftRoute[index]);
+			if (Math.hypot(clientX - point.x, clientY - point.y) <= 11) return { kind: 'point', index };
+		}
+		let nearest = null;
+		for (let index = 1; index < draftRoute.length; index++) {
+			const start = screen(draftRoute[index - 1]);
+			const end = screen(draftRoute[index]);
+			const lengthSquared = (end.x - start.x) ** 2 + (end.y - start.y) ** 2;
+			if (!lengthSquared) continue;
+			const t = Math.max(0, Math.min(1,
+				((clientX - start.x) * (end.x - start.x) +
+					(clientY - start.y) * (end.y - start.y)) / lengthSquared));
+			const distance = Math.hypot(clientX - start.x - t * (end.x - start.x),
+				clientY - start.y - t * (end.y - start.y));
+			if (t > 0.05 && t < 0.95 && distance <= 14 && (!nearest || distance < nearest.distance)) {
+				nearest = { kind: 'segment', index, distance };
+			}
+		}
+		return nearest;
+	}
+	function renderTravelPanel() {
+		travelPanel.hidden = !draftRoute;
+		if (draftRoute) travelDistance.textContent =
+			`Percurso: ${Math.round(travelRouteDistanceKm(draftRoute) * 10) / 10} km`;
+		activeTravelPanel.hidden = !activeTravel || Boolean(draftRoute);
+		if (activeTravel) activeTravelText.textContent =
+			`Viagem em andamento · ${Math.round(activeTravel.elapsedHours * 10) / 10} / ${activeTravel.durationHours} h`;
+		locationMarker.classList.toggle('is-editing', canEditPlaces);
+	}
+	function travelRouteDistanceKm(route) {
+		return route.slice(1).reduce((sum, point, index) =>
+			sum + Math.hypot(point.x - route[index].x, point.y - route[index].y) * 2, 0);
+	}
+	function suggestTravelHours(route) {
+		return Math.max(0.25, Math.round(travelRouteDistanceKm(route) / 4 * 4) / 4);
+	}
+	function drawRoute() {
+		const rect = viewport.getBoundingClientRect();
+		const pixelRatio = window.devicePixelRatio || 1;
+		const width = Math.round(rect.width * pixelRatio);
+		const height = Math.round(rect.height * pixelRatio);
+		if (routeCanvas.width !== width || routeCanvas.height !== height) {
+			routeCanvas.width = width; routeCanvas.height = height;
+		}
+		const context = routeCanvas.getContext('2d');
+		if (!context) return;
+		context.clearRect(0, 0, width, height);
+		const route = draftRoute || activeTravel?.route;
+		if (!route?.length) return;
+		const imageWidth = map.naturalWidth || 1536;
+		const imageHeight = map.naturalHeight || 1024;
+		const imageScale = Math.min(rect.width / imageWidth, rect.height / imageHeight) * scale;
+		const left = (rect.width - imageWidth * imageScale) / 2 + panX;
+		const top = (rect.height - imageHeight * imageScale) / 2 + panY;
+		const screen = point => ({ x: left + point.x / 1536 * imageWidth * imageScale,
+			y: top + point.y / 1024 * imageHeight * imageScale });
+		context.save();
+		context.scale(pixelRatio, pixelRatio);
+		context.lineWidth = 3;
+		context.strokeStyle = draftRoute ? '#ffd44d' : '#9de5ff';
+		context.setLineDash(draftRoute ? [8, 5] : []);
+		context.shadowColor = '#132b42'; context.shadowBlur = 4;
+		context.beginPath();
+		route.forEach((point, index) => {
+			const pos = screen(point);
+			if (index) context.lineTo(pos.x, pos.y);
+			else context.moveTo(pos.x, pos.y);
+		});
+		context.stroke();
+		context.setLineDash([]);
+		if (draftRoute) route.slice(1).forEach(point => {
+			const pos = screen(point);
+			context.beginPath(); context.arc(pos.x, pos.y, 6, 0, Math.PI * 2);
+			context.fillStyle = '#ffd44d'; context.fill(); context.strokeStyle = '#244562'; context.stroke();
+		});
+		context.restore();
+	}
+	travelCancel.addEventListener('click', () => {
+		draftRoute = null; renderTravelPanel(); renderMap();
+	});
+	travelConfirm.addEventListener('click', async () => {
+		if (!draftRoute || travelConfirm.disabled) return;
+		const durationHours = Number(travelDuration.value);
+		if (!Number.isFinite(durationHours) || durationHours < 0.25) {
+			showToast('Informe uma duração válida para a viagem.', true); return;
+		}
+		travelConfirm.disabled = true;
+		try {
+			const result = await api('/campaign/map-travel', { method: 'POST',
+				body: { route: draftRoute, durationHours } });
+			activeTravel = result.travel;
+			draftRoute = null;
+			positionsSignature = '';
+			renderTravelPanel(); renderMap();
+		} catch (error) { showToast(error.message || 'Não foi possível iniciar a viagem.', true); } finally { travelConfirm.disabled = false; }
+	});
+	stopTravel.addEventListener('click', async () => {
+		if (stopTravel.disabled) return;
+		stopTravel.disabled = true;
+		try {
+			const result = await api('/campaign/map-travel', { method: 'DELETE' });
+			markerPosition = result.position;
+			activeTravel = null; positionsSignature = '';
+			renderTravelPanel(); renderMap();
+		} catch (error) { showToast(error.message || 'Não foi possível interromper a viagem.', true); } finally { stopTravel.disabled = false; }
+	});
+	moveMarkerToggle?.addEventListener('click', () => {
+		const active = moveMarkerToggle.getAttribute('aria-pressed') !== 'true';
+		if (active) draftRoute = null;
+		moveMarkerToggle.setAttribute('aria-pressed', String(active));
+		moveMarkerToggle.textContent = active ? 'Concluir movimento do grupo' : 'Mover grupo';
+		renderTravelPanel(); renderMap();
+	});
+	locationMarker.addEventListener('pointerdown', event => {
+		if (!canEditPlaces ||
+			(event.pointerType === 'mouse' && event.button !== 0)) return;
+		event.preventDefault();
+		event.stopPropagation();
+		markerDrag = { pointerId: event.pointerId, original: markerPosition,
+			mode: moveMarkerToggle?.getAttribute('aria-pressed') === 'true' ? 'manual' : 'travel' };
+		locationMarker.setPointerCapture(event.pointerId);
+		locationMarker.classList.add('is-dragging');
+	});
+	locationMarker.addEventListener('pointermove', event => {
+		if (!markerDrag || markerDrag.pointerId !== event.pointerId) return;
+		const position = mapCoordinates(event.clientX, event.clientY);
+		if (markerDrag.mode === 'manual') markerPosition = position;
+		else {
+			draftRoute ||= [markerPosition || snapMarker(768, 512), position];
+			draftRoute[draftRoute.length - 1] = position;
+			travelDuration.value = String(suggestTravelHours(draftRoute));
+			renderTravelPanel();
+		}
+		renderLocationMarker(); drawRoute();
+	});
+	async function finishMarkerDrag(event) {
+		if (!markerDrag || markerDrag.pointerId !== event.pointerId) return;
+		const { original, mode } = markerDrag;
+		markerDrag = null;
+		locationMarker.classList.remove('is-dragging');
+		if (mode === 'travel') {
+			if (event.type === 'pointercancel' || draftRoute?.every(point =>
+				point.x === draftRoute[0].x && point.y === draftRoute[0].y)) draftRoute = null;
+			renderTravelPanel(); renderMap();
+			return;
+		}
+		if (event.type === 'pointercancel' || !markerPosition ||
+			(original && original.x === markerPosition.x && original.y === markerPosition.y)) {
+			markerPosition = original;
+			renderLocationMarker();
+			return;
+		}
+		try {
+			const result = await api('/campaign/map-marker', { method: 'PUT', body: markerPosition });
+			markerPosition = result.position;
+			activeTravel = null;
+			positionsSignature = '';
+		} catch (error) {
+			markerPosition = original;
+			showToast(error.message || 'Não foi possível salvar a posição do grupo.', true);
+		}
+		renderTravelPanel(); renderMap();
+	}
+	locationMarker.addEventListener('pointerup', finishMarkerDrag);
+	locationMarker.addEventListener('pointercancel', finishMarkerDrag);
 	function renderPlaces() {
 		if (!placesVisible) {
 			placesLayer.hidden = true;
@@ -4165,14 +4462,10 @@ function openWorldMap() {
 		const imageScale = fit * scale;
 		const left = (rect.width - imageWidth * imageScale) / 2 + panX;
 		const top = (rect.height - imageHeight * imageScale) / 2 + panY;
-		// Escala de campanha aproximada: Kanto ocupa 290 px neste mapa e representa 300 km.
 		// A largura entre centros de hexágonos vizinhos corresponde aos 6 km do motor de viagem.
-		const kantoMapWidthPx = 150;
-		const kantoCampaignWidthKm = 300;
-		const kilometersPerMapPixel = kantoCampaignWidthKm / kantoMapWidthPx;
-		const radius = 6 / kilometersPerMapPixel / Math.sqrt(3);
-		const columnStep = Math.sqrt(3) * radius;
-		const rowStep = 1.5 * radius;
+		const radius = hexRadius;
+		const columnStep = hexColumnStep;
+		const rowStep = hexRowStep;
 		// Em escala mundial os hexágonos ficam menores que a espessura da linha; só desenhá-los quando legíveis.
 		if (columnStep * imageScale < 12) return;
 		const minX = Math.max(0, (0 - left) / imageScale - radius);
@@ -4222,6 +4515,9 @@ function openWorldMap() {
 		viewport.classList.toggle('is-zoomed', scale > 1);
 		drawGrid();
 		renderPlaces();
+		renderLocationMarker();
+		drawRoute();
+		renderMapCursors();
 	}
 	placesToggle.addEventListener('click', () => {
 		if (editingPlaces) return;
@@ -4348,14 +4644,18 @@ function openWorldMap() {
 		place.label.addEventListener('pointercancel', finishPlaceDrag);
 	}
 	async function loadPlacePositions() {
-		if (positionsLoading || editingPlaces || placeDrag || !layer.isConnected) return;
+		if (positionsLoading || editingPlaces || placeDrag || markerDrag || routeDrag || draftRoute || !layer.isConnected) return;
 		positionsLoading = true;
 		try {
 			const result = await api('/campaign/map-places', { cache: 'no-store' });
-			if (!layer.isConnected || editingPlaces || placeDrag) return;
-			const signature = JSON.stringify({ positions: result.positions || {}, customPlaces: result.customPlaces || [] });
+			if (!layer.isConnected || editingPlaces || placeDrag || markerDrag || routeDrag || draftRoute) return;
+			const signature = JSON.stringify({ positions: result.positions || {}, customPlaces: result.customPlaces || [],
+				markerPosition: result.markerPosition || null, travel: result.travel || null });
 			if (signature === positionsSignature) return;
 			positionsSignature = signature;
+			markerPosition = result.markerPosition || null;
+			activeTravel = result.travel || null;
+			renderTravelPanel(); renderLocationMarker(); drawRoute();
 			for (const customPlace of result.customPlaces || []) addCustomPlace(customPlace);
 			const orangeAnchorNames = ['Valencia Island', 'Tangelo Island', 'Mikan Island', 'Navel Island'];
 			const orangeAnchors = places.filter(place => place.id.startsWith('Orange Islands:') &&
@@ -4490,11 +4790,38 @@ function openWorldMap() {
 	}, { passive: false });
 	viewport.addEventListener('pointerdown', event => {
 		if (event.pointerType === 'mouse' && event.button !== 0) return;
+		if (draftRoute && canEditPlaces && moveMarkerToggle?.getAttribute('aria-pressed') !== 'true') {
+			const hit = routeHitTest(event.clientX, event.clientY);
+			if (hit && (hit.kind === 'point' || draftRoute.length < 64)) {
+				routeDrag = { pointerId: event.pointerId, index: hit.index,
+					newPoint: hit.kind === 'segment', startX: event.clientX, startY: event.clientY,
+					originalRoute: draftRoute.map(point => ({ ...point })) };
+				viewport.setPointerCapture(event.pointerId);
+				return;
+			}
+		}
 		drag = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
 		viewport.setPointerCapture(event.pointerId);
 		viewport.classList.add('is-dragging');
 	});
 	viewport.addEventListener('pointermove', event => {
+		cursorPoint = mapCursorCoordinates(event.clientX, event.clientY);
+		if (routeDrag?.pointerId === event.pointerId && draftRoute) {
+			if (routeDrag.newPoint) {
+				const moved = Math.hypot(event.clientX - routeDrag.startX,
+					event.clientY - routeDrag.startY) > 3;
+				if (!moved) return;
+				draftRoute.splice(routeDrag.index, 0, mapCoordinates(event.clientX, event.clientY));
+				routeDrag.newPoint = false;
+			}
+			draftRoute[routeDrag.index] = mapCoordinates(event.clientX, event.clientY);
+			travelDuration.value = String(suggestTravelHours(draftRoute));
+			renderTravelPanel(); renderLocationMarker(); drawRoute();
+			return;
+		}
+		if (!drag && draftRoute && canEditPlaces && event.pointerType === 'mouse') {
+			viewport.style.cursor = routeHitTest(event.clientX, event.clientY) ? 'grab' : '';
+		}
 		if (!drag || drag.pointerId !== event.pointerId) return;
 		panX += event.clientX - drag.x;
 		panY += event.clientY - drag.y;
@@ -4502,7 +4829,21 @@ function openWorldMap() {
 		drag.y = event.clientY;
 		renderMap();
 	});
+	viewport.addEventListener('pointerleave', () => { cursorPoint = null; });
 	function endDrag(event) {
+		if (routeDrag?.pointerId === event.pointerId) {
+			if (event.type === 'pointercancel') {
+				draftRoute = routeDrag.originalRoute;
+				travelDuration.value = String(suggestTravelHours(draftRoute));
+				renderTravelPanel(); renderLocationMarker(); drawRoute();
+			} else if (routeDrag.newPoint && event.type === 'pointerup' && draftRoute) {
+				draftRoute.splice(routeDrag.index, 0, mapCoordinates(event.clientX, event.clientY));
+				travelDuration.value = String(suggestTravelHours(draftRoute));
+				renderTravelPanel(); drawRoute();
+			}
+			routeDrag = null;
+			return;
+		}
 		if (!drag || drag.pointerId !== event.pointerId) return;
 		drag = null;
 		viewport.classList.remove('is-dragging');
@@ -4513,8 +4854,40 @@ function openWorldMap() {
 	map.addEventListener('load', renderMap);
 	const mapResizeObserver = new ResizeObserver(renderMap);
 	mapResizeObserver.observe(viewport);
+	async function synchronizeMapCursors() {
+		if (cursorBusy || !layer.isConnected) return;
+		cursorBusy = true;
+		try {
+			const active = !document.hidden && Boolean(cursorPoint);
+			const updates = [];
+			if (active) {
+				updates.push(api('/campaign/map-cursors', { method: 'POST',
+					body: { active: true, ...cursorPoint } }));
+				cursorSent = true;
+			} else if (cursorSent) {
+				updates.push(api('/campaign/map-cursors', { method: 'POST', body: { active: false } }));
+				cursorSent = false;
+			}
+			if (!document.hidden) {
+				const result = await api('/campaign/map-cursors', { cache: 'no-store' });
+				if (layer.isConnected) { remoteCursors = result.cursors || []; renderMapCursors(); }
+			}
+			await Promise.all(updates);
+		} catch {
+			// Cursor transitório: a próxima sincronização tenta novamente.
+		} finally { cursorBusy = false; }
+	}
+	const cursorTimer = window.setInterval(() => void synchronizeMapCursors(), 350);
+	function onMapVisibilityChange() {
+		if (document.hidden) cursorPoint = null;
+		void synchronizeMapCursors();
+	}
+	document.addEventListener('visibilitychange', onMapVisibilityChange);
 	function dismiss() {
 		mapResizeObserver.disconnect();
+		window.clearInterval(cursorTimer);
+		document.removeEventListener('visibilitychange', onMapVisibilityChange);
+		if (cursorSent) void api('/campaign/map-cursors', { method: 'POST', body: { active: false } }).catch(() => {});
 		window.removeEventListener('rpg:realtime-sync', loadPlacePositions);
 		layer.remove();
 	}
@@ -4524,6 +4897,7 @@ function openWorldMap() {
 	window.addEventListener('rpg:realtime-sync', loadPlacePositions);
 	loadPlacePositions();
 	renderMap();
+	void synchronizeMapCursors();
 	close.focus();
 }
 
