@@ -51,6 +51,20 @@ describe('RPG login', () => {
 		assert.deepEqual(restored['Mapa:Local 251'], { x: 251, y: 251 });
 	});
 
+	it('restores custom places while keeping established map positions read-only', () => {
+		const id = 'custom:12345678-1234-1234-1234-123456789abc';
+		const service = createService({ campaignSettings: {
+			mapPlacePositions: { 'Kanto:Pallet Town': { x: 600, y: 400 } },
+			customMapPlaces: [{ id, name: 'Acampamento', x: 700, y: 500 }],
+		} });
+		const master = service.loginMaster('14081998');
+		assert.deepEqual(service.getCampaignCustomMapPlaces(master.token),
+			[{ id, name: 'Acampamento', x: 700, y: 500 }]);
+		assert.throws(() => service.setCampaignMapPlace(master.token, 'Kanto:Pallet Town', 800, 600));
+		assert.deepEqual(service.getCampaignMapPlaces(master.token)['Kanto:Pallet Town'], { x: 600, y: 400 });
+		assert.deepEqual(service.setCampaignMapPlace(master.token, id, 750, 550), { x: 750, y: 550 });
+	});
+
 	it('keeps RPG character credentials independent from Showdown accounts', () => {
 		const repository = new RPGMemoryCharacterRepository();
 		const service = createService({ repository });

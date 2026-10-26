@@ -1155,6 +1155,15 @@ input, select {
 	border: 1px solid #bbd6e7; border-radius: 5px; font-size: 14px; font-weight: 700; pointer-events: auto; }
 .world-map-grid-toggle[aria-pressed="true"] { color: #183b55; background: #d9f0ff; }
 .world-map-close { width: 34px; height: 34px; padding: 0; font-size: 27px; line-height: 1; pointer-events: auto; }
+.world-map-create-form { position: absolute; z-index: 3; top: 16px; left: 205px;
+	display: grid; gap: 9px; width: min(320px, calc(100% - 30px)); padding: 15px;
+	color: #203753; background: #f7f9fd; border: 1px solid #9aafc8; border-radius: 8px;
+	box-shadow: 0 8px 22px #142b4b66; }
+.world-map-create-form[hidden] { display: none; }
+.world-map-create-form label { display: grid; gap: 5px; font-weight: 700; }
+.world-map-create-form input { min-width: 0; width: 100%; box-sizing: border-box; }
+.world-map-create-form p { margin: 0; font-size: 13px; line-height: 1.35; }
+.world-map-create-actions { display: flex; justify-content: flex-end; gap: 7px; }
 .world-map-viewport { position: relative; width: 100%; height: min(94vh, 900px); overflow: hidden;
 	background: #176f93; touch-action: none; cursor: default; }
 .world-map-viewport.is-zoomed { cursor: grab; }
@@ -1173,12 +1182,14 @@ input, select {
 .world-map-place.is-major::before { width: 8px; height: 8px; left: -10px; background: #ffd45a;
 	box-shadow: 0 0 0 2px #18344ec9, 0 0 6px #fff5a9; }
 .world-map-place.is-major { color: #182f4b; background: #fff0bde8; border-color: #936d31; }
-.world-map-places.is-editing .world-map-place { pointer-events: auto; cursor: grab; touch-action: none;
+.world-map-place.is-custom { background: #27486de8; border-color: #b7d6fb; }
+.world-map-places.is-editing .world-map-place.is-custom { pointer-events: auto; cursor: grab; touch-action: none;
 	border-color: #f4c54e; box-shadow: 0 0 0 1px #f4c54e, 0 2px 5px #10233399; }
 .world-map-places.is-editing .world-map-place.is-dragging { cursor: grabbing; z-index: 2; }
 @media (max-width: 620px) {
 	.world-map-heading { top: 8px; right: 8px; left: 8px; }
 	.world-map-heading h2 { font-size: 17px; }
+	.world-map-create-form { top: 160px; left: 8px; }
 }
 .master-campaign-celestial {
 	position: relative;

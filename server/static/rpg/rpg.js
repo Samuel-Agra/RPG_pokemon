@@ -4044,20 +4044,40 @@ function openWorldMap() {
 	const placesToggle = button('Cidades e locais', 'world-map-grid-toggle');
 	placesToggle.type = 'button';
 	placesToggle.setAttribute('aria-pressed', 'false');
-	headingText.append(title, gridToggle, placesToggle);
+	headingText.append(title);
 	const canEditPlaces = state.session?.role === 'master' && !state.tableReadOnly;
-	const editToggle = canEditPlaces ? button('Ajustar nomes', 'world-map-grid-toggle') : null;
+	const editToggle = canEditPlaces ? button('Mover locais criados', 'world-map-grid-toggle') : null;
+	const createToggle = canEditPlaces ? button('Criar local', 'world-map-grid-toggle') : null;
+	if (createToggle) { createToggle.disabled = true; headingText.append(createToggle); }
 	if (editToggle) {
 		editToggle.type = 'button';
 		editToggle.disabled = true;
 		editToggle.setAttribute('aria-pressed', 'false');
 		headingText.append(editToggle);
 	}
+	headingText.append(placesToggle, gridToggle);
 	const close = button('×', 'world-map-close');
 	close.type = 'button';
 	close.setAttribute('aria-label', 'Fechar mapa');
 	close.addEventListener('click', dismiss);
 	heading.append(headingText, close);
+	const createForm = createElement('form', 'world-map-create-form');
+	createForm.hidden = true;
+	const createTitle = createElement('strong', '', 'Novo local');
+	const createLabel = createElement('label', '', 'Nome do local');
+	const createInput = createElement('input');
+	createInput.type = 'text';
+	createInput.maxLength = 80;
+	createInput.required = true;
+	createLabel.append(createInput);
+	const createHint = createElement('p', '', 'O local aparecerá no centro da área visível. Depois, arraste para ajustar.');
+	const createActions = createElement('div', 'world-map-create-actions');
+	const createSubmit = button('Criar', 'button primary');
+	createSubmit.type = 'submit';
+	const createCancel = button('Cancelar');
+	createCancel.type = 'button';
+	createActions.append(createCancel, createSubmit);
+	createForm.append(createTitle, createLabel, createHint, createActions);
 	const viewport = createElement('div', 'world-map-viewport');
 	const map = createElement('img', 'world-map-image');
 	map.src = './assets/mapa-mundi-final.png';
@@ -4079,12 +4099,12 @@ function openWorldMap() {
 		label.dataset.region = region;
 		if (major) label.classList.add('is-major');
 		placesLayer.append(label);
-		return { label, id,
+		return { label, id, custom: false,
 			name, x: position.x, y: position.y, defaultX: position.x, defaultY: position.y,
 			major: Boolean(major) };
 	}).filter(Boolean)).sort((a, b) => Number(b.major) - Number(a.major));
 	viewport.append(map, grid, placesLayer);
-	dialog.append(heading, viewport);
+	dialog.append(heading, createForm, viewport);
 	let scale = 1;
 	let panX = 0;
 	let panY = 0;
@@ -4095,6 +4115,7 @@ function openWorldMap() {
 	let placeDrag = null;
 	let positionsSignature = '';
 	let positionsLoading = false;
+	let pendingPlaceId = null;
 	function renderPlaces() {
 		if (!placesVisible) {
 			placesLayer.hidden = true;
@@ -4113,9 +4134,10 @@ function openWorldMap() {
 			const y = top + place.y / 1024 * imageHeight * imageScale;
 			const width = place.name.length * 7 + 22;
 			const bounds = { left: x + 6, right: x + 6 + width, top: y - 12, bottom: y + 12 };
-			const show = (editingPlaces || scale >= 2.4 || place.major) && bounds.right > 0 && bounds.left < rect.width &&
+			const show = ((editingPlaces && place.custom) || scale >= 2.4 || place.major) &&
+				bounds.right > 0 && bounds.left < rect.width &&
 				bounds.bottom > 0 && bounds.top < rect.height &&
-				(editingPlaces || !occupied.some(other => bounds.left < other.right && bounds.right > other.left &&
+				((editingPlaces && place.custom) || !occupied.some(other => bounds.left < other.right && bounds.right > other.left &&
 					bounds.top < other.bottom && bounds.bottom > other.top));
 			place.label.hidden = !show;
 			if (!show) continue;
@@ -4211,18 +4233,80 @@ function openWorldMap() {
 		} else renderPlaces();
 	});
 	editToggle?.addEventListener('click', () => {
+		createForm.hidden = true;
 		editingPlaces = !editingPlaces;
 		placesVisible = true;
 		placesToggle.setAttribute('aria-pressed', 'true');
 		placesLayer.classList.toggle('is-editing', editingPlaces);
 		editToggle.setAttribute('aria-pressed', String(editingPlaces));
-		editToggle.textContent = editingPlaces ? 'Concluir ajuste' : 'Ajustar nomes';
+		editToggle.textContent = editingPlaces ? 'Concluir movimento' : 'Mover locais criados';
 		if (editingPlaces && scale < 2.4) {
 			const rect = viewport.getBoundingClientRect();
 			setZoom(2.4, rect.left + rect.width / 2, rect.top + rect.height / 2);
 		} else renderPlaces();
 	});
-	for (const place of places) {
+	function addCustomPlace(saved) {
+		let place = places.find(entry => entry.id === saved.id);
+		if (place) {
+			place.name = saved.name; place.x = saved.x; place.y = saved.y;
+			place.label.textContent = saved.name;
+			return place;
+		}
+		const label = createElement('span', 'world-map-place is-custom', saved.name);
+		label.dataset.region = 'Locais criados';
+		placesLayer.append(label);
+		place = { label, id: saved.id, name: saved.name, custom: true,
+			x: saved.x, y: saved.y, defaultX: saved.x, defaultY: saved.y, major: false };
+		places.push(place);
+		attachPlaceDrag(place);
+		return place;
+	}
+	createToggle?.addEventListener('click', () => {
+		createForm.hidden = !createForm.hidden;
+		if (!createForm.hidden) createInput.focus();
+	});
+	createInput.addEventListener('input', () => { pendingPlaceId = null; });
+	createCancel.addEventListener('click', () => {
+		createForm.hidden = true; createInput.value = ''; pendingPlaceId = null;
+	});
+	dialog.addEventListener('pointerdown', event => {
+		if (!createForm.hidden && !createForm.contains(event.target) && !createToggle?.contains(event.target)) {
+			createForm.hidden = true;
+		}
+	});
+	createForm.addEventListener('submit', async event => {
+		event.preventDefault();
+		const name = createInput.value.trim();
+		if (!name) { createInput.focus(); showToast('Informe o nome do local.', true); return; }
+		if (createSubmit.disabled) return;
+		const rect = viewport.getBoundingClientRect();
+		const imageWidth = map.naturalWidth || 1536;
+		const imageHeight = map.naturalHeight || 1024;
+		const imageScale = Math.min(rect.width / imageWidth, rect.height / imageHeight) * scale;
+		const left = (rect.width - imageWidth * imageScale) / 2 + panX;
+		const top = (rect.height - imageHeight * imageScale) / 2 + panY;
+		const x = Math.max(0, Math.min(1536, (rect.width / 2 - left) / (imageWidth * imageScale) * 1536));
+		const y = Math.max(0, Math.min(1024, (rect.height / 2 - top) / (imageHeight * imageScale) * 1024));
+		createSubmit.disabled = true;
+		createInput.disabled = true;
+		try {
+			pendingPlaceId ||= `custom:${crypto.randomUUID()}`;
+			const result = await api('/campaign/map-places', { method: 'POST',
+				body: { id: pendingPlaceId, name, x, y } });
+			addCustomPlace(result.place);
+			createForm.hidden = true;
+			createInput.value = '';
+			pendingPlaceId = null;
+			if (!editingPlaces) editToggle?.click();
+			positionsSignature = '';
+			renderPlaces();
+			showToast('Local criado. Arraste o marcador para ajustar sua posição.');
+		} catch (error) {
+			showToast(error.message || 'Não foi possível criar o local.');
+		} finally { createSubmit.disabled = false; createInput.disabled = false; }
+	});
+	function attachPlaceDrag(place) {
+		if (!place.custom) return;
 		place.label.addEventListener('pointerdown', event => {
 			if (!editingPlaces || place.saving || (event.pointerType === 'mouse' && event.button !== 0)) return;
 			event.stopPropagation();
@@ -4269,9 +4353,10 @@ function openWorldMap() {
 		try {
 			const result = await api('/campaign/map-places', { cache: 'no-store' });
 			if (!layer.isConnected || editingPlaces || placeDrag) return;
-			const signature = JSON.stringify(result.positions || {});
+			const signature = JSON.stringify({ positions: result.positions || {}, customPlaces: result.customPlaces || [] });
 			if (signature === positionsSignature) return;
 			positionsSignature = signature;
+			for (const customPlace of result.customPlaces || []) addCustomPlace(customPlace);
 			const orangeAnchorNames = ['Valencia Island', 'Tangelo Island', 'Mikan Island', 'Navel Island'];
 			const orangeAnchors = places.filter(place => place.id.startsWith('Orange Islands:') &&
 				orangeAnchorNames.includes(place.name));
@@ -4332,6 +4417,7 @@ function openWorldMap() {
 				y: (savedAlmia?.y ?? almiaAnchor.defaultY) - almiaAnchor.defaultY,
 			} : { x: 0, y: 0 };
 			for (const place of places) {
+				if (place.custom) continue;
 				const position = result.positions?.[place.id];
 				if (position) { place.x = position.x; place.y = position.y; } else if (WORLD_MAP_DEFAULT_PLACE_POSITIONS.has(place.id)) {
 					place.x = place.defaultX; place.y = place.defaultY;
@@ -4368,7 +4454,11 @@ function openWorldMap() {
 			renderPlaces();
 		} catch (error) {
 			if (layer.isConnected) showToast(error.message || 'Não foi possível carregar os locais do mapa.');
-		} finally { positionsLoading = false; if (editToggle) editToggle.disabled = false; }
+		} finally {
+			positionsLoading = false;
+			if (editToggle) editToggle.disabled = false;
+			if (createToggle) createToggle.disabled = false;
+		}
 	}
 	gridToggle.addEventListener('click', () => {
 		gridVisible = !gridVisible;

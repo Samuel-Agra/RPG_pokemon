@@ -252,6 +252,7 @@ const GYM_BADGE_NAMES: Record<string, string[]> = {
 };
 export const RPG_DEFAULT_SESSION_TTL = 24 * 60 * 60 * 1000;
 const RPG_MAX_CAMPAIGN_MAP_PLACES = 1000;
+const RPG_MAX_CUSTOM_MAP_PLACES = 200;
 export const RPG_NURSERY_BREEDING_BASE_FEE = 5_000;
 export const RPG_NURSERY_LOCAL_INCUBATION_FEE = 5_000;
 const RPG_NURSERY_SHOP_ITEM_IDS = Object.freeze([
@@ -920,6 +921,7 @@ export class RPGLoginService {
 		supplierOrders: RPGSupplierOrder[],
 		playerNotes: Record<string, string>, sceneNpcIds: string[], sceneNpcRevealed: Record<string, number[]>,
 		mapPlacePositions: Record<string, { x: number, y: number }>,
+		customMapPlaces: { id: string, name: string, x: number, y: number }[],
 		equipmentOffers: Record<string, Record<string, { stock: number, price: number, sellPrice?: number,
 			buyEnabled?: boolean, sellEnabled?: boolean, }>>,
 		supportCaches: Record<string, RPGSupportCache>,
@@ -969,7 +971,7 @@ export class RPGLoginService {
 		this.campaignSettings = {
 			name: 'Minha campanha', currentDateTime: new Date(this.now()).toISOString(), quickNotes: '', events: [],
 			publications: [], customRecordRequests: [], supplierOrders: [], confidantRequests: [], forageRequests: [], trueBondRequests: [],
-			playerNotes: {}, sceneNpcIds: [], sceneNpcRevealed: {}, mapPlacePositions: {},
+			playerNotes: {}, sceneNpcIds: [], sceneNpcRevealed: {}, mapPlacePositions: {}, customMapPlaces: [],
 			equipmentOffers: {}, supportCaches: {}, trainerHelp: [], campaignRestReceipts: [],
 		};
 		const initialCampaignSettings = options.campaignSettings || (this.campaignSettingsFile && existsSync(this.campaignSettingsFile) ?
@@ -1006,6 +1008,20 @@ export class RPGLoginService {
 						id.length <= 120 && point && Number.isFinite(point.x) && Number.isFinite(point.y) &&
 						point.x >= 0 && point.x <= 1536 && point.y >= 0 && point.y <= 1024)
 						.slice(0, RPG_MAX_CAMPAIGN_MAP_PLACES).map(([id, point]) => [id, { x: point.x, y: point.y }]));
+			}
+			if (Array.isArray(stored.customMapPlaces)) {
+				const ids = new Set<string>();
+				for (const place of stored.customMapPlaces) {
+					if (!place || typeof place.id !== 'string' || !/^custom:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(place.id) ||
+						ids.has(place.id) || typeof place.name !== 'string' || !place.name.trim() ||
+						place.name.trim().length > 80 || !Number.isFinite(place.x) || !Number.isFinite(place.y) ||
+						place.x < 0 || place.x > 1536 || place.y < 0 || place.y > 1024) continue;
+					ids.add(place.id);
+					this.campaignSettings.customMapPlaces.push({
+						id: place.id, name: place.name.trim(), x: place.x, y: place.y,
+					});
+					if (this.campaignSettings.customMapPlaces.length >= RPG_MAX_CUSTOM_MAP_PLACES) break;
+				}
 			}
 			if (Array.isArray(stored.sceneNpcIds)) this.campaignSettings.sceneNpcIds = [...new Set(stored.sceneNpcIds
 				.filter((id): id is string => typeof id === 'string' && !!id))].slice(0, 100);
@@ -1998,23 +2014,54 @@ export class RPGLoginService {
 		return structuredClone(this.campaignSettings.mapPlacePositions);
 	}
 
+	getCampaignCustomMapPlaces(token: string): { id: string, name: string, x: number, y: number }[] {
+		this.getSession(token);
+		return structuredClone(this.campaignSettings.customMapPlaces);
+	}
+
+	createCampaignMapPlace(token: string, id: unknown, name: unknown, x: unknown, y: unknown):
+	{ id: string, name: string, x: number, y: number } {
+		this.requireMasterRole(token);
+		this.requirePlatformTablePermission(token, 'campaign.configure');
+		if (typeof id !== 'string' || !/^custom:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(id) ||
+			typeof name !== 'string' || !name.trim() || name.trim().length > 80 ||
+			Array.from(name).some(char => char.charCodeAt(0) < 32) ||
+			typeof x !== 'number' || !Number.isFinite(x) || x < 0 || x > 1536 ||
+			typeof y !== 'number' || !Number.isFinite(y) || y < 0 || y > 1024) {
+			throw new Error('Dados do novo local no mapa inválidos');
+		}
+		const existing = this.campaignSettings.customMapPlaces.find(place => place.id === id);
+		if (existing) {
+			if (existing.name !== name.trim()) throw new Error('Identificador de local no mapa já utilizado');
+			return structuredClone(existing);
+		}
+		if (this.campaignSettings.customMapPlaces.length >= RPG_MAX_CUSTOM_MAP_PLACES) {
+			throw new Error('Limite de locais criados no mapa atingido');
+		}
+		const place = { id, name: name.trim(), x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 };
+		this.campaignSettings.customMapPlaces.push(place);
+		try { this.persistCampaignSettings(); } catch (error) {
+			this.campaignSettings.customMapPlaces.pop();
+			throw error;
+		}
+		return structuredClone(place);
+	}
+
 	setCampaignMapPlace(token: string, id: unknown, x: unknown, y: unknown): { x: number, y: number } {
 		this.requireMasterRole(token);
 		this.requirePlatformTablePermission(token, 'campaign.configure');
-		if (typeof id !== 'string' || !id || id.length > 120 ||
+		if (typeof id !== 'string' || !/^custom:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(id) ||
 			typeof x !== 'number' || !Number.isFinite(x) || x < 0 || x > 1536 ||
 			typeof y !== 'number' || !Number.isFinite(y) || y < 0 || y > 1024) {
 			throw new Error('Posição do local no mapa inválida');
 		}
-		if (!(id in this.campaignSettings.mapPlacePositions) &&
-			Object.keys(this.campaignSettings.mapPlacePositions).length >= RPG_MAX_CAMPAIGN_MAP_PLACES) {
-			throw new Error('Limite de locais ajustados no mapa atingido');
-		}
+		const place = this.campaignSettings.customMapPlaces.find(entry => entry.id === id);
+		if (!place) throw new Error('Apenas locais criados pelo Mestre podem ser movidos');
 		const point = { x: Math.round(x * 10) / 10, y: Math.round(y * 10) / 10 };
-		const previous = this.campaignSettings.mapPlacePositions;
-		this.campaignSettings.mapPlacePositions = { ...previous, [id]: point };
+		const previous = { x: place.x, y: place.y };
+		place.x = point.x; place.y = point.y;
 		try { this.persistCampaignSettings(); } catch (error) {
-			this.campaignSettings.mapPlacePositions = previous;
+			place.x = previous.x; place.y = previous.y;
 			throw error;
 		}
 		return point;
