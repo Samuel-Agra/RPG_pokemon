@@ -1871,6 +1871,12 @@ export class RPGHttpServer {
 					body.id, body.x, body.y) });
 				return;
 			}
+			if (method === 'DELETE') {
+				const body = await this.body(req);
+				this.login.removeCampaignMapPlace(this.token(req), body.id);
+				this.json(res, 200, { removed: true });
+				return;
+			}
 		}
 		if (method === 'PUT' && url.pathname === '/api/rpg/campaign/map-marker') {
 			const body = await this.body(req);
@@ -1890,16 +1896,25 @@ export class RPGHttpServer {
 			}
 		}
 		if (url.pathname === '/api/rpg/campaign/map-travel') {
+			if (method === 'GET') {
+				this.json(res, 200, this.login.getCampaignMapTravelOptions(this.token(req)));
+				return;
+			}
 			if (method === 'POST') {
 				const body = await this.body(req);
 				this.json(res, 200, { travel: this.login.startCampaignMapTravel(
-					this.token(req), body.route, body.durationHours) });
+					this.token(req), body.route, body.durationHours, body.plan) });
 				return;
 			}
 			if (method === 'DELETE') {
 				this.json(res, 200, this.login.stopCampaignMapTravel(this.token(req)));
 				return;
 			}
+		}
+		if (method === 'POST' && url.pathname === '/api/rpg/campaign/map-travel/preview') {
+			const body = await this.body(req);
+			this.json(res, 200, this.login.previewCampaignMapTravel(this.token(req), body.route, body.plan));
+			return;
 		}
 		if (method === 'PUT' && url.pathname === '/api/rpg/campaign/quick-notes') {
 			const body = await this.body(req);
@@ -3434,7 +3449,7 @@ export class RPGHttpServer {
 
 	/** Only established domain validation messages may cross the HTTP boundary. */
 	private isPublicValidationError(message: string): boolean {
-		if (/^(?:Posição do local no mapa inválida|Dados do novo local no mapa inválidos|Identificador de local no mapa já utilizado|Limite de locais criados no mapa atingido|Apenas locais criados pelo Mestre podem ser movidos)$/.test(message)) return true;
+		if (/^(?:Posição do local no mapa inválida|Dados do novo local no mapa inválidos|Identificador de local no mapa já utilizado|Limite de locais criados no mapa atingido|Apenas locais criados pelo Mestre podem ser movidos|Apenas locais criados pelo Mestre podem ser removidos|Local criado não encontrado nesta mesa)$/.test(message)) return true;
 		if (/^(?:Escolha uma espécie de Pokémon válida|Escolha uma natureza válida|Escolha um status válido para a captura|Escolha uma Poké Bola válida|Escolha uma Poké Bola disponível na sua Bag para esta captura|A habilidade selecionada não está disponível para essa espécie|O gênero selecionado não está disponível para essa espécie|O nível deve estar entre 1 e 100|A vida do Pokémon deve estar entre 1% e 100%|Identificador da tentativa de captura inválido|Condições da captura inválidas|Este treinador já tem uma captura aguardando sua rolagem|Não há uma captura aguardando esta rolagem)$/.test(message)) return true;
 		if (/^(?:Tipo de descanso inválido|Identificador de descanso (?:inválido|já utilizado))$/.test(message)) return true;
 		if (/^(?:Identificador de recuperação (?:inválido|já utilizado)|Recuperação Assistida já preparada antes do próximo descanso longo|Escolha de um a \d+ participantes diferentes|Escolha inválida de pacientes para Recuperação da Exaustão|Este Médico não possui Recuperação da Exaustão|São necessárias \d+ cargas do Kit Médico para os benefícios escolhidos|Recuperação Intensiva exige uma carga do Kit Médico por paciente|Participante indisponível nesta mesa|Um treinador morto não pode receber Recuperação Assistida|.* (?:já possui Recuperação Assistida preparada|precisa de pelo menos dois níveis de Exaustão|já recebeu Recuperação da Exaustão nas últimas 24 horas))$/.test(message)) return true;

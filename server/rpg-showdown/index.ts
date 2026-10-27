@@ -67,6 +67,8 @@ import {
 } from './contest-scoring';
 import { RPGMySQLPersistence, rpgMySQLConfig } from './database/mysql-persistence';
 import { createRPGPendingTrainerSheet, type RPGTrainerChatRoll, type RPGTrainerSheet } from './trainer-sheet';
+import { mapTravelDistanceKm, mapTravelPlanSpeed, mapTravelSuggestedHours, type MapTravelPlan,
+	type MapTravelParticipant, type MapTravelResource } from './campaign-map-travel';
 import { rpgAutomaticGeneralTalentNames, rpgUsedAutomaticGeneralTalents,
 	rpgManualRestTalentOptions, rpgManualTalentUsed, rpgMarkManualTalentUsed,
 	rpgRenewManualRestTalents } from './trainer-manual-rest';
@@ -924,7 +926,8 @@ export class RPGLoginService {
 		mapPlacePositions: Record<string, { x: number, y: number }>,
 		customMapPlaces: { id: string, name: string, x: number, y: number }[],
 		mapMarkerPosition: { x: number, y: number } | null,
-		mapTravel: { route: { x: number, y: number }[], durationHours: number, elapsedHours: number } | null,
+		mapTravel: { route: { x: number, y: number }[], durationHours: number, elapsedHours: number,
+			plan?: MapTravelPlan, } | null,
 		equipmentOffers: Record<string, Record<string, { stock: number, price: number, sellPrice?: number,
 			buyEnabled?: boolean, sellEnabled?: boolean, }>>,
 		supportCaches: Record<string, RPGSupportCache>,
@@ -1030,6 +1033,7 @@ export class RPGLoginService {
 				this.campaignSettings.mapTravel = {
 					route: stored.mapTravel.route.map(point => this.snapCampaignMapMarker(point.x, point.y)),
 					durationHours: stored.mapTravel.durationHours, elapsedHours: stored.mapTravel.elapsedHours,
+					...(stored.mapTravel.plan ? { plan: stored.mapTravel.plan } : {}),
 				};
 			}
 			if (Array.isArray(stored.customMapPlaces)) {
@@ -2077,8 +2081,79 @@ export class RPGLoginService {
 	}
 
 	getCampaignMapTravel(token: string) {
-		this.getSession(token);
-		return this.campaignSettings.mapTravel && structuredClone(this.campaignSettings.mapTravel);
+		const session = this.getSession(token);
+		const travel = this.campaignSettings.mapTravel;
+		if (!travel) return null;
+		if (session.role !== 'master') {
+			return { route: structuredClone(travel.route), durationHours: travel.durationHours,
+				elapsedHours: travel.elapsedHours, environment: travel.plan?.environment || 'land' };
+		}
+		return structuredClone(travel);
+	}
+
+	getCampaignMapTravelOptions(token: string): { participants: MapTravelParticipant[], resources: MapTravelResource[] } {
+		this.requireMasterRole(token);
+		const participants = this.trainerRecordRecipients(token).map(person => {
+			const record = this.requireCharacter(person.id);
+			const sheet = record.state.trainerSheet;
+			if (sheet?.status !== 'complete') return person;
+			const equipment = this.ensureTrainerInventory(record);
+			const bag = record.state.inventory.bag;
+			const bagWeight = ({ starter: 1, trainer: 1.5, adventurer: 2.5, expert: 3.5,
+				master: 5, legendary: 6.5 })[RPGBagSystem.getTier(bag) || 'starter'];
+			const derived = rpgTrainerDerivedStatistics(sheet, rpgEquipmentDerivedOptions(sheet, equipment,
+				bag.items.reduce((total, entry) => total + entry.quantity, 0), bagWeight));
+			return { ...person, classId: sheet.classId, proficiency: rpgTrainerProficiency(sheet.level),
+				talents: [...sheet.talents.general, ...sheet.talents.class,
+					...(sheet.talents.apex ? [sheet.talents.apex] : [])],
+				encumbrance: derived.encumbrance,
+				footSpeed: Math.max(0, Math.min(4,
+					4 * derived.movementMeters / (sheet.classId === 'atleta' ? 10.5 : 9))) };
+		});
+		const resources: MapTravelResource[] = [];
+		for (const person of participants) {
+			const record = this.requireCharacter(person.id);
+			for (const item of this.ensureTrainerInventory(record).items) {
+				const definition = rpgEquipment(item.itemId);
+				if (item.location !== 'vehicle' || !definition.vehicle) continue;
+				resources.push({ id: item.id, ownerCharacterId: person.id, name: `${definition.name} de ${person.name}`,
+					kind: 'vehicle', vehicleId: item.itemId, seats: definition.vehicle.passengers, environments: ['land'] });
+			}
+			for (const entry of record.state.box.party) {
+				if (entry.metadata?.breeding || entry.metadata?.evTraining || entry.metadata?.training) continue;
+				const species = Dex.species.get(entry.pokemon.species);
+				if (!species.exists) continue;
+				// Candidatos são apresentados com dados da espécie. A aptidão concreta depende do Mestre.
+				const environments: ('land' | 'water' | 'air')[] = [];
+				if (species.heightm >= 1.2 && species.weightkg >= 40) environments.push('land');
+				if (species.types.includes('Water') && species.heightm >= 1.2 && species.weightkg >= 40) environments.push('water');
+				if (species.types.includes('Flying') && species.heightm >= 1.2 && species.weightkg >= 40) environments.push('air');
+				if (environments.length) resources.push({ id: entry.pokemonId, ownerCharacterId: person.id,
+					name: `${entry.pokemon.name || species.name} de ${person.name}`, kind: 'pokemon', seats: 1,
+					environments });
+			}
+		}
+		return { participants, resources };
+	}
+
+	previewCampaignMapTravel(token: string, route: unknown, plan: MapTravelPlan) {
+		this.requireMasterRole(token);
+		this.requirePlatformTablePermission(token, 'campaign.configure');
+		if (!Array.isArray(route) || route.length < 2 || route.length > 64 ||
+			!route.every(point => point && typeof point.x === 'number' && Number.isFinite(point.x) &&
+				typeof point.y === 'number' && Number.isFinite(point.y) &&
+				point.x >= 0 && point.x <= 1536 && point.y >= 0 && point.y <= 1024)) {
+			throw new Error('Rota de viagem inválida');
+		}
+		const snapped = route.map(point => this.snapCampaignMapMarker(point.x, point.y));
+		const start = this.campaignSettings.mapMarkerPosition || this.snapCampaignMapMarker(768, 512);
+		if (snapped[0].x !== start.x || snapped[0].y !== start.y ||
+			snapped.every(point => point.x === start.x && point.y === start.y)) {
+			throw new Error('A viagem deve começar na posição atual e ter outro destino');
+		}
+		const { participants, resources } = this.getCampaignMapTravelOptions(token);
+		const speed = mapTravelPlanSpeed(plan, participants, resources, mapTravelDistanceKm(snapped));
+		return { speed, suggestedHours: mapTravelSuggestedHours(snapped, speed) };
 	}
 
 	private campaignMapTravelPosition(travel: NonNullable<typeof this.campaignSettings.mapTravel>) {
@@ -2099,7 +2174,7 @@ export class RPGLoginService {
 		return travel.route[travel.route.length - 1];
 	}
 
-	startCampaignMapTravel(token: string, route: unknown, durationHours: unknown) {
+	startCampaignMapTravel(token: string, route: unknown, durationHours: unknown, plan?: MapTravelPlan) {
 		this.requireMasterRole(token);
 		this.requirePlatformTablePermission(token, 'campaign.configure');
 		if (!Array.isArray(route) || route.length < 2 || route.length > 64 ||
@@ -2114,7 +2189,16 @@ export class RPGLoginService {
 			snapped.every(point => point.x === start.x && point.y === start.y)) {
 			throw new Error('A viagem deve começar na posição atual e ter outro destino');
 		}
-		const travel = { route: snapped, durationHours, elapsedHours: 0 };
+		if (!plan && this.trainerRecordRecipients(token).length) {
+			throw new Error('Distribua os membros do grupo antes de iniciar a viagem');
+		}
+		if (plan) {
+			const { suggestedHours: suggested } = this.previewCampaignMapTravel(token, snapped, plan);
+			if (durationHours + 0.001 < suggested) {
+				throw new Error(`A viagem precisa de pelo menos ${suggested} hora(s) para o grupo escolhido`);
+			}
+		}
+		const travel = { route: snapped, durationHours, elapsedHours: 0, ...(plan ? { plan } : {}) };
 		const previous = this.campaignSettings.mapMarkerPosition;
 		const previousTravel = this.campaignSettings.mapTravel;
 		this.campaignSettings.mapMarkerPosition = start;
@@ -2222,6 +2306,21 @@ export class RPGLoginService {
 			throw error;
 		}
 		return point;
+	}
+
+	removeCampaignMapPlace(token: string, id: unknown): void {
+		this.requireMasterRole(token);
+		this.requirePlatformTablePermission(token, 'campaign.configure');
+		if (typeof id !== 'string' || !/^custom:[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}$/i.test(id)) {
+			throw new Error('Apenas locais criados pelo Mestre podem ser removidos');
+		}
+		const index = this.campaignSettings.customMapPlaces.findIndex(place => place.id === id);
+		if (index < 0) throw new Error('Local criado não encontrado nesta mesa');
+		const [place] = this.campaignSettings.customMapPlaces.splice(index, 1);
+		try { this.persistCampaignSettings(); } catch (error) {
+			this.campaignSettings.customMapPlaces.splice(index, 0, place);
+			throw error;
+		}
 	}
 
 	updatePlayerPresence(token: string, area: unknown, idle: unknown): {

@@ -3990,6 +3990,21 @@ const WORLD_MAP_PLACES = [
 	]],
 ];
 
+// Centros marcados pelo Mestre na mesa de referência. Só os nomes das regiões
+// aparecem na visão distante; cidades e pontos de interesse surgem ao aproximar.
+const WORLD_MAP_REGION_LABELS = [
+	['Kanto', 1061.2, 766.9], ['Johto', 898.3, 772],
+	['Orange Island', 866.5, 917.8], ['Hoenn', 654.7, 763.9],
+	['Ilhas Sevii', 1076.1, 899.2], ['Alola', 590.2, 938.4],
+	['Decolora Archipelago', 344.4, 813.7], ['Unova', 379.2, 598.2],
+	['Galar', 120.9, 390.4], ['Kalos', 337, 370], ['Orre', 622.5, 658],
+	['Pasio', 885.3, 634.3], ['Sinnoh', 1194.8, 410.4], ['TCG', 1421.6, 371],
+	['Almia', 1309, 233.4], ['Fiore', 1083.5, 279.6], ['Ransei', 551.1, 114.1],
+];
+const WORLD_MAP_REGION_NAMES = new Set([
+	...WORLD_MAP_REGION_LABELS.map(([name]) => name), 'Sevii Island', 'Orange Islands',
+]);
+
 // Ajusta as âncoras da montagem anterior à geografia do mapa enviado pelo usuário.
 // As posições arrastadas pelo Mestre continuam em coordenadas estáveis de 1536 × 1024.
 const WORLD_MAP_REGION_BOUNDS = {
@@ -4066,7 +4081,16 @@ function openWorldMap() {
 	close.type = 'button';
 	close.setAttribute('aria-label', 'Fechar mapa');
 	close.addEventListener('click', dismiss);
-	heading.append(headingText, close);
+	const trash = canEditPlaces ? button('🗑', 'world-map-close world-map-trash') : null;
+	if (trash) {
+		trash.type = 'button';
+		trash.hidden = true;
+		trash.setAttribute('aria-label', 'Solte aqui para remover o local criado');
+	}
+	const headingActions = createElement('div', 'world-map-heading-actions');
+	if (trash) headingActions.append(trash);
+	headingActions.append(close);
+	heading.append(headingText, headingActions);
 	const createForm = createElement('form', 'world-map-create-form');
 	createForm.hidden = true;
 	const createTitle = createElement('strong', '', 'Novo local');
@@ -4111,19 +4135,67 @@ function openWorldMap() {
 		if (!position) return null;
 		const label = createElement('span', 'world-map-place', name);
 		label.dataset.region = region;
-		if (major) label.classList.add('is-major');
 		placesLayer.append(label);
 		return { label, id, custom: false,
 			name, x: position.x, y: position.y, defaultX: position.x, defaultY: position.y,
-			major: Boolean(major) };
-	}).filter(Boolean)).sort((a, b) => Number(b.major) - Number(a.major));
+			major: Boolean(major), regionAnchor: WORLD_MAP_REGION_NAMES.has(name) };
+	}).filter(Boolean));
+	for (const [name, x, y] of WORLD_MAP_REGION_LABELS) {
+		const label = createElement('span', 'world-map-place is-region', name);
+		placesLayer.append(label);
+		places.unshift({ label, id: `region:${name}`, name, x, y, defaultX: x, defaultY: y,
+			custom: false, regionLabel: true });
+	}
 	viewport.append(map, grid, routeCanvas, placesLayer, locationMarker, cursorsLayer);
 	const travelPanel = createElement('div', 'world-map-travel-panel');
 	travelPanel.hidden = true;
 	const travelTitle = createElement('strong', '', 'Planejar viagem');
 	const travelHint = createElement('p', '', 'Puxe a linha para entortar o caminho. Arraste os pontos para ajustar os desvios.');
 	const travelDistance = createElement('p');
-	const travelDurationLabel = createElement('label', '', 'Duração da viagem (horas)');
+	const travelConfiguration = createElement('div', 'world-map-travel-configuration');
+	const travelEnvironment = createElement('select');
+	for (const [value, label] of [['land', 'Terra'], ['water', 'Água'], ['air', 'Ar']]) {
+		const option = createElement('option', '', label); option.value = value; travelEnvironment.append(option);
+	}
+	const travelTerrain = createElement('select');
+	for (const [value, label] of [['road', 'Estrada ou caminho firme'], ['uneven', 'Terreno irregular'],
+		['difficult', 'Terreno difícil'], ['very-difficult', 'Terreno muito difícil'], ['off-road', 'Fora de estrada']]) {
+		const option = createElement('option', '', label); option.value = value; travelTerrain.append(option);
+	}
+	const travelWeather = createElement('select');
+	for (const [value, label] of [['normal', 'Clima comum'], ['adverse', 'Clima adverso'], ['storm', 'Tempestade']]) {
+		const option = createElement('option', '', label); option.value = value; travelWeather.append(option);
+	}
+	const travelPace = createElement('select');
+	for (const [value, label] of [['careful', 'Cuidadoso'], ['normal', 'Normal'], ['fast', 'Rápido']]) {
+		const option = createElement('option', '', label); option.value = value; travelPace.append(option);
+	}
+	travelPace.value = 'normal';
+	const weatherIndependent = createElement('label', 'world-map-travel-check');
+	const weatherIndependentInput = createElement('input'); weatherIndependentInput.type = 'checkbox';
+	weatherIndependentInput.checked = true;
+	weatherIndependent.append(weatherIndependentInput, document.createTextNode('Clima traz dificuldade adicional ao terreno'));
+	const travelAssignments = createElement('div', 'world-map-travel-assignments');
+	const travelLeader = createElement('select');
+	const travelLeaderLabel = createElement('label', '', 'Líder do percurso');
+	travelLeaderLabel.append(travelLeader);
+	const travelTalents = createElement('div', 'world-map-travel-talents');
+	const travelTraction = createElement('div', 'world-map-travel-assignments');
+	const mountApproval = createElement('label', 'world-map-travel-check');
+	mountApproval.hidden = true;
+	const mountApprovalInput = createElement('input'); mountApprovalInput.type = 'checkbox';
+	mountApproval.append(mountApprovalInput,
+		document.createTextNode('Confirmei que as montarias e os Pokémon de tração são aptos para esta rota'));
+	const terrainWarning = createElement('small', 'world-map-travel-terrain-warning');
+	terrainWarning.hidden = true;
+	const travelPlanHint = createElement('p', 'world-map-travel-plan-hint');
+	const travelField = (text, control) => {
+		const label = createElement('label', '', text); label.append(control); return label;
+	};
+	const terrainField = travelField('Caminho', travelTerrain);
+	travelConfiguration.append(travelField('Meio', travelEnvironment), terrainField,
+		travelField('Clima', travelWeather), travelField('Ritmo', travelPace));
+	const travelDurationLabel = createElement('label', '', 'Duração (horas; pode ampliar para pausas e obstáculos)');
 	const travelDuration = createElement('input');
 	travelDuration.type = 'number';
 	travelDuration.min = '0.25';
@@ -4132,9 +4204,13 @@ function openWorldMap() {
 	travelDurationLabel.append(travelDuration);
 	const travelActions = createElement('div', 'world-map-create-actions');
 	const travelConfirm = button('Iniciar viagem', 'button primary');
+	travelConfirm.disabled = true;
 	const travelCancel = button('Cancelar');
 	travelActions.append(travelCancel, travelConfirm);
-	travelPanel.append(travelTitle, travelHint, travelDistance, travelDurationLabel, travelActions);
+	travelPanel.append(travelTitle, travelHint, travelDistance, travelConfiguration,
+		weatherIndependent, terrainWarning, travelAssignments, travelTraction, travelLeaderLabel, travelTalents,
+		mountApproval, travelPlanHint,
+		travelDurationLabel, travelActions);
 	const activeTravelPanel = createElement('div', 'world-map-travel-panel');
 	activeTravelPanel.hidden = true;
 	const activeTravelText = createElement('strong');
@@ -4157,6 +4233,13 @@ function openWorldMap() {
 	let markerDrag = null;
 	let draftRoute = null;
 	let activeTravel = null;
+	let travelOptions = null;
+	const assignmentControls = new Map();
+	const tractionControls = new Map();
+	const activeTravelTalents = new Set();
+	let previewTimer = null;
+	let previewRevision = 0;
+	let durationManuallyAdjusted = false;
 	let routeDrag = null;
 	let cursorPoint = null;
 	let cursorSent = false;
@@ -4274,15 +4357,242 @@ function openWorldMap() {
 			`Percurso: ${Math.round(travelRouteDistanceKm(draftRoute) * 10) / 10} km`;
 		activeTravelPanel.hidden = !activeTravel || Boolean(draftRoute);
 		if (activeTravel) activeTravelText.textContent =
-			`Viagem em andamento · ${Math.round(activeTravel.elapsedHours * 10) / 10} / ${activeTravel.durationHours} h`;
+			`Viagem por ${{ land: 'terra', water: 'água', air: 'ar' }[activeTravel.plan?.environment ||
+				activeTravel.environment || 'land']} · ${Math.round(activeTravel.elapsedHours * 10) / 10} / ${activeTravel.durationHours} h`;
 		locationMarker.classList.toggle('is-editing', canEditPlaces);
 	}
 	function travelRouteDistanceKm(route) {
 		return route.slice(1).reduce((sum, point, index) =>
 			sum + Math.hypot(point.x - route[index].x, point.y - route[index].y) * 2, 0);
 	}
+	function travelResourceSpeed(resource) {
+		if (resource.kind === 'pokemon') return travelEnvironment.value === 'air' ? 12 :
+			travelEnvironment.value === 'water' ? 5 : 6;
+		return { carro: 75, motocicleta: 60, jipe: 60, 'carroca-leve': 5,
+			'carroca-viagem': 5 }[resource.vehicleId] || 0;
+	}
+	function travelVehicleBlocked(resource) {
+		if (resource.kind !== 'vehicle' || travelEnvironment.value !== 'land') return false;
+		if (travelTerrain.value === 'very-difficult') return true;
+		if (travelTerrain.value === 'difficult') {
+			return ['carro', 'carroca-viagem'].includes(resource.vehicleId);
+		}
+		if (travelTerrain.value === 'off-road') {
+			return !['motocicleta', 'jipe'].includes(resource.vehicleId);
+		}
+		return false;
+	}
+	function updateTravelTerrainWarning() {
+		terrainWarning.textContent = travelTerrain.value === 'difficult' ?
+			'Jipes e motos podem não passar. Confira o trajeto e retire os veículos inadequados.' :
+			travelTerrain.value === 'off-road' ?
+				'Motos e jipes podem não passar fora de estrada. Confira o trajeto e retire os inadequados.' : '';
+		terrainWarning.hidden = !terrainWarning.textContent || travelEnvironment.value !== 'land';
+	}
+	function renderTravelAssignments(reset = false) {
+		if (!travelOptions) { travelPlanHint.textContent = 'Carregando membros e transportes da mesa…'; return; }
+		const previous = reset ? new Map() : new Map([...assignmentControls].map(([id, control]) => [id, control.value]));
+		assignmentControls.clear(); travelAssignments.replaceChildren();
+		const eligible = travelOptions.resources.filter(resource =>
+			resource.environments.includes(travelEnvironment.value) && !travelVehicleBlocked(resource));
+		const freeSeats = new Map(eligible.map(resource => [resource.id, resource.seats]));
+		const ordered = [...eligible].sort((a, b) => travelResourceSpeed(b) - travelResourceSpeed(a));
+		for (const person of travelOptions.participants) {
+			const select = createElement('select');
+			if (travelEnvironment.value === 'land') {
+				const foot = createElement('option', '', 'A pé'); foot.value = 'foot'; select.append(foot);
+			}
+			for (const resource of eligible) {
+				const option = createElement('option', '', `${resource.name} · ${resource.seats} vaga(s)`);
+				option.value = resource.id; select.append(option);
+			}
+			const retained = previous.get(person.id);
+			const suggestion = retained && (retained === 'foot' || eligible.some(resource => resource.id === retained)) ?
+				retained : ordered.find(resource => (freeSeats.get(resource.id) || 0) > 0 &&
+					travelResourceSpeed(resource) > (travelEnvironment.value === 'land' ? 4 : 0))?.id ||
+					(travelEnvironment.value === 'land' ? 'foot' : '');
+			if (suggestion) select.value = suggestion;
+			if (select.value !== 'foot') freeSeats.set(select.value, (freeSeats.get(select.value) || 0) - 1);
+			select.addEventListener('change', () => { renderTravelTraction(); updateTravelSuggestion(); });
+			travelAssignments.append(travelField(person.name, select));
+			assignmentControls.set(person.id, select);
+		}
+		renderTravelTraction(); updateTravelSuggestion();
+	}
+	function renderTravelTraction() {
+		const previous = new Map([...tractionControls].map(([id, control]) => [id, control.value]));
+		tractionControls.clear(); travelTraction.replaceChildren();
+		if (!travelOptions) return;
+		const carts = [...new Set([...assignmentControls.values()].map(control => control.value))]
+			.map(id => travelOptions.resources.find(resource => resource.id === id))
+			.filter(resource => resource?.vehicleId?.startsWith('carroca'));
+		for (const cart of carts) {
+			const select = createElement('select');
+			const empty = createElement('option', '', 'Escolha um Pokémon'); empty.value = ''; select.append(empty);
+			for (const pokemon of travelOptions.resources.filter(resource =>
+				resource.kind === 'pokemon' && resource.environments.includes('land'))) {
+				const option = createElement('option', '', pokemon.name); option.value = pokemon.id; select.append(option);
+			}
+			select.value = previous.get(cart.id) || '';
+			select.addEventListener('change', updateTravelSuggestion);
+			travelTraction.append(travelField(`Tração: ${cart.name}`, select));
+			tractionControls.set(cart.id, select);
+		}
+		mountApproval.hidden = !carts.length && ![...assignmentControls.values()].some(control =>
+			travelOptions.resources.find(resource => resource.id === control.value)?.kind === 'pokemon');
+		if (mountApproval.hidden) mountApprovalInput.checked = false;
+		renderTravelTalents();
+	}
+	function renderTravelTalents() {
+		travelTalents.replaceChildren();
+		if (!travelOptions) return;
+		const leader = travelOptions.participants.find(person => person.id === travelLeader.value);
+		if (!leader) return;
+		const hasApex = leader.talents?.includes('explorador:senhor-das-rotas');
+		const innate = [
+			...(leader.classId === 'explorador' ? ['Desbravador'] : []),
+			...(hasApex ? ['Senhor das Rotas'] : []),
+		];
+		for (const name of innate) travelTalents.append(createElement('span', 'world-map-travel-talent is-innate',
+			`${name} · automático`));
+		const labels = {
+			'atleta:ritmo-de-viagem': 'Ritmo de Viagem',
+			'explorador:marcha-calculada': 'Marcha Calculada',
+			'explorador:rota-de-retorno': 'Rota de Retorno',
+			'explorador:guia-de-montaria': 'Guia de Montaria',
+			'abridor-de-caminhos': 'Abridor de Caminhos',
+		};
+		const hasMount = [...assignmentControls.values()].some(control => {
+			const resource = travelOptions.resources.find(entry => entry.id === control.value);
+			return resource?.kind === 'pokemon' || resource?.vehicleId?.startsWith('carroca');
+		});
+		const hasNonMotor = [...assignmentControls.values()].some(control => {
+			const resource = travelOptions.resources.find(entry => entry.id === control.value);
+			return control.value === 'foot' || resource?.kind === 'pokemon' ||
+				resource?.vehicleId?.startsWith('carroca');
+		});
+		const available = new Set((leader.talents || []).filter(id => id in labels &&
+			(!hasApex || !['explorador:marcha-calculada', 'explorador:rota-de-retorno'].includes(id)) &&
+			(id !== 'explorador:guia-de-montaria' || hasMount) &&
+			(id !== 'explorador:marcha-calculada' || hasNonMotor) &&
+			(id !== 'abridor-de-caminhos' || travelTerrain.value === 'difficult' &&
+			leader.classId !== 'explorador' && !hasApex) &&
+			(id !== 'atleta:ritmo-de-viagem' || leader.encumbrance === 'normal' &&
+			assignmentControls.get(leader.id)?.value === 'foot')));
+		for (const id of [...activeTravelTalents]) if (!available.has(id)) activeTravelTalents.delete(id);
+		for (const id of available) {
+			const control = button(labels[id], 'world-map-travel-talent');
+			control.type = 'button';
+			control.classList.toggle('is-active', activeTravelTalents.has(id));
+			control.setAttribute('aria-pressed', String(activeTravelTalents.has(id)));
+			control.addEventListener('click', () => {
+				if (activeTravelTalents.has(id)) activeTravelTalents.delete(id);
+				else {
+					if (id === 'explorador:marcha-calculada') activeTravelTalents.delete('explorador:rota-de-retorno');
+					if (id === 'explorador:rota-de-retorno') activeTravelTalents.delete('explorador:marcha-calculada');
+					activeTravelTalents.add(id);
+				}
+				renderTravelTalents(); updateTravelSuggestion();
+			});
+			travelTalents.append(control);
+		}
+	}
+	function currentTravelPlan() {
+		return { environment: travelEnvironment.value, terrain: travelTerrain.value,
+			weather: travelWeather.value, pace: travelPace.value,
+			leaderId: travelLeader.value || undefined, activeTalents: [...activeTravelTalents],
+			independentWeatherHazard: weatherIndependentInput.checked,
+			mountsApproved: mountApprovalInput.checked,
+			traction: Object.fromEntries([...tractionControls].map(([id, control]) => [id, control.value])),
+			assignments: [...assignmentControls].map(([characterId, control]) => ({ characterId,
+				kind: control.value === 'foot' ? 'foot' :
+				travelOptions.resources.find(resource => resource.id === control.value)?.kind || 'pokemon',
+				...(control.value === 'foot' ? {} : { resourceId: control.value }) })) };
+	}
+	function updateTravelSuggestion() {
+		if (!travelOptions || !draftRoute) return;
+		const revision = ++previewRevision;
+		if (previewTimer) window.clearTimeout(previewTimer);
+		const plan = currentTravelPlan();
+		if (!plan.assignments.length) { travelPlanHint.textContent = 'Não há treinadores no grupo.'; travelConfirm.disabled = true; return; }
+		const occupied = new Map(); let slowest = Infinity; let problem = '';
+		const factor = (plan.independentWeatherHazard ?
+			{ normal: 1, adverse: 0.75, storm: 0.5 }[plan.weather] : 1) *
+			{ careful: 0.75, normal: 1, fast: 1.25 }[plan.pace];
+		for (const assignment of plan.assignments) {
+			if (assignment.kind === 'foot') {
+				if (plan.environment !== 'land') problem = 'Cada treinador precisa de um transporte para a travessia.';
+				const traveler = travelOptions.participants.find(person => person.id === assignment.characterId);
+				slowest = Math.min(slowest, (traveler?.footSpeed ?? 4) * (plan.terrain === 'off-road' ? 0.5 :
+					{ road: 1, uneven: 0.75, difficult: 0.5, 'very-difficult': 0.25 }[plan.terrain]) * factor);
+				continue;
+			}
+			const resource = travelOptions.resources.find(entry => entry.id === assignment.resourceId);
+			if (!resource || !resource.environments.includes(plan.environment)) { problem = 'Transporte indisponível.'; continue; }
+			if (travelVehicleBlocked(resource)) {
+				problem = `${resource.name} não atravessa este terreno.`; continue;
+			}
+			const count = (occupied.get(resource.id) || 0) + 1; occupied.set(resource.id, count);
+			if (count > resource.seats) problem = `Vagas insuficientes em ${resource.name}.`;
+			let speed = travelResourceSpeed(resource);
+			if (plan.terrain === 'off-road') {
+				const offRoad = { motocicleta: 15, jipe: 30 }[resource.vehicleId];
+				speed = resource.kind === 'pokemon' ? speed * 0.5 : offRoad || 0;
+			} else speed *= { road: 1, uneven: 0.75, difficult: 0.5, 'very-difficult': 0.25 }[plan.terrain];
+			const limit = { motocicleta: 80, carro: 100, jipe: 80,
+				'carroca-leve': 5, 'carroca-viagem': 5 }[resource.vehicleId] || Infinity;
+			slowest = Math.min(slowest, Math.min(speed * factor, limit));
+		}
+		if (plan.environment === 'land' && occupied.size &&
+			plan.assignments.some(assignment => assignment.kind === 'foot')) {
+			const walkingTerrain = plan.terrain === 'off-road' ? 0.5 :
+				{ road: 1, uneven: 0.75, difficult: 0.5, 'very-difficult': 0.25 }[plan.terrain];
+			slowest = Math.min(slowest, ...travelOptions.participants.map(person =>
+				(person.footSpeed ?? 4) * walkingTerrain * factor));
+		}
+		const tractionUsed = new Set();
+		for (const [cartId, pokemonId] of Object.entries(plan.traction)) {
+			if (!pokemonId || tractionUsed.has(pokemonId) || occupied.has(pokemonId)) {
+				problem = 'Escolha um Pokémon livre para puxar cada carroça.';
+			}
+			tractionUsed.add(pokemonId);
+		}
+		if (!mountApproval.hidden && !plan.mountsApproved) {
+			problem = 'Confirme a aptidão dos Pokémon escolhidos para o percurso.';
+		}
+		const speed = slowest;
+		if (!Number.isFinite(speed) || speed <= 0) problem ||= 'O grupo não consegue percorrer essa rota.';
+		travelConfirm.disabled = true;
+		const suggestedHours = !problem ? Math.max(0.25,
+			Math.ceil(travelRouteDistanceKm(draftRoute) / speed * 4) / 4) : 0;
+		travelPlanHint.textContent = problem ||
+			`Velocidade do grupo: ${Math.round(speed * 10) / 10} km/h · ${Math.ceil(suggestedHours / 8)} jornada(s) de até 8 h. ` +
+			'A aptidão das montarias, a carga e a passagem pelo terreno devem ser conferidas pelo Mestre.';
+		if (problem) return;
+		if (!durationManuallyAdjusted) travelDuration.value = String(suggestedHours);
+		previewTimer = window.setTimeout(async () => {
+			try {
+				const result = await api('/campaign/map-travel/preview', { method: 'POST',
+					body: { route: draftRoute, plan } });
+				if (!layer.isConnected || revision !== previewRevision) return;
+				if (!durationManuallyAdjusted || Number(travelDuration.value) < result.suggestedHours) {
+					travelDuration.value = String(result.suggestedHours);
+					durationManuallyAdjusted = false;
+				}
+				travelPlanHint.textContent = `Velocidade do grupo: ${Math.round(result.speed * 10) / 10} km/h · ` +
+					`${Math.ceil(result.suggestedHours / 8)} jornada(s) de até 8 h. ` +
+					'A aptidão das montarias, a carga e a passagem pelo terreno devem ser conferidas pelo Mestre.';
+				travelConfirm.disabled = false;
+			} catch (error) {
+				if (revision !== previewRevision) return;
+				travelPlanHint.textContent = error.message || 'Não foi possível calcular a viagem.';
+			}
+		}, 160);
+	}
 	function suggestTravelHours(route) {
-		return Math.max(0.25, Math.round(travelRouteDistanceKm(route) / 4 * 4) / 4);
+		durationManuallyAdjusted = false;
+		if (travelOptions) { updateTravelSuggestion(); return Number(travelDuration.value) || 0.25; }
+		return Math.max(0.25, Math.ceil(travelRouteDistanceKm(route) / 4 * 4) / 4);
 	}
 	function drawRoute() {
 		const rect = viewport.getBoundingClientRect();
@@ -4328,8 +4638,26 @@ function openWorldMap() {
 	travelCancel.addEventListener('click', () => {
 		draftRoute = null; renderTravelPanel(); renderMap();
 	});
+	travelEnvironment.addEventListener('change', () => {
+		if (travelEnvironment.value !== 'land') travelTerrain.value = 'road';
+		travelTerrain.disabled = travelEnvironment.value !== 'land';
+		mountApprovalInput.checked = false;
+		updateTravelTerrainWarning();
+		renderTravelAssignments(true);
+	});
+	travelDuration.addEventListener('input', () => { durationManuallyAdjusted = true; });
+	travelTerrain.addEventListener('change', () => {
+		updateTravelTerrainWarning();
+		renderTravelAssignments();
+	});
+	travelLeader.addEventListener('change', () => {
+		activeTravelTalents.clear(); renderTravelTalents(); updateTravelSuggestion();
+	});
+	for (const control of [travelWeather, travelPace, weatherIndependentInput, mountApprovalInput]) {
+		control.addEventListener('change', updateTravelSuggestion);
+	}
 	travelConfirm.addEventListener('click', async () => {
-		if (!draftRoute || travelConfirm.disabled) return;
+		if (!draftRoute || travelConfirm.disabled || !travelOptions) return;
 		const durationHours = Number(travelDuration.value);
 		if (!Number.isFinite(durationHours) || durationHours < 0.25) {
 			showToast('Informe uma duração válida para a viagem.', true); return;
@@ -4337,12 +4665,15 @@ function openWorldMap() {
 		travelConfirm.disabled = true;
 		try {
 			const result = await api('/campaign/map-travel', { method: 'POST',
-				body: { route: draftRoute, durationHours } });
+				body: { route: draftRoute, durationHours, plan: currentTravelPlan() } });
 			activeTravel = result.travel;
 			draftRoute = null;
 			positionsSignature = '';
 			renderTravelPanel(); renderMap();
-		} catch (error) { showToast(error.message || 'Não foi possível iniciar a viagem.', true); } finally { travelConfirm.disabled = false; }
+		} catch (error) { showToast(error.message || 'Não foi possível iniciar a viagem.', true); } finally {
+			travelConfirm.disabled = false;
+			updateTravelSuggestion();
+		}
 	});
 	stopTravel.addEventListener('click', async () => {
 		if (stopTravel.disabled) return;
@@ -4431,11 +4762,13 @@ function openWorldMap() {
 			const y = top + place.y / 1024 * imageHeight * imageScale;
 			const width = place.name.length * 7 + 22;
 			const bounds = { left: x + 6, right: x + 6 + width, top: y - 12, bottom: y + 12 };
-			const show = ((editingPlaces && place.custom) || scale >= 2.4 || place.major) &&
+			const visibleAtZoom = place.regionLabel ? scale < 2.4 :
+				place.regionAnchor ? editingPlaces && place.custom : (editingPlaces && place.custom) || scale >= 2.4;
+			const show = placeDrag?.place === place || ((visibleAtZoom &&
 				bounds.right > 0 && bounds.left < rect.width &&
 				bounds.bottom > 0 && bounds.top < rect.height &&
 				((editingPlaces && place.custom) || !occupied.some(other => bounds.left < other.right && bounds.right > other.left &&
-					bounds.top < other.bottom && bounds.bottom > other.top));
+					bounds.top < other.bottom && bounds.bottom > other.top))));
 			place.label.hidden = !show;
 			if (!show) continue;
 			place.label.style.left = `${x + 6}px`;
@@ -4523,14 +4856,12 @@ function openWorldMap() {
 		if (editingPlaces) return;
 		placesVisible = !placesVisible;
 		placesToggle.setAttribute('aria-pressed', String(placesVisible));
-		if (placesVisible && scale < 2.4) {
-			const rect = viewport.getBoundingClientRect();
-			setZoom(2.4, rect.left + rect.width / 2, rect.top + rect.height / 2);
-		} else renderPlaces();
+		renderPlaces();
 	});
 	editToggle?.addEventListener('click', () => {
 		createForm.hidden = true;
 		editingPlaces = !editingPlaces;
+		if (trash) trash.hidden = !editingPlaces;
 		placesVisible = true;
 		placesToggle.setAttribute('aria-pressed', 'true');
 		placesLayer.classList.toggle('is-editing', editingPlaces);
@@ -4545,6 +4876,7 @@ function openWorldMap() {
 		let place = places.find(entry => entry.id === saved.id);
 		if (place) {
 			place.name = saved.name; place.x = saved.x; place.y = saved.y;
+			place.regionAnchor = WORLD_MAP_REGION_NAMES.has(saved.name);
 			place.label.textContent = saved.name;
 			return place;
 		}
@@ -4552,10 +4884,18 @@ function openWorldMap() {
 		label.dataset.region = 'Locais criados';
 		placesLayer.append(label);
 		place = { label, id: saved.id, name: saved.name, custom: true,
-			x: saved.x, y: saved.y, defaultX: saved.x, defaultY: saved.y, major: false };
+			x: saved.x, y: saved.y, defaultX: saved.x, defaultY: saved.y,
+			major: false, regionAnchor: WORLD_MAP_REGION_NAMES.has(saved.name) };
 		places.push(place);
 		attachPlaceDrag(place);
 		return place;
+	}
+	function removeCustomPlace(id) {
+		const index = places.findIndex(place => place.custom && place.id === id);
+		if (index < 0) return;
+		places[index].label.remove();
+		places.splice(index, 1);
+		renderPlaces();
 	}
 	createToggle?.addEventListener('click', () => {
 		createForm.hidden = !createForm.hidden;
@@ -4603,6 +4943,12 @@ function openWorldMap() {
 	});
 	function attachPlaceDrag(place) {
 		if (!place.custom) return;
+		const overTrash = event => {
+			if (!trash || trash.hidden) return false;
+			const bounds = trash.getBoundingClientRect();
+			return event.clientX >= bounds.left && event.clientX <= bounds.right &&
+				event.clientY >= bounds.top && event.clientY <= bounds.bottom;
+		};
 		place.label.addEventListener('pointerdown', event => {
 			if (!editingPlaces || place.saving || (event.pointerType === 'mouse' && event.button !== 0)) return;
 			event.stopPropagation();
@@ -4620,17 +4966,27 @@ function openWorldMap() {
 			place.x = Math.max(0, Math.min(1536, placeDrag.x + (event.clientX - placeDrag.clientX) / imageScale / imageWidth * 1536));
 			place.y = Math.max(0, Math.min(1024, placeDrag.y + (event.clientY - placeDrag.clientY) / imageScale / imageHeight * 1024));
 			placeDrag.moved ||= Math.abs(event.clientX - placeDrag.clientX) + Math.abs(event.clientY - placeDrag.clientY) > 2;
+			trash?.classList.toggle('is-target', overTrash(event));
 			renderPlaces();
 		});
 		async function finishPlaceDrag(event) {
 			if (!placeDrag || placeDrag.place !== place || placeDrag.pointerId !== event.pointerId) return;
 			const moved = placeDrag.moved && event.type !== 'pointercancel';
+			const remove = moved && overTrash(event);
 			const original = { x: placeDrag.x, y: placeDrag.y };
 			placeDrag = null;
+			trash?.classList.remove('is-target');
 			place.label.classList.remove('is-dragging');
 			if (!moved) { place.x = original.x; place.y = original.y; renderPlaces(); return; }
 			place.saving = true;
 			try {
+				if (remove) {
+					await api('/campaign/map-places', { method: 'DELETE', body: { id: place.id } });
+					removeCustomPlace(place.id);
+					positionsSignature = '';
+					showToast('Local removido do mapa.');
+					return;
+				}
 				const result = await api('/campaign/map-places', { method: 'PUT', body: { id: place.id, x: place.x, y: place.y } });
 				place.x = result.position.x;
 				place.y = result.position.y;
@@ -4656,7 +5012,12 @@ function openWorldMap() {
 			markerPosition = result.markerPosition || null;
 			activeTravel = result.travel || null;
 			renderTravelPanel(); renderLocationMarker(); drawRoute();
-			for (const customPlace of result.customPlaces || []) addCustomPlace(customPlace);
+			const savedCustomPlaces = result.customPlaces || [];
+			const savedCustomIds = new Set(savedCustomPlaces.map(place => place.id));
+			for (const place of places.filter(entry => entry.custom && !savedCustomIds.has(entry.id))) {
+				removeCustomPlace(place.id);
+			}
+			for (const customPlace of savedCustomPlaces) addCustomPlace(customPlace);
 			const orangeAnchorNames = ['Valencia Island', 'Tangelo Island', 'Mikan Island', 'Navel Island'];
 			const orangeAnchors = places.filter(place => place.id.startsWith('Orange Islands:') &&
 				orangeAnchorNames.includes(place.name));
@@ -4896,6 +5257,20 @@ function openWorldMap() {
 	document.body.append(layer);
 	window.addEventListener('rpg:realtime-sync', loadPlacePositions);
 	loadPlacePositions();
+	if (canEditPlaces) void api('/campaign/map-travel', { cache: 'no-store' }).then(options => {
+		if (!layer.isConnected) return;
+		travelOptions = options;
+		travelLeader.replaceChildren();
+		const noLeader = createElement('option', '', 'Sem líder'); noLeader.value = ''; travelLeader.append(noLeader);
+		for (const person of options.participants) {
+			const choice = createElement('option', '', person.name); choice.value = person.id; travelLeader.append(choice);
+		}
+		const recommended = options.participants.find(person => person.talents?.includes('explorador:senhor-das-rotas')) ||
+			options.participants.find(person => person.classId === 'explorador') ||
+			options.participants.find(person => person.talents?.includes('atleta:ritmo-de-viagem'));
+		if (recommended) travelLeader.value = recommended.id;
+		renderTravelAssignments(true);
+	}).catch(error => { travelPlanHint.textContent = error.message || 'Não foi possível carregar os transportes.'; });
 	renderMap();
 	void synchronizeMapCursors();
 	close.focus();

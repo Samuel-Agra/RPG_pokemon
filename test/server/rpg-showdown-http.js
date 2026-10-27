@@ -842,6 +842,24 @@ describe('RPG HTTP frontend API', () => {
 				method: 'POST', body: { hours: 1 },
 			});
 			assert.equal(result.response.status, 200, JSON.stringify(result.data));
+			result = await scopedRequest('/campaign/map-places', auxiliary.token, {
+				method: 'DELETE', body: { id: customId },
+			});
+			assert.equal(result.response.status, 403, JSON.stringify(result.data));
+			result = await scopedRequest('/campaign/map-places', owner.token, {
+				method: 'DELETE', body: { id: 'Kanto:Pallet Town' },
+			});
+			assert.equal(result.response.status, 400, JSON.stringify(result.data));
+			result = await scopedRequest('/campaign/map-places', owner.token, {
+				method: 'DELETE', body: { id: customId },
+			});
+			assert.equal(result.response.status, 200, JSON.stringify(result.data));
+			result = await scopedRequest('/campaign/map-places', auxiliary.token);
+			assert.deepEqual(result.data.customPlaces, []);
+			result = await scopedRequest('/campaign/map-places', owner.token, {
+				method: 'DELETE', body: { id: customId },
+			});
+			assert.equal(result.response.status, 400, JSON.stringify(result.data));
 		} finally {
 			await new Promise(resolve => scopedServer.close(resolve));
 		}
