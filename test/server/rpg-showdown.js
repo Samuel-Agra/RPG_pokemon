@@ -515,6 +515,46 @@ describe('RPG login', () => {
 		assert.equal(service.getCharacter(player.token).money, 4250);
 	});
 
+	it('stores a simplified human NPC sheet and rejects invalid values', () => {
+		const service = createService();
+		const master = service.loginMaster('14081998');
+		const npc = { id: 'npc-sheet', name: 'Guarda', humanCombat: { hp: 18, conditions: [] }, humanSheet: {
+			level: 3, hitDie: 8,
+			attributes: { strength: 2, dexterity: 1, constitution: 1, intelligence: 0, wisdom: 1, charisma: -1 },
+			trainedSaves: ['fortitude'], trainedAttacks: ['melee'],
+			skills: [{ name: 'Percepção', attribute: 'wisdom', trained: true, extraBonus: 2 },
+				{ name: 'Furtividade', attribute: 'dexterity', trained: false, extraBonus: 1 }],
+		} };
+		service.setMasterNPCLibrary(master.token, { npcs: [npc] });
+		const stored = service.getMasterNPCLibrary(master.token).npcs[0];
+		assert.equal(stored.humanCombat.maximum, 31);
+		assert.equal(stored.humanCombat.defense, 11);
+		assert.equal(stored.humanSheet.initiative, 1);
+		assert.equal(stored.humanSheet.saves.fortitude, 3);
+		assert.equal(stored.humanSheet.attacks.melee, 4);
+		assert.equal(stored.humanSheet.skills[0].bonus, 5);
+		assert.equal(stored.humanSheet.skills[1].bonus, 2);
+		assert.equal(stored.humanSheet.skills[0].extraBonus, 2);
+		assert.equal(service.getMasterNPCLibrary(master.token).npcs[0].humanCombat.hp, 18);
+		assert.throws(() => service.setMasterNPCLibrary(master.token, { npcs: [{ ...npc,
+			humanSheet: { ...npc.humanSheet, attributes: { ...npc.humanSheet.attributes, dexterity: 6 } },
+		}] }), /Modificador de atributo inválido/);
+		assert.throws(() => service.setMasterNPCLibrary(master.token, { npcs: [{ ...npc,
+			humanSheet: { ...npc.humanSheet, skills: [{ name: 'Percepção', attribute: 'invalid', trained: true }] },
+		}] }), /Perícias inválidas/);
+		assert.throws(() => service.setMasterNPCLibrary(master.token, { npcs: [{ ...npc,
+			humanSheet: { ...npc.humanSheet, skills: [{ name: 'Percepção', attribute: 'wisdom', trained: true, extraBonus: 101 }] },
+		}] }), /Perícias inválidas/);
+		assert.equal(service.getMasterNPCLibrary(master.token).npcs[0].humanCombat.hp, 18);
+		service.setMasterNPCLibrary(master.token, { npcs: [{ ...npc,
+			humanSheet: { ...npc.humanSheet, level: 1, hitDie: 6,
+				attributes: { ...npc.humanSheet.attributes, constitution: -5 } },
+		}] });
+		const reduced = service.getMasterNPCLibrary(master.token).npcs[0];
+		assert.equal(reduced.humanCombat.maximum, 11);
+		assert.equal(reduced.humanCombat.hp, 11);
+	});
+
 	it('awards an enabled gym badge to a victorious player without duplicating it', () => {
 		const service = createService();
 		createCharacter(service);

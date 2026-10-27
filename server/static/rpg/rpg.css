@@ -4675,6 +4675,13 @@ input, select {
 }
 .master-npc-expanded h4 { margin: 0 0 7px; color: #2d4564; }
 .master-npc-expanded p { margin: 0; color: #50647d; white-space: pre-wrap; }
+.master-npc-human-view { grid-column: 1 / -1; min-height: 0 !important; }
+.master-npc-human-view h5, .master-npc-human-editor h5 { margin: 10px 0 6px; color: #3d5878; font-size: 13px; }
+.master-npc-human-values { display: flex; flex-wrap: wrap; gap: 6px; }
+.master-npc-human-values > span { display: inline-flex; align-items: center; gap: 8px;
+	padding: 6px 9px; border: 1px solid #d4deea; border-radius: 6px; background: #f3f7fc; }
+.master-npc-human-values strong { color: #425c7d; font-size: 12px; }
+.master-npc-human-values span { color: #243a58; font-weight: bold; }
 .master-npc-row-actions { grid-column: 1 / -1; display: flex; justify-content: flex-end; }
 .master-relevant-pokemon-summary .master-npc-row-sprite .pokemon-sprite {
 	width: 46px;
@@ -4906,6 +4913,47 @@ input, select {
 .master-npc-form-field input,
 .master-npc-form-field textarea { width: 100%; box-sizing: border-box; }
 .master-npc-form-field:nth-child(n + 7) { grid-column: 1 / -1; }
+.master-npc-human-editor { container-type: inline-size; margin-top: 10px; padding: 12px; border: 1px solid #c7d4e4;
+	border-radius: 8px; background: #f7f9fc; }
+.master-npc-human-editor h4 { margin: 0 0 8px; color: #304967; }
+.master-npc-human-editor h5 { margin: 0 0 6px; }
+.master-npc-human-overview { display: grid; grid-template-columns: 1fr 2fr; gap: 8px;
+	padding-bottom: 9px; border-bottom: 1px solid #d8e1ec; }
+.master-npc-human-overview > .master-npc-human-fields:first-child { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+.master-npc-human-overview > .master-npc-human-fields:last-child { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+.master-npc-human-main { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+	gap: 12px; padding: 9px 0; border-bottom: 1px solid #d8e1ec; }
+.master-npc-human-training { display: grid; align-content: start; gap: 9px; }
+.master-npc-human-fields { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.master-npc-human-number { display: grid; gap: 3px; min-width: 0; color: #415a78; font-size: 12px; font-weight: bold; }
+.master-npc-human-number input, .master-npc-human-number select { box-sizing: border-box; width: 100%; min-width: 0; }
+.master-npc-human-number input[readonly] { background: #e9eff7; color: #2b496b; }
+.master-npc-human-training-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 6px; }
+.master-npc-human-trained { display: flex; align-items: center; justify-content: space-between; gap: 5px;
+	box-sizing: border-box; width: 100%; min-width: 0; min-height: 36px; padding: 5px 8px;
+	border: 1px solid #bdcde0; border-radius: 6px; background: #fff; color: #314b6d;
+	font: 700 12px Arial, sans-serif; text-align: left; cursor: pointer; box-shadow: none; }
+.master-npc-human-trained span { min-width: 0; overflow-wrap: anywhere; }
+.master-npc-human-trained strong { white-space: nowrap; color: #263c59; }
+.master-npc-human-trained[aria-pressed='true'] { border-color: #d0a134; background: #fff1c8;
+	box-shadow: inset 0 0 0 1px #d0a134; }
+.master-npc-human-trained:hover { border-color: #d0a134; }
+.master-npc-human-trained:focus-visible { outline: 2px solid #d0a134; outline-offset: 2px; }
+.master-npc-human-skills { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: 6px; }
+.master-npc-human-skill { display: grid; grid-template-columns: minmax(0, 1fr) 50px; align-items: end;
+	min-width: 0; gap: 4px; }
+.master-npc-human-skill-bonus { display: grid; min-width: 0; gap: 2px; color: #415a78;
+	font-size: 10px; font-weight: bold; text-align: center; }
+.master-npc-human-skill-bonus input { box-sizing: border-box; width: 100%; min-width: 0;
+	height: 36px; padding: 3px; text-align: center; }
+@container (max-width: 1050px) { .master-npc-human-skills { grid-template-columns: repeat(3, minmax(0, 1fr)); } }
+@container (max-width: 650px) { .master-npc-human-skills { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+@container (max-width: 390px) { .master-npc-human-skills { grid-template-columns: 1fr; } }
+@container (max-width: 800px) { .master-npc-human-overview, .master-npc-human-main { grid-template-columns: 1fr; }
+	.master-npc-human-overview > .master-npc-human-fields:last-child { grid-template-columns: repeat(4, minmax(0, 1fr)); } }
+@container (max-width: 520px) { .master-npc-human-overview > .master-npc-human-fields:last-child {
+	grid-template-columns: repeat(2, minmax(0, 1fr)); }
+	.master-npc-human-training-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
 .master-npc-visual-field,
 .master-npc-team-field { position: relative; }
 .master-npc-trainer-toggle {

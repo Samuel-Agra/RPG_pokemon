@@ -8850,6 +8850,173 @@ function masterNPCField(label, name, value = '', multiline = false) {
 	return wrapper;
 }
 
+const MASTER_NPC_HUMAN_ATTRIBUTES = [
+	['strength', 'Força'], ['dexterity', 'Destreza'], ['constitution', 'Constituição'],
+	['intelligence', 'Inteligência'], ['wisdom', 'Sabedoria'], ['charisma', 'Carisma'],
+];
+const MASTER_NPC_HUMAN_SAVES = [['fortitude', 'Fortitude'], ['reflexes', 'Reflexos'], ['will', 'Vontade']];
+const MASTER_NPC_HUMAN_ATTACKS = [['melee', 'Corpo a corpo'], ['ranged', 'À distância']];
+const MASTER_NPC_HUMAN_SKILLS = [
+	['Acrobacia', 'dexterity'], ['Adestramento Pokémon', 'wisdom'], ['Atletismo', 'strength'],
+	['Atuação', 'charisma'], ['Captura', 'dexterity'], ['Conhecimento', 'intelligence'],
+	['Empatia Pokémon', 'wisdom'], ['Enganação', 'charisma'], ['Furtividade', 'dexterity'],
+	['Intimidação', 'strength'], ['Intuição', 'wisdom'], ['Investigação', 'intelligence'],
+	['Ladinagem', 'dexterity'], ['Medicina', 'wisdom'], ['Medicina Pokémon', 'wisdom'],
+	['Montaria Pokémon', 'dexterity'], ['Natureza', 'intelligence'], ['Ofício', 'intelligence'],
+	['Percepção', 'wisdom'], ['Persuasão', 'charisma'], ['Pilotagem', 'dexterity'],
+	['Sobrevivência', 'wisdom'], ['Tecnologia', 'intelligence'],
+];
+
+function masterNPCHumanNumber(label, name, value, min, max, placeholder = '—') {
+	const field = createElement('label', 'master-npc-human-number');
+	const input = createElement('input');
+	input.type = 'number'; input.name = name; input.min = String(min); input.max = String(max);
+	input.step = '1'; input.placeholder = placeholder;
+	if (value !== undefined && value !== null) input.value = String(value);
+	field.append(createElement('span', '', label), input);
+	return field;
+}
+
+function masterNPCHumanSheetEditor(npc) {
+	const combat = npc?.humanCombat || {};
+	const sheet = npc?.humanSheet || {};
+	const panel = createElement('section', 'master-npc-human-editor');
+	panel.append(createElement('h4', '', 'Ficha simplificada'));
+	const level = masterNPCHumanNumber('Nível', 'humanLevel', sheet.level ?? 1, 1, 10);
+	const dieField = createElement('label', 'master-npc-human-number');
+	const die = createElement('select'); die.name = 'humanHitDie';
+	for (const value of [6, 8, 10]) {
+		const option = createElement('option', '', `d${value}`); option.value = String(value); die.append(option);
+	}
+	die.value = String(sheet.hitDie || 8);
+	dieField.append(createElement('span', '', 'Dado de PV'), die);
+	const overview = createElement('div', 'master-npc-human-overview');
+	const base = createElement('div', 'master-npc-human-fields'); base.append(level, dieField);
+	overview.append(base);
+	const levelInput = level.querySelector('input');
+	const hpField = masterNPCHumanNumber('PV atual', 'humanHp', combat.hp, 0, 100000);
+	const maximumField = masterNPCHumanNumber('PV máximo', 'humanMaximum', combat.maximum, 1, 100000);
+	const defenseField = masterNPCHumanNumber('Defesa', 'humanDefense', combat.defense, 0, 1000);
+	const initiativeField = masterNPCHumanNumber('Iniciativa', 'humanInitiative', sheet.initiative, -5, 5);
+	const maximumInput = maximumField.querySelector('input');
+	const defenseInput = defenseField.querySelector('input');
+	const initiativeInput = initiativeField.querySelector('input');
+	for (const input of [maximumInput, defenseInput, initiativeInput]) input.readOnly = true;
+	const vitals = createElement('div', 'master-npc-human-fields');
+	vitals.append(hpField, maximumField, defenseField, initiativeField);
+	overview.append(vitals); panel.append(overview);
+	const main = createElement('div', 'master-npc-human-main');
+	const attributesGroup = createElement('div', 'master-npc-human-group');
+	attributesGroup.append(createElement('h5', '', 'Modificadores de atributo'));
+	const attributes = createElement('div', 'master-npc-human-fields');
+	for (const [key, label] of MASTER_NPC_HUMAN_ATTRIBUTES) {
+		const previous = sheet.attributes?.[key];
+		const modifier = previous == null ? 0 : sheet.level ? previous : Math.floor((previous - 10) / 2);
+		attributes.append(masterNPCHumanNumber(label, `attribute-${key}`, Math.max(-5, Math.min(5, modifier)), -5, 5, '0'));
+	}
+	attributesGroup.append(attributes); main.append(attributesGroup);
+	const training = createElement('div', 'master-npc-human-training');
+	const trained = (title, entries, selected) => {
+		const group = createElement('div', 'master-npc-human-group');
+		group.append(createElement('h5', '', title));
+		const fields = createElement('div', 'master-npc-human-training-grid');
+		const controls = new Map();
+		for (const [key, label] of entries) {
+			const control = button('', 'master-npc-human-trained'); control.type = 'button';
+			control.setAttribute('aria-pressed', String(selected?.includes(key) || false));
+			const value = createElement('strong', '', '+0');
+			control.append(createElement('span', '', label), value);
+			control.addEventListener('click', () => {
+				control.setAttribute('aria-pressed', String(control.getAttribute('aria-pressed') !== 'true'));
+				update();
+			});
+			fields.append(control); controls.set(key, { control, value });
+		}
+		group.append(fields); training.append(group);
+		return controls;
+	};
+	const saves = trained('Resistências', MASTER_NPC_HUMAN_SAVES, sheet.trainedSaves);
+	const attacks = trained('Ataques', MASTER_NPC_HUMAN_ATTACKS, sheet.trainedAttacks);
+	main.append(training); panel.append(main);
+	panel.append(createElement('h5', '', 'Perícias'));
+	const skills = createElement('div', 'master-npc-human-skills');
+	const skillControls = [];
+	const addSkill = (name, defaultAttribute, skill = {}) => {
+		const row = createElement('div', 'master-npc-human-skill');
+		const control = button('', 'master-npc-human-trained'); control.type = 'button';
+		control.setAttribute('aria-pressed', String(skill.trained === true));
+		control.setAttribute('aria-label', `${name}: ${skill.trained ? 'treinada' : 'destreinada'}`);
+		const total = createElement('strong', '', '+0');
+		control.append(createElement('span', '', name), total);
+		control.addEventListener('click', () => {
+			const isTrained = control.getAttribute('aria-pressed') !== 'true';
+			control.setAttribute('aria-pressed', String(isTrained));
+			control.setAttribute('aria-label', `${name}: ${isTrained ? 'treinada' : 'destreinada'}`);
+			update();
+		});
+		const extraField = createElement('label', 'master-npc-human-skill-bonus');
+		const extra = createElement('input'); extra.type = 'number'; extra.min = '-100'; extra.max = '100';
+		extra.step = '1'; extra.value = String(skill.extraBonus ?? 0);
+		extra.setAttribute('aria-label', `Bônus permanente de ${name}`);
+		extraField.append(createElement('span', '', 'Bônus'), extra);
+		row.append(control, extraField); skills.append(row);
+		skillControls.push({ name, attribute: skill.attribute || defaultAttribute, control, total, extra });
+	};
+	const savedSkills = new Map((sheet.skills || []).map(skill => [skill.name.toLocaleLowerCase('pt-BR'), skill]));
+	for (const [name, attribute] of MASTER_NPC_HUMAN_SKILLS) {
+		addSkill(name, attribute, savedSkills.get(name.toLocaleLowerCase('pt-BR')));
+	}
+	for (const skill of sheet.skills || []) {
+		if (!MASTER_NPC_HUMAN_SKILLS.some(([name]) => name.toLocaleLowerCase('pt-BR') === skill.name.toLocaleLowerCase('pt-BR'))) {
+			addSkill(skill.name, skill.attribute, skill);
+		}
+	}
+	panel.append(skills);
+	const selection = () => {
+		const modifiers = Object.fromEntries(MASTER_NPC_HUMAN_ATTRIBUTES.map(([key]) =>
+			[key, Number(attributes.querySelector(`[name="attribute-${key}"]`).value)]));
+		return { level: Number(levelInput.value), hitDie: Number(die.value), attributes: modifiers,
+			trainedSaves: [...saves].filter(([, value]) => value.control.getAttribute('aria-pressed') === 'true').map(([key]) => key),
+			trainedAttacks: [...attacks].filter(([, value]) => value.control.getAttribute('aria-pressed') === 'true').map(([key]) => key),
+			skills: skillControls.map(({ name, attribute, control, extra }) => ({
+				name, attribute, trained: control.getAttribute('aria-pressed') === 'true',
+				extraBonus: Number(extra.value),
+			})) };
+	};
+	function update() {
+		const current = selection();
+		const proficiency = current.level <= 4 ? 2 : current.level <= 8 ? 3 : 4;
+		const con = current.attributes.constitution;
+		const growth = Math.max(1, (current.hitDie === 6 ? 4 : current.hitDie === 8 ? 5 : 6) + con);
+		const maximum = Math.max(1, 10 + current.hitDie + con + (current.level - 1) * growth);
+		const previousMaximum = Number(maximumInput.value);
+		const hpInput = hpField.querySelector('input');
+		if (!hpInput.value || Number(hpInput.value) === previousMaximum) hpInput.value = String(maximum);
+		else if (Number(hpInput.value) > maximum) hpInput.value = String(maximum);
+		hpInput.max = String(maximum);
+		maximumInput.value = String(maximum);
+		defenseInput.value = String(10 + current.attributes.dexterity);
+		initiativeInput.value = String(current.attributes.dexterity);
+		for (const [key, attribute] of [['fortitude', 'constitution'], ['reflexes', 'dexterity'], ['will', 'wisdom']]) {
+			const value = current.attributes[attribute] +
+				(saves.get(key).control.getAttribute('aria-pressed') === 'true' ? proficiency : 0);
+			saves.get(key).value.textContent = value >= 0 ? `+${value}` : String(value);
+		}
+		for (const [key, attribute] of [['melee', 'strength'], ['ranged', 'dexterity']]) {
+			const value = current.attributes[attribute] +
+				(attacks.get(key).control.getAttribute('aria-pressed') === 'true' ? proficiency : 0);
+			attacks.get(key).value.textContent = value >= 0 ? `+${value}` : String(value);
+		}
+		for (const { attribute, control, total, extra } of skillControls) {
+			const value = current.attributes[attribute] +
+				(control.getAttribute('aria-pressed') === 'true' ? proficiency : 0) + Number(extra.value || 0);
+			total.textContent = value >= 0 ? `+${value}` : String(value);
+		}
+	}
+	panel.addEventListener('input', update); panel.addEventListener('change', update); update();
+	return { panel, skills, selection };
+}
+
 function masterNPCControl(label, control) {
 	const wrapper = createElement('label', 'master-npc-compact-control');
 	wrapper.append(createElement('span', '', label), control);
@@ -9332,7 +9499,8 @@ function renderMasterNPCForm(library, folderId, existing, refresh) {
 		masterNPCField('Anota\u00e7\u00f5es', 'notes', existing?.notes, true)
 	);
 	if (isGym) for (const name of ['role', 'usage']) grid.querySelector('[name="' + name + '"]').readOnly = true;
-	form.append(grid);
+	const humanEditor = masterNPCHumanSheetEditor(existing);
+	form.append(grid, humanEditor.panel);
 	const actions = createElement('div', 'master-npc-editor-actions');
 	if (existing && !isGym) {
 		const remove = button('Excluir NPC');
@@ -9366,7 +9534,46 @@ function renderMasterNPCForm(library, folderId, existing, refresh) {
 		try { values.team = JSON.parse(String(values.team || '[]')); } catch { values.team = []; }
 		delete values.teams;
 		if (!values.name) return showToast('Informe o nome do NPC.', true);
+		let humanCombat; let humanSheet;
+		try {
+			const previous = existing?.humanCombat || {};
+			humanSheet = humanEditor.selection();
+			if (!Number.isSafeInteger(humanSheet.level) || humanSheet.level < 1 || humanSheet.level > 10 ||
+				![6, 8, 10].includes(humanSheet.hitDie) ||
+				Object.values(humanSheet.attributes).some(value => !Number.isSafeInteger(value) || value < -5 || value > 5)) {
+				throw new Error('Informe nível, dado de PV e modificadores válidos.');
+			}
+			const usedSkills = new Set();
+			for (const skill of humanSheet.skills) {
+				const normalized = skill.name.toLocaleLowerCase('pt-BR');
+				if (usedSkills.has(normalized)) throw new Error('A mesma perícia foi informada duas vezes.');
+				if (!Number.isSafeInteger(skill.extraBonus) || skill.extraBonus < -100 || skill.extraBonus > 100) {
+					throw new Error(`Informe um bônus permanente válido para ${skill.name}.`);
+				}
+				usedSkills.add(normalized);
+			}
+			const hp = Number(values.humanHp);
+			const maximum = Number(values.humanMaximum);
+			if (!Number.isSafeInteger(hp) || hp < 0 || hp > maximum) {
+				throw new Error('O PV atual deve estar entre zero e o PV máximo.');
+			}
+			const proficiency = humanSheet.level <= 4 ? 2 : humanSheet.level <= 8 ? 3 : 4;
+			const saveAttributes = { fortitude: 'constitution', reflexes: 'dexterity', will: 'wisdom' };
+			const attackAttributes = { melee: 'strength', ranged: 'dexterity' };
+			humanSheet = { ...humanSheet, proficiency, initiative: humanSheet.attributes.dexterity,
+				saves: Object.fromEntries(Object.entries(saveAttributes).map(([key, attribute]) =>
+					[key, humanSheet.attributes[attribute] + (humanSheet.trainedSaves.includes(key) ? proficiency : 0)])),
+				attacks: Object.fromEntries(Object.entries(attackAttributes).map(([key, attribute]) =>
+					[key, humanSheet.attributes[attribute] + (humanSheet.trainedAttacks.includes(key) ? proficiency : 0)])),
+				skills: humanSheet.skills.map(skill => ({ ...skill, bonus: humanSheet.attributes[skill.attribute] +
+					(skill.trained ? proficiency : 0) + skill.extraBonus })) };
+			humanCombat = { ...previous, hp, maximum, defense: Number(values.humanDefense),
+				conditions: previous.conditions || [] };
+			for (const field of ['humanHp', 'humanMaximum', 'humanDefense', 'humanInitiative', 'humanLevel',
+				'humanHitDie', ...MASTER_NPC_HUMAN_ATTRIBUTES.map(([key]) => `attribute-${key}`)]) delete values[field];
+		} catch (error) { return showToast(error.message, true); }
 		const npc = { ...existing, ...values, id: existing?.id || masterNPCId('npc'), folderId, order: existing?.order ?? Date.now() };
+		npc.humanCombat = humanCombat; npc.humanSheet = humanSheet;
 		if (isGym) npc.role = 'Líder de Ginásio';
 		const index = library.npcs.findIndex(entry => entry.id === npc.id);
 		if (index >= 0) library.npcs[index] = npc;
@@ -9408,6 +9615,49 @@ function renderMasterNPCRow(npc, library, refresh) {
 	}
 	details.append(summary);
 	const expanded = createElement('div', 'master-npc-expanded');
+	const human = npc.humanCombat || { hp: 20, maximum: 20, defense: 10 };
+	const sheet = npc.humanSheet || {};
+	const humanView = createElement('section', 'master-npc-human-view');
+	humanView.append(createElement('h4', '', 'Ficha simplificada'));
+	const essentials = createElement('div', 'master-npc-human-values');
+	for (const [label, value] of [
+		['Nível', sheet.level ?? '—'], ['Dado de PV', sheet.hitDie ? `d${sheet.hitDie}` : '—'],
+		['PV', `${human.hp ?? 20} / ${human.maximum ?? 20}`],
+		['Defesa', human.defense ?? 10], ['Iniciativa', sheet.initiative],
+	]) {
+		const item = createElement('span');
+		item.append(createElement('strong', '', label), createElement('span', '', value ?? '—'));
+		essentials.append(item);
+	}
+	humanView.append(essentials);
+	for (const [title, entries, values, signed] of [
+		['Atributos', MASTER_NPC_HUMAN_ATTRIBUTES, sheet.attributes, false],
+		['Resistências', MASTER_NPC_HUMAN_SAVES, sheet.saves, true],
+		['Ataques', MASTER_NPC_HUMAN_ATTACKS, sheet.attacks, true],
+	]) {
+		const defined = entries.filter(([key]) => values?.[key] !== undefined && values?.[key] !== null);
+		if (!defined.length) continue;
+		humanView.append(createElement('h5', '', title));
+		const list = createElement('div', 'master-npc-human-values');
+		for (const [key, label] of defined) {
+			const item = createElement('span'); const value = Number(values[key]);
+			item.append(createElement('strong', '', label), createElement('span', '', signed && value >= 0 ? `+${value}` : String(value)));
+			list.append(item);
+		}
+		humanView.append(list);
+	}
+	if (sheet.skills?.length) {
+		humanView.append(createElement('h5', '', 'Perícias'));
+		const skills = createElement('div', 'master-npc-human-values');
+		for (const skill of sheet.skills) {
+			const item = createElement('span');
+			item.append(createElement('strong', '', skill.name),
+				createElement('span', '', skill.bonus >= 0 ? `+${skill.bonus}` : String(skill.bonus)));
+			skills.append(item);
+		}
+		humanView.append(skills);
+	}
+	expanded.append(humanView);
 	const healPokemon = async (pokemonIndex, control) => {
 		control.disabled = true;
 		try {

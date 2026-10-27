@@ -69,6 +69,7 @@ import { RPGMySQLPersistence, rpgMySQLConfig } from './database/mysql-persistenc
 import { createRPGPendingTrainerSheet, type RPGTrainerChatRoll, type RPGTrainerSheet } from './trainer-sheet';
 import { mapTravelDistanceKm, mapTravelPlanSpeed, mapTravelSuggestedHours, type MapTravelPlan,
 	type MapTravelParticipant, type MapTravelResource } from './campaign-map-travel';
+import { deriveNPCHumanSheet } from './npc-human-sheet';
 import { rpgAutomaticGeneralTalentNames, rpgUsedAutomaticGeneralTalents,
 	rpgManualRestTalentOptions, rpgManualTalentUsed, rpgMarkManualTalentUsed,
 	rpgRenewManualRestTalents } from './trainer-manual-rest';
@@ -1858,6 +1859,57 @@ export class RPGLoginService {
 		const session = this.getSession(token);
 		if (session.role !== 'master') throw new Error('RPG master session required');
 		if (!library || typeof library !== 'object' || Array.isArray(library)) throw new Error('Invalid RPG master NPC library');
+		const npcs = (library as Record<string, unknown>).npcs;
+		if (Array.isArray(npcs)) for (const entry of npcs) {
+			if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
+			const npc = entry as Record<string, unknown>;
+			const integer = (value: unknown, min: number, max: number) =>
+				Number.isSafeInteger(value) && (value as number) >= min && (value as number) <= max;
+			if (npc.humanSheet && typeof npc.humanSheet === 'object' &&
+				(npc.humanSheet as Record<string, unknown>).level !== undefined) {
+				const derived = deriveNPCHumanSheet(npc.humanSheet);
+				const combat = npc.humanCombat && typeof npc.humanCombat === 'object' &&
+					!Array.isArray(npc.humanCombat) ? npc.humanCombat as Record<string, unknown> : {};
+				if (combat.hp !== undefined && !integer(combat.hp, 0, 100000)) {
+					throw new Error('PV atual inválido na ficha do NPC');
+				}
+				npc.humanSheet = derived.sheet;
+				npc.humanCombat = { ...combat, hp: Math.min((combat.hp as number | undefined) ?? derived.maximum,
+					derived.maximum), maximum: derived.maximum, defense: derived.defense,
+				conditions: Array.isArray(combat.conditions) ? combat.conditions : [] };
+				continue;
+			}
+			if (npc.humanCombat !== undefined) {
+				const combat = npc.humanCombat as Record<string, unknown>;
+				if (!combat || typeof combat !== 'object' || Array.isArray(combat) ||
+					!integer(combat.hp, 0, 100000) || !integer(combat.maximum, 1, 100000) ||
+					!integer(combat.defense, 0, 1000) || (combat.hp as number) > (combat.maximum as number)) {
+					throw new Error('PV ou Defesa inválidos na ficha do NPC');
+				}
+			}
+			if (npc.humanSheet === undefined) continue;
+			const sheet = npc.humanSheet as Record<string, unknown>;
+			if (!sheet || typeof sheet !== 'object' || Array.isArray(sheet) ||
+				(sheet.initiative !== null && !integer(sheet.initiative, -100, 100))) {
+				throw new Error('Iniciativa inválida na ficha do NPC');
+			}
+			for (const [group, allowed, min, max] of [
+				['attributes', ['strength', 'dexterity', 'constitution', 'intelligence', 'wisdom', 'charisma'], 1, 100],
+				['saves', ['fortitude', 'reflexes', 'will'], -100, 100],
+				['attacks', ['melee', 'ranged'], -100, 100],
+			] as const) {
+				const values = sheet[group];
+				if (!values || typeof values !== 'object' || Array.isArray(values) ||
+					Object.entries(values).some(([key, value]) => !(allowed as readonly string[]).includes(key) ||
+						!integer(value, min, max))) {
+					throw new Error('Valor inválido na ficha do NPC');
+				}
+			}
+			if (!Array.isArray(sheet.skills) || sheet.skills.length > 50 || sheet.skills.some(skill =>
+				!skill || typeof skill !== 'object' || Array.isArray(skill) ||
+				typeof skill.name !== 'string' || !skill.name.trim() || skill.name.length > 80 ||
+				!integer(skill.bonus, -100, 100))) throw new Error('Perícias inválidas na ficha do NPC');
+		}
 		this.masterNPCLibrary = structuredClone(library as Record<string, unknown>);
 		this.persistMasterNPCLibrary();
 		return structuredClone(this.masterNPCLibrary);
