@@ -477,7 +477,8 @@ describe('RPG trainer sheet read-only frontend', () => {
 		assert(page.includes("api('/trainer/roll', { method: 'POST' })"));
 		assert(page.includes("api('/trainer/creation', { method: 'POST', body: payload })"));
 		assert(page.includes("const creation = await api('/trainer/creation')"));
-		assert(page.includes('showError(target, message); state.step = target'));
+		assert(page.includes('showError(target, message, control); state.step = target'));
+		assert(page.includes("control.setAttribute('aria-describedby', errors[index].id)"));
 		assert(page.includes('skillDomainOptions(creation.skillDomains, \'conhecimento\')'));
 		assert(page.includes('skillPicker(rule.excluded, creation.skillDomains, previous[index],'));
 		assert(page.includes('syncSkillAvailability(fixed, skillControls)'));

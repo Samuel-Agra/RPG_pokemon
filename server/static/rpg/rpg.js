@@ -274,7 +274,12 @@ function setAccountAuthMode(mode, focus = true) {
 
 function clearAccountFormErrors(form) {
 	if (!form) return;
-	for (const field of form.querySelectorAll('.account-field')) field.classList.remove('invalid');
+	for (const field of form.querySelectorAll('.account-field')) {
+		field.classList.remove('invalid');
+		const control = field.querySelector('input, select, textarea');
+		control?.removeAttribute('aria-invalid');
+		control?.removeAttribute('aria-describedby');
+	}
 	for (const error of form.querySelectorAll('.field-error, .form-error')) {
 		error.textContent = '';
 		error.classList.add('hidden');
@@ -288,12 +293,22 @@ function accountFieldError(form, name, message) {
 	field.classList.add('invalid');
 	error.textContent = message;
 	error.classList.remove('hidden');
+	error.id = `account-error-${form.id}-${name}`;
+	error.setAttribute('role', 'alert');
+	const control = field.querySelector('input, select, textarea');
+	if (control) {
+		const firstInvalid = form.querySelector('[aria-invalid="true"]');
+		control.setAttribute('aria-invalid', 'true');
+		control.setAttribute('aria-describedby', error.id);
+		if (!firstInvalid) control.focus();
+	}
 }
 
 function accountGeneralError(form, message) {
 	const error = form.querySelector('.form-error');
 	error.textContent = message;
 	error.classList.remove('hidden');
+	error.setAttribute('role', 'alert');
 }
 
 function accountPasswordError(password) {
@@ -7661,8 +7676,10 @@ async function renderMasterBody(characters) {
 		let sceneDetailsPanel = null;
 		let sceneDetailsToggle = null;
 		const closeSceneDetails = () => {
+			const focusWasInside = sceneDetailsPanel?.contains(document.activeElement);
 			sceneDetailsPanel?.remove(); sceneDetailsPanel = null;
 			sceneDetailsToggle?.setAttribute('aria-expanded', 'false');
+			if (focusWasInside && sceneDetailsToggle?.isConnected) sceneDetailsToggle.focus();
 			sceneDetailsToggle = null;
 			document.removeEventListener('pointerdown', closeDetailsOutside);
 			document.removeEventListener('keydown', closeDetailsOnEscape);
@@ -7671,7 +7688,7 @@ async function renderMasterBody(characters) {
 			if (!sceneDetailsPanel?.contains(event.target) && !sceneDetailsToggle?.contains(event.target)) closeSceneDetails();
 		}
 		function closeDetailsOnEscape(event) {
-			if (event.key === 'Escape') closeSceneDetails();
+			if (event.key === 'Escape' && sceneDetailsPanel) { event.stopPropagation(); closeSceneDetails(); }
 		}
 		const openSceneDetails = (npc, toggle) => {
 			if (sceneDetailsToggle === toggle) { closeSceneDetails(); return; }
@@ -7680,9 +7697,13 @@ async function renderMasterBody(characters) {
 			const panel = createElement('div', 'master-scene-details-panel');
 			panel.setAttribute('role', 'dialog');
 			panel.setAttribute('aria-label', `Ficha de ${npc.name || 'NPC'}`);
+			panel.tabIndex = -1;
 			const tabs = createElement('div', 'master-scene-details-tabs');
 			const detailsTab = button('Ficha e rolagens', 'master-scene-details-tab');
 			const skillsTab = button('Perícias', 'master-scene-details-tab');
+			const panelId = `master-scene-details-${npc.id}`;
+			panel.id = panelId;
+			toggle.setAttribute('aria-controls', panelId);
 			const content = createElement('div', 'master-scene-details-content');
 			const modeField = createElement('label', 'master-scene-roll-mode');
 			const mode = createElement('select');
@@ -7758,6 +7779,7 @@ async function renderMasterBody(characters) {
 			renderPage('details');
 			document.addEventListener('pointerdown', closeDetailsOutside);
 			document.addEventListener('keydown', closeDetailsOnEscape);
+			panel.focus();
 		};
 		const renderScene = () => {
 			closeSceneDetails();
@@ -9615,14 +9637,32 @@ function renderMasterNPCForm(library, folderId, existing, refresh) {
 	const save = button(existing ? 'Salvar altera\u00e7\u00f5es' : 'Salvar NPC', 'primary');
 	save.type = 'submit';
 	actions.append(cancel, save);
-	form.append(actions);
+	const formError = createElement('p', 'form-error hidden');
+	formError.id = `master-npc-error-${existing?.id || 'new'}`;
+	formError.setAttribute('role', 'alert');
+	formError.tabIndex = -1;
+	form.append(formError, actions);
+	const reportError = (message, control) => {
+		formError.textContent = message;
+		formError.classList.remove('hidden');
+		if (control) {
+			control.setAttribute('aria-invalid', 'true');
+			control.setAttribute('aria-describedby', formError.id);
+			control.focus();
+		} else formError.focus();
+	};
 	form.addEventListener('submit', event => {
 		event.preventDefault();
+		formError.classList.add('hidden');
+		for (const control of form.querySelectorAll('[aria-invalid="true"]')) {
+			control.removeAttribute('aria-invalid');
+			control.removeAttribute('aria-describedby');
+		}
 		const values = Object.fromEntries(new FormData(form));
 		values.name = String(values.name || '').trim();
 		try { values.team = JSON.parse(String(values.team || '[]')); } catch { values.team = []; }
 		delete values.teams;
-		if (!values.name) return showToast('Informe o nome do NPC.', true);
+		if (!values.name) return reportError('Informe o nome do NPC.', form.querySelector('[name="name"]'));
 		let humanCombat; let humanSheet;
 		try {
 			const previous = existing?.humanCombat || {};
@@ -9660,7 +9700,13 @@ function renderMasterNPCForm(library, folderId, existing, refresh) {
 				conditions: previous.conditions || [] };
 			for (const field of ['humanHp', 'humanMaximum', 'humanDefense', 'humanInitiative', 'humanLevel',
 				'humanHitDie', ...MASTER_NPC_HUMAN_ATTRIBUTES.map(([key]) => `attribute-${key}`)]) delete values[field];
-		} catch (error) { return showToast(error.message, true); }
+		} catch (error) {
+			const message = error.message || 'Não foi possível salvar a ficha do NPC.';
+			const control = /PV atual/i.test(message) ? form.querySelector('[name="humanHp"]') :
+				/nível/i.test(message) ? form.querySelector('[name="humanLevel"]') :
+				/bônus permanente/i.test(message) ? humanEditor.panel.querySelector('input[name*="bonus"]') : null;
+			return reportError(message, control);
+		}
 		const npc = { ...existing, ...values, id: existing?.id || masterNPCId('npc'), folderId, order: existing?.order ?? Date.now() };
 		npc.humanCombat = humanCombat; npc.humanSheet = humanSheet;
 		if (isGym) npc.role = 'Líder de Ginásio';

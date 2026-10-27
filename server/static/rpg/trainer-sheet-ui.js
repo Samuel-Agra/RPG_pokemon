@@ -3094,10 +3094,13 @@
 			.filter(([id]) => !available.includes(id))
 			.map(([id, name]) => [id, name])];
 		const category = select(choices);
+		category.setAttribute('aria-label', 'Perícia');
 		category.value = family;
 		const domain = select([['', 'Escolha uma área']], 'trainer-sheet-skill-domain');
+		domain.setAttribute('aria-label', 'Área da perícia');
 		const vehicle = select([['', 'Categoria de veículo'],
 			...skillDomainOptions(domains, 'pilotagem')], 'trainer-sheet-skill-domain');
+		vehicle.setAttribute('aria-label', 'Categoria de veículo');
 		function update(preferred = '') {
 			const special = ['conhecimento', 'oficio'].includes(category.value);
 			domain.classList.toggle('hidden', !special);
@@ -3128,7 +3131,12 @@
 			}
 			return category.value;
 		}
-		return { box, value, updateAvailability(taken) {
+		return { box, value, errorControl() {
+			if (!category.value) return category;
+			if (category.value === 'pilotagem' && !vehicle.value) return vehicle;
+			if (['conhecimento', 'oficio'].includes(category.value) && !domain.value) return domain;
+			return category;
+		}, updateAvailability(taken) {
 			for (const option of category.options) {
 				if (!option.value) continue;
 				const branches = domains?.[option.value];
@@ -3337,12 +3345,26 @@
 			const error = el('p', 'trainer-sheet-error hidden'); error.setAttribute('role', 'alert');
 			block.append(error); return error;
 		});
+		const errorControls = new Array(errors.length).fill(null);
+		errors.forEach((error, index) => { error.id = `trainer-sheet-creation-error-${index}`; });
 		blocks[2].classList.add('trainer-sheet-class-step');
-		function showError(index, message) {
+		function showError(index, message, control = null) {
+			const previous = errorControls[index];
+			if (previous) {
+				previous.removeAttribute('aria-invalid');
+				previous.removeAttribute('aria-describedby');
+			}
 			errors[index].textContent = message;
 			errors[index].classList.toggle('hidden', !message);
+			errorControls[index] = message ? control : null;
+			if (message && control) {
+				control.setAttribute('aria-invalid', 'true');
+				control.setAttribute('aria-describedby', errors[index].id);
+				control.focus();
+			}
 		}
 		const methodSelect = select([['', 'Escolha o método'], ['standard', 'Valores base'], ['rolled', 'Valores rolados']]);
+		methodSelect.setAttribute('aria-label', 'Método de geração dos atributos');
 		methodSelect.value = method || '';
 		methodSelect.disabled = !!(creation.sheet.creation?.rolls?.length || creation.sheet.creation?.rollProgress?.dice.length);
 		blocks[0].insertBefore(methodSelect, errors[0]);
@@ -3379,7 +3401,8 @@
 					}
 				} catch (cause) {
 					rollView.cancel();
-					showError(1, cause.message || 'Não foi possível rolar os atributos.'); roll.disabled = false;
+					roll.disabled = false;
+					showError(1, cause.message || 'Não foi possível rolar os atributos.', roll);
 				}
 			});
 			blocks[1].insertBefore(roll, errors[1]);
@@ -3393,6 +3416,7 @@
 		classSelect.type = 'hidden';
 		classSelect.name = 'trainerClass';
 		const classGrid = el('div', 'trainer-sheet-class-grid');
+		classGrid.setAttribute('role', 'group');
 		classGrid.setAttribute('aria-label', 'Escolha uma classe do treinador');
 		for (const rule of Object.values(creation.classes)) {
 			const card = el('button', 'trainer-sheet-class-card');
@@ -3499,31 +3523,36 @@
 		function validate(index) {
 			showError(index, '');
 			if (index === 0 && !methodSelect.value) {
-				showError(index, 'Escolha o método dos atributos.'); return false;
+				showError(index, 'Escolha o método dos atributos.', methodSelect); return false;
 			}
 			if (index === 1) {
-				if (!values) { showError(index, 'Faça a primeira rolagem para continuar.'); return false; }
+				if (!values) { showError(index, 'Faça a primeira rolagem para continuar.', blocks[1].querySelector('button')); return false; }
 				const slots = [...attrInputs.values()].map(control => control.value);
 				if (slots.includes('') || new Set(slots).size !== ATTRIBUTES.length) {
-					showError(index, 'Use cada valor de atributo exatamente uma vez.'); return false;
+					showError(index, 'Use cada valor de atributo exatamente uma vez.',
+						assignment.grid.querySelector('.trainer-sheet-attribute-choice:not(.chosen)') ||
+						assignment.grid.querySelector('.trainer-sheet-attribute-choice')); return false;
 				}
 			}
 			if (index === 2 && !classSelect.value) {
-				showError(index, 'Escolha uma classe.'); classGrid.setAttribute('aria-invalid', 'true'); return false;
+				showError(index, 'Escolha uma classe.', classGrid.querySelector('button')); return false;
 			}
 			if (index === 3) {
 				const optional = skillControls.map(control => control.value());
 				const fixed = [...(creation.classes[classSelect.value]?.fixed || []),
 					...(classSelect.value === 'cientista' ? ['conhecimento:' + normalizeDomain(fixedKnowledge.value)] : [])];
 				if (classSelect.value === 'cientista' && !/^[a-z0-9-]{2,40}$/.test(normalizeDomain(fixedKnowledge.value))) {
-					showError(index, 'Informe a área científica inicial.'); return false;
+					showError(index, 'Informe a área científica inicial.', fixedKnowledge); return false;
 				}
 				if (optional.includes('') || new Set([...fixed, ...optional]).size !== fixed.length + optional.length) {
-					showError(index, 'Escolha perícias distintas e preencha as áreas necessárias.'); return false;
+					const incomplete = skillControls.find(control => !control.value());
+					showError(index, 'Escolha perícias distintas e preencha as áreas necessárias.',
+						incomplete?.errorControl() || skillRows.querySelector('select')); return false;
 				}
 			}
-			if (index === 4 && [...gearRows.querySelectorAll('select')].some(control => !control.value)) {
-				showError(index, 'Escolha todos os equipamentos iniciais.'); return false;
+			const emptyGear = index === 4 && [...gearRows.querySelectorAll('select')].find(control => !control.value);
+			if (emptyGear) {
+				showError(index, 'Escolha todos os equipamentos iniciais.', emptyGear); return false;
 			}
 			return true;
 		}
@@ -3598,13 +3627,13 @@
 					await api('/trainer/creation/method', { method: 'PUT', body: { method: methodSelect.value } });
 					state.step = 1; await refresh();
 				} catch (cause) {
-					showError(0, cause.message || 'Não foi possível salvar o método.'); next.disabled = false;
+					showError(0, cause.message || 'Não foi possível salvar o método.', methodSelect); next.disabled = false;
 				}
 				return;
 			}
 			if (state.step < 5) { state.step++; showStep(); return; }
 			for (let index = 1; index <= 4; index++) {
-				if (!validate(index)) { state.step = index; showStep(); return; }
+				if (!validate(index)) { state.step = index; showStep(); errorControls[index]?.focus(); return; }
 			}
 			const knowledge = normalizeDomain(fixedKnowledge.value);
 			const payload = { classId: classSelect.value, attributes: attributes(),
@@ -3618,7 +3647,12 @@
 				const target = /rolagem|atribut|valores base/i.test(message) ? 1 :
 					/classe/i.test(message) ? 2 : /perícia|científica|conhecimento/i.test(message) ? 3 :
 					/equipamento|Bag/i.test(message) ? 4 : 5;
-				showError(target, message); state.step = target; showStep(); next.disabled = false;
+				const control = target === 1 ? assignment.grid.querySelector('.trainer-sheet-attribute-choice') :
+					target === 2 ? classGrid.querySelector('button') :
+					target === 3 ? skillRows.querySelector('select') || fixedKnowledge :
+					target === 4 ? gearRows.querySelector('select') : next;
+				next.disabled = false;
+				showError(target, message, control); state.step = target; showStep(); control?.focus();
 			}
 		});
 		showStep(); root.append(form);

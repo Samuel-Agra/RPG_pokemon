@@ -2155,7 +2155,7 @@ export class RPGLoginService {
 				master: 5, legendary: 6.5 })[RPGBagSystem.getTier(bag) || 'starter'];
 			const derived = rpgTrainerDerivedStatistics(sheet, rpgEquipmentDerivedOptions(sheet, equipment,
 				bag.items.reduce((total, entry) => total + entry.quantity, 0), bagWeight));
-			return { ...person, classId: sheet.classId, proficiency: rpgTrainerProficiency(sheet.level),
+			return { ...person, classId: sheet.classId || undefined, proficiency: rpgTrainerProficiency(sheet.level),
 				talents: [...sheet.talents.general, ...sheet.talents.class,
 					...(sheet.talents.apex ? [sheet.talents.apex] : [])],
 				encumbrance: derived.encumbrance,

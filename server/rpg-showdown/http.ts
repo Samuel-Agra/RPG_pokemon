@@ -39,6 +39,7 @@ import { rollRPGD20, rpgTrainerAttackBonus, rpgTrainerSkillBonus, rollRPGTrainer
 	rollRPGTrainerAttributeCheck, rollRPGTrainerResistance, rpgTrainerSkillAttributes,
 	type RPGTrainerAttribute, type RPGTrainerResistance } from './trainer-checks';
 import { rpgResolveTrainerRollTalents, rpgTrainerRollBonusTerms } from './trainer-roll-talents';
+import type { MapTravelPlan } from './campaign-map-travel';
 
 const MAX_BODY_SIZE = 2 * 1024 * 1024;
 const MAX_BACKUP_BODY_SIZE = 25 * 1024 * 1024;
@@ -1903,7 +1904,7 @@ export class RPGHttpServer {
 			if (method === 'POST') {
 				const body = await this.body(req);
 				this.json(res, 200, { travel: this.login.startCampaignMapTravel(
-					this.token(req), body.route, body.durationHours, body.plan) });
+					this.token(req), body.route, body.durationHours, body.plan as MapTravelPlan | undefined) });
 				return;
 			}
 			if (method === 'DELETE') {
@@ -1913,7 +1914,8 @@ export class RPGHttpServer {
 		}
 		if (method === 'POST' && url.pathname === '/api/rpg/campaign/map-travel/preview') {
 			const body = await this.body(req);
-			this.json(res, 200, this.login.previewCampaignMapTravel(this.token(req), body.route, body.plan));
+			this.json(res, 200, this.login.previewCampaignMapTravel(this.token(req), body.route,
+				body.plan as MapTravelPlan));
 			return;
 		}
 		if (method === 'PUT' && url.pathname === '/api/rpg/campaign/quick-notes') {

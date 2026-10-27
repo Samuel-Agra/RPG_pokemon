@@ -92,7 +92,7 @@ export function mapTravelPlanSpeed(plan: MapTravelPlan, participants: MapTravelP
 		.slice(0, (leader?.proficiency || 0) + 1).map(person => person.id));
 	if (leader && footTravelers.some(person => person.id === leader.id) &&
 		!athleteBeneficiaries.has(leader.id) && activeTalents.includes('atleta:ritmo-de-viagem')) {
-		athleteBeneficiaries.delete([...athleteBeneficiaries].at(-1)!);
+		athleteBeneficiaries.delete([...athleteBeneficiaries][athleteBeneficiaries.size - 1]);
 		athleteBeneficiaries.add(leader.id);
 	}
 	const naturalDifficult = plan.environment === 'land' && plan.terrain === 'difficult';
@@ -142,7 +142,7 @@ export function mapTravelPlanSpeed(plan: MapTravelPlan, participants: MapTravelP
 				const pokemonId = plan.traction?.[resource.id];
 				const puller = resources.find(entry => entry.id === pokemonId && entry.kind === 'pokemon' &&
 					entry.environments.includes('land'));
-				if (!puller || (occupied === 1 && usedTraction.has(pokemonId))) {
+				if (!pokemonId || !puller || (occupied === 1 && usedTraction.has(pokemonId))) {
 					throw new Error('Escolha um Pokémon apto para puxar cada carroça');
 				}
 				if (occupied === 1) usedTraction.add(pokemonId);
