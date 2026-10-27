@@ -1930,6 +1930,20 @@ export class RPGHttpServer {
 			this.json(res, 200, this.login.getCampaignSceneNPCs(this.token(req)));
 			return;
 		}
+		if (method === 'POST' && url.pathname === '/api/rpg/campaign/scene-npcs/roll') {
+			const token = this.token(req);
+			const session = this.login.getSession(token);
+			const persistence = this.login.mysqlPersistence;
+			if (!persistence || !session.platformTableId || !session.platformAccountId) {
+				throw new RPGHttpError(503, 'As rolagens no chat requerem o banco de dados');
+			}
+			const body = await this.body(req);
+			const result = this.login.rollSceneNPCCheck(token, this.string(body.npcId), this.string(body.kind),
+				this.string(body.key), this.string(body.mode));
+			await persistence.createTableChatMessage(session.platformTableId, session.platformAccountId, result.message);
+			this.json(res, 200, result);
+			return;
+		}
 		if (method === 'PUT' && url.pathname === '/api/rpg/campaign/scene-npcs/combat') {
 			const body = await this.body(req);
 			this.json(res, 200, this.login.setSceneNPCCombat(this.token(req), this.string(body.npcId),

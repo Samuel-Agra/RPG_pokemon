@@ -2450,6 +2450,52 @@ export class RPGLoginService {
 		return { npcs };
 	}
 
+	rollSceneNPCCheck(token: string, npcId: string, kind: string, key: string, mode: string) {
+		this.requireMasterMode(token);
+		if (!this.campaignSettings.sceneNpcIds.includes(npcId)) throw new Error('NPC não está em cena');
+		if (!['normal', 'advantage', 'disadvantage'].includes(mode)) throw new Error('Modo de rolagem inválido');
+		const npc = (Array.isArray(this.masterNPCLibrary?.npcs) ? this.masterNPCLibrary.npcs : [])
+			.find(entry => entry && typeof entry === 'object' && (entry as Record<string, unknown>).id === npcId) as
+			Record<string, unknown> | undefined;
+		if (!npc) throw new Error('NPC em cena não encontrado');
+		const sheet = npc.humanSheet as Record<string, unknown> | undefined;
+		if (!sheet || !sheet.level) throw new Error('Conclua a ficha simplificada deste NPC antes de rolar');
+		const attributes = sheet.attributes as Record<string, number>;
+		const saves = sheet.saves as Record<string, number>;
+		const attacks = sheet.attacks as Record<string, number>;
+		const attributeNames: Record<string, string> = { strength: 'Força', dexterity: 'Destreza',
+			constitution: 'Constituição', intelligence: 'Inteligência', wisdom: 'Sabedoria', charisma: 'Carisma' };
+		const saveNames: Record<string, string> = { fortitude: 'Fortitude', reflexes: 'Reflexos', will: 'Vontade' };
+		const attackNames: Record<string, string> = { melee: 'Ataque corpo a corpo', ranged: 'Ataque à distância' };
+		let label: string; let bonus: number;
+		if (kind === 'attribute' && Object.prototype.hasOwnProperty.call(attributeNames, key)) {
+			label = attributeNames[key]; bonus = attributes[key];
+		} else if (kind === 'save' && Object.prototype.hasOwnProperty.call(saveNames, key)) {
+			label = saveNames[key]; bonus = saves[key];
+		} else if (kind === 'attack' && Object.prototype.hasOwnProperty.call(attackNames, key)) {
+			label = attackNames[key]; bonus = attacks[key];
+		} else if (kind === 'initiative' && !key) {
+			label = 'Iniciativa'; bonus = Number(sheet.initiative);
+		} else if (kind === 'skill') {
+			const skill = (Array.isArray(sheet.skills) ? sheet.skills : []).find(entry => entry &&
+				typeof entry === 'object' && (entry as Record<string, unknown>).name === key) as
+				Record<string, unknown> | undefined;
+			if (!skill) throw new Error('Perícia não encontrada na ficha do NPC');
+			label = String(skill.name); bonus = Number(skill.bonus);
+		} else throw new Error('Rolagem inválida para este NPC');
+		if (!Number.isSafeInteger(bonus)) throw new Error('Bônus inválido na ficha do NPC');
+		const dice = [Math.floor(this.random() * 20) + 1];
+		if (mode !== 'normal') dice.push(Math.floor(this.random() * 20) + 1);
+		const natural = mode === 'advantage' ? Math.max(...dice) :
+			mode === 'disadvantage' ? Math.min(...dice) : dice[0];
+		const total = natural + bonus;
+		const rolls = dice.length === 2 ? `${mode === 'advantage' ? 'Vantagem' : 'Desvantagem'}\n` +
+			`1ª rolagem: ${dice[0]}\n2ª rolagem: ${dice[1]}\n` : '';
+		const signed = bonus < 0 ? `- ${Math.abs(bonus)}` : `+ ${bonus}`;
+		const message = `${String(npc.name || 'NPC')} — ${rolls}${label}: 1d20 tirou ${natural} ${signed} = ${total}`;
+		return { npcId, label, dice, natural, bonus, total, message };
+	}
+
 	setSceneNPCCombat(token: string, npcId: string, input: { hp?: number, maximum?: number, defense?: number,
 		clearConditions?: boolean, }) {
 		this.requireMasterMode(token);

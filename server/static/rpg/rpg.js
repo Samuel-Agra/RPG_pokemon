@@ -7658,7 +7658,109 @@ async function renderMasterBody(characters) {
 		let sceneIds = [...(campaign.sceneNpcIds || [])];
 		let sceneRevealed = campaign.sceneNpcRevealed || {};
 		let sceneNpcs = readMasterNPCLibrary().npcs || [];
+		let sceneDetailsPanel = null;
+		let sceneDetailsToggle = null;
+		const closeSceneDetails = () => {
+			sceneDetailsPanel?.remove(); sceneDetailsPanel = null;
+			sceneDetailsToggle?.setAttribute('aria-expanded', 'false');
+			sceneDetailsToggle = null;
+			document.removeEventListener('pointerdown', closeDetailsOutside);
+			document.removeEventListener('keydown', closeDetailsOnEscape);
+		};
+		function closeDetailsOutside(event) {
+			if (!sceneDetailsPanel?.contains(event.target) && !sceneDetailsToggle?.contains(event.target)) closeSceneDetails();
+		}
+		function closeDetailsOnEscape(event) {
+			if (event.key === 'Escape') closeSceneDetails();
+		}
+		const openSceneDetails = (npc, toggle) => {
+			if (sceneDetailsToggle === toggle) { closeSceneDetails(); return; }
+			closeSceneDetails();
+			const sheet = npc.humanSheet || {};
+			const panel = createElement('div', 'master-scene-details-panel');
+			panel.setAttribute('role', 'dialog');
+			panel.setAttribute('aria-label', `Ficha de ${npc.name || 'NPC'}`);
+			const tabs = createElement('div', 'master-scene-details-tabs');
+			const detailsTab = button('Ficha e rolagens', 'master-scene-details-tab');
+			const skillsTab = button('Perícias', 'master-scene-details-tab');
+			const content = createElement('div', 'master-scene-details-content');
+			const modeField = createElement('label', 'master-scene-roll-mode');
+			const mode = createElement('select');
+			for (const [value, label] of [['normal', 'Normal'], ['advantage', 'Vantagem'], ['disadvantage', 'Desvantagem']]) {
+				const option = createElement('option', '', label); option.value = value; mode.append(option);
+			}
+			modeField.append(createElement('span', '', 'Rolagem'), mode);
+			const signed = value => `${Number(value) >= 0 ? '+' : ''}${Number(value) || 0}`;
+			const rollButton = (label, value, kind, key) => {
+				const control = button('', 'master-scene-roll-button');
+				control.type = 'button';
+				control.append(createElement('span', '', label), createElement('strong', '', signed(value)));
+				control.addEventListener('click', async () => {
+					control.disabled = true;
+					try {
+						const result = await api('/campaign/scene-npcs/roll', { method: 'POST', body: {
+							npcId: npc.id, kind, key, mode: mode.value,
+						} });
+						showToast(`${result.label}: ${result.total}`);
+						void renderTableChat();
+					} catch (error) { showToast(error.message, true); } finally { control.disabled = false; }
+				});
+				return control;
+			};
+			const renderPage = page => {
+				detailsTab.setAttribute('aria-selected', String(page === 'details'));
+				skillsTab.setAttribute('aria-selected', String(page === 'skills'));
+				content.replaceChildren();
+				if (page === 'details') {
+					const summary = createElement('div', 'master-scene-details-summary');
+					summary.append(createElement('span', '', `Nível ${sheet.level ?? '—'}`),
+						createElement('span', '', `Dado de PV ${sheet.hitDie ? `d${sheet.hitDie}` : '—'}`),
+						createElement('span', '', `Defesa ${npc.humanCombat?.defense ?? '—'}`));
+					content.append(summary, modeField);
+					const groups = [
+						['Atributos', MASTER_NPC_HUMAN_ATTRIBUTES.map(([key, label]) =>
+							[label, sheet.attributes?.[key], 'attribute', key])],
+						['Resistências', MASTER_NPC_HUMAN_SAVES.map(([key, label]) =>
+							[label, sheet.saves?.[key], 'save', key])],
+						['Ataques e iniciativa', [
+							...MASTER_NPC_HUMAN_ATTACKS.map(([key, label]) =>
+								[label, sheet.attacks?.[key], 'attack', key]),
+							['Iniciativa', sheet.initiative, 'initiative', ''],
+						]],
+					];
+					for (const [title, entries] of groups) {
+						const group = createElement('section', 'master-scene-details-group');
+						group.append(createElement('h5', '', title));
+						const list = createElement('div', 'master-scene-roll-list');
+						for (const [label, value, kind, key] of entries) list.append(rollButton(label, value, kind, key));
+						group.append(list); content.append(group);
+					}
+				} else {
+					content.append(modeField);
+					const list = createElement('div', 'master-scene-roll-list');
+					for (const skill of sheet.skills || []) {
+						list.append(rollButton(skill.name, skill.bonus, 'skill', skill.name));
+					}
+					if (!list.childElementCount) list.append(createElement('p', '', 'Nenhuma perícia cadastrada.'));
+					content.append(list);
+				}
+			};
+			detailsTab.addEventListener('click', () => renderPage('details'));
+			skillsTab.addEventListener('click', () => renderPage('skills'));
+			tabs.append(detailsTab, skillsTab); panel.append(tabs, content);
+			document.body.append(panel);
+			const rect = toggle.getBoundingClientRect();
+			panel.style.left = `${Math.max(12, Math.min(rect.left, window.innerWidth - panel.offsetWidth - 12))}px`;
+			panel.style.top = `${Math.min(rect.bottom + 4, window.innerHeight - 80)}px`;
+			panel.style.maxHeight = `${Math.max(100, window.innerHeight - panel.getBoundingClientRect().top - 12)}px`;
+			sceneDetailsPanel = panel; sceneDetailsToggle = toggle;
+			toggle.setAttribute('aria-expanded', 'true');
+			renderPage('details');
+			document.addEventListener('pointerdown', closeDetailsOutside);
+			document.addEventListener('keydown', closeDetailsOnEscape);
+		};
 		const renderScene = () => {
+			closeSceneDetails();
 			sceneGrid.replaceChildren();
 			const selected = sceneIds.map(id => sceneNpcs.find(npc => npc.id === id)).filter(Boolean);
 			scene.panel.classList.toggle('is-empty', !selected.length);
@@ -7697,41 +7799,28 @@ async function renderMasterBody(characters) {
 					pokemon.append(slot);
 				}
 				card.append(remove, sprite, pokemon, createElement('strong', '', npc.name || 'NPC'));
-				const human = npc.humanCombat || { hp: 20, maximum: 20, defense: 10, conditions: [] };
-				const combat = createElement('div', 'master-scene-human-combat');
-				const hp = createElement('input'); hp.type = 'number'; hp.min = '0'; hp.max = '100000';
-				hp.value = String(human.hp);
-				const maximum = createElement('input'); maximum.type = 'number'; maximum.min = '1';
-				maximum.max = '100000'; maximum.value = String(human.maximum);
-				const defense = createElement('input'); defense.type = 'number'; defense.min = '0';
-				defense.max = '1000'; defense.value = String(human.defense);
-				const save = button('Salvar', 'master-scene-combat-save');
-				save.addEventListener('click', async () => {
-					save.disabled = true;
-					try {
-						const result = await api('/campaign/scene-npcs/combat', { method: 'PUT', body: {
-							npcId: npc.id, hp: Number(hp.value), maximum: Number(maximum.value), defense: Number(defense.value),
-						} });
-						npc.humanCombat = result.humanCombat;
-						renderScene();
-					} catch (error) { showToast(error.message, true); save.disabled = false; }
-				});
-				combat.append(createElement('span', '', 'PV'), hp, createElement('span', '', '/'), maximum,
-					createElement('span', '', 'Defesa'), defense, save);
-				if (human.conditions?.length) {
-					combat.append(createElement('small', '', `Condições: ${human.conditions.join(', ')}`));
-					const clear = button('Limpar condições', 'master-scene-combat-save');
-					clear.addEventListener('click', async () => {
-						clear.disabled = true;
-						try {
-							const result = await api('/campaign/scene-npcs/combat', { method: 'PUT', body: {
-								npcId: npc.id, clearConditions: true,
-							} });
-							npc.humanCombat = result.humanCombat; renderScene();
-						} catch (error) { showToast(error.message, true); clear.disabled = false; }
-					}); combat.append(clear);
-				}
-				card.append(combat);
+				const human = npc.humanCombat || { hp: 20, maximum: 20 };
+				const maximum = Math.max(1, Number(human.maximum) || 20);
+				const current = Math.max(0, Math.min(maximum, Number(human.hp) || 0));
+				const percent = current / maximum * 100;
+				const tone = percent > 50 ? 'healthy' : percent > 20 ? 'wounded' : 'critical';
+				const health = createElement('div', 'player-roster-combat-hp master-scene-hp');
+				health.append(createElement('strong', '', 'PV'), createElement('span', '', `${current} / ${maximum}`));
+				const track = createElement('div', `player-roster-combat-hp-track ${tone}`);
+				track.setAttribute('role', 'progressbar');
+				track.setAttribute('aria-label', `Pontos de vida de ${npc.name || 'NPC'}`);
+				track.setAttribute('aria-valuemin', '0');
+				track.setAttribute('aria-valuemax', String(maximum));
+				track.setAttribute('aria-valuenow', String(current));
+				const fill = createElement('div', 'player-roster-combat-hp-fill');
+				fill.style.width = `${percent}%`;
+				track.append(fill); health.append(track);
+				const disclosure = button('', 'master-scene-details-toggle');
+				disclosure.type = 'button';
+				disclosure.setAttribute('aria-label', `Abrir ficha de ${npc.name || 'NPC'}`);
+				disclosure.setAttribute('aria-expanded', 'false');
+				disclosure.addEventListener('click', () => openSceneDetails(npc, disclosure));
+				card.append(health, disclosure);
 				sceneGrid.append(card);
 			}
 		};

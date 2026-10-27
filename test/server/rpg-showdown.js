@@ -517,6 +517,8 @@ describe('RPG login', () => {
 
 	it('stores a simplified human NPC sheet and rejects invalid values', () => {
 		const service = createService();
+		createCharacter(service);
+		const player = service.loginPlayer('samuel', 'senha-rpg');
 		const master = service.loginMaster('14081998');
 		const npc = { id: 'npc-sheet', name: 'Guarda', humanCombat: { hp: 18, conditions: [] }, humanSheet: {
 			level: 3, hitDie: 8,
@@ -536,6 +538,17 @@ describe('RPG login', () => {
 		assert.equal(stored.humanSheet.skills[1].bonus, 2);
 		assert.equal(stored.humanSheet.skills[0].extraBonus, 2);
 		assert.equal(service.getMasterNPCLibrary(master.token).npcs[0].humanCombat.hp, 18);
+		service.setCampaignSceneNPCs(master.token, ['npc-sheet']);
+		const skillRoll = service.rollSceneNPCCheck(master.token, 'npc-sheet', 'skill', 'Percepção', 'advantage');
+		assert.equal(skillRoll.dice.length, 2);
+		assert.equal(skillRoll.bonus, 5);
+		assert.equal(skillRoll.total, Math.max(...skillRoll.dice) + 5);
+		assert.match(skillRoll.message, /Guarda.*Vantagem.*Percepção/s);
+		assert.throws(() => service.rollSceneNPCCheck(master.token, 'npc-sheet', 'skill', 'Outra', 'normal'),
+			/Perícia não encontrada/);
+		assert.throws(() => service.rollSceneNPCCheck(master.token, 'npc-sheet', 'attribute', 'invalid', 'normal'),
+			/Rolagem inválida/);
+		assert.throws(() => service.rollSceneNPCCheck(player.token, 'npc-sheet', 'skill', 'Percepção', 'normal'));
 		assert.throws(() => service.setMasterNPCLibrary(master.token, { npcs: [{ ...npc,
 			humanSheet: { ...npc.humanSheet, attributes: { ...npc.humanSheet.attributes, dexterity: 6 } },
 		}] }), /Modificador de atributo inválido/);
